@@ -37,7 +37,7 @@ i) In many cases, the DID that pays for access to the data in a view won't be th
 j) While payment is still somewhat of an unknown, for now, we will assume that subscribers will be buying access to the latest data. Once their payment dries up, ShinzoHub can revoke their subscriber role (and by extension, their read access). Defra should stop sending them data at this point - will need to test and confirm.
 k) During startup, our Host will need to communicate with ShinzoHub in order to sign up
 
-Also accompanying this doc are GitHub issues outlining the work to be done, issue numbers 8-15 on this repo.
+Also accompanying this doc are GitHub issues outlining the work to be done, issue numbers 1-8 on this repo.
 
 ## Consequences
 
