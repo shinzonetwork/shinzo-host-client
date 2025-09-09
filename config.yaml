@@ -1,0 +1,16 @@
+defradb:
+  host: "localhost"
+  port: 9181
+  keyring_secret: ""
+  p2p:
+    enabled: true
+    bootstrap_peers: []
+    listen_addr: ""
+  store:
+    path: "./.defra"
+
+shinzohub:
+  rpc_url: ""
+
+logger:
+  development: true
