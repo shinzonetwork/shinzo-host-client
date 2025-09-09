@@ -17,6 +17,7 @@ ii) Hosts must be aware that new data is requested for an existing view so that 
 iii) There must be a means via which subscribers can receive the data they have paid for
 iv) Subscribers must be cut off from receiving new data once their funds run out
 v) Hosts will need a mechanism to query and find out the views that can be hosted so that they can make informed decisions on which views to host
+vi) In order to write to views, a node must be added to the Host group on SourceHub; this gets done by ShinzoHub during the registration phase
 
 ## Decision
 
@@ -34,6 +35,7 @@ g) Our Host will need to append attestation info to the Lens transform outputs
 h) When someone purchases new data for an existing view via the Outpost contract, ShinzoHub will respond by granting that DID read access to that view and will emit an event. Hosts, who, following a), have a webhook established with a ShinzoHub node RPC will also listen to this event. If it is a view that the Host is actively hosting, they will begin processing that data for the view to fulfill the request.
 i) In many cases, the DID that pays for access to the data in a view won't be the DID(s) actually using the data. Instead, in most cases, application developers will be paying for access to the data on behalf of the users of their application. Because of this, we can't simply include the P2P connection details for the user in the purchase request in the event emitted by h) (privacy risk). However, we still require a means for a user, who needs data, to get connected with a Host who is capable of fulfilling the request. Luckily, the gossip system in Defra's passive replication protocol has peers constantly sharing the "topics" (or in our case Views) that one another cares about - through a few "hops" a user requesting data should be able to identify and connect with a Host who can fulfill their request for data. However, we have been given the caveatt that this passive discovery can sometimes take a while and we may find that we want some form of gateway or router who can facilitate this for us - a "Host Repository" node of sorts that keeps track of which Hosts are hosting which View. For now, for the sake of simplicity, we will rely on the built-in passive replication system and add additional routing logic should the need arise.
 j) While payment is still somewhat of an unknown, for now, we will assume that subscribers will be buying access to the latest data. Once their payment dries up, ShinzoHub can revoke their subscriber role (and by extension, their read access). Defra should stop sending them data at this point - will need to test and confirm.
+k) During startup, our Host will need to communicate with ShinzoHub in order to sign up
 
 ## Consequences
 
