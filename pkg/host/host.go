@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/indexer/pkg/defra"
+	"github.com/shinzonetwork/indexer/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -80,7 +81,7 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 
 // Todo - we'll have to update this to include the policy id (which we should get back from ShinzoHub during registration)
 func applySchema(ctx context.Context, defraNode *node.Node) error {
-	fmt.Println("Applying schema...")
+	logger.Sugar.Debug("Applying schema...")
 
 	// Try different possible paths for the schema file
 	possiblePaths := []string{
