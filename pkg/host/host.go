@@ -9,6 +9,8 @@ import (
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/sourcenetwork/defradb/http"
+	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -34,7 +36,7 @@ var defaultConfig *config.Config = &config.Config{
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
-const defaultListenAddress string = ""
+const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 const defaultShinzoHubRpcUrl string = ""
 
 func StartHosting(defraStarted bool, cfg *config.Config) error {
@@ -52,7 +54,14 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 			node.WithDisableAPI(false),
 			node.WithDisableP2P(false),
 			node.WithStorePath(cfg.DefraDB.Store.Path),
+			http.WithAddress(strings.Replace(cfg.DefraDB.Url, "http://localhost", "127.0.0.1", 1)),
+			netConfig.WithBootstrapPeers(cfg.DefraDB.P2P.BootstrapPeers...),
 		}
+		listenAddress := cfg.DefraDB.P2P.ListenAddr
+		if len(listenAddress) > 0 {
+			options = append(options, netConfig.WithListenAddresses(listenAddress))
+		}
+
 		defraNode, err := node.New(ctx, options...)
 		if err != nil {
 			return fmt.Errorf("Failed to create defra node %v: ", err)

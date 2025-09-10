@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func StartDefraInstance(t *testing.T, ctx context.Context, options []node.Option) *node.Node {
 	myNode, err := node.New(ctx, options...)
-	assert.NoError(t, err)
-	assert.NotNil(t, myNode)
+	require.NoError(t, err)
+	require.NotNil(t, myNode)
 
 	err = myNode.Start(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	return myNode
 }
