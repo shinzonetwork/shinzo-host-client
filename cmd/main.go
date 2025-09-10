@@ -7,7 +7,6 @@ import (
 
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/host"
-	"github.com/shinzonetwork/indexer/pkg/logger"
 )
 
 func findConfigFile() string {
@@ -35,8 +34,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("Unable to load config: %v", err))
 	}
-
-	logger.Init(cfg.Logger.Development)
 
 	err = host.StartHosting(*defraStarted, cfg)
 	if err != nil {
