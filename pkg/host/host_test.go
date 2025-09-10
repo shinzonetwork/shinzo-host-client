@@ -10,7 +10,7 @@ import (
 )
 
 func TestStartHosting(t *testing.T) {
-	err := StartHosting("../.defra", "http://localhost:9181")
+	err := StartHosting(false, nil)
 
 	assert.NoError(t, err)
 }
@@ -28,7 +28,7 @@ func TestStartHostingWithOwnDefraInstance(t *testing.T) {
 	assert.NotNil(t, myNode)
 	defer myNode.Close(ctx)
 
-	err := StartHosting("", "http://localhost:9181")
+	err := StartHosting(true, nil)
 
 	assert.NoError(t, err)
 }

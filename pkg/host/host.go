@@ -6,18 +6,49 @@ import (
 	"os"
 	"strings"
 
+	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-func StartHosting(defraStorePath string, defraUrl string) error {
+var defaultConfig *config.Config = &config.Config{
+	DefraDB: config.DefraDBConfig{
+		Url:           "http://localhost:9181",
+		KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
+		P2P: config.DefraP2PConfig{
+			Enabled:        true,
+			BootstrapPeers: requiredPeers,
+			ListenAddr:     defaultListenAddress,
+		},
+		Store: config.DefraStoreConfig{
+			Path: "./.defra",
+		},
+	},
+	ShinzoHub: config.ShinzoHubConfig{
+		RPCUrl: defaultShinzoHubRpcUrl,
+	},
+	Logger: config.LoggerConfig{
+		Development: false,
+	},
+}
+
+var requiredPeers []string = []string{}
+
+const defaultListenAddress string = ""
+const defaultShinzoHubRpcUrl string = ""
+
+func StartHosting(defraStarted bool, cfg *config.Config) error {
 	ctx := context.Background()
 
-	if defraStorePath != "" {
+	if cfg == nil {
+		cfg = defaultConfig
+	}
+
+	if !defraStarted {
 		options := []node.Option{
 			node.WithDisableAPI(false),
 			node.WithDisableP2P(false),
-			node.WithStorePath(defraStorePath),
+			node.WithStorePath(cfg.DefraDB.Store.Path),
 		}
 		defraNode, err := node.New(ctx, options...)
 		if err != nil {
@@ -34,13 +65,13 @@ func StartHosting(defraStorePath string, defraUrl string) error {
 		if err != nil && !strings.HasPrefix(err.Error(), "collection already exists") { // Todo we are swallowing this error for now, but we should investigate how we update the schemas - do we need to not swallow this error?
 			return fmt.Errorf("Failed to apply schema to defra node: %v", err)
 		}
-
-		err = defra.WaitForDefraDB(defraUrl)
-		if err != nil {
-			return err
-		}
 	}
 
+	defraUrl := cfg.DefraDB.Url
+	err := defra.WaitForDefraDB(defraUrl)
+	if err != nil {
+		return err
+	}
 	// Todo connect to the indexers and sync primitives
 
 	// Todo process dataviews

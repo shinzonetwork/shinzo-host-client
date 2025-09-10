@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
@@ -12,27 +11,34 @@ import (
 const CollectionName = "shinzo"
 
 type Config struct {
-	DefraDB struct {
-		Host          string `yaml:"host"`
-		Port          int    `yaml:"port"`
-		KeyringSecret string `yaml:"keyring_secret"`
-		P2P           struct {
-			Enabled        bool     `yaml:"enabled"`
-			BootstrapPeers []string `yaml:"bootstrap_peers"`
-			ListenAddr     string   `yaml:"listen_addr"`
-		} `yaml:"p2p"`
-		Store struct {
-			Path string `yaml:"path"`
-		} `yaml:"store"`
-	} `yaml:"defradb"`
+	DefraDB   DefraDBConfig   `yaml:"defradb"`
+	ShinzoHub ShinzoHubConfig `yaml:"shinzohub"`
+	Logger    LoggerConfig    `yaml:"logger"`
+}
 
-	ShinzoHub struct {
-		RPCUrl string `yaml:"rpc_url"`
-	} `yaml:"shinzohub"`
+type DefraDBConfig struct {
+	Url           string           `yaml:"url"`
+	KeyringSecret string           `yaml:"keyring_secret"`
+	P2P           DefraP2PConfig   `yaml:"p2p"`
+	Store         DefraStoreConfig `yaml:"store"`
+}
 
-	Logger struct {
-		Development bool `yaml:"development"`
-	} `yaml:"logger"`
+type DefraP2PConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	BootstrapPeers []string `yaml:"bootstrap_peers"`
+	ListenAddr     string   `yaml:"listen_addr"`
+}
+
+type DefraStoreConfig struct {
+	Path string `yaml:"path"`
+}
+
+type ShinzoHubConfig struct {
+	RPCUrl string `yaml:"rpc_url"`
+}
+
+type LoggerConfig struct {
+	Development bool `yaml:"development"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables
@@ -56,14 +62,8 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.DefraDB.KeyringSecret = keyringSecret
 	}
 
-	if port := os.Getenv("DEFRA_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.DefraDB.Port = p
-		}
-	}
-
-	if host := os.Getenv("DEFRA_HOST"); host != "" {
-		cfg.DefraDB.Host = host
+	if url := os.Getenv("DEFRA_URL"); url != "" {
+		cfg.DefraDB.Url = url
 	}
 
 	return &cfg, nil

@@ -41,7 +41,7 @@ func TestBuildAndRun(t *testing.T) {
 	defraStorePath := filepath.Join(tempDir, ".defra")
 
 	// Run the binary with defra store path and wait for it to complete
-	cmd := exec.Command(binaryPath, "-defra-store-path", defraStorePath)
+	cmd := exec.Command(binaryPath)
 	cmd.Dir = projectRoot
 
 	// Run the command and capture output

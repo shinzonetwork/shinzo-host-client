@@ -13,8 +13,7 @@ func TestLoadConfig_ValidYAML(t *testing.T) {
 
 	configContent := `
 defradb:
-  host: "localhost"
-  port: 9181
+  url: "http://localhost:9181"
   keyring_secret: "test_secret"
   p2p:
     enabled: true
@@ -37,12 +36,10 @@ shinzohub:
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
+	expectedUrl := "http://localhost:9181"
 	// Test DefraDB config
-	if cfg.DefraDB.Host != "localhost" {
-		t.Errorf("Expected host 'localhost', got '%s'", cfg.DefraDB.Host)
-	}
-	if cfg.DefraDB.Port != 9181 {
-		t.Errorf("Expected port 9181, got %d", cfg.DefraDB.Port)
+	if cfg.DefraDB.Url != expectedUrl {
+		t.Errorf("Expected url '%s', got '%s'", expectedUrl, cfg.DefraDB.Url)
 	}
 	if cfg.DefraDB.KeyringSecret != "test_secret" {
 		t.Errorf("Expected keyring_secret 'test_secret', got '%s'", cfg.DefraDB.KeyringSecret)
@@ -68,8 +65,7 @@ func TestLoadConfig_EnvironmentOverrides(t *testing.T) {
 
 	configContent := `
 defradb:
-  host: "localhost"
-  port: 9181
+  url: "http://localhost:9181"
   keyring_secret: "original_secret"
 `
 
@@ -80,14 +76,12 @@ defradb:
 
 	// Set environment variables
 	os.Setenv("DEFRA_KEYRING_SECRET", "env_secret")
-	os.Setenv("DEFRA_PORT", "9999")
-	os.Setenv("DEFRA_HOST", "env_host")
+	os.Setenv("DEFRA_URL", "someUrl")
 
 	// Clean up environment variables after test
 	defer func() {
 		os.Unsetenv("DEFRA_KEYRING_SECRET")
-		os.Unsetenv("DEFRA_PORT")
-		os.Unsetenv("DEFRA_HOST")
+		os.Unsetenv("DEFRA_URL")
 	}()
 
 	cfg, err := LoadConfig(configPath)
@@ -99,11 +93,8 @@ defradb:
 	if cfg.DefraDB.KeyringSecret != "env_secret" {
 		t.Errorf("Expected keyring_secret 'env_secret', got '%s'", cfg.DefraDB.KeyringSecret)
 	}
-	if cfg.DefraDB.Port != 9999 {
-		t.Errorf("Expected port 9999, got %d", cfg.DefraDB.Port)
-	}
-	if cfg.DefraDB.Host != "env_host" {
-		t.Errorf("Expected host 'env_host', got '%s'", cfg.DefraDB.Host)
+	if cfg.DefraDB.Url != "someUrl" {
+		t.Errorf("Expected host 'someUrl', got '%s'", cfg.DefraDB.Url)
 	}
 }
 
@@ -121,8 +112,7 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 
 	invalidContent := `
 defradb:
-  host: "localhost
-  port: [invalid yaml
+  url: "invalid yaml
 `
 
 	err := os.WriteFile(configPath, []byte(invalidContent), 0644)
@@ -133,40 +123,5 @@ defradb:
 	_, err = LoadConfig(configPath)
 	if err == nil {
 		t.Error("Expected error for invalid YAML, got nil")
-	}
-}
-
-func TestLoadConfig_InvalidEnvironmentValues(t *testing.T) {
-	// Create a temporary config file
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "test_config.yaml")
-
-	configContent := `
-defradb:
-  host: "localhost"
-  port: 9181
-`
-
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
-
-	// Set invalid environment variables (should be ignored)
-	os.Setenv("DEFRA_PORT", "not_a_number")
-
-	// Clean up environment variables after test
-	defer func() {
-		os.Unsetenv("DEFRA_PORT")
-	}()
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
-
-	// Should keep original values when env vars are invalid
-	if cfg.DefraDB.Port != 9181 {
-		t.Errorf("Expected port 9181 (original), got %d", cfg.DefraDB.Port)
 	}
 }
