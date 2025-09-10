@@ -31,7 +31,7 @@ var defaultConfig *config.Config = &config.Config{
 	},
 }
 
-var requiredPeers []string = []string{}
+var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 const defaultListenAddress string = ""
 const defaultShinzoHubRpcUrl string = ""
@@ -67,8 +67,7 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 		}
 	}
 
-	defraUrl := cfg.DefraDB.Url
-	err := defra.WaitForDefraDB(defraUrl)
+	err := defra.WaitForDefraDB(cfg.DefraDB.Url)
 	if err != nil {
 		return err
 	}
