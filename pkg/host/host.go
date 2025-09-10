@@ -42,6 +42,7 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 	if cfg == nil {
 		cfg = defaultConfig
 	}
+	cfg.DefraDB.P2P.BootstrapPeers = append(cfg.DefraDB.P2P.BootstrapPeers, requiredPeers...)
 
 	if !defraStarted {
 		options := []node.Option{
