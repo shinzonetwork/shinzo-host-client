@@ -16,7 +16,6 @@ var defaultConfig *config.Config = &config.Config{
 		Url:           "http://localhost:9181",
 		KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
 		P2P: config.DefraP2PConfig{
-			Enabled:        true,
 			BootstrapPeers: requiredPeers,
 			ListenAddr:     defaultListenAddress,
 		},

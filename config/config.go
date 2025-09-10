@@ -24,7 +24,6 @@ type DefraDBConfig struct {
 }
 
 type DefraP2PConfig struct {
-	Enabled        bool     `yaml:"enabled"`
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
 	ListenAddr     string   `yaml:"listen_addr"`
 }
