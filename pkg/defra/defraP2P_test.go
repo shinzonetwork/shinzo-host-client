@@ -2,15 +2,29 @@ package defra
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
+	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/shinzonetwork/indexer/pkg/types"
 	"github.com/sourcenetwork/defradb/http"
 	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	logger.Init(true)
+	exitCode := m.Run()
+	os.Exit(exitCode)
+}
 
 func TestP2PConnect(t *testing.T) {
 	listenAddress := "/ip4/127.0.0.1/tcp/0" // These are dynamic ports; a new and available port is chosen each time. This means that both defra instances have different ports. See: https://pkg.go.dev/net#Listen
@@ -46,4 +60,165 @@ func TestP2PConnect(t *testing.T) {
 
 	err := hostDefra.Peer.Connect(ctx, indexerDefra.Peer.PeerInfo())
 	require.NoError(t, err)
+}
+
+func TestSimpleP2PReplication(t *testing.T) {
+	listenAddress := "/ip4/127.0.0.1/tcp/0"
+	defraUrl := "127.0.0.1:0"
+	options := []node.Option{
+		node.WithDisableAPI(false),
+		node.WithDisableP2P(false),
+		node.WithStorePath(t.TempDir()),
+		http.WithAddress(defraUrl),
+		netConfig.WithListenAddresses(listenAddress),
+	}
+	ctx := context.Background()
+	writerDefra := StartDefraInstance(t, ctx, options)
+	defer writerDefra.Close(ctx)
+
+	options = []node.Option{
+		node.WithDisableAPI(false),
+		node.WithDisableP2P(false),
+		node.WithStorePath(t.TempDir()),
+		http.WithAddress(defraUrl),
+		netConfig.WithListenAddresses(listenAddress),
+	}
+	readerDefra := StartDefraInstance(t, ctx, options)
+	defer readerDefra.Close(ctx)
+
+	schema := "type User { name: String }"
+	_, err := writerDefra.DB.AddSchema(ctx, schema)
+	require.NoError(t, err)
+	_, err = readerDefra.DB.AddSchema(ctx, schema)
+	require.NoError(t, err)
+
+	query := `mutation {
+		create_User(input: { name: "Quinn" }) {
+			name
+		}
+	}`
+	mutation := types.Request{
+		Type:  "POST",
+		Query: query,
+	}
+
+	writerPort := getPort(writerDefra)
+	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
+
+	result, err := postQuery(ctx, writerPort, mutation)
+	require.NoError(t, err)
+	require.True(t, strings.Contains(result, "Quinn"))
+
+	result, err = getUserName(ctx, writerPort)
+	require.NoError(t, err)
+	require.Equal(t, "Quinn", result)
+
+	time.Sleep(10 * time.Second) // Allow some time to give the data a chance to sync to the readerDefra instance (it won't since they aren't connected, but we give it time anyways just in case)
+
+	readerPort := getPort(readerDefra)
+	require.NotEqual(t, -1, readerPort, "Unable to retrieve reader port")
+	result, err = getUserName(ctx, readerPort)
+	require.Error(t, err)
+
+	err = writerDefra.Peer.SetReplicator(ctx, readerDefra.Peer.PeerInfo())
+	require.NoError(t, err)
+
+	result, err = getUserName(ctx, readerPort)
+	for attempts := 1; attempts < 100; attempts++ { // It may take some time to sync now that we are connected
+		if err == nil {
+			break
+		}
+		t.Logf("Attempt %d to query username from readerDefra failed. Trying again...", attempts)
+		time.Sleep(1 * time.Second)
+		result, err = getUserName(ctx, readerPort)
+	}
+	require.NoError(t, err)
+	require.Equal(t, "Quinn", result)
+}
+
+func getPort(targetNode *node.Node) int {
+	url := targetNode.APIURL
+
+	// Check if it's localhost format (http://127.0.0.1:port or http://localhost:port)
+	if !strings.Contains(url, "127.0.0.1:") && !strings.Contains(url, "localhost:") {
+		return -1
+	}
+
+	// Extract port by splitting on colon and taking the last part
+	parts := strings.Split(url, ":")
+	if len(parts) < 2 {
+		return -1
+	}
+
+	// Get the last part (port) and remove any trailing path
+	portStr := parts[len(parts)-1]
+	if strings.Contains(portStr, "/") {
+		portStr = strings.Split(portStr, "/")[0]
+	}
+
+	// Convert port string to int
+	portInt, err := strconv.Atoi(portStr)
+	if err != nil {
+		return -1
+	}
+
+	return portInt
+}
+
+func postQuery(ctx context.Context, port int, request types.Request) (string, error) {
+	handler, err := defra.NewBlockHandler("localhost", port)
+	if err != nil {
+		return "", fmt.Errorf("Error building block handler: %v", err)
+	}
+	result, err := handler.SendToGraphql(ctx, request)
+	if err != nil {
+		return "", fmt.Errorf("Error sending graphql query %s : %v", request.Query, err)
+	}
+	return string(result), nil
+}
+
+func getUserName(ctx context.Context, port int) (string, error) {
+	query := `query GetUserName{
+		User(limit: 1) {
+			name
+		}
+	}`
+	request := types.Request{
+		Type:  "POST",
+		Query: query,
+	}
+
+	result, err := postQuery(ctx, port, request)
+	if err != nil {
+		return "", fmt.Errorf("Error sending query: %v", err)
+	}
+
+	var rawResponse map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &rawResponse); err != nil {
+		return "", fmt.Errorf("Error unmarshalling reponse: %v", err)
+	}
+	data, ok := rawResponse["data"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("Data field not found in response: %s", result)
+	}
+	userBlock, ok := data["User"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("User field not found in response: %s", result)
+	}
+	if len(userBlock) == 0 {
+		return "", fmt.Errorf("No users found in response: %s", result)
+	}
+	userNameBlock, ok := userBlock[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("name field not found in response: %s", result)
+	}
+	userName, ok := userNameBlock["name"]
+	if !ok {
+		return "", fmt.Errorf("name field not found in response: %s", result)
+	}
+	name, ok := userName.(string)
+	if !ok {
+		return "", fmt.Errorf("name field not found in response: %s", result)
+	}
+	return name, nil
 }
