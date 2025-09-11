@@ -86,30 +86,15 @@ func TestSimpleP2PReplication(t *testing.T) {
 	readerDefra := StartDefraInstance(t, ctx, options)
 	defer readerDefra.Close(ctx)
 
-	schema := "type User { name: String }"
-	_, err := writerDefra.DB.AddSchema(ctx, schema)
-	require.NoError(t, err)
-	_, err = readerDefra.DB.AddSchema(ctx, schema)
-	require.NoError(t, err)
-
-	query := `mutation {
-		create_User(input: { name: "Quinn" }) {
-			name
-		}
-	}`
-	mutation := types.Request{
-		Type:  "POST",
-		Query: query,
-	}
+	addSchema(t, ctx, writerDefra)
+	addSchema(t, ctx, readerDefra)
 
 	writerPort := getPort(writerDefra)
 	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
 
-	result, err := postQuery(ctx, writerPort, mutation)
-	require.NoError(t, err)
-	require.True(t, strings.Contains(result, "Quinn"))
+	postBasicData(t, ctx, writerPort)
 
-	result, err = getUserName(ctx, writerPort)
+	result, err := getUserName(ctx, writerPort)
 	require.NoError(t, err)
 	require.Equal(t, "Quinn", result)
 
@@ -221,4 +206,132 @@ func getUserName(ctx context.Context, port int) (string, error) {
 		return "", fmt.Errorf("name field not found in response: %s", result)
 	}
 	return name, nil
+}
+
+func addSchema(t *testing.T, ctx context.Context, writerDefra *node.Node) {
+	schema := "type User { name: String }"
+	_, err := writerDefra.DB.AddSchema(ctx, schema)
+	require.NoError(t, err)
+}
+
+func postBasicData(t *testing.T, ctx context.Context, writerPort int) {
+	query := `mutation {
+		create_User(input: { name: "Quinn" }) {
+			name
+		}
+	}`
+	mutation := types.Request{
+		Type:  "POST",
+		Query: query,
+	}
+
+	result, err := postQuery(ctx, writerPort, mutation)
+	require.NoError(t, err)
+	require.True(t, strings.Contains(result, "Quinn"))
+}
+
+func TestMultiTenantP2PReplication_BootstrapPeers(t *testing.T) {
+	listenAddress := "/ip4/127.0.0.1/tcp/0"
+	defraUrl := "127.0.0.1:0"
+	ctx := context.Background()
+	writerDefra := createWriterDefraInstanceAndPostBasicData(t, ctx, defraUrl, listenAddress)
+	defer writerDefra.Close(ctx)
+
+	previousDefra := writerDefra
+	readerDefraInstances := []*node.Node{}
+	for i := 0; i < 10; i++ {
+		peerInfo := previousDefra.Peer.PeerInfo()
+		peerAddressString := fmt.Sprintf("%v", peerInfo.Addrs)[1:]
+		peerAddressString = peerAddressString[:len(peerAddressString)-1]
+		readerDefraOptions := []node.Option{
+			node.WithDisableAPI(false),
+			node.WithDisableP2P(false),
+			node.WithStorePath(t.TempDir()),
+			http.WithAddress(defraUrl),
+			netConfig.WithListenAddresses(listenAddress),
+			netConfig.WithBootstrapPeers(fmt.Sprintf("%s/p2p/%s", peerAddressString, peerInfo.ID)),
+		}
+		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
+		defer newDefraInstance.Close(ctx)
+
+		addSchema(t, ctx, newDefraInstance)
+
+		readerDefraInstances = append(readerDefraInstances, newDefraInstance)
+		previousDefra = newDefraInstance
+	}
+
+	assertReaderDefraInstancesHaveLatestData(t, ctx, readerDefraInstances)
+}
+
+func TestMultiTenantP2PReplication_ManualReplicatorAssignment(t *testing.T) {
+	listenAddress := "/ip4/127.0.0.1/tcp/0"
+	defraUrl := "127.0.0.1:0"
+	ctx := context.Background()
+	writerDefra := createWriterDefraInstanceAndPostBasicData(t, ctx, defraUrl, listenAddress)
+	defer writerDefra.Close(ctx)
+
+	previousDefra := writerDefra
+	readerDefraInstances := []*node.Node{}
+	for i := 0; i < 10; i++ {
+		readerDefraOptions := []node.Option{
+			node.WithDisableAPI(false),
+			node.WithDisableP2P(false),
+			node.WithStorePath(t.TempDir()),
+			http.WithAddress(defraUrl),
+			netConfig.WithListenAddresses(listenAddress),
+		}
+		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
+		defer newDefraInstance.Close(ctx)
+
+		addSchema(t, ctx, newDefraInstance)
+
+		err := previousDefra.Peer.SetReplicator(ctx, newDefraInstance.Peer.PeerInfo())
+		require.NoError(t, err)
+		readerDefraInstances = append(readerDefraInstances, newDefraInstance)
+		previousDefra = newDefraInstance
+	}
+
+	assertReaderDefraInstancesHaveLatestData(t, ctx, readerDefraInstances)
+}
+
+func createWriterDefraInstanceAndPostBasicData(t *testing.T, ctx context.Context, defraUrl string, listenAddress string) *node.Node {
+	options := []node.Option{
+		node.WithDisableAPI(false),
+		node.WithDisableP2P(false),
+		node.WithStorePath(t.TempDir()),
+		http.WithAddress(defraUrl),
+		netConfig.WithListenAddresses(listenAddress),
+	}
+	writerDefra := StartDefraInstance(t, ctx, options)
+
+	addSchema(t, ctx, writerDefra)
+
+	writerPort := getPort(writerDefra)
+	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
+
+	postBasicData(t, ctx, writerPort)
+
+	result, err := getUserName(ctx, writerPort)
+	require.NoError(t, err)
+	require.Equal(t, "Quinn", result)
+
+	return writerDefra
+}
+
+func assertReaderDefraInstancesHaveLatestData(t *testing.T, ctx context.Context, readerDefraInstances []*node.Node) {
+	for i, readerDefra := range readerDefraInstances {
+		readerPort := getPort(readerDefra)
+		require.NotEqual(t, -1, readerPort, "Unable to retrieve reader port")
+		result, err := getUserName(ctx, readerPort)
+		for attempts := 1; attempts < 100; attempts++ { // It may take some time to sync now that we are connected
+			if err == nil {
+				break
+			}
+			t.Logf("Attempt %d to query username from readerDefra %d failed. Trying again...", attempts, i)
+			time.Sleep(1 * time.Second)
+			result, err = getUserName(ctx, readerPort)
+		}
+		require.NoError(t, err)
+		require.Equal(t, "Quinn", result)
+	}
 }
