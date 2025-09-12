@@ -39,9 +39,11 @@ func TestP2PConnect(t *testing.T) {
 	ctx := context.Background()
 	indexerDefra := StartDefraInstance(t, ctx, options)
 	defer indexerDefra.Close(ctx)
+	testConfig := indexer.DefaultConfig
+	testConfig.DefraDB.Url = indexerDefra.APIURL
 
 	go func() {
-		err := indexer.StartIndexing("", defraUrl)
+		err := indexer.StartIndexing(true, testConfig)
 		if err != nil {
 			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
 		}
@@ -122,7 +124,7 @@ func TestSimpleP2PReplication(t *testing.T) {
 }
 
 func postQuery(ctx context.Context, port int, request types.Request) (string, error) {
-	handler, err := defra.NewBlockHandler("localhost", port)
+	handler, err := defra.NewBlockHandler(fmt.Sprintf("http://localhost:%d", port))
 	if err != nil {
 		return "", fmt.Errorf("Error building block handler: %v", err)
 	}

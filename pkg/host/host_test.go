@@ -51,18 +51,20 @@ func TestHostCanReplicateFromIndexer(t *testing.T) {
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
-		http.WithAddress("127.0.0.1:9181"), // Indexer is not currently using the configured url - need to fix it
+		http.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
 	}
 	ctx := context.Background()
 	indexerDefra := defra.StartDefraInstance(t, ctx, options)
 	defer indexerDefra.Close(ctx)
+	testConfig := indexer.DefaultConfig
+	testConfig.DefraDB.Url = indexerDefra.APIURL
 
 	err := applySchema(ctx, indexerDefra)
 	require.NoError(t, err)
 
 	go func() {
-		err := indexer.StartIndexing("", "127.0.0.1:9181")
+		err := indexer.StartIndexing(true, testConfig)
 		if err != nil {
 			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
 		}
@@ -118,7 +120,7 @@ func TestHostCanReplicateFromIndexer(t *testing.T) {
 }
 
 func queryBlockNumber(ctx context.Context, port int) (int, error) {
-	handler, err := indexerDefra.NewBlockHandler("localhost", port)
+	handler, err := indexerDefra.NewBlockHandler(fmt.Sprintf("http://localhost:%d", port))
 	if err != nil {
 		return 0, fmt.Errorf("Error building block handler: %v", err)
 	}
