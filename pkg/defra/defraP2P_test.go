@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +89,7 @@ func TestSimpleP2PReplication(t *testing.T) {
 	addSchema(t, ctx, writerDefra)
 	addSchema(t, ctx, readerDefra)
 
-	writerPort := getPort(writerDefra)
+	writerPort := GetPort(writerDefra)
 	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
 
 	postBasicData(t, ctx, writerPort)
@@ -101,7 +100,7 @@ func TestSimpleP2PReplication(t *testing.T) {
 
 	time.Sleep(10 * time.Second) // Allow some time to give the data a chance to sync to the readerDefra instance (it won't since they aren't connected, but we give it time anyways just in case)
 
-	readerPort := getPort(readerDefra)
+	readerPort := GetPort(readerDefra)
 	require.NotEqual(t, -1, readerPort, "Unable to retrieve reader port")
 	result, err = getUserName(ctx, readerPort)
 	require.Error(t, err)
@@ -120,35 +119,6 @@ func TestSimpleP2PReplication(t *testing.T) {
 	}
 	require.NoError(t, err)
 	require.Equal(t, "Quinn", result)
-}
-
-func getPort(targetNode *node.Node) int {
-	url := targetNode.APIURL
-
-	// Check if it's localhost format (http://127.0.0.1:port or http://localhost:port)
-	if !strings.Contains(url, "127.0.0.1:") && !strings.Contains(url, "localhost:") {
-		return -1
-	}
-
-	// Extract port by splitting on colon and taking the last part
-	parts := strings.Split(url, ":")
-	if len(parts) < 2 {
-		return -1
-	}
-
-	// Get the last part (port) and remove any trailing path
-	portStr := parts[len(parts)-1]
-	if strings.Contains(portStr, "/") {
-		portStr = strings.Split(portStr, "/")[0]
-	}
-
-	// Convert port string to int
-	portInt, err := strconv.Atoi(portStr)
-	if err != nil {
-		return -1
-	}
-
-	return portInt
 }
 
 func postQuery(ctx context.Context, port int, request types.Request) (string, error) {
@@ -263,7 +233,7 @@ func TestMultiTenantP2PReplication_BootstrapPeers(t *testing.T) {
 		previousDefra = newDefraInstance
 	}
 
-	writerPort := getPort(writerDefra)
+	writerPort := GetPort(writerDefra)
 	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
 
 	postBasicData(t, ctx, writerPort)
@@ -309,7 +279,7 @@ func TestMultiTenantP2PReplication_ManualReplicatorAssignment(t *testing.T) {
 func createWriterDefraInstanceAndPostBasicData(t *testing.T, ctx context.Context, defraUrl string, listenAddress string) *node.Node {
 	writerDefra := createWriterDefraInstanceAndApplySchema(t, ctx, defraUrl, listenAddress)
 
-	writerPort := getPort(writerDefra)
+	writerPort := GetPort(writerDefra)
 	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
 
 	postBasicData(t, ctx, writerPort)
@@ -343,7 +313,7 @@ func createDefraInstanceAndApplySchema(t *testing.T, ctx context.Context, option
 
 func assertReaderDefraInstancesHaveLatestData(t *testing.T, ctx context.Context, readerDefraInstances []*node.Node) {
 	for i, readerDefra := range readerDefraInstances {
-		readerPort := getPort(readerDefra)
+		readerPort := GetPort(readerDefra)
 		require.NotEqual(t, -1, readerPort, "Unable to retrieve reader port")
 		result, err := getUserName(ctx, readerPort)
 		for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
@@ -405,7 +375,7 @@ func TestMultiTenantP2PReplication_BootstrapFromBigPeer(t *testing.T) {
 		readerDefraInstances = append(readerDefraInstances, newDefraInstance)
 	}
 
-	writerPort := getPort(writerDefra)
+	writerPort := GetPort(writerDefra)
 	require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
 
 	postBasicData(t, ctx, writerPort)
