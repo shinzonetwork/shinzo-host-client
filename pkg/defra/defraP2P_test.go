@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
@@ -221,7 +220,7 @@ func TestMultiTenantP2PReplication_BootstrapPeers(t *testing.T) {
 			node.WithStorePath(t.TempDir()),
 			http.WithAddress(defraUrl),
 			netConfig.WithListenAddresses(listenAddress),
-			netConfig.WithBootstrapPeers(getBoostrapPeer(previousDefra.Peer.PeerInfo())),
+			netConfig.WithBootstrapPeers(GetBoostrapPeer(previousDefra.Peer.PeerInfo())),
 		}
 		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
 		defer newDefraInstance.Close(ctx)
@@ -364,7 +363,7 @@ func TestMultiTenantP2PReplication_BootstrapFromBigPeer(t *testing.T) {
 			node.WithStorePath(t.TempDir()),
 			http.WithAddress(defraUrl),
 			netConfig.WithListenAddresses(listenAddress),
-			netConfig.WithBootstrapPeers(getBoostrapPeer(bigPeer.Peer.PeerInfo())),
+			netConfig.WithBootstrapPeers(GetBoostrapPeer(bigPeer.Peer.PeerInfo())),
 		}
 		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
 		defer newDefraInstance.Close(ctx)
@@ -387,10 +386,4 @@ func TestMultiTenantP2PReplication_BootstrapFromBigPeer(t *testing.T) {
 	require.Equal(t, "Quinn", result)
 
 	assertReaderDefraInstancesHaveLatestData(t, ctx, readerDefraInstances)
-}
-
-func getBoostrapPeer(peerInfo peer.AddrInfo) string {
-	peerAddressString := fmt.Sprintf("%v", peerInfo.Addrs)[1:]
-	peerAddressString = peerAddressString[:len(peerAddressString)-1]
-	return fmt.Sprintf("%s/p2p/%s", peerAddressString, peerInfo.ID)
 }

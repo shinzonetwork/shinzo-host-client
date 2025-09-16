@@ -164,3 +164,83 @@ func queryBlockNumber(ctx context.Context, port int) (int, error) {
 	}
 	return int(blockNumber), nil
 }
+
+func TestHostCanReplicateFromIndexerViaBootstrappedConnection(t *testing.T) {
+	logger.Init(true)
+	listenAddress := "/ip4/127.0.0.1/tcp/0"
+	defraUrl := "127.0.0.1:0"
+	options := []node.Option{
+		node.WithDisableAPI(false),
+		node.WithDisableP2P(false),
+		node.WithStorePath(t.TempDir()),
+		http.WithAddress(defraUrl),
+		netConfig.WithListenAddresses(listenAddress),
+	}
+	ctx := context.Background()
+	indexerDefra := defra.StartDefraInstance(t, ctx, options)
+	defer indexerDefra.Close(ctx)
+	testConfig := indexer.DefaultConfig
+	testConfig.DefraDB.Url = indexerDefra.APIURL
+
+	err := applySchema(ctx, indexerDefra)
+	require.NoError(t, err)
+
+	err = indexerDefra.Peer.AddP2PCollections(ctx, "Block")
+	require.NoError(t, err)
+
+	go func() {
+		err := indexer.StartIndexing(true, testConfig)
+		if err != nil {
+			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
+		}
+	}()
+	defer indexer.StopIndexing()
+
+	for !indexer.IsStarted || !indexer.HasIndexedAtLeastOneBlock {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	options = []node.Option{
+		node.WithDisableAPI(false),
+		node.WithDisableP2P(false),
+		node.WithStorePath(t.TempDir()),
+		http.WithAddress(defraUrl),
+		netConfig.WithListenAddresses(listenAddress),
+		netConfig.WithBootstrapPeers(defra.GetBoostrapPeer(indexerDefra.Peer.PeerInfo())),
+	}
+	hostDefra := defra.StartDefraInstance(t, ctx, options)
+	defer hostDefra.Close(ctx)
+
+	err = applySchema(ctx, hostDefra)
+	require.NoError(t, err)
+
+	indexerPort := defra.GetPort(indexerDefra)
+	if indexerPort == -1 {
+		t.Fatalf("Unable to retrieve indexer port")
+	}
+	blockNumber, err := queryBlockNumber(ctx, indexerPort)
+	require.NoError(t, err)
+	require.Greater(t, blockNumber, 100)
+
+	hostPort := defra.GetPort(hostDefra)
+	if hostPort == -1 {
+		t.Fatalf("Unable to retrieve host port")
+	}
+	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
+
+	err = hostDefra.Peer.AddP2PCollections(ctx, "Block")
+	require.NoError(t, err)
+
+	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
+		if err == nil {
+			break
+		}
+		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
+		time.Sleep(1 * time.Second)
+		blockNumber, err = queryBlockNumber(ctx, hostPort)
+	}
+	require.NoError(t, err) // We should now have the block number on the Host
+	require.Greater(t, blockNumber, 100)
+}
