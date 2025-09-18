@@ -9,9 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/host/pkg/attestation"
 	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/logger"
 	"github.com/shinzonetwork/indexer/pkg/types"
+	"github.com/sourcenetwork/defradb/acp/identity"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/http"
 	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
@@ -229,7 +232,11 @@ func TestMultiTenantP2PReplication_ManualReplicatorAssignment(t *testing.T) {
 		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
 		defer newDefraInstance.Close(ctx)
 
+		assertDefraInstanceDoesNotHaveData(t, ctx, newDefraInstance)
+
 		addSchema(t, ctx, newDefraInstance)
+
+		assertDefraInstanceDoesNotHaveData(t, ctx, newDefraInstance)
 
 		err := previousDefra.DB.SetReplicator(ctx, newDefraInstance.DB.PeerInfo())
 		require.NoError(t, err)
@@ -330,10 +337,14 @@ func TestMultiTenantP2PReplication_ConnectToBigPeer(t *testing.T) {
 		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
 		defer newDefraInstance.Close(ctx)
 
+		assertDefraInstanceDoesNotHaveData(t, ctx, newDefraInstance)
+
 		err = newDefraInstance.DB.Connect(ctx, bigPeer.DB.PeerInfo())
 		require.NoError(t, err)
 
 		addSchema(t, ctx, newDefraInstance)
+
+		assertDefraInstanceDoesNotHaveData(t, ctx, newDefraInstance)
 
 		err = newDefraInstance.DB.AddP2PCollections(ctx, "User")
 		require.NoError(t, err)
@@ -351,4 +362,128 @@ func TestMultiTenantP2PReplication_ConnectToBigPeer(t *testing.T) {
 	require.Equal(t, "Quinn", result)
 
 	assertReaderDefraInstancesHaveLatestData(t, ctx, readerDefraInstances)
+}
+
+func assertDefraInstanceDoesNotHaveData(t *testing.T, ctx context.Context, readerDefra *node.Node) {
+	port := GetPort(readerDefra)
+	require.NotEqual(t, -1, port)
+
+	_, err := getUserName(ctx, port)
+	require.Error(t, err)
+}
+
+func TestSyncFromMultipleWriters(t *testing.T) {
+	listenAddress := "/ip4/127.0.0.1/tcp/0"
+	defraUrl := "127.0.0.1:0"
+	ctx := context.Background()
+
+	writerDefras := []*node.Node{}
+	defraNodes := 10
+	for i := 0; i < defraNodes; i++ {
+		nodeIdentity, err := identity.Generate(crypto.KeyTypeSecp256k1)
+		require.NoError(t, err)
+		options := []node.Option{
+			node.WithDisableAPI(false),
+			node.WithDisableP2P(false),
+			node.WithStorePath(t.TempDir()),
+			http.WithAddress(defraUrl),
+			netConfig.WithListenAddresses(listenAddress),
+			node.WithNodeIdentity(identity.Identity(nodeIdentity)),
+		}
+		writerDefra := StartDefraInstance(t, ctx, options)
+		defer writerDefra.Close(ctx)
+
+		addSchema(t, ctx, writerDefra)
+		err = writerDefra.DB.AddP2PCollections(ctx, "User")
+		require.NoError(t, err)
+
+		writerDefras = append(writerDefras, writerDefra)
+	}
+
+	// Create a reader instance
+	readerOptions := []node.Option{
+		node.WithDisableAPI(false),
+		node.WithDisableP2P(false),
+		node.WithStorePath(t.TempDir()),
+		http.WithAddress(defraUrl),
+		netConfig.WithListenAddresses(listenAddress),
+	}
+	readerDefra := StartDefraInstance(t, ctx, readerOptions)
+	defer readerDefra.Close(ctx)
+
+	for _, writer := range writerDefras {
+		err := readerDefra.DB.Connect(ctx, writer.DB.PeerInfo())
+		require.NoError(t, err)
+	}
+
+	addSchema(t, ctx, readerDefra)
+
+	assertDefraInstanceDoesNotHaveData(t, ctx, readerDefra)
+
+	err := readerDefra.DB.AddP2PCollections(ctx, "User")
+	require.NoError(t, err)
+
+	// Write data to each writer
+	for _, writer := range writerDefras {
+		writerPort := GetPort(writer)
+		require.NotEqual(t, -1, writerPort, "Unable to retrieve writer port")
+		postBasicData(t, ctx, writerPort)
+
+		// Verify the data was written to this writer
+		result, err := getUserName(ctx, writerPort)
+		require.NoError(t, err)
+		require.Equal(t, "Quinn", result)
+	}
+
+	// Wait for sync and verify reader has all data
+	readerPort := GetPort(readerDefra)
+	require.NotEqual(t, -1, readerPort, "Unable to retrieve reader port")
+	result, err := getUserName(ctx, readerPort)
+	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
+		if err == nil {
+			break
+		}
+		t.Logf("Attempt %d to query username from readerDefra failed. Trying again...", attempts)
+		time.Sleep(1 * time.Second)
+		result, err = getUserName(ctx, readerPort)
+	}
+	require.Equal(t, "Quinn", result)
+
+	// Verify we can get the _version field
+	queryClient, err := NewQueryClientFromPort(readerPort)
+	require.NoError(t, err)
+
+	userWithVersion, err := getUserWithVersion(queryClient, ctx)
+	require.NoError(t, err)
+	require.Equal(t, "Quinn", userWithVersion.Name)
+	require.Equal(t, defraNodes, len(userWithVersion.Version))
+}
+
+type UserWithVersion struct {
+	Name    string                `json:"name"`
+	Version []attestation.Version `json:"_version"`
+}
+
+func getUserWithVersion(queryClient *QueryClient, ctx context.Context) (UserWithVersion, error) {
+	query := `query GetUserWithVersion{
+		User(limit: 1) {
+			name
+			_version {
+				cid
+				signature {
+					type
+					identity
+					value
+					__typename
+				}
+			}
+		}
+	}`
+
+	user, err := QuerySingle[UserWithVersion](queryClient, ctx, query)
+	if err != nil {
+		return UserWithVersion{}, fmt.Errorf("Error querying user with version: %v", err)
+	}
+
+	return user, nil
 }
