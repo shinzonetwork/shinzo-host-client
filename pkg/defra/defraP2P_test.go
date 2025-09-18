@@ -163,7 +163,7 @@ func postBasicData(t *testing.T, ctx context.Context, writerPort int) {
 	require.True(t, strings.Contains(result, "Quinn"))
 }
 
-func TestMultiTenantP2PReplication_BootstrapPeers(t *testing.T) {
+func TestMultiTenantP2PReplication_ConnectToPeers(t *testing.T) {
 	listenAddress := "/ip4/127.0.0.1/tcp/0"
 	defraUrl := "127.0.0.1:0"
 	ctx := context.Background()
@@ -174,19 +174,19 @@ func TestMultiTenantP2PReplication_BootstrapPeers(t *testing.T) {
 
 	previousDefra := writerDefra
 	readerDefraInstances := []*node.Node{}
-	for i := 0; i < 1; i++ {
-		bootstrapPeer, err := GetBoostrapPeer(previousDefra.DB.PeerInfo())
-		require.NoError(t, err)
+	for i := 0; i < 10; i++ {
 		readerDefraOptions := []node.Option{
 			node.WithDisableAPI(false),
 			node.WithDisableP2P(false),
 			node.WithStorePath(t.TempDir()),
 			http.WithAddress(defraUrl),
 			netConfig.WithListenAddresses(listenAddress),
-			netConfig.WithBootstrapPeers(bootstrapPeer),
 		}
 		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
 		defer newDefraInstance.Close(ctx)
+
+		err = newDefraInstance.DB.Connect(ctx, previousDefra.DB.PeerInfo())
+		require.NoError(t, err)
 
 		addSchema(t, ctx, newDefraInstance)
 
@@ -293,7 +293,7 @@ func assertReaderDefraInstancesHaveLatestData(t *testing.T, ctx context.Context,
 	}
 }
 
-func TestMultiTenantP2PReplication_BootstrapFromBigPeer(t *testing.T) {
+func TestMultiTenantP2PReplication_ConnectToBigPeer(t *testing.T) {
 	listenAddress := "/ip4/127.0.0.1/tcp/0"
 	defraUrl := "127.0.0.1:0"
 	ctx := context.Background()
@@ -315,23 +315,23 @@ func TestMultiTenantP2PReplication_BootstrapFromBigPeer(t *testing.T) {
 	err = writerDefra.DB.AddP2PCollections(ctx, "User")
 	require.NoError(t, err)
 
-	err = writerDefra.DB.SetReplicator(ctx, bigPeer.DB.PeerInfo())
+	err = writerDefra.DB.Connect(ctx, bigPeer.DB.PeerInfo())
 	require.NoError(t, err)
 
 	readerDefraInstances := []*node.Node{}
 	for i := 0; i < 10; i++ {
-		bootstrapPeer, err := GetBoostrapPeer(bigPeer.DB.PeerInfo())
-		require.NoError(t, err)
 		readerDefraOptions := []node.Option{
 			node.WithDisableAPI(false),
 			node.WithDisableP2P(false),
 			node.WithStorePath(t.TempDir()),
 			http.WithAddress(defraUrl),
 			netConfig.WithListenAddresses(listenAddress),
-			netConfig.WithBootstrapPeers(bootstrapPeer),
 		}
 		newDefraInstance := StartDefraInstance(t, ctx, readerDefraOptions)
 		defer newDefraInstance.Close(ctx)
+
+		err = newDefraInstance.DB.Connect(ctx, bigPeer.DB.PeerInfo())
+		require.NoError(t, err)
 
 		addSchema(t, ctx, newDefraInstance)
 

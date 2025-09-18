@@ -155,7 +155,7 @@ func queryBlockNumber(ctx context.Context, port int) (int, error) {
 	return block.Number, nil
 }
 
-func TestHostCanReplicateFromIndexerViaBootstrappedConnection(t *testing.T) {
+func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	listenAddress := "/ip4/127.0.0.1/tcp/0"
 	defraUrl := "127.0.0.1:0"
 	options := []node.Option{
@@ -190,18 +190,18 @@ func TestHostCanReplicateFromIndexerViaBootstrappedConnection(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	bootstrapPeer, err := defra.GetBoostrapPeer(indexerDefra.DB.PeerInfo())
-	require.NoError(t, err)
 	options = []node.Option{
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
 		http.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
-		netConfig.WithBootstrapPeers(bootstrapPeer),
 	}
 	hostDefra := defra.StartDefraInstance(t, ctx, options)
 	defer hostDefra.Close(ctx)
+
+	err = hostDefra.DB.Connect(ctx, indexerDefra.DB.PeerInfo())
+	require.NoError(t, err)
 
 	err = applySchema(ctx, hostDefra)
 	require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 	indexers := []*indexer.ChainIndexer{}
 	listenAddress := "/ip4/127.0.0.1/tcp/0"
 	defraUrl := "127.0.0.1:0"
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 10; i++ {
 		ctx := context.Background()
 		nodeIdentity, err := identity.Generate(crypto.KeyTypeSecp256k1)
 		require.NoError(t, err)
@@ -294,12 +294,6 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 		require.Greater(t, blockNumber, 100)
 	}
 
-	boostrapPeers := []string{}
-	for _, peer := range indexerDefras {
-		bootstrapPeer, err := defra.GetBoostrapPeer(peer.DB.PeerInfo())
-		require.NoError(t, err)
-		boostrapPeers = append(boostrapPeers, bootstrapPeer)
-	}
 	ctx := context.Background()
 	options := []node.Option{
 		node.WithDisableAPI(false),
@@ -307,10 +301,14 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 		node.WithStorePath(t.TempDir()),
 		http.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
-		netConfig.WithBootstrapPeers(boostrapPeers...),
 	}
 	hostDefra := defra.StartDefraInstance(t, ctx, options)
 	defer hostDefra.Close(ctx)
+
+	for _, peer := range indexerDefras {
+		err := hostDefra.DB.Connect(ctx, peer.DB.PeerInfo())
+		require.NoError(t, err)
+	}
 
 	err := applySchema(ctx, hostDefra)
 	require.NoError(t, err)
@@ -339,8 +337,6 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 
 	queryClient, err := defra.NewQueryClient(hostDefra.APIURL)
 	require.NoError(t, err)
-
-	// time.Sleep(5 * time.Minute)
 
 	result, err := defra.QueryArray[attestation.Block](queryClient, ctx, getAllBlocksQuery)
 	require.NoError(t, err)
