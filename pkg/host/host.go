@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/shinzonetwork/host/config"
+	"github.com/shinzonetwork/host/pkg/shinzohub"
 	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/logger"
 	"github.com/sourcenetwork/defradb/http"
@@ -14,7 +15,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-var defaultConfig *config.Config = &config.Config{
+var DefaultConfig *config.Config = &config.Config{
 	DefraDB: config.DefraDBConfig{
 		Url:           "http://localhost:9181",
 		KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
@@ -23,7 +24,7 @@ var defaultConfig *config.Config = &config.Config{
 			ListenAddr:     defaultListenAddress,
 		},
 		Store: config.DefraStoreConfig{
-			Path: "./.defra",
+			Path: ".defra",
 		},
 	},
 	ShinzoHub: config.ShinzoHubConfig{
@@ -43,7 +44,7 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 	ctx := context.Background()
 
 	if cfg == nil {
-		cfg = defaultConfig
+		cfg = DefaultConfig
 	}
 	cfg.DefraDB.P2P.BootstrapPeers = append(cfg.DefraDB.P2P.BootstrapPeers, requiredPeers...)
 
@@ -83,6 +84,14 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+
+	_, _, err = shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl) // Todo replace with below once host is doing something
+	// closeWebhookFunction, err := shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl)
+	// defer closeWebhookFunction()
+	if err != nil {
+		return fmt.Errorf("Error starting event subscription: %v", err)
+	}
+
 	// Todo connect to the indexers and sync primitives
 
 	// Todo process dataviews
