@@ -5,14 +5,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-func GetBoostrapPeer(peerInfo peer.AddrInfo) string {
-	peerAddressString := fmt.Sprintf("%v", peerInfo.Addrs)[1:]
+func GetBoostrapPeer(peerInfo client.PeerInfo) (string, error) {
+	if len(peerInfo.Addresses) == 0 {
+		return "", fmt.Errorf("Node must have at least one address")
+	}
+	peerAddressString := peerInfo.Addresses[0]
 	peerAddressString = peerAddressString[:len(peerAddressString)-1]
-	return fmt.Sprintf("%s/p2p/%s", peerAddressString, peerInfo.ID)
+	return fmt.Sprintf("%s/p2p/%s", peerAddressString, peerInfo.ID), nil
 }
 
 func GetPort(targetNode *node.Node) int {

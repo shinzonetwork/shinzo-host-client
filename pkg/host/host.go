@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
 	"github.com/shinzonetwork/indexer/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/logger"
 	"github.com/sourcenetwork/defradb/http"
@@ -85,12 +84,12 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 		return err
 	}
 
-	_, _, err = shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl) // Todo replace with below once host is doing something
-	// closeWebhookFunction, err := shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl)
-	// defer closeWebhookFunction()
-	if err != nil {
-		return fmt.Errorf("Error starting event subscription: %v", err)
-	}
+	// _, _, err = shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl) // Todo replace with below once host is doing something
+	// // closeWebhookFunction, err := shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl)
+	// // defer closeWebhookFunction()
+	// if err != nil {
+	// 	return fmt.Errorf("Error starting event subscription: %v", err)
+	// }
 
 	// Todo connect to the indexers and sync primitives
 
