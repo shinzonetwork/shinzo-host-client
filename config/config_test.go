@@ -51,6 +51,36 @@ shinzohub:
 	}
 }
 
+func TestLoadConfig_EnvironmentOverrides(t *testing.T) {
+	// Create a temporary config file
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "test_config.yaml")
+
+	configContent := `
+defradb:
+  keyring_secret: "original_secret"
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	// Set environment variables
+	os.Setenv("DEFRA_KEYRING_SECRET", "env_secret")
+	defer os.Unsetenv("DEFRA_KEYRING_SECRET")
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Verify environment overrides work
+	if cfg.ShinzoAppConfig.DefraDB.KeyringSecret != "env_secret" {
+		t.Errorf("Expected keyring_secret 'env_secret', got '%s'", cfg.ShinzoAppConfig.DefraDB.KeyringSecret)
+	}
+}
+
 func TestLoadConfig_EmptyConfig(t *testing.T) {
 	// Create a temporary config file with empty config
 	tempDir := t.TempDir()
