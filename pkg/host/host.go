@@ -3,83 +3,36 @@ package host
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
+	"time"
 
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/indexer/pkg/defra"
-	"github.com/shinzonetwork/indexer/pkg/logger"
-	"github.com/sourcenetwork/defradb/http"
-	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
 )
 
 var DefaultConfig *config.Config = &config.Config{
-	DefraDB: config.DefraDBConfig{
-		Url:           "http://localhost:9181",
-		KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
-		P2P: config.DefraP2PConfig{
-			BootstrapPeers: requiredPeers,
-			ListenAddr:     defaultListenAddress,
-		},
-		Store: config.DefraStoreConfig{
-			Path: ".defra",
-		},
+	Shinzo: config.ShinzoConfig{
+		MinimumAttestations: 1,
 	},
-	ShinzoHub: config.ShinzoHubConfig{
-		RPCUrl: defaultShinzoHubRpcUrl,
-	},
-	Logger: config.LoggerConfig{
-		Development: false,
-	},
+	ShinzoAppConfig: defra.DefaultConfig,
 }
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
-const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
-const defaultShinzoHubRpcUrl string = ""
-
-func StartHosting(defraStarted bool, cfg *config.Config) error {
-	ctx := context.Background()
-
+func StartHosting(cfg *config.Config) error {
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
-	cfg.DefraDB.P2P.BootstrapPeers = append(cfg.DefraDB.P2P.BootstrapPeers, requiredPeers...)
 
-	logger.Init(cfg.Logger.Development)
-
-	if !defraStarted {
-		options := []node.Option{
-			node.WithDisableAPI(false),
-			node.WithDisableP2P(false),
-			node.WithStorePath(cfg.DefraDB.Store.Path),
-			http.WithAddress(strings.Replace(cfg.DefraDB.Url, "http://localhost", "127.0.0.1", 1)),
-			netConfig.WithBootstrapPeers(cfg.DefraDB.P2P.BootstrapPeers...),
-		}
-		listenAddress := cfg.DefraDB.P2P.ListenAddr
-		if len(listenAddress) > 0 {
-			options = append(options, netConfig.WithListenAddresses(listenAddress))
-		}
-
-		defraNode, err := node.New(ctx, options...)
-		if err != nil {
-			return fmt.Errorf("Failed to create defra node %v: ", err)
-		}
-
-		err = defraNode.Start(ctx)
-		if err != nil {
-			return fmt.Errorf("Failed to start defra node %v: ", err)
-		}
-		defer defraNode.Close(ctx)
-
-		err = applySchema(ctx, defraNode)
-		if err != nil && !strings.HasPrefix(err.Error(), "collection already exists") { // Todo we are swallowing this error for now, but we should investigate how we update the schemas - do we need to not swallow this error?
-			return fmt.Errorf("Failed to apply schema to defra node: %v", err)
-		}
+	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
+	if err != nil {
+		return fmt.Errorf("Error starting defra instance: %v", err)
 	}
 
-	err := defra.WaitForDefraDB(cfg.DefraDB.Url)
+	ctx := context.Background()
+
+	err = waitForDefraDB(ctx, defraNode)
 	if err != nil {
 		return err
 	}
@@ -98,35 +51,26 @@ func StartHosting(defraStarted bool, cfg *config.Config) error {
 	return nil
 }
 
-// Todo - we'll have to update this to include the policy id (which we should get back from ShinzoHub during registration)
-func applySchema(ctx context.Context, defraNode *node.Node) error {
-	logger.Sugar.Debug("Applying schema...")
+// waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle
+func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
+	fmt.Println("Waiting for defra...")
+	maxAttempts := 30
 
-	// Try different possible paths for the schema file
-	possiblePaths := []string{
-		"schema/schema.graphql",       // From project root
-		"../schema/schema.graphql",    // From bin/ directory
-		"../../schema/schema.graphql", // From pkg/host/ directory - test context
-	}
+	// Simple query to check if the schema is ready
+	query := `{ Block { __typename } }`
 
-	var schemaPath string
-	var err error
-	for _, path := range possiblePaths {
-		if _, err = os.Stat(path); err == nil {
-			schemaPath = path
-			break
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		_, err := appDefra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
+		if err == nil {
+			fmt.Println("Defra is responsive!")
+			return nil
+		}
+
+		if attempt < maxAttempts {
+			fmt.Printf("Attempt %d failed... Trying again\n", attempt)
+			time.Sleep(1 * time.Second)
 		}
 	}
 
-	if schemaPath == "" {
-		return fmt.Errorf("Failed to find schema file in any of the expected locations: %v", possiblePaths)
-	}
-
-	schema, err := os.ReadFile(schemaPath)
-	if err != nil {
-		return fmt.Errorf("Failed to read schema file: %v", err)
-	}
-
-	_, err = defraNode.DB.AddSchema(ctx, string(schema))
-	return err
+	return fmt.Errorf("DefraDB failed to become ready after %d retry attempts", maxAttempts)
 }

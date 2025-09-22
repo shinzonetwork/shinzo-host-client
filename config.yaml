@@ -7,8 +7,8 @@ defradb:
   store:
     path: "./.defra"
 
-shinzohub:
-  rpc_url: ""
+shinzo:
+  minimum_attestations: 1
 
 logger:
   development: true

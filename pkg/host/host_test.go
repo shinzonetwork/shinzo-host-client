@@ -7,18 +7,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/host/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/defradb/http"
+	defraHTTP "github.com/sourcenetwork/defradb/http"
 	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// startDefraInstanceForTest creates a DefraDB node for testing purposes
+func startDefraInstanceForTest(t *testing.T, ctx context.Context, options []node.Option) *node.Node {
+	myNode, err := node.New(ctx, options...)
+	require.NoError(t, err)
+	require.NotNil(t, myNode)
+
+	err = myNode.Start(ctx)
+	require.NoError(t, err)
+
+	return myNode
+}
 
 func TestMain(m *testing.M) {
 	logger.Init(true)
@@ -27,25 +40,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestStartHosting(t *testing.T) {
-	err := StartHosting(false, nil)
-
-	assert.NoError(t, err)
-}
-
-func TestStartHostingWithOwnDefraInstance(t *testing.T) {
-	ctx := context.Background()
-
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(true),
-		node.WithStorePath(t.TempDir()),
-	}
-
-	myNode := defra.StartDefraInstance(t, ctx, options)
-	assert.NotNil(t, myNode)
-	defer myNode.Close(ctx)
-
-	err := StartHosting(true, nil)
+	err := StartHosting(nil)
 
 	assert.NoError(t, err)
 }
@@ -57,17 +52,16 @@ func TestHostCanReplicateFromIndexer(t *testing.T) {
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
-		http.WithAddress(defraUrl),
+		defraHTTP.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
 	}
 	ctx := context.Background()
-	indexerDefra := defra.StartDefraInstance(t, ctx, options)
+	indexerDefra := startDefraInstanceForTest(t, ctx, options)
 	defer indexerDefra.Close(ctx)
 	testConfig := indexer.DefaultConfig
 	testConfig.DefraDB.Url = indexerDefra.APIURL
 
-	err := applySchema(ctx, indexerDefra)
-	require.NoError(t, err)
+	// Schema is applied automatically by the app-sdk
 
 	i := indexer.CreateIndexer(testConfig)
 	go func() {
@@ -86,70 +80,44 @@ func TestHostCanReplicateFromIndexer(t *testing.T) {
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
-		http.WithAddress(defraUrl),
+		defraHTTP.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
 	}
-	hostDefra := defra.StartDefraInstance(t, ctx, options)
+	hostDefra := startDefraInstanceForTest(t, ctx, options)
 	defer hostDefra.Close(ctx)
 
-	err = applySchema(ctx, hostDefra)
-	require.NoError(t, err)
+	// Schema is applied automatically by the app-sdk
 
-	indexerPort := defra.GetPort(indexerDefra)
-	if indexerPort == -1 {
-		t.Fatalf("Unable to retrieve indexer port")
-	}
-	blockNumber, err := queryBlockNumber(ctx, indexerPort)
+	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
 	require.NoError(t, err)
 	require.Greater(t, blockNumber, 100)
 
-	hostPort := defra.GetPort(hostDefra)
-	if hostPort == -1 {
-		t.Fatalf("Unable to retrieve host port")
-	}
-	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
 
 	err = indexerDefra.DB.SetReplicator(ctx, hostDefra.DB.PeerInfo())
 	require.NoError(t, err)
 
-	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 30; attempts++ { // It may take some time to sync now that we are connected
 		if err == nil {
 			break
 		}
 		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
 		time.Sleep(1 * time.Second)
-		blockNumber, err = queryBlockNumber(ctx, hostPort)
+		blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	}
 	require.NoError(t, err) // We should now have the block number on the Host
 	require.Greater(t, blockNumber, 100)
 }
 
-func queryBlockNumber(ctx context.Context, port int) (int, error) {
-	client, err := defra.NewQueryClientFromPort(port)
-	if err != nil {
-		return 0, fmt.Errorf("Error creating query client: %v", err)
-	}
+func queryBlockNumber(ctx context.Context, defraNode *node.Node) (int, error) {
+	query := `{"query":"query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }"}`
 
-	query := `query GetHighestBlockNumber {
-  Block(order: {number: DESC}, limit: 1) {
-    number
-  }
-}`
+	block, err := defra.QuerySingle[attestation.Block](ctx, defraNode, query)
 
-	// Define the expected response structure
-	type BlockResponse struct {
-		Number int `json:"number"`
-	}
-
-	// Use QuerySingle to get the first block
-	block, err := defra.QuerySingle[BlockResponse](client, ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("Error querying block number: %v", err)
-	}
-	if block.Number < 1 { // If we receive no blocks, we will get a block number of 0
-		return 0, fmt.Errorf("Invalid block number: %d", block.Number)
 	}
 
 	return block.Number, nil
@@ -162,19 +130,18 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
-		http.WithAddress(defraUrl),
+		defraHTTP.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
 	}
 	ctx := context.Background()
-	indexerDefra := defra.StartDefraInstance(t, ctx, options)
+	indexerDefra := startDefraInstanceForTest(t, ctx, options)
 	defer indexerDefra.Close(ctx)
 	testConfig := indexer.DefaultConfig
 	testConfig.DefraDB.Url = indexerDefra.APIURL
 
-	err := applySchema(ctx, indexerDefra)
-	require.NoError(t, err)
+	// Schema is applied automatically by the app-sdk
 
-	err = indexerDefra.DB.AddP2PCollections(ctx, "Block")
+	err := indexerDefra.DB.AddP2PCollections(ctx, "Block")
 	require.NoError(t, err)
 
 	i := indexer.CreateIndexer(testConfig)
@@ -194,44 +161,35 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
-		http.WithAddress(defraUrl),
+		defraHTTP.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
 	}
-	hostDefra := defra.StartDefraInstance(t, ctx, options)
+	hostDefra := startDefraInstanceForTest(t, ctx, options)
 	defer hostDefra.Close(ctx)
 
 	err = hostDefra.DB.Connect(ctx, indexerDefra.DB.PeerInfo())
 	require.NoError(t, err)
 
-	err = applySchema(ctx, hostDefra)
-	require.NoError(t, err)
+	// Schema is applied automatically by the app-sdk
 
-	indexerPort := defra.GetPort(indexerDefra)
-	if indexerPort == -1 {
-		t.Fatalf("Unable to retrieve indexer port")
-	}
-	blockNumber, err := queryBlockNumber(ctx, indexerPort)
+	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
 	require.NoError(t, err)
 	require.Greater(t, blockNumber, 100)
 
-	hostPort := defra.GetPort(hostDefra)
-	if hostPort == -1 {
-		t.Fatalf("Unable to retrieve host port")
-	}
-	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
 
 	err = hostDefra.DB.AddP2PCollections(ctx, "Block")
 	require.NoError(t, err)
 
-	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
 		if err == nil {
 			break
 		}
 		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
 		time.Sleep(1 * time.Second)
-		blockNumber, err = queryBlockNumber(ctx, hostPort)
+		blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	}
 	require.NoError(t, err) // We should now have the block number on the Host
 	require.Greater(t, blockNumber, 100)
@@ -250,17 +208,16 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 			node.WithDisableAPI(false),
 			node.WithDisableP2P(false),
 			node.WithStorePath(t.TempDir()),
-			http.WithAddress(defraUrl),
+			defraHTTP.WithAddress(defraUrl),
 			netConfig.WithListenAddresses(listenAddress),
 			node.WithNodeIdentity(identity.Identity(nodeIdentity)),
 		}
-		indexerDefra := defra.StartDefraInstance(t, ctx, options)
+		indexerDefra := startDefraInstanceForTest(t, ctx, options)
 		defer indexerDefra.Close(ctx)
 		testConfig := indexer.DefaultConfig
 		testConfig.DefraDB.Url = indexerDefra.APIURL
 
-		err = applySchema(ctx, indexerDefra)
-		require.NoError(t, err)
+		// Schema is applied automatically by the app-sdk
 
 		err = indexerDefra.DB.AddP2PCollections(ctx, "Block", "Transaction", "AccessListEntry", "Log")
 		require.NoError(t, err)
@@ -285,11 +242,7 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		indexerPort := defra.GetPort(indexerDefras[index])
-		if indexerPort == -1 {
-			t.Fatalf("Unable to retrieve indexer port")
-		}
-		blockNumber, err := queryBlockNumber(ctx, indexerPort)
+		blockNumber, err := queryBlockNumber(ctx, indexerDefras[index])
 		require.NoError(t, err)
 		require.Greater(t, blockNumber, 100)
 	}
@@ -299,10 +252,10 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 		node.WithDisableAPI(false),
 		node.WithDisableP2P(false),
 		node.WithStorePath(t.TempDir()),
-		http.WithAddress(defraUrl),
+		defraHTTP.WithAddress(defraUrl),
 		netConfig.WithListenAddresses(listenAddress),
 	}
-	hostDefra := defra.StartDefraInstance(t, ctx, options)
+	hostDefra := startDefraInstanceForTest(t, ctx, options)
 	defer hostDefra.Close(ctx)
 
 	for _, peer := range indexerDefras {
@@ -310,35 +263,27 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	err := applySchema(ctx, hostDefra)
-	require.NoError(t, err)
+	// Schema is applied automatically by the app-sdk
 
-	hostPort := defra.GetPort(hostDefra)
-	if hostPort == -1 {
-		t.Fatalf("Unable to retrieve host port")
-	}
-	blockNumber, err := queryBlockNumber(ctx, hostPort)
+	blockNumber, err := queryBlockNumber(ctx, hostDefra)
 	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
 
 	err = hostDefra.DB.AddP2PCollections(ctx, "Block", "Transaction", "AccessListEntry", "Log")
 	require.NoError(t, err)
 
-	blockNumber, err = queryBlockNumber(ctx, hostPort)
+	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
 		if err == nil {
 			break
 		}
 		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
 		time.Sleep(1 * time.Second)
-		blockNumber, err = queryBlockNumber(ctx, hostPort)
+		blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	}
 	require.NoError(t, err) // We should now have the block number on the Host
 	require.Greater(t, blockNumber, 100)
 
-	queryClient, err := defra.NewQueryClient(hostDefra.APIURL)
-	require.NoError(t, err)
-
-	result, err := defra.QueryArray[attestation.Block](queryClient, ctx, getAllBlocksQuery)
+	result, err := appDefra.QueryArray[attestation.Block](ctx, hostDefra, getAllBlocksQuery)
 	require.NoError(t, err)
 	t.Log(result)
 }

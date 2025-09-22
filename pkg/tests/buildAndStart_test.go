@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,8 +8,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/shinzonetwork/host/pkg/defra"
-	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,49 +76,5 @@ func TestBuildAndRun(t *testing.T) {
 
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "Failed to run the application. Output: %s", string(output))
-	require.NotNil(t, output)
-}
-
-func TestBuildAndRun_NoDefra(t *testing.T) {
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(true),
-		node.WithStorePath(t.TempDir()),
-	}
-	ctx := context.Background()
-	myNode := defra.StartDefraInstance(t, ctx, options)
-	require.NotNil(t, myNode)
-	defer myNode.Close(ctx)
-
-	projectRoot := getProjectRoot(t)
-	binaryPath := getBinaryPath(projectRoot)
-
-	cmd := exec.Command(binaryPath, "-defra-started=true")
-	cmd.Dir = projectRoot
-
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to run the application. Output: %s", string(output))
-	require.NotNil(t, output)
-}
-
-func TestBuildAndRun_DefraInBackgroundFail(t *testing.T) {
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(true),
-		node.WithStorePath(t.TempDir()),
-	}
-	ctx := context.Background()
-	myNode := defra.StartDefraInstance(t, ctx, options)
-	require.NotNil(t, myNode)
-	defer myNode.Close(ctx)
-
-	projectRoot := getProjectRoot(t)
-	binaryPath := getBinaryPath(projectRoot)
-
-	cmd := exec.Command(binaryPath, "-defra-started=false")
-	cmd.Dir = projectRoot
-
-	output, err := cmd.CombinedOutput()
-	require.Error(t, err, "Expected an error, but got none")
 	require.NotNil(t, output)
 }
