@@ -13,8 +13,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/shinzonetwork/app-sdk => ../app-sdk
-
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.3-20241127180247-a33202765966.1 // indirect
 	cel.dev/expr v0.23.0 // indirect
