@@ -16,7 +16,9 @@ type Config struct {
 }
 
 type ShinzoConfig struct {
-	MinimumAttestations int `yaml:"minimum_attestations"`
+	MinimumAttestations int    `yaml:"minimum_attestations"`
+	RPCUrl              string `yaml:"rpc_url"`
+	WebSocketUrl        string `yaml:"web_socket_url"`
 }
 
 // LoadConfig loads configuration from a YAML file

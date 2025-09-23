@@ -9,6 +9,7 @@ defradb:
 
 shinzo:
   minimum_attestations: 1
+  web_socket_url: 
 
 logger:
   development: true
