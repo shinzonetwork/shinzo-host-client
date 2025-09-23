@@ -41,11 +41,17 @@ func TestEventSubscriptions(t *testing.T) {
 			}
 			t.Logf("Received event: %s", event.ToString())
 
+			expectedView := View{
+				Query:  "Log {address topics data transactionHash blockNumber}",
+				Sdl:    "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
+				Lenses: nil,
+			}
+
 			// You can process the event here
 			if registeredEvent, ok := event.(*ViewRegisteredEvent); ok {
-				require.Equal(t, "0xc26d2ef9f0e108c9e483849dbfb2cc685d77ffc03dfc22079778579610497858", registeredEvent.Key)
+				require.Equal(t, "0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85", registeredEvent.Key)
 				require.Equal(t, "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", registeredEvent.Creator)
-				require.Equal(t, "hello", registeredEvent.View)
+				require.Equal(t, expectedView, registeredEvent.View)
 				return
 			}
 
@@ -68,7 +74,7 @@ func sendSampleCurlRequest(t *testing.T) {
 				"to":    "0x0000000000000000000000000000000000000210",
 				"gas":   "0x100000",
 				"value": "0x0",
-				"data":  "0x82fbdc9c0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000",
+				"data":  "0x82fbdc9c000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000b27b227175657279223a224c6f67207b6164647265737320746f706963732064617461207472616e73616374696f6e4861736820626c6f636b4e756d6265727d222c2273646c223a22747970652046696c7465726564416e644465636f6465644c6f677320406d6174657269616c697a65642869663a2066616c736529207b7472616e73616374696f6e486173683a20537472696e677d222c227472616e73666f726d223a7b226c656e736573223a5b5d7d7d0000000000000000000000000000",
 			},
 		},
 		"id": 1,

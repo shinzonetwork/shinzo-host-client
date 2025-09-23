@@ -169,12 +169,18 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 				case "creator":
 					registeredEvent.Creator = attr.Value
 				case "view":
-					registeredEvent.View = attr.Value
+					// Parse the view JSON string into View struct
+					var view View
+					if err := json.Unmarshal([]byte(attr.Value), &view); err != nil {
+						fmt.Printf("Failed to parse view JSON: %v, value: %s\n", err, attr.Value)
+						continue
+					}
+					registeredEvent.View = view
 				}
 			}
 
 			// Only add if we have all required fields
-			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View != "" {
+			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != "" {
 				registeredEvents = append(registeredEvents, registeredEvent)
 				fmt.Printf("Added Registered event: %+v\n", registeredEvent)
 			} else {
