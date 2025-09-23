@@ -195,6 +195,7 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	require.Greater(t, blockNumber, 100)
 }
 
+// Todo need to fix indexer, currently can only have one writing at a time on a system
 func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 	indexerDefras := []*node.Node{}
 	indexers := []*indexer.ChainIndexer{}

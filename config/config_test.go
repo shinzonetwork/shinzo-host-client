@@ -14,7 +14,6 @@ func TestLoadConfig_ValidYAML(t *testing.T) {
 	configContent := `
 defradb:
   url: "http://localhost:9181"
-  keyring_secret: "test_secret"
   p2p:
     enabled: true
     bootstrap_peers: ["peer1", "peer2"]
@@ -40,9 +39,6 @@ shinzohub:
 	// Test DefraDB config
 	if cfg.ShinzoAppConfig.DefraDB.Url != expectedUrl {
 		t.Errorf("Expected url '%s', got '%s'", expectedUrl, cfg.ShinzoAppConfig.DefraDB.Url)
-	}
-	if cfg.ShinzoAppConfig.DefraDB.KeyringSecret != "test_secret" {
-		t.Errorf("Expected keyring_secret 'test_secret', got '%s'", cfg.ShinzoAppConfig.DefraDB.KeyringSecret)
 	}
 
 	// Test P2P config
