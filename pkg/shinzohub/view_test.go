@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,8 +54,8 @@ func TestExtractNameFromSDL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			view := View{Sdl: tt.sdl}
-			view.ExtractNameFromSDL()
+			view := &views.View{Sdl: tt.sdl}
+			ExtractNameFromSDL(view)
 
 			if view.Name != tt.expected {
 				t.Errorf("ExtractNameFromSDL() = %v, want %v", view.Name, tt.expected)
@@ -64,7 +65,7 @@ func TestExtractNameFromSDL(t *testing.T) {
 }
 
 func TestSubscribeToView(t *testing.T) {
-	testView := View{
+	testView := views.View{
 		Query:  "Log {address topics data transactionHash blockNumber}",
 		Sdl:    "type FilteredAndDecodedLogs {transactionHash: String}",
 		Lenses: nil,
@@ -78,7 +79,7 @@ func TestSubscribeToView(t *testing.T) {
 }
 
 func TestSubscribeToInvalidViewFails(t *testing.T) {
-	testView := View{
+	testView := views.View{
 		Query:  "Log {address topics data transactionHash blockNumber}",
 		Sdl:    "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
 		Lenses: nil,

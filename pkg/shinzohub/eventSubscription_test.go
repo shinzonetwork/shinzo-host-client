@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +42,7 @@ func TestEventSubscriptions(t *testing.T) {
 			}
 			t.Logf("Received event: %s", event.ToString())
 
-			expectedView := View{
+			expectedView := views.View{
 				Query:  "Log {address topics data transactionHash blockNumber}",
 				Sdl:    "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
 				Lenses: nil,
