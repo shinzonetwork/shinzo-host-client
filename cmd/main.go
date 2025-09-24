@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/host"
@@ -31,8 +33,14 @@ func main() {
 		panic(fmt.Errorf("Unable to load config: %v", err))
 	}
 
-	err = host.StartHosting(cfg)
+	myHost, err := host.StartHosting(cfg)
 	if err != nil {
 		panic(fmt.Errorf("Failed to start hosting: %v", err))
+	}
+
+	defer myHost.Close(context.Background())
+
+	for true {
+		time.Sleep(1 * time.Second) // Run forever unless stopped
 	}
 }

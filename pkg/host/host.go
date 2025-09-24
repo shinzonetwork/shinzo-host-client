@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
@@ -21,21 +22,25 @@ var DefaultConfig *config.Config = &config.Config{
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
-func StartHosting(cfg *config.Config) error {
+type Host struct {
+	DefraNode *node.Node
+}
+
+func StartHosting(cfg *config.Config) (*Host, error) {
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
 	if err != nil {
-		return fmt.Errorf("Error starting defra instance: %v", err)
+		return nil, fmt.Errorf("Error starting defra instance: %v", err)
 	}
 
 	ctx := context.Background()
 
 	err = waitForDefraDB(ctx, defraNode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
@@ -43,7 +48,7 @@ func StartHosting(cfg *config.Config) error {
 		// closeWebhookFunction, err := shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl)
 		// defer closeWebhookFunction()
 		if err != nil {
-			return fmt.Errorf("Error starting event subscription: %v", err)
+			return nil, fmt.Errorf("Error starting event subscription: %v", err)
 		}
 	}
 
@@ -51,7 +56,13 @@ func StartHosting(cfg *config.Config) error {
 
 	// Todo process dataviews
 
-	return nil
+	return &Host{
+		DefraNode: defraNode,
+	}, nil
+}
+
+func (h *Host) Close(ctx context.Context) error {
+	return h.DefraNode.Close(ctx)
 }
 
 // waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle
@@ -76,4 +87,11 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	}
 
 	return fmt.Errorf("DefraDB failed to become ready after %d retry attempts", maxAttempts)
+}
+
+func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
+	testConfig := DefaultConfig
+	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	return StartHosting(testConfig)
 }

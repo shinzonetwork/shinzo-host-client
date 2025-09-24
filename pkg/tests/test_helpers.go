@@ -2,6 +2,8 @@ package tests
 
 import (
 	"context"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/sourcenetwork/defradb/node"
@@ -18,4 +20,12 @@ func startDefraInstanceForTest(t *testing.T, ctx context.Context, options []node
 	require.NoError(t, err)
 
 	return myNode
+}
+
+// getProjectRoot returns the project root directory
+func getProjectRoot(t *testing.T) string {
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok, "Failed to get current file path")
+	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
+	return projectRoot
 }
