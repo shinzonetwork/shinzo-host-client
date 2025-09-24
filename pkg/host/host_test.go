@@ -40,13 +40,14 @@ func TestMain(m *testing.M) {
 }
 
 func TestStartHosting(t *testing.T) {
-	err := StartHosting(nil)
+	myHost, err := StartHosting(nil)
 
 	assert.NoError(t, err)
+	myHost.Close(context.Background())
 }
 
 func queryBlockNumber(ctx context.Context, defraNode *node.Node) (int, error) {
-	query := `{"query":"query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }"}`
+	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
 
 	block, err := defra.QuerySingle[attestation.Block](ctx, defraNode, query)
 
@@ -54,10 +55,15 @@ func queryBlockNumber(ctx context.Context, defraNode *node.Node) (int, error) {
 		return 0, fmt.Errorf("Error querying block number: %v", err)
 	}
 
+	if block.Number == 0 {
+		return 0, fmt.Errorf("No blocks found")
+	}
+
 	return block.Number, nil
 }
 
 func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
+	logger.Init(true)
 	listenAddress := "/ip4/127.0.0.1/tcp/0"
 	defraUrl := "127.0.0.1:0"
 	options := []node.Option{
@@ -73,9 +79,11 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	testConfig := indexer.DefaultConfig
 	testConfig.DefraDB.Url = indexerDefra.APIURL
 
-	// Schema is applied automatically by the app-sdk
+	indexerSchemaApplier := appDefra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}
+	err := indexerSchemaApplier.ApplySchema(ctx, indexerDefra)
+	require.NoError(t, err)
 
-	err := indexerDefra.DB.AddP2PCollections(ctx, "Block")
+	err = indexerDefra.DB.AddP2PCollections(ctx, "Block")
 	require.NoError(t, err)
 
 	i := indexer.CreateIndexer(testConfig)
@@ -91,15 +99,10 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	options = []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(false),
-		node.WithStorePath(t.TempDir()),
-		defraHTTP.WithAddress(defraUrl),
-		netConfig.WithListenAddresses(listenAddress),
-	}
-	hostDefra := startDefraInstanceForTest(t, ctx, options)
-	defer hostDefra.Close(ctx)
+	testHost, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer testHost.Close(ctx)
+	hostDefra := testHost.DefraNode
 
 	err = hostDefra.DB.Connect(ctx, indexerDefra.DB.PeerInfo())
 	require.NoError(t, err)
@@ -152,7 +155,9 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 		testConfig := indexer.DefaultConfig
 		testConfig.DefraDB.Url = indexerDefra.APIURL
 
-		// Schema is applied automatically by the app-sdk
+		indexerSchemaApplier := appDefra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}
+		err = indexerSchemaApplier.ApplySchema(ctx, indexerDefra)
+		require.NoError(t, err)
 
 		err = indexerDefra.DB.AddP2PCollections(ctx, "Block", "Transaction", "AccessListEntry", "Log")
 		require.NoError(t, err)
@@ -183,15 +188,11 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(false),
-		node.WithStorePath(t.TempDir()),
-		defraHTTP.WithAddress(defraUrl),
-		netConfig.WithListenAddresses(listenAddress),
-	}
-	hostDefra := startDefraInstanceForTest(t, ctx, options)
-	defer hostDefra.Close(ctx)
+
+	testHost, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer testHost.Close(ctx)
+	hostDefra := testHost.DefraNode
 
 	for _, peer := range indexerDefras {
 		err := hostDefra.DB.Connect(ctx, peer.DB.PeerInfo())

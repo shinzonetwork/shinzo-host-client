@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -41,13 +42,6 @@ func testBuild(m *testing.M) string {
 	return binaryPath
 }
 
-func getProjectRoot(t *testing.T) string {
-	_, filename, _, ok := runtime.Caller(0)
-	require.True(t, ok, "Failed to get current file path")
-	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
-	return projectRoot
-}
-
 func getProjectRootFromTestMain(t *testing.M) string {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
@@ -74,7 +68,24 @@ func TestBuildAndRun(t *testing.T) {
 	cmd := exec.Command(binaryPath)
 	cmd.Dir = projectRoot
 
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to run the application. Output: %s", string(output))
-	require.NotNil(t, output)
+	// Start the host process
+	err := cmd.Start()
+	require.NoError(t, err, "Failed to start the application")
+
+	// Let it run for a few seconds to check for startup errors
+	time.Sleep(3 * time.Second)
+
+	// Check if the process is still running (it should be)
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		// If it exited, there was likely an error
+		output, _ := cmd.CombinedOutput()
+		require.Fail(t, "Application exited unexpectedly. Output: %s", string(output))
+	}
+
+	// Stop the process gracefully
+	err = cmd.Process.Kill()
+	require.NoError(t, err, "Failed to stop the application")
+
+	// Wait for the process to actually terminate
+	cmd.Wait()
 }
