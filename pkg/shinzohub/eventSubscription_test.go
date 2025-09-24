@@ -45,6 +45,7 @@ func TestEventSubscriptions(t *testing.T) {
 				Query:  "Log {address topics data transactionHash blockNumber}",
 				Sdl:    "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
 				Lenses: nil,
+				Name:   "FilteredAndDecodedLogs",
 			}
 
 			// You can process the event here

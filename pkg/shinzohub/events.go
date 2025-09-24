@@ -175,6 +175,7 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 						fmt.Printf("Failed to parse view JSON: %v, value: %s\n", err, attr.Value)
 						continue
 					}
+					view.ExtractNameFromSDL()
 					registeredEvent.View = view
 				}
 			}
