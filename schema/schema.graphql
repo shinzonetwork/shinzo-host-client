@@ -72,3 +72,14 @@ type Log {
     transaction: Transaction @index @relation(name: "transaction_logs")
 }
 
+type AttestationRecord {
+	vote_count: Int @crdt(type: pcounter)
+	signatures: [IndexerSignature] @relation(name:"indexer_signatures")
+}
+
+type IndexerSignature {
+	identity: String @index
+	value: String @index (unique: true)
+	type: String 
+	attestation: AttestationRecord @relation(name:"indexer_signatures")
+}

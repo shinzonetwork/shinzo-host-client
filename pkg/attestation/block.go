@@ -24,4 +24,5 @@ type Block struct {
 	Transactions     []Transaction `json:"transactions"`
 
 	Version []Version `json:"_version"`
+	DocId   string    `json:"_docID"`
 }

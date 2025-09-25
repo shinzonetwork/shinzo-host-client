@@ -27,4 +27,5 @@ type Transaction struct {
 	AccessList           []AccessListEntry `json:"accessList"`
 
 	Version []Version `json:"_version"`
+	DocId   string    `json:"_docID"`
 }

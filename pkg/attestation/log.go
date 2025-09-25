@@ -14,4 +14,5 @@ type Log struct {
 	Transaction      Transaction `json:"transaction"`
 
 	Version []Version `json:"_version"`
+	DocId   string    `json:"_docID"`
 }
