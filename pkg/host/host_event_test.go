@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/file"
-	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/shinzohub"
+	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +38,7 @@ func TestHostHandlesViewRegisteredEvents(t *testing.T) {
 
 	// Create a test view
 	sdl := "type TestView { id: String }"
-	testView := views.View{
+	testView := view.View{
 		Name: "TestView",
 		Sdl:  &sdl,
 	}
@@ -87,9 +87,9 @@ func TestHostHandlesMultipleViewRegisteredEvents(t *testing.T) {
 	sdl2 := "type View2 { id: String }"
 	sdl3 := "type View3 { id: String }"
 	events := []*shinzohub.ViewRegisteredEvent{
-		{Key: "key1", Creator: "creator1", View: views.View{Name: "View1", Sdl: &sdl1}},
-		{Key: "key2", Creator: "creator2", View: views.View{Name: "View2", Sdl: &sdl2}},
-		{Key: "key3", Creator: "creator3", View: views.View{Name: "View3", Sdl: &sdl3}},
+		{Key: "key1", Creator: "creator1", View: view.View{Name: "View1", Sdl: &sdl1}},
+		{Key: "key2", Creator: "creator2", View: view.View{Name: "View2", Sdl: &sdl2}},
+		{Key: "key3", Creator: "creator3", View: view.View{Name: "View3", Sdl: &sdl3}},
 	}
 
 	for _, event := range events {

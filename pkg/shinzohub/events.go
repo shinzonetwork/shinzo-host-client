@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
-	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/host/pkg/view"
 )
 
 type RPCResponse struct {
@@ -176,7 +176,7 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 					registeredEvent.Creator = attr.Value
 				case "view":
 					// Parse the view JSON string into View struct
-					var view views.View
+					var view view.View
 					if err := json.Unmarshal([]byte(attr.Value), &view); err != nil {
 						fmt.Printf("Failed to parse view JSON: %v, value: %s\n", err, attr.Value)
 						continue

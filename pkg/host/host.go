@@ -8,9 +8,9 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/shinzohub"
+	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -25,7 +25,7 @@ var requiredPeers []string = []string{} // Here, we can consider adding any "big
 
 type Host struct {
 	DefraNode              *node.Node
-	HostedViews            []views.View // Todo I probably need to add some mutex to this as it is updated within threads
+	HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
 	webhookCleanupFunction func()
 	eventSubscription      shinzohub.EventSubscription
 }
@@ -55,7 +55,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	newHost := &Host{
 		DefraNode:              defraNode,
-		HostedViews:            []views.View{},
+		HostedViews:            []view.View{},
 		webhookCleanupFunction: func() {},
 		eventSubscription:      eventSub,
 	}

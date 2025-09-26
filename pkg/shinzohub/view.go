@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/host/pkg/view"
 )
 
 type ViewRegisteredEvent struct { // ViewRegisteredEvent implements ShinzoEvent interface
 	Key     string
 	Creator string
-	View    views.View
+	View    view.View
 }
 
 func (event *ViewRegisteredEvent) ToString() string {
@@ -18,7 +18,7 @@ func (event *ViewRegisteredEvent) ToString() string {
 }
 
 // ExtractNameFromSDL extracts the type name from the SDL string
-func ExtractNameFromSDL(view *views.View) {
+func ExtractNameFromSDL(view *view.View) {
 	if view.Sdl == nil {
 		view.Name = ""
 		return

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +44,7 @@ func TestEventSubscriptions(t *testing.T) {
 
 			query := "Log {address topics data transactionHash blockNumber}"
 			sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
-			expectedView := views.View{
+			expectedView := view.View{
 				Query:     &query,
 				Sdl:       &sdl,
 				Transform: models.Transform{},

@@ -1,12 +1,15 @@
 package view
 
-import "github.com/sourcenetwork/defradb/client"
+import (
+	"context"
 
-const ViewResource string = "view"
+	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/sourcenetwork/defradb/node"
+)
 
-type View struct {
-	Name       string
-	Lens       client.LensConfig
-	Parents    []Collection
-	Collection Collection
+type View views.View
+
+func (v *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
+	subscribeableView := views.View(*v)
+	return subscribeableView.SubscribeTo(ctx, defraNode)
 }
