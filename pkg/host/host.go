@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/shinzonetwork/host/config"
@@ -28,9 +27,14 @@ type Host struct {
 	DefraNode              *node.Node
 	HostedViews            []views.View // Todo I probably need to add some mutex to this as it is updated within threads
 	webhookCleanupFunction func()
+	eventSubscription      shinzohub.EventSubscription
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
+	return StartHostingWithEventSubscription(cfg, &shinzohub.RealEventSubscription{})
+}
+
+func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.EventSubscription) (*Host, error) {
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
@@ -39,7 +43,7 @@ func StartHosting(cfg *config.Config) (*Host, error) {
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
 	if err != nil {
-		return nil, fmt.Errorf("Error starting defra instance: %v", err)
+		return nil, fmt.Errorf("error starting defra instance: %v", err)
 	}
 
 	ctx := context.Background()
@@ -50,12 +54,14 @@ func StartHosting(cfg *config.Config) (*Host, error) {
 	}
 
 	newHost := &Host{
-		DefraNode:   defraNode,
-		HostedViews: []views.View{},
+		DefraNode:              defraNode,
+		HostedViews:            []views.View{},
+		webhookCleanupFunction: func() {},
+		eventSubscription:      eventSub,
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
-		cancel, channel, err := shinzohub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
+		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
 
 		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
 		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
@@ -66,7 +72,7 @@ func StartHosting(cfg *config.Config) (*Host, error) {
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("Error starting event subscription: %v", err)
+			return nil, fmt.Errorf("error starting event subscription: %v", err)
 		}
 	}
 
@@ -91,7 +97,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	query := `{ Block { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := appDefra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
+		_, err := defra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
 		if err == nil {
 			fmt.Println("Defra is responsive!")
 			return nil

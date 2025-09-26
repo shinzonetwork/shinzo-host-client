@@ -58,6 +58,11 @@ type ShinzoEvent interface {
 	ToString() string
 }
 
+// EventSubscription defines the interface for event subscriptions
+type EventSubscription interface {
+	StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error)
+}
+
 // StartEventSubscription starts the event subscription and returns a context for cancellation and event channel
 func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
