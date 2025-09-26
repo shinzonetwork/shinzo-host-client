@@ -30,7 +30,7 @@ func TestEventSubscriptions(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Send a transaction to trigger an event
-	sendSampleCurlRequest(t)
+	sendSampleCreateViewTransaction(t)
 
 	// Process events from the channel
 	timeout := time.After(10 * time.Second)
@@ -67,7 +67,7 @@ func TestEventSubscriptions(t *testing.T) {
 	}
 }
 
-func sendSampleCurlRequest(t *testing.T) {
+func sendSampleCreateViewTransaction(t *testing.T) {
 	url := expectedShinzoHubNodeUrl
 
 	requestBody := map[string]interface{}{
