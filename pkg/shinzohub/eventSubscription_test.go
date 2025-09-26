@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,11 +43,13 @@ func TestEventSubscriptions(t *testing.T) {
 			}
 			t.Logf("Received event: %s", event.ToString())
 
+			query := "Log {address topics data transactionHash blockNumber}"
+			sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
 			expectedView := views.View{
-				Query:  "Log {address topics data transactionHash blockNumber}",
-				Sdl:    "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
-				Lenses: nil,
-				Name:   "FilteredAndDecodedLogs",
+				Query:     &query,
+				Sdl:       &sdl,
+				Transform: models.Transform{},
+				Name:      "FilteredAndDecodedLogs",
 			}
 
 			// You can process the event here

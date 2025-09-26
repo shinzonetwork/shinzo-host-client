@@ -2318,8 +2318,12 @@ github.com/shinzonetwork/app-sdk v0.0.0-20250924184152-d97f4b5b7f2c h1:TsgKzB7jN
 github.com/shinzonetwork/app-sdk v0.0.0-20250924184152-d97f4b5b7f2c/go.mod h1:6URuVUDVYA0YW87rjaVT5vtvVk4hM0jUsviZ2HWK/ww=
 github.com/shinzonetwork/app-sdk v0.0.0-20250924190011-5d525a461699 h1:Kypu0UItKE6kZq37yFChBKRravgj7zs1ZroJUT1G39U=
 github.com/shinzonetwork/app-sdk v0.0.0-20250924190011-5d525a461699/go.mod h1:6URuVUDVYA0YW87rjaVT5vtvVk4hM0jUsviZ2HWK/ww=
+github.com/shinzonetwork/app-sdk v0.0.0-20250926141913-b70e6154bedf h1:unvK/AI1wKEa7/TSP629RWoy3IUOLHYO3N+N8OT018s=
+github.com/shinzonetwork/app-sdk v0.0.0-20250926141913-b70e6154bedf/go.mod h1:Vg6yKHpQycaqgKZLfTdd+5xQlbRpwJTM9siUAmKkAVs=
 github.com/shinzonetwork/indexer v0.0.0-20250916173149-b3964d6eb91c h1:NJZ+8fjI8F/eo7FjxSdcwgG1WNKEw7fI+B9rhD5SQM4=
 github.com/shinzonetwork/indexer v0.0.0-20250916173149-b3964d6eb91c/go.mod h1:oXDEJoqSbf0ze7L9+8rcxH9KLquJFIuPBVt32uOpg9g=
+github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec h1:+o6/UNVSABjHxYctVV//e5LJkskGiCRpHjl0Tnt3A6k=
+github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec/go.mod h1:ZQBTItczjnBe1GN7XGP3/zQEYyEWxAYlSRqK/g7aqWk=
 github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible h1:Bn1aCHHRnjv4Bl16T8rcaFjYSrGrIZvpiGO6P3Q4GpU=
 github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible/go.mod h1:5b4v6he4MtMOwMlS0TUMTu2PcXUg8+E1lC7eC3UO/RA=
 github.com/shirou/gopsutil/v3 v3.22.6/go.mod h1:EdIubSnZhbAvBS1yJ7Xi+AShB/hxwLHOMz4MCYz7yMs=

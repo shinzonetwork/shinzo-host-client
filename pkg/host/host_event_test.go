@@ -36,9 +36,10 @@ func TestHostHandlesViewRegisteredEvents(t *testing.T) {
 	assert.Empty(t, host.HostedViews, "Host should start with no hosted views")
 
 	// Create a test view
+	sdl := "type TestView { id: String }"
 	testView := views.View{
 		Name: "TestView",
-		Sdl:  "type TestView { id: String }",
+		Sdl:  &sdl,
 	}
 
 	// Create a ViewRegisteredEvent
@@ -81,10 +82,13 @@ func TestHostHandlesMultipleViewRegisteredEvents(t *testing.T) {
 	defer host.Close(context.Background())
 
 	// Send multiple events
+	sdl1 := "type View1 { id: String }"
+	sdl2 := "type View2 { id: String }"
+	sdl3 := "type View3 { id: String }"
 	events := []*shinzohub.ViewRegisteredEvent{
-		{Key: "key1", Creator: "creator1", View: views.View{Name: "View1", Sdl: "type View1 { id: String }"}},
-		{Key: "key2", Creator: "creator2", View: views.View{Name: "View2", Sdl: "type View2 { id: String }"}},
-		{Key: "key3", Creator: "creator3", View: views.View{Name: "View3", Sdl: "type View3 { id: String }"}},
+		{Key: "key1", Creator: "creator1", View: views.View{Name: "View1", Sdl: &sdl1}},
+		{Key: "key2", Creator: "creator2", View: views.View{Name: "View2", Sdl: &sdl2}},
+		{Key: "key3", Creator: "creator3", View: views.View{Name: "View3", Sdl: &sdl3}},
 	}
 
 	for _, event := range events {

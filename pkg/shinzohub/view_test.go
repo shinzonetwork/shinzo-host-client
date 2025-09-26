@@ -6,6 +6,7 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,7 +55,7 @@ func TestExtractNameFromSDL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			view := &views.View{Sdl: tt.sdl}
+			view := &views.View{Sdl: &tt.sdl}
 			ExtractNameFromSDL(view)
 
 			if view.Name != tt.expected {
@@ -65,11 +66,13 @@ func TestExtractNameFromSDL(t *testing.T) {
 }
 
 func TestSubscribeToView(t *testing.T) {
+	query := "Log {address topics data transactionHash blockNumber}"
+	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
 	testView := views.View{
-		Query:  "Log {address topics data transactionHash blockNumber}",
-		Sdl:    "type FilteredAndDecodedLogs {transactionHash: String}",
-		Lenses: nil,
-		Name:   "FilteredAndDecodedLogs",
+		Query:     &query,
+		Sdl:       &sdl,
+		Transform: models.Transform{},
+		Name:      "FilteredAndDecodedLogs",
 	}
 
 	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
@@ -79,11 +82,13 @@ func TestSubscribeToView(t *testing.T) {
 }
 
 func TestSubscribeToInvalidViewFails(t *testing.T) {
+	query := "Log {address topics data transactionHash blockNumber}"
+	sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
 	testView := views.View{
-		Query:  "Log {address topics data transactionHash blockNumber}",
-		Sdl:    "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
-		Lenses: nil,
-		Name:   "FilteredAndDecodedLogs",
+		Query:     &query,
+		Sdl:       &sdl,
+		Transform: models.Transform{},
+		Name:      "FilteredAndDecodedLogs",
 	}
 
 	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})

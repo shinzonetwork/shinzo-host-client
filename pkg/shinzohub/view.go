@@ -19,15 +19,19 @@ func (event *ViewRegisteredEvent) ToString() string {
 
 // ExtractNameFromSDL extracts the type name from the SDL string
 func ExtractNameFromSDL(view *views.View) {
+	if view.Sdl == nil {
+		view.Name = ""
+		return
+	}
 	// Look for pattern: type <Name> @...
 	re := regexp.MustCompile(`type\s+(\w+)\s+@`)
-	matches := re.FindStringSubmatch(view.Sdl)
+	matches := re.FindStringSubmatch(*view.Sdl)
 	if len(matches) > 1 {
 		view.Name = matches[1]
 	} else {
 		// Fallback: look for type <Name> { pattern
 		re = regexp.MustCompile(`type\s+(\w+)\s+{`)
-		matches = re.FindStringSubmatch(view.Sdl)
+		matches = re.FindStringSubmatch(*view.Sdl)
 		if len(matches) > 1 {
 			view.Name = matches[1]
 		}

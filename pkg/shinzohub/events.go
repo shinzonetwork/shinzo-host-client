@@ -187,7 +187,7 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 			}
 
 			// Only add if we have all required fields
-			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != "" {
+			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
 				registeredEvents = append(registeredEvents, registeredEvent)
 				fmt.Printf("Added Registered event: %+v\n", registeredEvent)
 			} else {

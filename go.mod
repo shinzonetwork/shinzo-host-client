@@ -6,7 +6,7 @@ toolchain go1.24.7
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/app-sdk v0.0.0-20250924190011-5d525a461699
+	github.com/shinzonetwork/app-sdk v0.0.0-20250926141913-b70e6154bedf
 	github.com/shinzonetwork/indexer v0.0.0-20250916173149-b3964d6eb91c
 	github.com/sourcenetwork/defradb v0.19.1-0.20250917180411-017277b0bfe4
 	github.com/stretchr/testify v1.10.0
@@ -326,6 +326,7 @@ require (
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
+	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
