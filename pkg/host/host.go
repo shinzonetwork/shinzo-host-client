@@ -8,6 +8,8 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/shinzohub"
 	"github.com/sourcenetwork/defradb/node"
@@ -23,13 +25,17 @@ var DefaultConfig *config.Config = &config.Config{
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
-	DefraNode *node.Node
+	DefraNode              *node.Node
+	HostedViews            []views.View // Todo I probably need to add some mutex to this as it is updated within threads
+	webhookCleanupFunction func()
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
+
+	logger.Init(true)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
 	if err != nil {
@@ -43,10 +49,22 @@ func StartHosting(cfg *config.Config) (*Host, error) {
 		return nil, err
 	}
 
+	newHost := &Host{
+		DefraNode:   defraNode,
+		HostedViews: []views.View{},
+	}
+
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
-		_, _, err = shinzohub.StartEventSubscription(cfg.Shinzo.WebSocketUrl) // Todo replace with below once host is doing something
-		// closeWebhookFunction, err := shinzohub.StartEventSubscription(cfg.ShinzoHub.RPCUrl)
-		// defer closeWebhookFunction()
+		cancel, channel, err := shinzohub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
+
+		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
+		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
+
+		newHost.webhookCleanupFunction = func() {
+			cancel()
+			cancelEventHandler()
+		}
+
 		if err != nil {
 			return nil, fmt.Errorf("Error starting event subscription: %v", err)
 		}
@@ -56,12 +74,11 @@ func StartHosting(cfg *config.Config) (*Host, error) {
 
 	// Todo process dataviews
 
-	return &Host{
-		DefraNode: defraNode,
-	}, nil
+	return newHost, nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
+	h.webhookCleanupFunction()
 	return h.DefraNode.Close(ctx)
 }
 
@@ -87,6 +104,31 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	}
 
 	return fmt.Errorf("DefraDB failed to become ready after %d retry attempts", maxAttempts)
+}
+
+func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohub.ShinzoEvent) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-channel:
+			if !ok {
+				return // Event channel closed
+			}
+
+			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
+				logger.Sugar.Debugf("Received new view: %+v", registeredEvent.View)
+				err := registeredEvent.View.SubscribeTo(context.Background(), h.DefraNode)
+				if err != nil {
+					logger.Sugar.Errorf("Failed to subscribe to view %+v: %v", registeredEvent.View, err)
+				} else {
+					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
+				}
+			} else {
+				logger.Sugar.Errorf("Received unknown event: %+v", event)
+			}
+		}
+	}
 }
 
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
