@@ -41,7 +41,6 @@ func TestEventSubscriptions(t *testing.T) {
 				t.Log("Event channel closed")
 				return
 			}
-			t.Logf("Received event: %s", event.ToString())
 
 			query := "Log {address topics data transactionHash blockNumber}"
 			sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
