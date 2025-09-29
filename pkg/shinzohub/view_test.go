@@ -51,6 +51,71 @@ func TestExtractNameFromSDL(t *testing.T) {
 			sdl:      "not a type definition",
 			expected: "",
 		},
+		{
+			name:     "SDL with complex directive",
+			sdl:      "type ComplexView @materialized(if: true) @index(unique: true) { id: String }",
+			expected: "ComplexView",
+		},
+		{
+			name:     "SDL with newlines and formatting",
+			sdl:      "type\n  MultiLineView\n  @materialized(if: false)\n  {\n    field: String\n  }",
+			expected: "MultiLineView",
+		},
+		{
+			name:     "SDL with tabs",
+			sdl:      "type\tTabbedView\t@index(unique: true)\t{\tname: String\t}",
+			expected: "TabbedView",
+		},
+		{
+			name:     "SDL with mixed case",
+			sdl:      "type MixedCaseView { field: String }",
+			expected: "MixedCaseView",
+		},
+		{
+			name:     "SDL with special characters in name",
+			sdl:      "type View$Special { field: String }",
+			expected: "", // $ is not a word character, so regex won't match
+		},
+		{
+			name:     "SDL with only type keyword",
+			sdl:      "type",
+			expected: "",
+		},
+		{
+			name:     "SDL with type but no name",
+			sdl:      "type { field: String }",
+			expected: "",
+		},
+		{
+			name:     "SDL with type and name but no braces",
+			sdl:      "type MyView",
+			expected: "",
+		},
+		{
+			name:     "SDL with multiple type definitions",
+			sdl:      "type FirstView { field: String } type SecondView { field: String }",
+			expected: "FirstView",
+		},
+		{
+			name:     "SDL with interface instead of type",
+			sdl:      "interface MyInterface { field: String }",
+			expected: "",
+		},
+		{
+			name:     "SDL with comment before type",
+			sdl:      "// This is a comment\ntype CommentedView { field: String }",
+			expected: "CommentedView",
+		},
+		{
+			name:     "SDL with whitespace only",
+			sdl:      "   \t\n   ",
+			expected: "",
+		},
+		{
+			name:     "SDL with type and directive but no braces",
+			sdl:      "type IncompleteView @materialized(if: false)",
+			expected: "IncompleteView",
+		},
 	}
 
 	for _, tt := range tests {
