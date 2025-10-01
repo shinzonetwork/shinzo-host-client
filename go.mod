@@ -6,9 +6,12 @@ toolchain go1.24.7
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/app-sdk v0.0.0-20250926141913-b70e6154bedf
-	github.com/shinzonetwork/indexer v0.0.0-20250916173149-b3964d6eb91c
+	github.com/shinzonetwork/app-sdk v0.0.0-20250929203738-4708e20c8226
+	github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e
+	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec
 	github.com/sourcenetwork/defradb v0.19.1-0.20250917180411-017277b0bfe4
+	github.com/sourcenetwork/immutable v0.3.0
+	github.com/sourcenetwork/lens/host-go v0.0.0-20250801172620-185c0b250e1a
 	github.com/stretchr/testify v1.10.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -326,7 +329,6 @@ require (
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
-	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
@@ -336,8 +338,6 @@ require (
 	github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 // indirect
 	github.com/sourcenetwork/goji v0.0.8 // indirect
 	github.com/sourcenetwork/graphql-go v0.7.10-0.20241003221550-224346887b4a // indirect
-	github.com/sourcenetwork/immutable v0.3.0 // indirect
-	github.com/sourcenetwork/lens/host-go v0.0.0-20250801172620-185c0b250e1a // indirect
 	github.com/sourcenetwork/raccoondb v0.2.1-0.20240722161350-d4a78b691ec8 // indirect
 	github.com/sourcenetwork/raccoondb/v2 v2.0.0 // indirect
 	github.com/sourcenetwork/sourcehub v0.2.1-0.20250310083845-94a8142548bf // indirect

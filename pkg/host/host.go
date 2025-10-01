@@ -19,6 +19,9 @@ var DefaultConfig *config.Config = &config.Config{
 		MinimumAttestations: 1,
 	},
 	ShinzoAppConfig: defra.DefaultConfig,
+	HostConfig: config.HostConfig{
+		LensRegistryPath: "./.lens",
+	},
 }
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
@@ -28,6 +31,7 @@ type Host struct {
 	HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
 	webhookCleanupFunction func()
 	eventSubscription      shinzohub.EventSubscription
+	LensRegistryPath       string
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -58,6 +62,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		HostedViews:            []view.View{},
 		webhookCleanupFunction: func() {},
 		eventSubscription:      eventSub,
+		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
