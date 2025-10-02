@@ -16,6 +16,7 @@ import (
 	"github.com/shinzonetwork/host/pkg/host"
 	"github.com/shinzonetwork/host/pkg/shinzohub"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
+	"github.com/sourcenetwork/defradb/client"
 	defraHTTP "github.com/sourcenetwork/defradb/http"
 	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
@@ -162,17 +163,67 @@ func TestHostCanApplyLenses(t *testing.T) {
 	err = hostedView.PostWasmToFile(ctx, testHost.LensRegistryPath)
 	require.NoError(t, err)
 
-	err = hostedView.ConfigureLens(ctx, hostDefra, "Log")
+	err = hostedView.ConfigureLens(ctx, hostDefra)
 	require.NoError(t, err, "Received unexpected error: %w", err)
 
 	receivedLogDocuments, err := defra.QueryArray[map[string]any](ctx, hostDefra, *hostedView.Query)
 	require.NoError(t, err)
 	require.Greater(t, len(receivedLogDocuments), 0)
 
+	// This lens filters for logs involving a specified address. Let's make sure we have at least one, inserting a dummy log if needed
+
+	// Count occurrences of the target address
+	targetAddress := "0x1e3aA9fE4Ef01D3cB3189c129a49E3C03126C636"
+	matchingLogCount := 0
+	for _, log := range receivedLogDocuments {
+		if address, ok := log["address"].(string); ok && address == targetAddress {
+			matchingLogCount++
+		}
+	}
+
+	// If no logs match the filter, create a dummy log with the target address
+	if matchingLogCount == 0 {
+		t.Logf("No logs found with target address %s, creating dummy log", targetAddress)
+
+		// Create a dummy log document with the target address
+		dummyLog := map[string]any{
+			"address":         targetAddress,
+			"blockNumber":     12345,
+			"data":            "0x0000000000000000000000000000000000000000000000000000000000000001",
+			"topics":          []string{"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"},
+			"transactionHash": "0xdummy123456789abcdef123456789abcdef123456789abcdef123456789abcdef12",
+		}
+
+		// Write the dummy log to the Log collection
+		logCollection, err := hostDefra.DB.GetCollectionByName(ctx, "Log")
+		require.NoError(t, err)
+
+		dummyDoc, err := client.NewDocFromMap(dummyLog, logCollection.Version())
+		require.NoError(t, err)
+
+		err = logCollection.Save(ctx, dummyDoc)
+		require.NoError(t, err)
+
+		// Re-query to get the updated log documents including our dummy
+		receivedLogDocuments, err = defra.QueryArray[map[string]any](ctx, hostDefra, *hostedView.Query)
+		require.NoError(t, err)
+		require.Greater(t, len(receivedLogDocuments), 0)
+
+		// Update the matching count
+		matchingLogCount = 0
+		for _, log := range receivedLogDocuments {
+			if address, ok := log["address"].(string); ok && address == targetAddress {
+				matchingLogCount++
+			}
+		}
+		require.Greater(t, matchingLogCount, 0, "Should have at least one log with target address after creating dummy")
+	}
+
+	t.Logf("Found %d logs matching target address %s", matchingLogCount, targetAddress)
+
 	transformedLogDocuments, err := hostedView.ApplyLensTransform(ctx, hostDefra, receivedLogDocuments)
 	require.NoError(t, err)
-	require.Greater(t, len(transformedLogDocuments), 0)
-	require.Equal(t, len(receivedLogDocuments), len(transformedLogDocuments))
+	require.Equal(t, matchingLogCount, len(transformedLogDocuments), "Transformed documents should match the number of logs with target address")
 
 	err = hostedView.WriteTransformedToCollection(ctx, hostDefra, transformedLogDocuments)
 	require.NoError(t, err)
@@ -181,4 +232,10 @@ func TestHostCanApplyLenses(t *testing.T) {
 	transformedLogs, err := defra.QueryArray[attestation.Log](ctx, hostDefra, query)
 	require.NoError(t, err)
 	require.Greater(t, len(transformedLogs), 0)
+	require.Equal(t, matchingLogCount, len(transformedLogs))
+
+	// Assert that each transformed log has a valid (non-empty) transaction hash
+	for i, log := range transformedLogs {
+		require.NotEmpty(t, log.TransactionHash, "Transformed log %d should have a non-empty transaction hash", i)
+	}
 }

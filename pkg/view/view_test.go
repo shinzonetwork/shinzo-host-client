@@ -165,7 +165,7 @@ func TestView_ConfigureLens_NoLenses(t *testing.T) {
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
-	err = view.ConfigureLens(context.Background(), defraNode, "test-collection")
+	err = view.ConfigureLens(context.Background(), defraNode)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "No lenses provided")
 }
@@ -251,7 +251,7 @@ func TestView_FullLensPipeline_WithRealData(t *testing.T) {
 	view := View(appView)
 
 	// Step 1: Test that ConfigureLens fails without lenses (expected behavior)
-	err = view.ConfigureLens(ctx, defraNode, "Log")
+	err = view.ConfigureLens(ctx, defraNode)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "No lenses provided")
 

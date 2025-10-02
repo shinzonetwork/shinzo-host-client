@@ -154,7 +154,7 @@ func (v *View) findOrCreateLensRegistryDir(registryPath string) (string, error) 
 	return dirPath, nil
 }
 
-func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, parentCollectionId string) error {
+func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node) error {
 	if len(v.Transform.Lenses) < 1 {
 		return fmt.Errorf("no lenses provided in view %+v", v)
 	}
@@ -171,7 +171,7 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, parentCo
 		Lenses: lenses,
 	}
 
-	err := defraNode.DB.LensRegistry().SetMigration(ctx, parentCollectionId, lensConfig)
+	err := defraNode.DB.LensRegistry().SetMigration(ctx, v.Name, lensConfig)
 	if err != nil {
 		return fmt.Errorf("error setting lens config: %v", err)
 	}
@@ -190,10 +190,16 @@ func (v *View) ApplyLensTransform(ctx context.Context, defraNode *node.Node, sou
 	// Convert back to slice
 	var result []map[string]any
 	err = enumerable.ForEach(transformed, func(item map[string]any) {
-		result = append(result, item)
+		if item != nil {
+			result = append(result, item)
+		}
 	})
 
-	return result, err
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate through transformed results: %w", err)
+	}
+
+	return result, nil
 }
 
 func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node.Node, transformedDocument []map[string]any) error {
