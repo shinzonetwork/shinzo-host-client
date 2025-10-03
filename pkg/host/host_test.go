@@ -114,12 +114,6 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	require.Greater(t, blockNumber, 100)
 
 	blockNumber, err = queryBlockNumber(ctx, hostDefra)
-	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
-
-	err = hostDefra.DB.AddP2PCollections(ctx, "Block")
-	require.NoError(t, err)
-
-	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
 		if err == nil {
 			break
@@ -202,12 +196,6 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 	// Schema is applied automatically by the app-sdk
 
 	blockNumber, err := queryBlockNumber(ctx, hostDefra)
-	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
-
-	err = hostDefra.DB.AddP2PCollections(ctx, "Block", "Transaction", "AccessListEntry", "Log")
-	require.NoError(t, err)
-
-	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
 		if err == nil {
 			break

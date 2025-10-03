@@ -45,7 +45,9 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	logger.Init(true)
 
-	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
+	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
+		&defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
 	}
