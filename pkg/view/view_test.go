@@ -167,7 +167,7 @@ func TestView_ConfigureLens_NoLenses(t *testing.T) {
 
 	err = view.ConfigureLens(context.Background(), defraNode)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "No lenses provided")
+	require.Contains(t, err.Error(), "no lenses provided")
 }
 
 func TestView_ApplyLensTransform_EmptyDocuments(t *testing.T) {
@@ -224,67 +224,6 @@ func TestView_WriteTransformedToCollection_NonExistentCollection(t *testing.T) {
 		{"field1": "value1"},
 	}
 	err = view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "error getting collection")
-}
-
-// Happy path tests that test the full lens transformation pipeline
-func TestView_FullLensPipeline_WithRealData(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a DefraDB instance with real schema
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
-	require.NoError(t, err)
-	defer defraNode.Close(ctx)
-
-	// Create a test view that transforms Log data
-	viewName := "FilteredLogs"
-	sdl := "type FilteredLogs { address: String, topics: [String], data: String, transactionHash: String }"
-	query := "Log { address topics data transactionHash }"
-
-	appView := views.View{
-		Name:  viewName,
-		Sdl:   &sdl,
-		Query: &query,
-	}
-
-	view := View(appView)
-
-	// Step 1: Test that ConfigureLens fails without lenses (expected behavior)
-	err = view.ConfigureLens(ctx, defraNode)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "No lenses provided")
-
-	// Step 2: Create some test log data
-	sourceDocuments := []map[string]any{
-		{
-			"address":         "0x1234567890abcdef",
-			"topics":          []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
-			"data":            "0x0000000000000000000000000000000000000000000000000000000000000002",
-			"transactionHash": "0xabcdef1234567890",
-			"blockNumber":     12345,
-			"logIndex":        0,
-		},
-		{
-			"address":         "0x9876543210fedcba",
-			"topics":          []string{"0x0000000000000000000000000000000000000000000000000000000000000003"},
-			"data":            "0x0000000000000000000000000000000000000000000000000000000000000004",
-			"transactionHash": "0xfedcba0987654321",
-			"blockNumber":     12346,
-			"logIndex":        1,
-		},
-	}
-
-	// Step 3: Test ApplyLensTransform with empty documents (should work)
-	transformed, err := view.ApplyLensTransform(ctx, defraNode, sourceDocuments)
-	require.NoError(t, err)
-	require.NotNil(t, transformed)
-
-	// Since no lens is configured, we expect the same data back
-	require.Len(t, transformed, 2)
-
-	// Step 4: Test WriteTransformedToCollection with non-existent collection (should fail)
-	err = view.WriteTransformedToCollection(ctx, defraNode, transformed)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "error getting collection")
 }

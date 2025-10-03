@@ -230,3 +230,7 @@ func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node
 
 	return nil
 }
+
+func (v *View) HasLenses() bool {
+	return len(v.Transform.Lenses) > 0
+}

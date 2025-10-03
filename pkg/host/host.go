@@ -129,9 +129,9 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
 				logger.Sugar.Debugf("Received new view: %+v", registeredEvent.View)
-				err := registeredEvent.View.SubscribeTo(context.Background(), h.DefraNode)
+				err := h.PrepareView(ctx, registeredEvent.View)
 				if err != nil {
-					logger.Sugar.Errorf("Failed to subscribe to view %+v: %v", registeredEvent.View, err)
+					logger.Sugar.Errorf("Failed to prepare view %+v: %v", registeredEvent.View, err)
 				} else {
 					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
 				}

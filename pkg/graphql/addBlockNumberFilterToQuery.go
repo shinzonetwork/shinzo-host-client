@@ -1,4 +1,4 @@
-package view
+package graphql
 
 import (
 	"fmt"
@@ -23,6 +23,7 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64) (string, err
 		return "", fmt.Errorf("unable to parse collection name from query: %s", query)
 	}
 
+	collectionName := matches[1]
 	openingBrace := matches[2]
 
 	// Check if there's already a filter
@@ -54,10 +55,20 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64) (string, err
 
 		// Add block number filter to existing filter
 		var newFilter string
-		if existingFilter == "" {
-			newFilter = fmt.Sprintf("blockNumber: { _gte: %d }", startingBlockNumber)
+		if collectionName == "Block" {
+			// For Block queries, blockNumber is a direct field
+			if existingFilter == "" {
+				newFilter = fmt.Sprintf("blockNumber: { _ge: %d }", startingBlockNumber)
+			} else {
+				newFilter = fmt.Sprintf("%s, blockNumber: { _ge: %d }", existingFilter, startingBlockNumber)
+			}
 		} else {
-			newFilter = fmt.Sprintf("%s, blockNumber: { _gte: %d }", existingFilter, startingBlockNumber)
+			// For other collections (Log, Transaction), filter directly on blockNumber field
+			if existingFilter == "" {
+				newFilter = fmt.Sprintf("blockNumber: { _ge: %d }", startingBlockNumber)
+			} else {
+				newFilter = fmt.Sprintf("%s, blockNumber: { _ge: %d }", existingFilter, startingBlockNumber)
+			}
 		}
 
 		// Reconstruct the query
@@ -76,7 +87,15 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64) (string, err
 		beforeBrace := trimmed[:braceStart]
 		afterBrace := trimmed[braceStart:]
 
-		filter := fmt.Sprintf("(filter: { blockNumber: { _gte: %d } })", startingBlockNumber)
+		// Create filter based on collection type
+		var filter string
+		if collectionName == "Block" {
+			// For Block queries, blockNumber is a direct field
+			filter = fmt.Sprintf("(filter: { blockNumber: { _ge: %d } })", startingBlockNumber)
+		} else {
+			// For other collections (Log, Transaction), filter directly on blockNumber field
+			filter = fmt.Sprintf("(filter: { blockNumber: { _ge: %d } })", startingBlockNumber)
+		}
 		return beforeBrace + filter + afterBrace, nil
 	}
 }
