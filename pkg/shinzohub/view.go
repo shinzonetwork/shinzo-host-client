@@ -14,7 +14,7 @@ type ViewRegisteredEvent struct { // ViewRegisteredEvent implements ShinzoEvent 
 }
 
 func (event *ViewRegisteredEvent) ToString() string {
-	return fmt.Sprintf("(Key: %s, Creator: %s, View: %+v)", event.Key, event.Creator, event.View)
+	return fmt.Sprintf("(Key: %s, Creator: %s, View: %s)", event.Key, event.Creator, event.View.Name)
 }
 
 // ExtractNameFromSDL extracts the type name from the SDL string

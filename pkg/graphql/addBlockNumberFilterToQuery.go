@@ -8,7 +8,7 @@ import (
 
 // AddBlockNumberFilter adds a block number filter to a GraphQL query
 // It ensures that only results from block numbers greater than startingBlockNumber are returned
-func AddBlockNumberFilter(query string, startingBlockNumber uint64) (string, error) {
+func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockNumber uint64) (string, error) {
 	if query == "" {
 		return "", fmt.Errorf("query cannot be empty")
 	}
@@ -56,18 +56,25 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64) (string, err
 		// Add block number filter to existing filter
 		var newFilter string
 		if collectionName == "Block" {
-			// For Block queries, blockNumber is a direct field
+			// For Block queries, number is the correct field
 			if existingFilter == "" {
-				newFilter = fmt.Sprintf("blockNumber: { _ge: %d }", startingBlockNumber)
+				newFilter = fmt.Sprintf("_and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]", startingBlockNumber, endingBlockNumber)
 			} else {
-				newFilter = fmt.Sprintf("%s, blockNumber: { _ge: %d }", existingFilter, startingBlockNumber)
+				newFilter = fmt.Sprintf("%s, _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
+			}
+		} else if collectionName == "AccessListEntry" {
+			// For AccessListEntry queries, block number is within transaction
+			if existingFilter == "" {
+				newFilter = fmt.Sprintf("_and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]", startingBlockNumber, endingBlockNumber)
+			} else {
+				newFilter = fmt.Sprintf("%s, _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
 			}
 		} else {
-			// For other collections (Log, Transaction), filter directly on blockNumber field
+			// For other collections (Log, Transaction) filter on blockNumber field
 			if existingFilter == "" {
-				newFilter = fmt.Sprintf("blockNumber: { _ge: %d }", startingBlockNumber)
+				newFilter = fmt.Sprintf("_and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ]", startingBlockNumber, endingBlockNumber)
 			} else {
-				newFilter = fmt.Sprintf("%s, blockNumber: { _ge: %d }", existingFilter, startingBlockNumber)
+				newFilter = fmt.Sprintf("%s, _and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
 			}
 		}
 
@@ -90,11 +97,14 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64) (string, err
 		// Create filter based on collection type
 		var filter string
 		if collectionName == "Block" {
-			// For Block queries, blockNumber is a direct field
-			filter = fmt.Sprintf("(filter: { blockNumber: { _ge: %d } })", startingBlockNumber)
+			// For Block queries, number is a direct field
+			filter = fmt.Sprintf("(filter: { _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ] })", startingBlockNumber, endingBlockNumber)
+		} else if collectionName == "AccessListEntry" {
+			// For AccessListEntry queries, block number is within transaction
+			filter = fmt.Sprintf("(filter: { _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ] })", startingBlockNumber, endingBlockNumber)
 		} else {
 			// For other collections (Log, Transaction), filter directly on blockNumber field
-			filter = fmt.Sprintf("(filter: { blockNumber: { _ge: %d } })", startingBlockNumber)
+			filter = fmt.Sprintf("(filter: { _and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ] })", startingBlockNumber, endingBlockNumber)
 		}
 		return beforeBrace + filter + afterBrace, nil
 	}

@@ -155,6 +155,7 @@ func TestHostHandlesRealLensEventFromFile(t *testing.T) {
 	}
 	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	testConfig.HostConfig.LensRegistryPath = t.TempDir()
 
 	// Start hosting with the mock
 	host, err := StartHostingWithEventSubscription(testConfig, mockEventSub)

@@ -30,8 +30,8 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 	return nil
 }
 
-func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64) error {
-	query, err := graphql.AddBlockNumberFilter(*v.Query, startingBlockNumber)
+func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64, endingBlockNumber uint64) error {
+	query, err := graphql.AddBlockNumberFilter(*v.Query, startingBlockNumber, endingBlockNumber)
 	if err != nil {
 		return fmt.Errorf("Error assembling query: %w", err)
 	}
@@ -45,7 +45,7 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	if v.HasLenses() {
 		transformedDocuments, err = v.ApplyLensTransform(ctx, h.DefraNode, sourceDocuments)
 		if err != nil {
-			return fmt.Errorf("Error applying lens transforms from view %+v: %w", v, err)
+			return fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
 		}
 	} else {
 		transformedDocuments = sourceDocuments

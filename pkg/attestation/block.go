@@ -2,7 +2,7 @@ package attestation
 
 type Block struct {
 	Hash             string        `json:"hash"`
-	Number           int           `json:"number"`
+	Number           uint64        `json:"number"`
 	Timestamp        string        `json:"timestamp"`
 	ParentHash       string        `json:"parentHash"`
 	Difficulty       string        `json:"difficulty"`
@@ -10,7 +10,7 @@ type Block struct {
 	GasUsed          string        `json:"gasUsed"`
 	GasLimit         string        `json:"gasLimit"`
 	BaseFeePerGas    string        `json:"baseFeePerGas"`
-	Nonce            int           `json:"nonce"`
+	Nonce            uint64        `json:"nonce"`
 	Miner            string        `json:"miner"`
 	Size             string        `json:"size"`
 	StateRoot        string        `json:"stateRoot"`

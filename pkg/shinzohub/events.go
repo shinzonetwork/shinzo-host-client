@@ -130,8 +130,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					continue
 				}
 
-				fmt.Printf("Parsed: %+v\n", msg)
-
 				// Look for Registered events and send them to the channel
 				registeredEvents := extractRegisteredEvents(msg)
 				for _, event := range registeredEvents {
@@ -189,7 +187,6 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 			// Only add if we have all required fields
 			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
 				registeredEvents = append(registeredEvents, registeredEvent)
-				fmt.Printf("Added Registered event: %+v\n", registeredEvent)
 			} else {
 				fmt.Printf("Incomplete Registered event: %+v\n", registeredEvent)
 			}

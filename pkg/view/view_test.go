@@ -81,12 +81,6 @@ func (m *MockEventSubscription) ProcessEvent(host *MockHost, event string) {
 	}
 
 	if err := json.Unmarshal([]byte(event), &eventData); err == nil {
-		// Debug: Log the parsed event data
-		fmt.Printf("Parsed event data: %+v\n", eventData)
-		fmt.Printf("View name: '%s'\n", eventData.Data.Name)
-		fmt.Printf("View SDL: '%s'\n", eventData.Data.SDL)
-		fmt.Printf("View Query: '%s'\n", eventData.Data.Query)
-
 		// Create the view with lens data
 		view := views.View{
 			Name:  eventData.Data.Name,

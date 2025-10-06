@@ -10,6 +10,7 @@ import (
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/shinzohub"
+	"github.com/shinzonetwork/host/pkg/stack"
 	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -32,6 +33,11 @@ type Host struct {
 	webhookCleanupFunction func()
 	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
+	processingCancel       context.CancelFunc // For canceling the block processing goroutine
+
+	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
+	attestationProcessedBlocks *stack.Stack[uint64]
+	viewProcessedBlocks        map[string]*stack.Stack[uint64] // The block numbers processed mapped to their respective view name
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -60,11 +66,14 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	newHost := &Host{
-		DefraNode:              defraNode,
-		HostedViews:            []view.View{},
-		webhookCleanupFunction: func() {},
-		eventSubscription:      eventSub,
-		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
+		DefraNode:                  defraNode,
+		HostedViews:                []view.View{},
+		webhookCleanupFunction:     func() {},
+		eventSubscription:          eventSub,
+		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
+		processingCancel:           func() {},
+		attestationProcessedBlocks: stack.New[uint64](),
+		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
@@ -83,15 +92,17 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		}
 	}
 
-	// Todo connect to the indexers and sync primitives
-
-	// Todo process dataviews
+	// Start the block processing goroutine
+	processingCtx, processingCancel := context.WithCancel(context.Background())
+	newHost.processingCancel = processingCancel
+	go newHost.processAllViews(processingCtx)
 
 	return newHost, nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
+	h.processingCancel() // Stop the block processing goroutine
 	return h.DefraNode.Close(ctx)
 }
 
@@ -130,12 +141,13 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 			}
 
 			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
-				logger.Sugar.Debugf("Received new view: %+v", registeredEvent.View)
+				logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
 				err := h.PrepareView(ctx, registeredEvent.View)
 				if err != nil {
-					logger.Sugar.Errorf("Failed to prepare view %+v: %v", registeredEvent.View, err)
+					logger.Sugar.Errorf("Failed to prepare view: %v", err)
 				} else {
 					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
+					h.viewProcessedBlocks[registeredEvent.View.Name] = &stack.Stack[uint64]{}
 				}
 			} else {
 				logger.Sugar.Errorf("Received unknown event: %+v", event)

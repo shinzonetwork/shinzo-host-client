@@ -46,7 +46,7 @@ func TestStartHosting(t *testing.T) {
 	myHost.Close(context.Background())
 }
 
-func queryBlockNumber(ctx context.Context, defraNode *node.Node) (int, error) {
+func queryBlockNumber(ctx context.Context, defraNode *node.Node) (uint64, error) {
 	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
 
 	block, err := defra.QuerySingle[attestation.Block](ctx, defraNode, query)
@@ -111,7 +111,7 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 
 	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
 	require.NoError(t, err)
-	require.Greater(t, blockNumber, 100)
+	require.Greater(t, blockNumber, uint64(100))
 
 	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
@@ -123,7 +123,7 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 		blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	}
 	require.NoError(t, err) // We should now have the block number on the Host
-	require.Greater(t, blockNumber, 100)
+	require.Greater(t, blockNumber, uint64(100))
 }
 
 // Todo need to fix indexer, currently can only have one writing at a time on a system
@@ -178,7 +178,7 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 
 		blockNumber, err := queryBlockNumber(ctx, indexerDefras[index])
 		require.NoError(t, err)
-		require.Greater(t, blockNumber, 100)
+		require.Greater(t, blockNumber, uint64(100))
 	}
 
 	ctx := context.Background()
@@ -205,7 +205,7 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 		blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	}
 	require.NoError(t, err) // We should now have the block number on the Host
-	require.Greater(t, blockNumber, 100)
+	require.Greater(t, blockNumber, uint64(100))
 
 	result, err := appDefra.QueryArray[attestation.Block](ctx, hostDefra, getAllBlocksQuery)
 	require.NoError(t, err)
