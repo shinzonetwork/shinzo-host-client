@@ -40,6 +40,9 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	if err != nil {
 		return fmt.Errorf("Error fetching source data with query %s: %w", query, err)
 	}
+	if len(sourceDocuments) == 0 {
+		return fmt.Errorf("No source data found using query %s", query)
+	}
 
 	var transformedDocuments []map[string]any
 	if v.HasLenses() {

@@ -2,15 +2,10 @@ package host
 
 import (
 	"fmt"
-	"os"
 	"testing"
-	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/file"
-	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
 	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/client"
@@ -110,7 +105,7 @@ func TestApplyViewWithoutLenses_StartingBlockPastWhatWeHaveDataFor(t *testing.T)
 	require.Greater(t, len(dataBefore), 0)
 
 	err = host.ApplyView(t.Context(), testView, 9999999, 99999999)
-	require.NoError(t, err)
+	require.Error(t, err)
 
 	dataWritten, err := defra.QueryArray[attestation.Log](t.Context(), host.DefraNode, fmt.Sprintf("%s {transactionHash}", testView.Name))
 	require.NoError(t, err)
@@ -118,7 +113,7 @@ func TestApplyViewWithoutLenses_StartingBlockPastWhatWeHaveDataFor(t *testing.T)
 }
 
 func TestApplyViewWithLens(t *testing.T) {
-	testHost := createHostWithLensEventReceived(t)
+	testHost := CreateHostWithLensEventReceived(t)
 	defer testHost.Close(t.Context())
 
 	postDummyLog(t, testHost.DefraNode, "0x1e3aA9fE4Ef01D3cB3189c129a49E3C03126C636")
@@ -135,41 +130,4 @@ func TestApplyViewWithLens(t *testing.T) {
 	require.NoError(t, err)
 	require.Less(t, len(dataWritten), len(dataBefore)) // One log should've been filtered out
 	require.Len(t, dataWritten, 1)
-}
-
-func createHostWithLensEventReceived(t *testing.T) *Host {
-	mockEventSub := shinzohub.NewMockEventSubscription()
-
-	testHostConfig := &config.Config{
-		Shinzo: config.ShinzoConfig{
-			MinimumAttestations: 1,
-			WebSocketUrl:        "ws://dummy-url",
-		},
-		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
-		HostConfig: config.HostConfig{
-			LensRegistryPath: t.TempDir(),
-		},
-	}
-	testHostConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
-	testHostConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
-
-	testHost, err := StartHostingWithEventSubscription(testHostConfig, mockEventSub)
-	require.NoError(t, err)
-
-	var rawJSON []byte
-	path, err := file.FindFile("../host/viewWithLensEvent.txt")
-	require.NoError(t, err)
-	rawJSON, err = os.ReadFile(path)
-	require.NoError(t, err, "Failed to read viewWithLensEvent.txt from any of the attempted paths")
-
-	// Send the raw JSON message as if it came from the WebSocket
-	err = mockEventSub.SendRawJSONMessage(string(rawJSON))
-	require.NoError(t, err, "Failed to process raw JSON message")
-
-	// Wait a bit for the event to be processed
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify the host processed the event
-	require.Len(t, testHost.HostedViews, 1, "Host should have one hosted view after receiving event")
-	return testHost
 }

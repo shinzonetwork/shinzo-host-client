@@ -19,7 +19,7 @@ import (
 
 func TestBlockProcessingWithLens(t *testing.T) {
 	// Create a host with lens event
-	testHost := createHostWithLensEventReceived(t)
+	testHost := CreateHostWithLensEventReceived(t)
 	defer testHost.Close(t.Context())
 
 	// Wait a bit for the host to initialize
@@ -280,7 +280,7 @@ func TestBlockProcessingMultipleViews(t *testing.T) {
 
 func TestBlockProcessingWithGaps(t *testing.T) {
 	// Test processing when there are gaps in block numbers
-	testHost := createHostWithLensEventReceived(t)
+	testHost := CreateHostWithLensEventReceived(t)
 	defer testHost.Close(t.Context())
 
 	time.Sleep(100 * time.Millisecond)

@@ -164,7 +164,7 @@ func TestHostHandlesRealLensEventFromFile(t *testing.T) {
 
 	// Read event json from file
 	var rawJSON []byte
-	path, err := file.FindFile("viewWithLensEvent.txt")
+	path, err := file.FindFile("../tests/viewWithLensEvent.txt")
 	require.NoError(t, err)
 	rawJSON, err = os.ReadFile(path)
 	require.NoError(t, err, "Failed to read viewWithLensEvent.txt from any of the attempted paths")
