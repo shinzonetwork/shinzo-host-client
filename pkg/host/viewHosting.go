@@ -3,8 +3,10 @@ package host
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/shinzonetwork/host/pkg/graphql"
 	"github.com/shinzonetwork/host/pkg/view"
 )
@@ -12,7 +14,11 @@ import (
 func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 	err := v.SubscribeTo(ctx, h.DefraNode)
 	if err != nil {
-		return fmt.Errorf("Error subscribing to view %+v: %w", v, err)
+		if strings.Contains(err.Error(), "collection already exists") {
+			logger.Sugar.Warnf("Error subscribing to view %+v: %w", v, err)
+		} else {
+			return fmt.Errorf("Error subscribing to view %+v: %w", v, err)
+		}
 	}
 
 	if v.HasLenses() {

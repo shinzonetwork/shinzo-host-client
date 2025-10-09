@@ -2322,6 +2322,8 @@ github.com/shinzonetwork/app-sdk v0.0.0-20251006161030-232226eae093 h1:9afMTVClN
 github.com/shinzonetwork/app-sdk v0.0.0-20251006161030-232226eae093/go.mod h1:Vg6yKHpQycaqgKZLfTdd+5xQlbRpwJTM9siUAmKkAVs=
 github.com/shinzonetwork/app-sdk v0.0.0-20251006173201-846eaf9d2143 h1:jlm3QRrBus7N2KgdoR0NkzT1F6gpW+XfeEbf5M7WQB8=
 github.com/shinzonetwork/app-sdk v0.0.0-20251006173201-846eaf9d2143/go.mod h1:Vg6yKHpQycaqgKZLfTdd+5xQlbRpwJTM9siUAmKkAVs=
+github.com/shinzonetwork/app-sdk v0.0.0-20251008150512-a3fa3efe5a39 h1:qnpH0pJ/8JRV/4tIbBT9qfWjGzdxhZ/qy4uK2zGuW/s=
+github.com/shinzonetwork/app-sdk v0.0.0-20251008150512-a3fa3efe5a39/go.mod h1:Vg6yKHpQycaqgKZLfTdd+5xQlbRpwJTM9siUAmKkAVs=
 github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e h1:2Cvc6C1a5Rcw7bWbs/7jhmwFM4b/1En7MsZg/IGeWn4=
 github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e/go.mod h1:oXDEJoqSbf0ze7L9+8rcxH9KLquJFIuPBVt32uOpg9g=
 github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec h1:+o6/UNVSABjHxYctVV//e5LJkskGiCRpHjl0Tnt3A6k=
