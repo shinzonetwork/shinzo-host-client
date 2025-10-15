@@ -3,113 +3,162 @@ package host
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
+	"testing"
+	"time"
 
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/indexer/pkg/defra"
-	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/shinzonetwork/host/pkg/shinzohub"
+	"github.com/shinzonetwork/host/pkg/stack"
+	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-var defaultConfig *config.Config = &config.Config{
-	DefraDB: config.DefraDBConfig{
-		Url:           "http://localhost:9181",
-		KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
-		P2P: config.DefraP2PConfig{
-			BootstrapPeers: requiredPeers,
-			ListenAddr:     defaultListenAddress,
-		},
-		Store: config.DefraStoreConfig{
-			Path: "./.defra",
-		},
+var DefaultConfig *config.Config = &config.Config{
+	Shinzo: config.ShinzoConfig{
+		MinimumAttestations: 1,
 	},
-	ShinzoHub: config.ShinzoHubConfig{
-		RPCUrl: defaultShinzoHubRpcUrl,
-	},
-	Logger: config.LoggerConfig{
-		Development: false,
+	ShinzoAppConfig: defra.DefaultConfig,
+	HostConfig: config.HostConfig{
+		LensRegistryPath: "./.lens",
 	},
 }
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
-const defaultListenAddress string = ""
-const defaultShinzoHubRpcUrl string = ""
+type Host struct {
+	DefraNode              *node.Node
+	HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
+	webhookCleanupFunction func()
+	eventSubscription      shinzohub.EventSubscription
+	LensRegistryPath       string
+	processingCancel       context.CancelFunc // For canceling the block processing goroutine
 
-func StartHosting(defraStarted bool, cfg *config.Config) error {
-	ctx := context.Background()
-
-	if cfg == nil {
-		cfg = defaultConfig
-	}
-	cfg.DefraDB.P2P.BootstrapPeers = append(cfg.DefraDB.P2P.BootstrapPeers, requiredPeers...)
-
-	logger.Init(cfg.Logger.Development)
-
-	if !defraStarted {
-		options := []node.Option{
-			node.WithDisableAPI(false),
-			node.WithDisableP2P(false),
-			node.WithStorePath(cfg.DefraDB.Store.Path),
-		}
-		defraNode, err := node.New(ctx, options...)
-		if err != nil {
-			return fmt.Errorf("Failed to create defra node %v: ", err)
-		}
-
-		err = defraNode.Start(ctx)
-		if err != nil {
-			return fmt.Errorf("Failed to start defra node %v: ", err)
-		}
-		defer defraNode.Close(ctx)
-
-		err = applySchema(ctx, defraNode)
-		if err != nil && !strings.HasPrefix(err.Error(), "collection already exists") { // Todo we are swallowing this error for now, but we should investigate how we update the schemas - do we need to not swallow this error?
-			return fmt.Errorf("Failed to apply schema to defra node: %v", err)
-		}
-	}
-
-	err := defra.WaitForDefraDB(cfg.DefraDB.Url)
-	if err != nil {
-		return err
-	}
-	// Todo connect to the indexers and sync primitives
-
-	// Todo process dataviews
-
-	return nil
+	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
+	attestationProcessedBlocks *stack.Stack[uint64]
+	viewProcessedBlocks        map[string]*stack.Stack[uint64] // The block numbers processed mapped to their respective view name
 }
 
-// Todo - we'll have to update this to include the policy id (which we should get back from ShinzoHub during registration)
-func applySchema(ctx context.Context, defraNode *node.Node) error {
-	logger.Sugar.Debug("Applying schema...")
+func StartHosting(cfg *config.Config) (*Host, error) {
+	return StartHostingWithEventSubscription(cfg, &shinzohub.RealEventSubscription{})
+}
 
-	// Try different possible paths for the schema file
-	possiblePaths := []string{
-		"schema/schema.graphql",       // From project root
-		"../schema/schema.graphql",    // From bin/ directory
-		"../../schema/schema.graphql", // From pkg/host/ directory - test context
+func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.EventSubscription) (*Host, error) {
+	if cfg == nil {
+		cfg = DefaultConfig
 	}
 
-	var schemaPath string
-	var err error
-	for _, path := range possiblePaths {
-		if _, err = os.Stat(path); err == nil {
-			schemaPath = path
-			break
+	logger.Init(true)
+
+	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
+		&defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		"Block", "Transaction", "AccessListEntry", "Log")
+	if err != nil {
+		return nil, fmt.Errorf("error starting defra instance: %v", err)
+	}
+
+	ctx := context.Background()
+
+	err = waitForDefraDB(ctx, defraNode)
+	if err != nil {
+		return nil, err
+	}
+
+	newHost := &Host{
+		DefraNode:                  defraNode,
+		HostedViews:                []view.View{},
+		webhookCleanupFunction:     func() {},
+		eventSubscription:          eventSub,
+		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
+		processingCancel:           func() {},
+		attestationProcessedBlocks: stack.New[uint64](),
+		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
+	}
+
+	if len(cfg.Shinzo.WebSocketUrl) > 0 {
+		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
+
+		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
+		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
+
+		newHost.webhookCleanupFunction = func() {
+			cancel()
+			cancelEventHandler()
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("error starting event subscription: %v", err)
 		}
 	}
 
-	if schemaPath == "" {
-		return fmt.Errorf("Failed to find schema file in any of the expected locations: %v", possiblePaths)
+	// Start the block processing goroutine
+	processingCtx, processingCancel := context.WithCancel(context.Background())
+	newHost.processingCancel = processingCancel
+	go newHost.processAllViews(processingCtx)
+
+	return newHost, nil
+}
+
+func (h *Host) Close(ctx context.Context) error {
+	h.webhookCleanupFunction()
+	h.processingCancel() // Stop the block processing goroutine
+	return h.DefraNode.Close(ctx)
+}
+
+// waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle
+func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
+	fmt.Println("Waiting for defra...")
+	maxAttempts := 30
+
+	// Simple query to check if the schema is ready
+	query := `{ Block { __typename } }`
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		_, err := defra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
+		if err == nil {
+			fmt.Println("Defra is responsive!")
+			return nil
+		}
+
+		if attempt < maxAttempts {
+			fmt.Printf("Attempt %d failed... Trying again\n", attempt)
+			time.Sleep(1 * time.Second)
+		}
 	}
 
-	schema, err := os.ReadFile(schemaPath)
-	if err != nil {
-		return fmt.Errorf("Failed to read schema file: %v", err)
-	}
+	return fmt.Errorf("DefraDB failed to become ready after %d retry attempts", maxAttempts)
+}
 
-	_, err = defraNode.DB.AddSchema(ctx, string(schema))
-	return err
+func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohub.ShinzoEvent) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-channel:
+			if !ok {
+				return // Event channel closed
+			}
+
+			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
+				logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
+				err := h.PrepareView(ctx, registeredEvent.View)
+				if err != nil {
+					logger.Sugar.Errorf("Failed to prepare view: %v", err)
+				} else {
+					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
+					h.viewProcessedBlocks[registeredEvent.View.Name] = &stack.Stack[uint64]{}
+				}
+			} else {
+				logger.Sugar.Errorf("Received unknown event: %+v", event)
+			}
+		}
+	}
+}
+
+func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
+	testConfig := DefaultConfig
+	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	return StartHosting(testConfig)
 }
