@@ -207,7 +207,7 @@ func TestHostReplicateFromMultipleIndexers(t *testing.T) {
 	require.NoError(t, err) // We should now have the block number on the Host
 	require.Greater(t, blockNumber, uint64(100))
 
-	result, err := appDefra.QueryArray[attestation.Block](ctx, hostDefra, getAllBlocksQuery)
+	result, err := appDefra.QueryArray[attestation.Block](ctx, hostDefra, getTenBlocksQuery)
 	require.NoError(t, err)
 	t.Log(result)
 }

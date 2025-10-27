@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var getAllBlocksQuery string = `query GetAll{
+var getTenBlocksQuery string = `query GetAll{
   Block(limit:10){
     number
 	hash
