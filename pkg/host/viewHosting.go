@@ -7,12 +7,22 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/host/pkg/attestation"
 	"github.com/shinzonetwork/host/pkg/graphql"
 	"github.com/shinzonetwork/host/pkg/view"
 )
 
 func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 	err := v.SubscribeTo(ctx, h.DefraNode)
+	if err != nil {
+		if strings.Contains(err.Error(), "collection already exists") {
+			logger.Sugar.Warnf("Error subscribing to view %+v: %w", v, err)
+		} else {
+			return fmt.Errorf("Error subscribing to view %+v: %w", v, err)
+		}
+	}
+
+	err = attestation.AddAttestationRecordCollection(ctx, h.DefraNode, &v)
 	if err != nil {
 		if strings.Contains(err.Error(), "collection already exists") {
 			logger.Sugar.Warnf("Error subscribing to view %+v: %w", v, err)
