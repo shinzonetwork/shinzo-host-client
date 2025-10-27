@@ -7,6 +7,8 @@ require (
 	github.com/shinzonetwork/app-sdk v0.0.0-20251015144607-261f4185e08b
 	github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e
 	github.com/sourcenetwork/defradb v0.19.1-0.20250917180411-017277b0bfe4
+	github.com/sourcenetwork/immutable v0.3.0
+	github.com/sourcenetwork/lens/host-go v0.0.0-20250801172620-185c0b250e1a
 	github.com/stretchr/testify v1.10.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -45,7 +47,6 @@ require (
 	github.com/Jorropo/jsync v1.0.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/NathanBaulch/protoc-gen-cobra v1.2.1 // indirect
-	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/awalterschulze/gographviz v2.0.3+incompatible // indirect
@@ -100,7 +101,6 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
-	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/desertbit/timer v1.0.1 // indirect
 	github.com/dgraph-io/badger/v4 v4.7.0 // indirect
@@ -138,7 +138,6 @@ require (
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
@@ -324,7 +323,7 @@ require (
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
-	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
+	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/sourcenetwork/acp_core v0.4.1 // indirect
@@ -333,8 +332,6 @@ require (
 	github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 // indirect
 	github.com/sourcenetwork/goji v0.0.8 // indirect
 	github.com/sourcenetwork/graphql-go v0.7.10-0.20241003221550-224346887b4a // indirect
-	github.com/sourcenetwork/immutable v0.3.0 // indirect
-	github.com/sourcenetwork/lens/host-go v0.0.0-20250801172620-185c0b250e1a // indirect
 	github.com/sourcenetwork/raccoondb v0.2.1-0.20240722161350-d4a78b691ec8 // indirect
 	github.com/sourcenetwork/raccoondb/v2 v2.0.0 // indirect
 	github.com/sourcenetwork/sourcehub v0.2.1-0.20250310083845-94a8142548bf // indirect
@@ -354,8 +351,6 @@ require (
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/textileio/go-log/v2 v2.1.3-gke-2 // indirect
 	github.com/tidwall/btree v1.7.0 // indirect
-	github.com/tklauser/go-sysconf v0.3.12 // indirect
-	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ulikunitz/xz v0.5.14 // indirect
 	github.com/valyala/fastjson v1.6.4 // indirect
