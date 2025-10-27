@@ -53,28 +53,33 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockN
 		existingFilter := trimmed[filterStart+1 : filterEnd]
 		existingFilter = strings.TrimSpace(existingFilter)
 
-		// Add block number filter to existing filter
+		// Add block number filter to existing filter with order parameter
 		var newFilter string
+		var orderParam string
+		
 		if collectionName == "Block" {
 			// For Block queries, number is the correct field
+			orderParam = ", order: { number: DESC }"
 			if existingFilter == "" {
-				newFilter = fmt.Sprintf("_and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]", startingBlockNumber, endingBlockNumber)
+				newFilter = fmt.Sprintf("_and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]%s", startingBlockNumber, endingBlockNumber, orderParam)
 			} else {
-				newFilter = fmt.Sprintf("%s, _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
+				newFilter = fmt.Sprintf("%s, _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]%s", existingFilter, startingBlockNumber, endingBlockNumber, orderParam)
 			}
 		} else if collectionName == "AccessListEntry" {
 			// For AccessListEntry queries, block number is within transaction
+			orderParam = ", order: { transaction: { blockNumber: DESC } }"
 			if existingFilter == "" {
-				newFilter = fmt.Sprintf("_and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]", startingBlockNumber, endingBlockNumber)
+				newFilter = fmt.Sprintf("_and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]%s", startingBlockNumber, endingBlockNumber, orderParam)
 			} else {
-				newFilter = fmt.Sprintf("%s, _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
+				newFilter = fmt.Sprintf("%s, _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]%s", existingFilter, startingBlockNumber, endingBlockNumber, orderParam)
 			}
 		} else {
 			// For other collections (Log, Transaction) filter on blockNumber field
+			orderParam = ", order: { blockNumber: DESC }"
 			if existingFilter == "" {
-				newFilter = fmt.Sprintf("_and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ]", startingBlockNumber, endingBlockNumber)
+				newFilter = fmt.Sprintf("_and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ]%s", startingBlockNumber, endingBlockNumber, orderParam)
 			} else {
-				newFilter = fmt.Sprintf("%s, _and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
+				newFilter = fmt.Sprintf("%s, _and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ]%s", existingFilter, startingBlockNumber, endingBlockNumber, orderParam)
 			}
 		}
 
@@ -94,18 +99,18 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockN
 		beforeBrace := trimmed[:braceStart]
 		afterBrace := trimmed[braceStart:]
 
-		// Create filter based on collection type
-		var filter string
+		// Create filter and order based on collection type
+		var filterAndOrder string
 		if collectionName == "Block" {
 			// For Block queries, number is a direct field
-			filter = fmt.Sprintf("(filter: { _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ] })", startingBlockNumber, endingBlockNumber)
+			filterAndOrder = fmt.Sprintf("(filter: { _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ] }, order: { number: DESC })", startingBlockNumber, endingBlockNumber)
 		} else if collectionName == "AccessListEntry" {
 			// For AccessListEntry queries, block number is within transaction
-			filter = fmt.Sprintf("(filter: { _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ] })", startingBlockNumber, endingBlockNumber)
+			filterAndOrder = fmt.Sprintf("(filter: { _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ] }, order: { transaction: { blockNumber: DESC } })", startingBlockNumber, endingBlockNumber)
 		} else {
 			// For other collections (Log, Transaction), filter directly on blockNumber field
-			filter = fmt.Sprintf("(filter: { _and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ] })", startingBlockNumber, endingBlockNumber)
+			filterAndOrder = fmt.Sprintf("(filter: { _and: [ { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ] }, order: { blockNumber: DESC })", startingBlockNumber, endingBlockNumber)
 		}
-		return beforeBrace + filter + afterBrace, nil
+		return beforeBrace + filterAndOrder + afterBrace, nil
 	}
 }
