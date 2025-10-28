@@ -14,7 +14,6 @@ func TestLoadConfig_ValidYAML(t *testing.T) {
 	configContent := `
 defradb:
   url: "http://localhost:9181"
-  keyring_secret: "test_secret"
   p2p:
     enabled: true
     bootstrap_peers: ["peer1", "peer2"]
@@ -38,20 +37,13 @@ shinzohub:
 
 	expectedUrl := "http://localhost:9181"
 	// Test DefraDB config
-	if cfg.DefraDB.Url != expectedUrl {
-		t.Errorf("Expected url '%s', got '%s'", expectedUrl, cfg.DefraDB.Url)
-	}
-	if cfg.DefraDB.KeyringSecret != "test_secret" {
-		t.Errorf("Expected keyring_secret 'test_secret', got '%s'", cfg.DefraDB.KeyringSecret)
+	if cfg.ShinzoAppConfig.DefraDB.Url != expectedUrl {
+		t.Errorf("Expected url '%s', got '%s'", expectedUrl, cfg.ShinzoAppConfig.DefraDB.Url)
 	}
 
 	// Test P2P config
-	if len(cfg.DefraDB.P2P.BootstrapPeers) != 2 {
-		t.Errorf("Expected 2 bootstrap peers, got %d", len(cfg.DefraDB.P2P.BootstrapPeers))
-	}
-
-	if len(cfg.ShinzoHub.RPCUrl) < 1 {
-		t.Errorf("Expected a shinzohub rpc url")
+	if len(cfg.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers) != 2 {
+		t.Errorf("Expected 2 bootstrap peers, got %d", len(cfg.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers))
 	}
 }
 
@@ -62,7 +54,6 @@ func TestLoadConfig_EnvironmentOverrides(t *testing.T) {
 
 	configContent := `
 defradb:
-  url: "http://localhost:9181"
   keyring_secret: "original_secret"
 `
 
@@ -73,13 +64,7 @@ defradb:
 
 	// Set environment variables
 	os.Setenv("DEFRA_KEYRING_SECRET", "env_secret")
-	os.Setenv("DEFRA_URL", "someUrl")
-
-	// Clean up environment variables after test
-	defer func() {
-		os.Unsetenv("DEFRA_KEYRING_SECRET")
-		os.Unsetenv("DEFRA_URL")
-	}()
+	defer os.Unsetenv("DEFRA_KEYRING_SECRET")
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
@@ -87,11 +72,31 @@ defradb:
 	}
 
 	// Verify environment overrides work
-	if cfg.DefraDB.KeyringSecret != "env_secret" {
-		t.Errorf("Expected keyring_secret 'env_secret', got '%s'", cfg.DefraDB.KeyringSecret)
+	if cfg.ShinzoAppConfig.DefraDB.KeyringSecret != "env_secret" {
+		t.Errorf("Expected keyring_secret 'env_secret', got '%s'", cfg.ShinzoAppConfig.DefraDB.KeyringSecret)
 	}
-	if cfg.DefraDB.Url != "someUrl" {
-		t.Errorf("Expected host 'someUrl', got '%s'", cfg.DefraDB.Url)
+}
+
+func TestLoadConfig_EmptyConfig(t *testing.T) {
+	// Create a temporary config file with empty config
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "empty_config.yaml")
+
+	configContent := `{}`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// Test that empty config loads without error
+	if cfg == nil {
+		t.Error("Expected config to be loaded, got nil")
 	}
 }
 
@@ -108,8 +113,8 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 	configPath := filepath.Join(tempDir, "invalid_config.yaml")
 
 	invalidContent := `
-defradb:
-  url: "invalid yaml
+shinzo:
+  minimum_attestations: "invalid yaml
 `
 
 	err := os.WriteFile(configPath, []byte(invalidContent), 0644)

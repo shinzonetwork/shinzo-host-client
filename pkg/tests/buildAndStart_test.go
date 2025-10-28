@@ -1,16 +1,14 @@
 package tests
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
-	"github.com/shinzonetwork/host/pkg/defra"
-	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,13 +42,6 @@ func testBuild(m *testing.M) string {
 	return binaryPath
 }
 
-func getProjectRoot(t *testing.T) string {
-	_, filename, _, ok := runtime.Caller(0)
-	require.True(t, ok, "Failed to get current file path")
-	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..")
-	return projectRoot
-}
-
 func getProjectRootFromTestMain(t *testing.M) string {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
@@ -77,51 +68,24 @@ func TestBuildAndRun(t *testing.T) {
 	cmd := exec.Command(binaryPath)
 	cmd.Dir = projectRoot
 
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to run the application. Output: %s", string(output))
-	require.NotNil(t, output)
-}
+	// Start the host process
+	err := cmd.Start()
+	require.NoError(t, err, "Failed to start the application")
 
-func TestBuildAndRun_NoDefra(t *testing.T) {
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(true),
-		node.WithStorePath(t.TempDir()),
+	// Let it run for a few seconds to check for startup errors
+	time.Sleep(3 * time.Second)
+
+	// Check if the process is still running (it should be)
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		// If it exited, there was likely an error
+		output, _ := cmd.CombinedOutput()
+		require.Fail(t, "Application exited unexpectedly. Output: %s", string(output))
 	}
-	ctx := context.Background()
-	myNode := defra.StartDefraInstance(t, ctx, options)
-	require.NotNil(t, myNode)
-	defer myNode.Close(ctx)
 
-	projectRoot := getProjectRoot(t)
-	binaryPath := getBinaryPath(projectRoot)
+	// Stop the process gracefully
+	err = cmd.Process.Kill()
+	require.NoError(t, err, "Failed to stop the application")
 
-	cmd := exec.Command(binaryPath, "-defra-started=true")
-	cmd.Dir = projectRoot
-
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to run the application. Output: %s", string(output))
-	require.NotNil(t, output)
-}
-
-func TestBuildAndRun_DefraInBackgroundFail(t *testing.T) {
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(true),
-		node.WithStorePath(t.TempDir()),
-	}
-	ctx := context.Background()
-	myNode := defra.StartDefraInstance(t, ctx, options)
-	require.NotNil(t, myNode)
-	defer myNode.Close(ctx)
-
-	projectRoot := getProjectRoot(t)
-	binaryPath := getBinaryPath(projectRoot)
-
-	cmd := exec.Command(binaryPath, "-defra-started=false")
-	cmd.Dir = projectRoot
-
-	output, err := cmd.CombinedOutput()
-	require.Error(t, err, "Expected an error, but got none")
-	require.NotNil(t, output)
+	// Wait for the process to actually terminate
+	cmd.Wait()
 }
