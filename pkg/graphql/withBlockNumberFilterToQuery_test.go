@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddBlockNumberFilter(t *testing.T) {
+func TestWithBlockNumberFilter(t *testing.T) {
 	tests := []struct {
 		name          string
 		query         string
@@ -91,7 +91,7 @@ func TestAddBlockNumberFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := AddBlockNumberFilter(tt.query, tt.startingBlock, tt.endingBlock)
+			result, err := WithBlockNumberFilter(tt.query, tt.startingBlock, tt.endingBlock)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -104,7 +104,7 @@ func TestAddBlockNumberFilter(t *testing.T) {
 	}
 }
 
-func TestAddBlockNumberFilter_ComplexFilters(t *testing.T) {
+func TestWithBlockNumberFilter_ComplexFilters(t *testing.T) {
 	tests := []struct {
 		name          string
 		query         string
@@ -144,14 +144,14 @@ func TestAddBlockNumberFilter_ComplexFilters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := AddBlockNumberFilter(tt.query, tt.startingBlock, tt.endingBlock)
+			result, err := WithBlockNumberFilter(tt.query, tt.startingBlock, tt.endingBlock)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedQuery, result)
 		})
 	}
 }
 
-func TestAddBlockNumberFilter_EdgeCases(t *testing.T) {
+func TestWithBlockNumberFilter_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name          string
 		query         string
@@ -204,7 +204,7 @@ func TestAddBlockNumberFilter_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := AddBlockNumberFilter(tt.query, tt.startingBlock, tt.endingBlock)
+			result, err := WithBlockNumberFilter(tt.query, tt.startingBlock, tt.endingBlock)
 
 			if tt.expectError {
 				require.Error(t, err)

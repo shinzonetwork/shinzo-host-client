@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// AddBlockNumberFilter adds a block number filter to a GraphQL query
+// WithBlockNumberFilter adds a block number filter to a GraphQL query
 // It ensures that only results from block numbers greater than startingBlockNumber are returned
-func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockNumber uint64) (string, error) {
+func WithBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockNumber uint64) (string, error) {
 	if query == "" {
 		return "", fmt.Errorf("query cannot be empty")
 	}

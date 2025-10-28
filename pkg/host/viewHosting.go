@@ -47,7 +47,7 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 }
 
 func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64, endingBlockNumber uint64) error {
-	query, err := graphql.AddBlockNumberFilter(*v.Query, startingBlockNumber, endingBlockNumber)
+	query, err := graphql.WithBlockNumberFilter(*v.Query, startingBlockNumber, endingBlockNumber)
 	if err != nil {
 		return fmt.Errorf("Error assembling query: %w", err)
 	}
