@@ -32,8 +32,4 @@ jobs:
           ${{ runner.os }}-go-
 
     - name: Run tests
-<<<<<<< Updated upstream
-      run: go test -count=1 -timeout=3m ./...
-=======
       run: go test -count=1 -timeout=3m -v ./...
->>>>>>> Stashed changes
