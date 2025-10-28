@@ -4,7 +4,7 @@ go 1.24.6
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/shinzonetwork/app-sdk v0.0.0-20251015144607-261f4185e08b
+	github.com/shinzonetwork/app-sdk v0.0.0-20251022152347-f6f5eb011113
 	github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e
 	github.com/sourcenetwork/defradb v0.19.1-0.20250917180411-017277b0bfe4
 	github.com/sourcenetwork/immutable v0.3.0
