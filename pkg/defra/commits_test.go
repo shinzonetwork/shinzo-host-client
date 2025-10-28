@@ -4,18 +4,21 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/shinzonetwork/host/pkg/attestation"
+	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetLatestCommit(t *testing.T) {
 	ctx := context.Background()
-	testDefra := startDefra(t)
+	testDefra, testIndexer := startIndexer(t)
 	defer testDefra.Close(ctx)
+	defer testIndexer.StopIndexing()
 
 	blockId, err := getBlockDocId(ctx, testDefra)
 	require.NoError(t, err)
@@ -26,16 +29,32 @@ func TestGetLatestCommit(t *testing.T) {
 	require.NotNil(t, commit)
 }
 
-func startDefra(t *testing.T) *node.Node {
+func startIndexer(t *testing.T) (*node.Node, *indexer.ChainIndexer) {
 	logger.Init(true)
+	ctx := context.Background()
 
 	schema := &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}
-	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Url = "http://localhost:0"
-	indexerDefra, err := defra.StartDefraInstance(defra.DefaultConfig, schema, "Block")
+	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schema)
+	require.NoError(t, err)
+	testConfig := indexer.DefaultConfig
+	testConfig.DefraDB.Url = indexerDefra.APIURL
+
+	err = indexerDefra.DB.AddP2PCollections(ctx, "Block")
 	require.NoError(t, err)
 
-	return indexerDefra
+	i := indexer.CreateIndexer(testConfig)
+	go func() {
+		err := i.StartIndexing(true)
+		if err != nil {
+			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
+		}
+	}()
+
+	for !i.IsStarted() || !i.HasIndexedAtLeastOneBlock() {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return indexerDefra, i
 }
 
 func getBlockDocId(ctx context.Context, defraNode *node.Node) (string, error) {
