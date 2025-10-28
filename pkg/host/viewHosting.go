@@ -22,7 +22,7 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 		}
 	}
 
-	err = attestation.AddAttestationRecordCollection(ctx, h.DefraNode, &v)
+	err = attestation.AddAttestationRecordCollection(ctx, h.DefraNode, v.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "collection already exists") {
 			logger.Sugar.Warnf("Error subscribing to view %+v: %w", v, err)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -48,21 +47,21 @@ type IndexerSignature_%s {
 }`, viewName, viewName, viewName, viewName)
 }
 
-func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, associatedView *view.View) error {
-	collectionSDL := getAttestationRecordSDL(associatedView.Name)
+func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, associatedViewName string) error {
+	collectionSDL := getAttestationRecordSDL(associatedViewName)
 	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(collectionSDL)
 	err := schemaApplier.ApplySchema(ctx, defraNode)
 	if err != nil {
 		return fmt.Errorf("Error adding attestation record schema %s: %w", collectionSDL, err)
 	}
 
-	attestationRecords := fmt.Sprintf("AttestationRecord_%s", associatedView.Name)
+	attestationRecords := fmt.Sprintf("AttestationRecord_%s", associatedViewName)
 	err = defraNode.DB.AddP2PCollections(ctx, attestationRecords)
 	if err != nil {
 		return fmt.Errorf("Error subscribing to collection %s: %v", attestationRecords, err)
 	}
 
-	indexerSignatures := fmt.Sprintf("IndexerSignature_%s", associatedView.Name)
+	indexerSignatures := fmt.Sprintf("IndexerSignature_%s", associatedViewName)
 	err = defraNode.DB.AddP2PCollections(ctx, indexerSignatures)
 	if err != nil {
 		return fmt.Errorf("Error subscribing to collection %s: %v", indexerSignatures, err)

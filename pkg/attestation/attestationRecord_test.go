@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,7 +52,7 @@ func TestPostAttestationRecord(t *testing.T) {
 	testVersions := testDocResult.Version
 
 	testViewName := "TestView"
-	err = AddAttestationRecordCollection(t.Context(), defraNode, &view.View{Name: testViewName})
+	err = AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
 	require.NoError(t, err)
 
 	attestationRecord := &AttestationRecord{}
