@@ -198,9 +198,10 @@ func TestView_WriteTransformedToCollection_EmptyDocuments(t *testing.T) {
 
 	// Test with empty documents - this should fail because the collection doesn't exist
 	transformedDocuments := []map[string]any{}
-	err = view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
+	docIds, err := view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "error getting collection")
+	require.Nil(t, docIds)
 }
 
 func TestView_WriteTransformedToCollection_NonExistentCollection(t *testing.T) {
@@ -217,9 +218,10 @@ func TestView_WriteTransformedToCollection_NonExistentCollection(t *testing.T) {
 	transformedDocuments := []map[string]any{
 		{"field1": "value1"},
 	}
-	err = view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
+	docIds, err := view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "error getting collection")
+	require.Nil(t, docIds)
 }
 
 func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
@@ -265,8 +267,9 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	}
 
 	// Test WriteTransformedToCollection with schema filtering
-	err = view.WriteTransformedToCollection(ctx, defraNode, transformedDocuments)
+	docIds, err := view.WriteTransformedToCollection(ctx, defraNode, transformedDocuments)
 	require.NoError(t, err) // This would throw an error if filtering was not working because we would try to write to fields that didn't exist in the schema
+	require.Greater(t, len(docIds), 0)
 
 	// Verify the data was written by querying the collection
 	verifyQuery := fmt.Sprintf(`query VerifyFilteredView { %s(limit: 10) { name } }`, viewName)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/shinzonetwork/app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/stretchr/testify/require"
 )
@@ -16,9 +17,9 @@ func TestPostAttestationRecord(t *testing.T) {
 	`)
 
 	type TestDoc struct {
-		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
-		Version []Version `json:"_version"`
+		Name    string                `json:"name"`
+		DocId   string                `json:"_docID"`
+		Version []attestation.Version `json:"_version"`
 	}
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
@@ -52,14 +53,24 @@ func TestPostAttestationRecord(t *testing.T) {
 	testVersions := testDocResult.Version
 
 	testViewName := "TestView"
-	err = AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
+	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
 	require.NoError(t, err)
 
-	attestationRecord := &AttestationRecord{}
 	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
 	sourceDocId := testDocResult.DocId
 
-	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testViewName, attestedDocId, sourceDocId, testVersions)
+	// Create attestation record with the necessary data
+	attestationRecord := &AttestationRecord{
+		AttestedDocId: attestedDocId,
+		SourceDocId:   sourceDocId,
+		Signatures:    []attestation.Signature{},
+	}
+	// Extract signatures from versions
+	for _, version := range testVersions {
+		attestationRecord.Signatures = append(attestationRecord.Signatures, version.Signature)
+	}
+
+	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testViewName)
 	require.NoError(t, err)
 
 	expectedAttestationCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)

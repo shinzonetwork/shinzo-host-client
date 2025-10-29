@@ -6,7 +6,7 @@ toolchain go1.24.7
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/app-sdk v0.0.0-20251022152347-f6f5eb011113
+	github.com/shinzonetwork/app-sdk v0.0.0-20251029193755-539cec2c1776
 	github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e
 	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec
 	github.com/sourcenetwork/defradb v0.19.1-0.20250917180411-017277b0bfe4

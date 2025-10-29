@@ -202,33 +202,37 @@ func (v *View) ApplyLensTransform(ctx context.Context, defraNode *node.Node, sou
 	return result, nil
 }
 
-func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node.Node, transformedDocument []map[string]any) error {
+func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node.Node, transformedDocument []map[string]any) ([]string, error) {
 	collection, err := defraNode.DB.GetCollectionByName(ctx, v.Name)
 	if err != nil {
-		return fmt.Errorf("error getting collection %s: %v", v.Name, err)
+		return nil, fmt.Errorf("error getting collection %s: %v", v.Name, err)
 	}
+
+	createdDocumentIds := []string{}
 
 	// Use Save instead of CreateMany to handle duplicate document IDs gracefully
 	for _, documentAsMap := range transformedDocument {
 		// Filter the document to only include fields defined in the SDL schema
 		filteredDocument, err := v.filterDocumentFields(documentAsMap)
 		if err != nil {
-			return fmt.Errorf("failed to filter document fields: %w", err)
+			return nil, fmt.Errorf("failed to filter document fields: %w", err)
 		}
 
 		document, err := client.NewDocFromMap(filteredDocument, collection.Version())
 		if err != nil {
-			return fmt.Errorf("failed to create document from map: %w", err)
+			return nil, fmt.Errorf("failed to create document from map: %w", err)
 		}
 
 		// Save will update if document exists, create if it doesn't
 		err = collection.Save(ctx, document)
 		if err != nil {
-			return fmt.Errorf("failed to save document in collection: %w", err)
+			return nil, fmt.Errorf("failed to save document in collection: %w", err)
 		}
+
+		createdDocumentIds = append(createdDocumentIds, document.ID().String())
 	}
 
-	return nil
+	return createdDocumentIds, nil
 }
 
 func (v *View) HasLenses() bool {
