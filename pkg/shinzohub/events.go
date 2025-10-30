@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
+	"github.com/shinzonetwork/host/pkg/view"
 )
 
 type RPCResponse struct {
@@ -55,6 +56,11 @@ type EventAttribute struct {
 
 type ShinzoEvent interface {
 	ToString() string
+}
+
+// EventSubscription defines the interface for event subscriptions
+type EventSubscription interface {
+	StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error)
 }
 
 // StartEventSubscription starts the event subscription and returns a context for cancellation and event channel
@@ -124,8 +130,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					continue
 				}
 
-				fmt.Printf("Parsed: %+v\n", msg)
-
 				// Look for Registered events and send them to the channel
 				registeredEvents := extractRegisteredEvents(msg)
 				for _, event := range registeredEvents {
@@ -169,14 +173,20 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 				case "creator":
 					registeredEvent.Creator = attr.Value
 				case "view":
-					registeredEvent.View = attr.Value
+					// Parse the view JSON string into View struct
+					var view view.View
+					if err := json.Unmarshal([]byte(attr.Value), &view); err != nil {
+						fmt.Printf("Failed to parse view JSON: %v, value: %s\n", err, attr.Value)
+						continue
+					}
+					ExtractNameFromSDL(&view)
+					registeredEvent.View = view
 				}
 			}
 
 			// Only add if we have all required fields
-			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View != "" {
+			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
 				registeredEvents = append(registeredEvents, registeredEvent)
-				fmt.Printf("Added Registered event: %+v\n", registeredEvent)
 			} else {
 				fmt.Printf("Incomplete Registered event: %+v\n", registeredEvent)
 			}
