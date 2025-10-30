@@ -8,10 +8,10 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
-	"github.com/shinzonetwork/host/pkg/stack"
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/stack"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
 

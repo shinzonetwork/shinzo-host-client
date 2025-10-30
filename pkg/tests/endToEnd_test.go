@@ -7,8 +7,8 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/host"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/stretchr/testify/require"
 )

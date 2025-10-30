@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 type ViewRegisteredEvent struct { // ViewRegisteredEvent implements ShinzoEvent interface

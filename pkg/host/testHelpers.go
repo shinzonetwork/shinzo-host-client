@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/file"
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/networking"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/networking"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/stretchr/testify/require"
 )
 

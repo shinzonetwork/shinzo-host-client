@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 type RPCResponse struct {

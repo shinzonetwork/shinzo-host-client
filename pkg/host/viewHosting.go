@@ -8,9 +8,9 @@ import (
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	hostAttestation "github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/host/pkg/graphql"
-	"github.com/shinzonetwork/host/pkg/view"
+	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 // extractVersionFromDocument extracts the _version field from a document map and converts it to []attestation.Version

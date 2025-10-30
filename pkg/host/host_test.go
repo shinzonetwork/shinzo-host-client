@@ -9,9 +9,9 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/attestation"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

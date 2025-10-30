@@ -1,4 +1,4 @@
-module github.com/shinzonetwork/host
+module github.com/shinzonetwork/shinzo-host-client
 
 go 1.24.6
 
