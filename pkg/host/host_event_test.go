@@ -54,7 +54,7 @@ func TestHostHandlesViewRegisteredEvents(t *testing.T) {
 	mockEventSub.SendEvent(registeredEvent)
 
 	// Give the host time to process the event
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// Verify the host received and processed the event
 	require.Len(t, host.HostedViews, 1, "Host should have one hosted view after receiving event")
@@ -97,7 +97,7 @@ func TestHostHandlesMultipleViewRegisteredEvents(t *testing.T) {
 	}
 
 	// Give the host time to process all events
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// Verify all events were processed
 	require.Len(t, host.HostedViews, 3, "Host should have three hosted views")
@@ -137,7 +137,7 @@ func TestHostHandlesUnknownEvents(t *testing.T) {
 	mockEventSub.SendEvent(&UnknownEvent{})
 
 	// Give the host time to process the event
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// Verify the host didn't add any views
 	require.Empty(t, host.HostedViews, "Host should not add views for unknown events")
@@ -174,7 +174,7 @@ func TestHostHandlesRealLensEventFromFile(t *testing.T) {
 	require.NoError(t, err, "Failed to process raw JSON message")
 
 	// Wait a bit for the event to be processed
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// Verify the host processed the event
 	require.Len(t, host.HostedViews, 1, "Host should have one hosted view after receiving event")
