@@ -6,15 +6,8 @@ import (
 	"fmt"
 )
 
-// RealEventSubscription is the real implementation that connects to Tendermint
-type RealEventSubscription struct{}
-
-func (r *RealEventSubscription) StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
-	return StartEventSubscription(tendermintURL)
-}
-
 // MockEventSubscription allows you to control what events are sent during testing
-type MockEventSubscription struct {
+type MockEventSubscription struct { // Implements EventSubscription interface
 	Events chan ShinzoEvent
 }
 
