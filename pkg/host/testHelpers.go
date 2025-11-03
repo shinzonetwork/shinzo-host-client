@@ -61,10 +61,13 @@ func createHostWithMockViewEventReceiver(t *testing.T, boostrapPeers ...string) 
 func CreateHostWithLensEventReceived(t *testing.T, boostrapPeers ...string) *Host {
 	testHost, mockEventSub := createHostWithMockViewEventReceiver(t, boostrapPeers...)
 
+	fmt.Println("Sending mock event")
 	sendMockNewViewEvent(t, "viewWithLensEvent", mockEventSub)
+	fmt.Println("Event sent")
 
 	// Verify the host processed the event
 	require.Len(t, testHost.HostedViews, 1, "Host should have one hosted view after receiving event")
+	fmt.Println("Host is now hosting one view")
 	return testHost
 }
 

@@ -77,6 +77,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
+		fmt.Println("Starting event subscription")
 		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
 
 		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
@@ -139,7 +140,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 			if !ok {
 				return // Event channel closed
 			}
-
+			fmt.Println("Received event")
 			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
 				logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
 				err := h.PrepareView(ctx, registeredEvent.View)
