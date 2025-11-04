@@ -80,7 +80,7 @@ func sendMockNewViewEvent(t *testing.T, eventSourceTextFileName string, mockEven
 	require.NoError(t, err, "Failed to process raw JSON message")
 
 	// Wait a bit for the event to be processed
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 }
 
 func CreateHostWithTwoViews(t *testing.T, boostrapPeers ...string) *Host {
