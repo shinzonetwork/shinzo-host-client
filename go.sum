@@ -2314,10 +2314,10 @@ github.com/segmentio/asm v1.2.0/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/app-sdk v0.0.0-20251023173656-30e07eb91140 h1:PMcNlPv2qfDQ/iTn0h4G9ezR02X82jByfqG81e4+h4s=
-github.com/shinzonetwork/app-sdk v0.0.0-20251023173656-30e07eb91140/go.mod h1:Vg6yKHpQycaqgKZLfTdd+5xQlbRpwJTM9siUAmKkAVs=
-github.com/shinzonetwork/indexer v0.0.0-20250916173149-b3964d6eb91c h1:NJZ+8fjI8F/eo7FjxSdcwgG1WNKEw7fI+B9rhD5SQM4=
-github.com/shinzonetwork/indexer v0.0.0-20250916173149-b3964d6eb91c/go.mod h1:oXDEJoqSbf0ze7L9+8rcxH9KLquJFIuPBVt32uOpg9g=
+github.com/shinzonetwork/app-sdk v0.0.0-20251030151307-1fd04aa86ce1 h1:AtXMWpCOoZ7BdX9IPDbQ9DbADDl2RqAz3g8sniGklR0=
+github.com/shinzonetwork/app-sdk v0.0.0-20251030151307-1fd04aa86ce1/go.mod h1:L7WrxiKbft2xqjt+kWetkPOfI+zYdqV4nVlZCqthhi4=
+github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e h1:2Cvc6C1a5Rcw7bWbs/7jhmwFM4b/1En7MsZg/IGeWn4=
+github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e/go.mod h1:oXDEJoqSbf0ze7L9+8rcxH9KLquJFIuPBVt32uOpg9g=
 github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec h1:+o6/UNVSABjHxYctVV//e5LJkskGiCRpHjl0Tnt3A6k=
 github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec/go.mod h1:ZQBTItczjnBe1GN7XGP3/zQEYyEWxAYlSRqK/g7aqWk=
 github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible h1:Bn1aCHHRnjv4Bl16T8rcaFjYSrGrIZvpiGO6P3Q4GpU=
