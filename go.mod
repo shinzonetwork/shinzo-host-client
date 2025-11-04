@@ -5,7 +5,6 @@ go 1.24.6
 toolchain go1.24.7
 
 require (
-	github.com/gorilla/websocket v1.5.3
 	github.com/shinzonetwork/app-sdk v0.0.0-20251030151307-1fd04aa86ce1
 	github.com/shinzonetwork/indexer v0.0.0-20250929210857-13602173059e
 	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec
@@ -173,6 +172,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/gorilla/handlers v1.5.2 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1 // indirect

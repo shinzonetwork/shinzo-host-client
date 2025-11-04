@@ -55,9 +55,6 @@ func extractVersionFromDocument(doc map[string]any) ([]attestation.Version, erro
 		if value, ok := sigMap["value"].(string); ok {
 			signature.Value = value
 		}
-		if typename, ok := sigMap["__typename"].(string); ok {
-			signature.Typename = typename
-		}
 
 		version.Signature = signature
 		versions = append(versions, version)
