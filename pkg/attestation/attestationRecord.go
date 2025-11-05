@@ -3,9 +3,10 @@ package attestation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
-	"github.com/sourcenetwork/defradb/client"
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -26,27 +27,31 @@ func CreateAttestationRecord(docId string, sourceDocId string, versions []attest
 }
 
 func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defraNode *node.Node, viewName string) error {
-	// Get the attestation record collection
+	cidsArray := make([]string, len(record.CIDs))
+	for i, cid := range record.CIDs {
+		cidsArray[i] = fmt.Sprintf(`"%s"`, cid)
+	}
+	cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
+
 	attestationCollectionName := fmt.Sprintf("AttestationRecord_%s", viewName)
-	attestationCollection, err := defraNode.DB.GetCollectionByName(ctx, attestationCollectionName)
-	if err != nil {
-		return fmt.Errorf("error getting attestation collection %s: %v", attestationCollectionName, err)
-	}
+	mutation := fmt.Sprintf(`
+		mutation {
+			create_%s(input: {
+				attested_doc: "%s",
+				source_doc: "%s",
+				CIDs: %s
+			}) {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+			}
+		}
+	`, attestationCollectionName, record.AttestedDocId, record.SourceDocId, cidsString)
 
-	// Create attestation record document using the receiver's fields
-	attestationDoc, err := client.NewDocFromMap(map[string]any{
-		"attested_doc": record.AttestedDocId,
-		"source_doc":   record.SourceDocId,
-		"CIDs":         record.CIDs,
-	}, attestationCollection.Version())
+	_, err := defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
 	if err != nil {
-		return fmt.Errorf("error creating attestation document: %v", err)
-	}
-
-	// Save attestation record
-	err = attestationCollection.Save(ctx, attestationDoc)
-	if err != nil {
-		return fmt.Errorf("error saving attestation record: %v", err)
+		return fmt.Errorf("error posting attestation record mutation: %v", err)
 	}
 
 	return nil

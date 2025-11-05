@@ -78,11 +78,7 @@ func TestPostAttestationRecord(t *testing.T) {
 			_docID
 			attested_doc
 			source_doc
-			signatures {
-				identity
-				value
-				type
-			}
+			CIDs
 		}
 	`, expectedAttestationCollectionName)
 
