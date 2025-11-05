@@ -95,11 +95,7 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	AttestationRecord_%s {
 		attested_doc
 		source_doc
-		signatures {
-			identity
-			value
-			type
-		}
+		CIDs
 	}
 }`, testHost.HostedViews[0].Name)
 	attestationRecords, err := defra.QueryArray[attestation.AttestationRecord](t.Context(), appDefra, attestationRecordsQuery)
