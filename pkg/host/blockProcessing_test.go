@@ -67,7 +67,7 @@ func TestBlockProcessingWithLens(t *testing.T) {
 		}
 
 		// Wait for processing to complete
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(3 * time.Second)
 
 		// Debug: Check what block numbers we have in the database
 		ctx := t.Context()
