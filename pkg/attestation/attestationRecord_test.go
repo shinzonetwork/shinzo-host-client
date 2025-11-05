@@ -59,15 +59,14 @@ func TestPostAttestationRecord(t *testing.T) {
 	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
 	sourceDocId := testDocResult.DocId
 
-	// Create attestation record with the necessary data
+	// Manually create attestation record with the necessary data - we don't use CreateAttestationRecord because we don't want any validation
 	attestationRecord := &AttestationRecord{
 		AttestedDocId: attestedDocId,
 		SourceDocId:   sourceDocId,
-		Signatures:    []attestation.Signature{},
+		CIDs:          []string{},
 	}
-	// Extract signatures from versions
 	for _, version := range testVersions {
-		attestationRecord.Signatures = append(attestationRecord.Signatures, version.Signature)
+		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
 	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testViewName)
@@ -94,6 +93,6 @@ func TestPostAttestationRecord(t *testing.T) {
 	record := results[0]
 	require.Equal(t, attestedDocId, record.AttestedDocId)
 	require.Equal(t, testDocResult.DocId, record.SourceDocId)
-	require.NotNil(t, record.Signatures)
-	require.Len(t, record.Signatures, 1)
+	require.NotNil(t, record.CIDs)
+	require.Len(t, record.CIDs, 1)
 }
