@@ -155,18 +155,13 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 	var registeredEvents []ViewRegisteredEvent
 
-	fmt.Printf("Total events found: %d\n", len(msg.Result.Data.Value.TxResult.Result.Events))
-
 	// Navigate through the nested structure to find events
-	for i, event := range msg.Result.Data.Value.TxResult.Result.Events {
-		fmt.Printf("Event %d: type=%s, attributes=%d\n", i, event.Type, len(event.Attributes))
-
+	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		if event.Type == "Registered" {
 			registeredEvent := ViewRegisteredEvent{}
 
 			// Extract attributes
 			for _, attr := range event.Attributes {
-				fmt.Printf("  Attribute: key=%s, value=%s\n", attr.Key, attr.Value)
 				switch attr.Key {
 				case "key":
 					registeredEvent.Key = attr.Value

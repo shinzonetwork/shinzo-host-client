@@ -13,12 +13,17 @@ const CollectionName = "shinzo"
 type Config struct {
 	Shinzo          ShinzoConfig `yaml:"shinzo"`
 	ShinzoAppConfig *config.Config
+	HostConfig      HostConfig `yaml:"host"`
 }
 
 type ShinzoConfig struct {
 	MinimumAttestations int    `yaml:"minimum_attestations"`
 	RPCUrl              string `yaml:"rpc_url"`
 	WebSocketUrl        string `yaml:"web_socket_url"`
+}
+
+type HostConfig struct {
+	LensRegistryPath string `yaml:"lens_registry_path"` // At this path, we will store the lens' wasm files
 }
 
 // LoadConfig loads configuration from a YAML file

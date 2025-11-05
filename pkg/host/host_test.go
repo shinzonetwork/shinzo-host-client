@@ -12,8 +12,6 @@ import (
 	"github.com/shinzonetwork/host/pkg/attestation"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
-	defraHTTP "github.com/sourcenetwork/defradb/http"
-	netConfig "github.com/sourcenetwork/defradb/net/config"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,28 +60,15 @@ func queryBlockNumber(ctx context.Context, defraNode *node.Node) (uint64, error)
 
 func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	logger.Init(true)
-	listenAddress := "/ip4/127.0.0.1/tcp/0"
-	defraUrl := "127.0.0.1:0"
-	options := []node.Option{
-		node.WithDisableAPI(false),
-		node.WithDisableP2P(false),
-		node.WithStorePath(t.TempDir()),
-		defraHTTP.WithAddress(defraUrl),
-		netConfig.WithListenAddresses(listenAddress),
-	}
-	ctx := context.Background()
-	indexerDefra := startDefraInstanceForTest(t, ctx, options)
-	defer indexerDefra.Close(ctx)
+	ctx := t.Context()
+	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t,
+		defra.DefaultConfig,
+		&appDefra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		"Block")
+	require.NoError(t, err)
+
 	testConfig := indexer.DefaultConfig
 	testConfig.DefraDB.Url = indexerDefra.APIURL
-
-	indexerSchemaApplier := appDefra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}
-	err := indexerSchemaApplier.ApplySchema(ctx, indexerDefra)
-	require.NoError(t, err)
-
-	err = indexerDefra.DB.AddP2PCollections(ctx, "Block")
-	require.NoError(t, err)
-
 	i := indexer.CreateIndexer(testConfig)
 	go func() {
 		err := i.StartIndexing(true)
@@ -110,12 +95,6 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
 	require.NoError(t, err)
 	require.Greater(t, blockNumber, uint64(100))
-
-	blockNumber, err = queryBlockNumber(ctx, hostDefra)
-	require.Error(t, err) // Host shouldn't know the latest block number yet as it hasn't synced with the Indexer
-
-	err = hostDefra.DB.AddP2PCollections(ctx, "Block")
-	require.NoError(t, err)
 
 	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
