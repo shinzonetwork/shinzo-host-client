@@ -1,6 +1,7 @@
 package attestation
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,161 @@ import (
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
+	ctx := context.Background()
+	verifier := &MockSignatureVerifier{
+		verifyFunc: func(ctx context.Context, cid string, signature attestation.Signature) error {
+			// All signatures are valid
+			return nil
+		},
+	}
+
+	docId := "doc-123"
+	sourceDocId := "source-doc-456"
+	versions := []attestation.Version{
+		{
+			CID: "cid-1",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-1",
+				Value:    "signature-1",
+			},
+		},
+		{
+			CID: "cid-2",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-2",
+				Value:    "signature-2",
+			},
+		},
+		{
+			CID: "cid-3",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-3",
+				Value:    "signature-3",
+			},
+		},
+	}
+
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	require.Equal(t, docId, record.AttestedDocId)
+	require.Equal(t, sourceDocId, record.SourceDocId)
+	require.Len(t, record.CIDs, 3)
+	require.Contains(t, record.CIDs, "cid-1")
+	require.Contains(t, record.CIDs, "cid-2")
+	require.Contains(t, record.CIDs, "cid-3")
+}
+
+func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
+	ctx := context.Background()
+	verifier := &MockSignatureVerifier{
+		verifyFunc: func(ctx context.Context, cid string, signature attestation.Signature) error {
+			// Only cid-1 and cid-3 are valid
+			if cid == "cid-2" {
+				return fmt.Errorf("invalid signature")
+			}
+			return nil
+		},
+	}
+
+	docId := "doc-123"
+	sourceDocId := "source-doc-456"
+	versions := []attestation.Version{
+		{
+			CID: "cid-1",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-1",
+				Value:    "signature-1",
+			},
+		},
+		{
+			CID: "cid-2",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-2",
+				Value:    "signature-2",
+			},
+		},
+		{
+			CID: "cid-3",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-3",
+				Value:    "signature-3",
+			},
+		},
+	}
+
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	require.Equal(t, docId, record.AttestedDocId)
+	require.Equal(t, sourceDocId, record.SourceDocId)
+	require.Len(t, record.CIDs, 2)
+	require.Contains(t, record.CIDs, "cid-1")
+	require.NotContains(t, record.CIDs, "cid-2")
+	require.Contains(t, record.CIDs, "cid-3")
+}
+
+func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
+	ctx := context.Background()
+	verifier := &MockSignatureVerifier{
+		verifyFunc: func(ctx context.Context, cid string, signature attestation.Signature) error {
+			// All signatures are invalid
+			return fmt.Errorf("invalid signature")
+		},
+	}
+
+	docId := "doc-123"
+	sourceDocId := "source-doc-456"
+	versions := []attestation.Version{
+		{
+			CID: "cid-1",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-1",
+				Value:    "signature-1",
+			},
+		},
+		{
+			CID: "cid-2",
+			Signature: attestation.Signature{
+				Type:     "es256k",
+				Identity: "identity-2",
+				Value:    "signature-2",
+			},
+		},
+	}
+
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	require.Equal(t, docId, record.AttestedDocId)
+	require.Equal(t, sourceDocId, record.SourceDocId)
+	require.Len(t, record.CIDs, 0)
+}
+
+func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
+	ctx := context.Background()
+	verifier := &MockSignatureVerifier{}
+
+	docId := "doc-123"
+	sourceDocId := "source-doc-456"
+	versions := []attestation.Version{}
+
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	require.Equal(t, docId, record.AttestedDocId)
+	require.Equal(t, sourceDocId, record.SourceDocId)
+	require.Len(t, record.CIDs, 0)
+}
 
 func TestPostAttestationRecord(t *testing.T) {
 	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
