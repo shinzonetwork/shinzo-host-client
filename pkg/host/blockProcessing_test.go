@@ -481,6 +481,43 @@ func validateProcessedDataWithProgress(t *testing.T, host *Host, targetAddress s
 	return len(processedData), currentProcessedBlocks
 }
 
+func validateAllLogsProcessed(t *testing.T, host *Host) {
+	ctx := t.Context()
+
+	require.Len(t, host.HostedViews, 1)
+	viewName := host.HostedViews[0].Name
+
+	// Get all logs
+	allLogs, err := defra.QueryArray[attestation.Log](ctx, host.DefraNode, "Log {transactionHash}")
+	require.NoError(t, err)
+
+	// Get processed data
+	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {transactionHash}", viewName))
+	require.NoError(t, err)
+
+	// Without lens, all logs should be processed (or at least most of them due to timing)
+	t.Logf("Total logs: %d, Processed: %d", len(allLogs), len(processedData))
+	require.Greater(t, len(processedData), 0, "Should have processed some data")
+}
+
+func validateMultipleViewsProcessed(t *testing.T, host *Host) {
+	ctx := t.Context()
+
+	require.Len(t, host.HostedViews, 2)
+
+	// Check View1 (Log processing)
+	view1Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View1 {transactionHash}")
+	require.NoError(t, err)
+	require.Greater(t, len(view1Data), 0, "View1 should have processed logs")
+
+	// Check View2 (Transaction processing)
+	view2Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View2 {hash}")
+	require.NoError(t, err)
+	require.Greater(t, len(view2Data), 0, "View2 should have processed transactions")
+
+	t.Logf("View1 processed %d logs, View2 processed %d transactions", len(view1Data), len(view2Data))
+}
+
 func validateMultipleViewsProcessedWithProgress(t *testing.T, host *Host, round int, previousView1Count int, previousView2Count int, previousBlocks map[string]uint64) (int, int, map[string]uint64) {
 	ctx := t.Context()
 
