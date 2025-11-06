@@ -28,7 +28,7 @@ func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
 	return &DefraSignatureVerifier{defraNode: defraNode}
 }
 
-func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string) error {
+func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string, docId string) error {
 	// The goal of this function is to determine if a cid for any given doc is valid.
 	// To do this the function needs to create a query using the collection
 	// then query the defradb node for documents with the given CID
@@ -41,6 +41,9 @@ func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string) erro
 	if v.defraNode == nil {
 		return fmt.Errorf("defradb node is not available for signature verification")
 	}
+	if docId == "" {
+		return fmt.Errorf("empty docID provided for signature verification")
+	}
 
 	// Create a GraphQL query to check if any documents exist with the given CID
 	// We use commits to check if the CID exists in the commit history
@@ -48,6 +51,7 @@ func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string) erro
 		commits(cid:"%s"){
 			cid
 			docID
+			height
 		}
 	}`, cid)
 
@@ -64,6 +68,14 @@ func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string) erro
 	// Check if we got any commits back
 	if result == nil {
 		return fmt.Errorf("CID %s is invalid or does not exist", cid)
+	}
+
+	if result["docID"] != docId {
+		return fmt.Errorf("document id returned does not match docID %s given", docId)
+	}
+
+	if height, ok := result["height"].(float64); ok && height > 1 {
+		return fmt.Errorf("height %.0f is greater than 1 and indicates that the document has been modified", height)
 	}
 
 	// If we reach here, the CID exists and is valid
