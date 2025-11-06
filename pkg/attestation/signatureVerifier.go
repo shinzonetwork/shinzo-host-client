@@ -28,7 +28,7 @@ func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
 	return &DefraSignatureVerifier{defraNode: defraNode}
 }
 
-func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string, collection string) error {
+func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string) error {
 	// The goal of this function is to determine if a cid for any given doc is valid.
 	// To do this the function needs to create a query using the collection
 	// then query the defradb node for documents with the given CID
@@ -40,9 +40,6 @@ func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string, coll
 	}
 	if v.defraNode == nil {
 		return fmt.Errorf("defradb node is not available for signature verification")
-	}
-	if collection == "" {
-		return fmt.Errorf("collection name is required for CID verification")
 	}
 
 	// Create a GraphQL query to check if any documents exist with the given CID

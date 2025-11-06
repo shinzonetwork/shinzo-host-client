@@ -45,7 +45,7 @@ func TestDefraSignatureVerifier_VerifyCID(t *testing.T) {
 
 	verifier := NewDefraSignatureVerifier(defraNode)
 
-	err = verifier.VerifyCID(ctx, testDocResult.Version[0].CID, "TestDoc")
+	err = verifier.VerifyCID(ctx, testDocResult.Version[0].CID)
 	require.NoError(t, err)
 }
 
@@ -63,6 +63,6 @@ func TestDefraSignatureVerifier_VerifyCID_InvalidCID(t *testing.T) {
 
 	verifier := NewDefraSignatureVerifier(defraNode)
 
-	err = verifier.VerifyCID(ctx, "invalid-cid", "TestDoc")
+	err = verifier.VerifyCID(ctx, "invalid-cid")
 	require.Error(t, err)
 }
