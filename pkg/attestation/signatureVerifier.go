@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -25,6 +26,55 @@ type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
 
 func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
 	return &DefraSignatureVerifier{defraNode: defraNode}
+}
+
+func (v *DefraSignatureVerifier) VerifyCID(ctx context.Context, cid string, collection string) error {
+	// The goal of this function is to determine if a cid for any given doc is valid.
+	// To do this the function needs to create a query using the collection
+	// then query the defradb node for documents with the given CID
+	// if a document is returned then the cid is valid
+	// if no document is returned then the cid is invalid
+
+	if cid == "" {
+		return fmt.Errorf("empty CID provided for signature verification")
+	}
+	if v.defraNode == nil {
+		return fmt.Errorf("defradb node is not available for signature verification")
+	}
+	if collection == "" {
+		return fmt.Errorf("collection name is required for CID verification")
+	}
+
+	// Create a GraphQL query to check if any documents exist with the given CID
+	// We use commits to check if the CID exists in the commit history
+	query := fmt.Sprintf(`query {
+		commits(cid:"%s"){
+			cid
+			docID
+		}
+	}`, cid)
+
+	// Execute the query using QuerySingle
+	result, err := defra.QuerySingle[map[string]interface{}](ctx, v.defraNode, query)
+	if err != nil {
+		// If the query fails, it likely means the CID doesn't exist or is invalid
+		if logger.Sugar != nil {
+			logger.Sugar.Debugf("CID verification failed for %s: %v", cid, err)
+		}
+		return fmt.Errorf("CID %s is invalid or does not exist", cid)
+	}
+
+	// Check if we got any commits back
+	if result == nil {
+		return fmt.Errorf("CID %s is invalid or does not exist", cid)
+	}
+
+	// If we reach here, the CID exists and is valid
+	if logger.Sugar != nil {
+		logger.Sugar.Debugf("CID verification successful for %s", cid)
+	}
+
+	return nil
 }
 
 // Verify verifies that the signature is valid for the given CID using DefraDB's HTTP API
