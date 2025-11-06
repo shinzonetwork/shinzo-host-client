@@ -157,7 +157,7 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		}
 
 		for _, transformedDocId := range transformedDocIds {
-			attestationRecord, err := hostAttestation.CreateAttestationRecord(transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, sourceDocumentAttestationInfo.Version)
+			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, h.DefraNode, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, sourceDocumentAttestationInfo.Version)
 			if err != nil {
 				return fmt.Errorf("Error creating attestation record: %w", err)
 			}

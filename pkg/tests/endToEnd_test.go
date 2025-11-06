@@ -102,6 +102,12 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, attestationRecords)
 	require.Greater(t, len(attestationRecords), 0)
+	for _, record := range attestationRecords {
+		require.NotNil(t, record.CIDs)
+		require.Greater(t, len(record.CIDs), 0)
+		require.Greater(t, len(record.AttestedDocId), 0)
+		require.Greater(t, len(record.SourceDocId), 0)
+	}
 }
 
 type viewResult struct {
