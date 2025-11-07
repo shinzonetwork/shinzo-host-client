@@ -84,7 +84,7 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	require.NotNil(t, filteredResults)
 	require.Greater(t, len(unfilteredResults), len(filteredResults))
 
-	time.Sleep(60 * time.Second) // Allow more blocks to process
+	time.Sleep(90 * time.Second) // Allow more blocks to process
 
 	newUnfilteredResults, err := defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
 	require.NoError(t, err)
