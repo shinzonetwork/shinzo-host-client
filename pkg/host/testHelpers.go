@@ -13,23 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var getAllBlocksQuery string = `query GetAll{
-  Block(limit:10){
-    number
-	hash
-    _version{
-      cid
-      signature{
-        type
-        identity
-        value
-        __typename
-      }
-    }
-  }
-}
-`
-
 func createHostWithMockViewEventReceiver(t *testing.T, boostrapPeers ...string) (*Host, *shinzohub.MockEventSubscription) {
 	mockEventSub := shinzohub.NewMockEventSubscription()
 
