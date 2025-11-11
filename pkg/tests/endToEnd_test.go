@@ -23,8 +23,7 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	peerInfo, err := bigPeer.DB.PeerInfo()
 	require.NoError(t, err)
 	indexerDefra, stopMockIndexer := startIndexer(t, peerInfo)
-	defer indexerDefra.Close(t.Context())
-	defer stopMockIndexer()
+	defer stopMockIndexer() // stopMockIndexer now handles closing indexerDefra
 
 	logs, err := defra.QueryArray[viewResult](t.Context(), indexerDefra, "Log { transactionHash }")
 	require.NoError(t, err)
@@ -84,11 +83,22 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	require.NotNil(t, filteredResults)
 	require.Greater(t, len(unfilteredResults), len(filteredResults))
 
-	time.Sleep(10 * time.Second) // Allow more blocks to process
-
-	newUnfilteredResults, err := defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
-	require.NoError(t, err)
-	require.Greater(t, len(newUnfilteredResults), len(unfilteredResults))
+	// Retry checking for new blocks multiple times before final assertion
+	maxRetries := 30
+	retryDelay := 2 * time.Second
+	var newUnfilteredResults []viewResult
+	for i := 0; i < maxRetries; i++ {
+		time.Sleep(retryDelay)
+		newUnfilteredResults, err = defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
+		require.NoError(t, err)
+		if len(newUnfilteredResults) > len(unfilteredResults) {
+			break
+		}
+		if i < maxRetries-1 {
+			t.Logf("Retry %d/%d: No new blocks yet, waiting...", i+1, maxRetries)
+		}
+	}
+	require.Greater(t, len(newUnfilteredResults), len(unfilteredResults), "Expected new blocks after %d retries", maxRetries)
 
 	// Now let's also check that we have attestations for a view
 	attestationRecordsQuery := fmt.Sprintf(`query {
@@ -121,14 +131,28 @@ func startIndexer(t *testing.T, bigPeer []string) (*node.Node, func()) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	stopFunc := func() {
-		cancel()
-	}
-
+	done := make(chan struct{})
+	
 	// Start mock indexer in background
 	go func() {
+		defer close(done)
 		mockIndexer(ctx, t, indexerDefra)
 	}()
+
+	stopFunc := func() {
+		// Cancel context to stop mock indexer
+		cancel()
+		// Wait for mock indexer goroutine to finish
+		select {
+		case <-done:
+			// Mock indexer finished
+		case <-time.After(5 * time.Second):
+			// Timeout waiting for mock indexer to stop
+			t.Logf("Warning: Mock indexer did not stop within 5 seconds")
+		}
+		// Close the defra node after mock indexer has stopped
+		indexerDefra.Close(context.Background())
+	}
 
 	// Wait a bit to ensure some blocks are posted
 	time.Sleep(500 * time.Millisecond)
