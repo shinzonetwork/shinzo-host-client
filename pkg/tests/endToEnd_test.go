@@ -1,14 +1,16 @@
 package tests
 
 import (
+	"context"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -20,9 +22,9 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 
 	peerInfo, err := bigPeer.DB.PeerInfo()
 	require.NoError(t, err)
-	indexerDefra, testIndexer := startIndexer(t, peerInfo)
+	indexerDefra, stopMockIndexer := startIndexer(t, peerInfo)
 	defer indexerDefra.Close(t.Context())
-	defer testIndexer.StopIndexing()
+	defer stopMockIndexer()
 
 	logs, err := defra.QueryArray[viewResult](t.Context(), indexerDefra, "Log { transactionHash }")
 	require.NoError(t, err)
@@ -82,7 +84,7 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	require.NotNil(t, filteredResults)
 	require.Greater(t, len(unfilteredResults), len(filteredResults))
 
-	time.Sleep(90 * time.Second) // Allow more blocks to process
+	time.Sleep(10 * time.Second) // Allow more blocks to process
 
 	newUnfilteredResults, err := defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
 	require.NoError(t, err)
@@ -112,25 +114,170 @@ type viewResult struct {
 	TransactionHash string `json:"transactionHash"`
 }
 
-func startIndexer(t *testing.T, bigPeer []string) (*node.Node, *indexer.ChainIndexer) {
+func startIndexer(t *testing.T, bigPeer []string) (*node.Node, func()) {
 	defraConfig := defra.DefaultConfig
 	defraConfig.DefraDB.P2P.BootstrapPeers = append(defraConfig.DefraDB.P2P.BootstrapPeers, bigPeer...)
 	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t, defraConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}, "Block", "Transaction", "AccessListEntry", "Log")
 	require.NoError(t, err)
-	testConfig := indexer.DefaultConfig
-	testConfig.Geth = host.GetGethConfig()
-	i, err := indexer.CreateIndexer(testConfig)
-	require.NoError(t, err)
-	go func() {
-		err := i.StartIndexing(true)
-		if err != nil {
-			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
-		}
-	}()
 
-	for !i.IsStarted() || !i.HasIndexedAtLeastOneBlock() {
-		time.Sleep(100 * time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	stopFunc := func() {
+		cancel()
 	}
 
-	return indexerDefra, i
+	// Start mock indexer in background
+	go func() {
+		mockIndexer(ctx, t, indexerDefra)
+	}()
+
+	// Wait a bit to ensure some blocks are posted
+	time.Sleep(500 * time.Millisecond)
+
+	return indexerDefra, stopFunc
+}
+
+// mockIndexer posts mock blocks, transactions, and logs to DefraDB
+func mockIndexer(ctx context.Context, t *testing.T, defraNode *node.Node) {
+	baseBlockNumber := uint64(3550)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// Post a few blocks around the current base block number
+			numBlocks := rng.Intn(3) + 1 // 1-3 blocks
+			for i := 0; i < numBlocks; i++ {
+				// Random offset from base (-5 to +5)
+				offset := rng.Intn(11) - 5
+				blockNumber := baseBlockNumber + uint64(offset)
+
+				// Random number of transactions (1-50)
+				numTransactions := rng.Intn(50) + 1
+				// Random number of logs (1-50)
+				numLogs := rng.Intn(50) + 1
+
+				postMockBlock(t, defraNode, blockNumber, numTransactions, numLogs, rng)
+			}
+
+			t.Logf("Posted blocks around %d", baseBlockNumber)
+
+			// Wait 3 seconds
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+			}
+
+			// Increment base block number
+			baseBlockNumber += uint64(rng.Intn(20) + 1) // Increment by 1-20
+		}
+	}
+}
+
+func postMockBlock(t *testing.T, defraNode *node.Node, blockNumber uint64, numTransactions int, numLogs int, rng *rand.Rand) {
+	ctx := context.Background()
+
+	// Create block
+	blockHash := fmt.Sprintf("0x%016x", blockNumber)
+	blockData := map[string]any{
+		"hash":             blockHash,
+		"number":           int64(blockNumber),
+		"timestamp":        time.Now().Format(time.RFC3339),
+		"parentHash":       fmt.Sprintf("0x%016x", blockNumber-1),
+		"difficulty":       "0x1",
+		"totalDifficulty":  fmt.Sprintf("0x%x", blockNumber),
+		"gasUsed":          "0x5208",
+		"gasLimit":         "0x1c9c380",
+		"baseFeePerGas":    "0x3b9aca00",
+		"nonce":            int64(blockNumber),
+		"miner":            "0x0000000000000000000000000000000000000000",
+		"size":             "0x208",
+		"stateRoot":        fmt.Sprintf("0x%016x", blockNumber+1000),
+		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		"transactionsRoot": fmt.Sprintf("0x%016x", blockNumber+2000),
+		"receiptsRoot":     fmt.Sprintf("0x%016x", blockNumber+3000),
+		"logsBloom":        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+		"extraData":        "0x",
+		"mixHash":          fmt.Sprintf("0x%016x", blockNumber+4000),
+		"uncles":           []string{},
+	}
+
+	blockCollection, err := defraNode.DB.GetCollectionByName(ctx, "Block")
+	require.NoError(t, err)
+
+	blockDoc, err := client.NewDocFromMap(blockData, blockCollection.Version())
+	require.NoError(t, err)
+
+	err = blockCollection.Save(ctx, blockDoc)
+	require.NoError(t, err)
+
+	// Create transactions
+	for txIdx := 0; txIdx < numTransactions; txIdx++ {
+		txHash := fmt.Sprintf("0x%032x", rng.Uint64())
+		txData := map[string]any{
+			"hash":                 txHash,
+			"blockHash":            blockHash,
+			"blockNumber":          int64(blockNumber),
+			"from":                 fmt.Sprintf("0x%040x", rng.Uint64()),
+			"to":                   fmt.Sprintf("0x%040x", rng.Uint64()),
+			"value":                fmt.Sprintf("%d", rng.Int63n(1000000000000000000)),
+			"gas":                  "21000",
+			"gasPrice":             "20000000000",
+			"maxFeePerGas":         "30000000000",
+			"maxPriorityFeePerGas": "2000000000",
+			"input":                "0x",
+			"nonce":                fmt.Sprintf("%d", txIdx),
+			"transactionIndex":     txIdx,
+			"type":                 "0x2",
+			"chainId":              "0x1",
+			"v":                    "0x0",
+			"r":                    fmt.Sprintf("0x%064x", rng.Uint64()),
+			"s":                    fmt.Sprintf("0x%064x", rng.Uint64()),
+			"status":               true,
+			"cumulativeGasUsed":    "0x5208",
+			"effectiveGasPrice":    "0x3b9aca00",
+		}
+
+		txCollection, err := defraNode.DB.GetCollectionByName(ctx, "Transaction")
+		require.NoError(t, err)
+
+		txDoc, err := client.NewDocFromMap(txData, txCollection.Version())
+		require.NoError(t, err)
+
+		err = txCollection.Save(ctx, txDoc)
+		require.NoError(t, err)
+
+		// Create logs for this transaction
+		logsForThisTx := numLogs / numTransactions
+		if txIdx < numLogs%numTransactions {
+			logsForThisTx++
+		}
+
+		for logIdx := 0; logIdx < logsForThisTx; logIdx++ {
+			logData := map[string]any{
+				"address":          fmt.Sprintf("0x%040x", rng.Uint64()),
+				"topics":           []string{fmt.Sprintf("0x%064x", rng.Uint64())},
+				"data":             fmt.Sprintf("0x%064x", rng.Uint64()),
+				"transactionHash":  txHash,
+				"blockHash":        blockHash,
+				"blockNumber":      int64(blockNumber),
+				"transactionIndex": txIdx,
+				"logIndex":         logIdx,
+				"removed":          "false",
+			}
+
+			logCollection, err := defraNode.DB.GetCollectionByName(ctx, "Log")
+			require.NoError(t, err)
+
+			logDoc, err := client.NewDocFromMap(logData, logCollection.Version())
+			require.NoError(t, err)
+
+			err = logCollection.Save(ctx, logDoc)
+			require.NoError(t, err)
+		}
+	}
+
+	t.Logf("block %d - %d transactions, %d logs", blockNumber, numTransactions, numLogs)
 }
