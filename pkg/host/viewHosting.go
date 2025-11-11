@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
@@ -97,6 +98,104 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 	return nil
 }
 
+// sortDescendingBlockNumber sorts documents by blockNumber in descending order
+// This is a workaround for DefraDB panicking when using order parameters in queries
+// The function handles different field locations based on the schema:
+//   - blockNumber: Int field (Log, Transaction) - see schema.graphql
+//   - number: Int field (Block) - see schema.graphql
+//   - transaction.blockNumber: nested Int field (AccessListEntry via Transaction relation) - see schema.graphql
+func sortDescendingBlockNumber(documents []map[string]any) ([]map[string]any, error) {
+	if len(documents) == 0 {
+		return documents, nil
+	}
+
+	// Create a copy to avoid mutating the original slice
+	sorted := make([]map[string]any, len(documents))
+	copy(sorted, documents)
+
+	// Extract block number from a document, handling different field locations
+	// Schema defines these as Int, but JSON unmarshaling may produce various numeric types
+	extractBlockNumber := func(doc map[string]any) (uint64, error) {
+		// Helper to convert various numeric types to uint64
+		convertToUint64 := func(v any) (uint64, bool) {
+			switch val := v.(type) {
+			case uint64:
+				return val, true
+			case uint32:
+				return uint64(val), true
+			case int64:
+				if val < 0 {
+					return 0, false
+				}
+				return uint64(val), true
+			case int32:
+				if val < 0 {
+					return 0, false
+				}
+				return uint64(val), true
+			case int:
+				if val < 0 {
+					return 0, false
+				}
+				return uint64(val), true
+			case float64:
+				// JSON numbers are typically unmarshaled as float64
+				if val < 0 {
+					return 0, false
+				}
+				return uint64(val), true
+			case float32:
+				if val < 0 {
+					return 0, false
+				}
+				return uint64(val), true
+			default:
+				return 0, false
+			}
+		}
+
+		// Try blockNumber first (Log, Transaction - schema: blockNumber: Int)
+		if blockNum, ok := doc["blockNumber"]; ok && blockNum != nil {
+			if result, ok := convertToUint64(blockNum); ok {
+				return result, nil
+			}
+		}
+
+		// Try number field (Block - schema: number: Int)
+		if num, ok := doc["number"]; ok && num != nil {
+			if result, ok := convertToUint64(num); ok {
+				return result, nil
+			}
+		}
+
+		// Try nested transaction.blockNumber (AccessListEntry -> Transaction.blockNumber: Int)
+		if transaction, ok := doc["transaction"].(map[string]any); ok && transaction != nil {
+			if blockNum, ok := transaction["blockNumber"]; ok && blockNum != nil {
+				if result, ok := convertToUint64(blockNum); ok {
+					return result, nil
+				}
+			}
+		}
+
+		return 0, fmt.Errorf("unable to extract blockNumber from document (tried blockNumber, number, and transaction.blockNumber): %+v", doc)
+	}
+
+	// Sort in descending order
+	sort.Slice(sorted, func(i, j int) bool {
+		blockNumI, errI := extractBlockNumber(sorted[i])
+		blockNumJ, errJ := extractBlockNumber(sorted[j])
+
+		// If either extraction fails, maintain original order
+		if errI != nil || errJ != nil {
+			return false
+		}
+
+		return blockNumI > blockNumJ
+	})
+
+	return sorted, nil
+}
+
 func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64, endingBlockNumber uint64) error {
 	query, err := graphql.WithBlockNumberFilter(*v.Query, startingBlockNumber, endingBlockNumber)
 	if err != nil {
@@ -114,6 +213,11 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	}
 	if len(sourceDocuments) == 0 {
 		return fmt.Errorf("No source data found using query %s", query)
+	}
+
+	sourceDocuments, err = sortDescendingBlockNumber(sourceDocuments)
+	if err != nil {
+		return fmt.Errorf("Error sorting documents by blockNumber: %w", err)
 	}
 
 	type attestationInfo struct {

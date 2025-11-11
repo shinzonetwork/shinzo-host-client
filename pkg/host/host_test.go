@@ -54,31 +54,3 @@ func queryBlockNumber(ctx context.Context, defraNode *node.Node) (uint64, error)
 
 	return block.Number, nil
 }
-
-// func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
-// 	logger.Init(true)
-// 	ctx := t.Context()
-
-// 	testConfig := DefaultConfig
-// 	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
-// 	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
-// 	testConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers = append(testConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers,
-// 		"/ip4/34.45.96.244/tcp/9171/p2p/12D3KooWPK7AkcUnjfqwkfkmV634TGpPg8paXoMPyFJQiGiukmSw")
-
-// 	testHost, err := StartHostingWithTestConfig(t)
-// 	require.NoError(t, err)
-// 	defer testHost.Close(ctx)
-// 	hostDefra := testHost.DefraNode
-
-// 	blockNumber, err := queryBlockNumber(ctx, hostDefra)
-// 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
-// 		if err == nil {
-// 			break
-// 		}
-// 		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
-// 		time.Sleep(1 * time.Second)
-// 		blockNumber, err = queryBlockNumber(ctx, hostDefra)
-// 	}
-// 	require.NoError(t, err) // We should now have the block number on the Host
-// 	require.Greater(t, blockNumber, uint64(100))
-// }
