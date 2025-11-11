@@ -163,3 +163,4 @@ func TestDefraSignatureVerifier_Verify_WithNilNode(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "defradb node or API URL is not available")
 }
+

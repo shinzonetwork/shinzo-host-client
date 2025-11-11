@@ -137,7 +137,7 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		}
 
 		if v.HasLenses() {
-			transformed, err := v.ApplyLensTransform(ctx, h.DefraNode, []map[string]any{sourceDocument})
+			transformed, err := v.ApplyLensTransform(ctx, h.DefraNode, query)
 			if err != nil {
 				return fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
 			}
@@ -146,7 +146,8 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 			}
 			transformedDocuments[sourceAttestationInfo] = transformed
 		} else {
-			transformedDocuments[sourceAttestationInfo] = []map[string]any{sourceDocument}
+			// For views without lenses, use the source collection directly
+			transformedDocuments[sourceAttestationInfo] = sourceDocuments
 		}
 	}
 

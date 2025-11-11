@@ -9,10 +9,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/views"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/sourcenetwork/immutable/enumerable"
+	"github.com/sourcenetwork/immutable"
 	"github.com/sourcenetwork/lens/host-go/config/model"
 )
 
@@ -51,6 +52,12 @@ func parseSDLFields(sdl string) (map[string]bool, error) {
 	}
 
 	return fields, nil
+}
+
+// getUniqueViewName generates a unique view name by appending "_view" to the base view name
+// This ensures that views don't conflict with collections that have the same name
+func (v *View) getUniqueViewName() string {
+	return fmt.Sprintf("%s_view", v.Name)
 }
 
 // filterDocumentFields filters a document to only include fields defined in the SDL schema
@@ -154,11 +161,94 @@ func (v *View) findOrCreateLensRegistryDir(registryPath string) (string, error) 
 	return dirPath, nil
 }
 
+// ConfigureLens creates or updates the view with the lens transform using AddView.
+// According to the DefraDB guide, views are created with db.AddView providing:
+// - A GQL query string (source query)
+// - A GQL SDL (output structure, should have @materialized(if: false) for non-materialized)
+// - Optionally, a lens configuration (transform)
 func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node) error {
 	if len(v.Transform.Lenses) < 1 {
 		return fmt.Errorf("no lenses provided in view %+v", v)
 	}
 
+	if v.Query == nil || *v.Query == "" {
+		return fmt.Errorf("view query is required")
+	}
+
+	if v.Sdl == nil || *v.Sdl == "" {
+		return fmt.Errorf("view SDL is required")
+	}
+
+	// Ensure SDL has @materialized(if: false) for non-materialized views
+	// We always want non-materialized views so lens transforms are applied on query
+	// Also replace the type name with the unique view name to avoid conflicts
+	// Add blockNumber field to the SDL so we can query/filter by it
+	sdl := *v.Sdl
+	uniqueViewName := v.getUniqueViewName()
+
+	// Replace the type name in the SDL with the unique view name
+	// Pattern: type ViewName { ... } -> type ViewName_<address> { ... }
+	re := regexp.MustCompile(`type\s+(\w+)\s*`)
+	sdl = re.ReplaceAllString(sdl, fmt.Sprintf("type %s ", uniqueViewName))
+
+	if strings.Contains(sdl, "@materialized") {
+		// Replace any existing @materialized directive with @materialized(if: false)
+		// Handle various formats: @materialized, @materialized(if: true), @materialized(if: false), etc.
+		re := regexp.MustCompile(`@materialized\s*(\([^)]*\))?`)
+		sdl = re.ReplaceAllString(sdl, "@materialized(if: false)")
+	} else {
+		// Add @materialized(if: false) directive if not present
+		// Find the type definition and add the directive before the opening brace
+		re := regexp.MustCompile(`(type\s+\w+\s*)(\{)`)
+		if re.MatchString(sdl) {
+			sdl = re.ReplaceAllString(sdl, `${1}@materialized(if: false) $2`)
+		}
+	}
+
+	// Add blockNumber field to the SDL so we can query/filter by it in the view
+	// Insert it before the closing brace of the type definition
+	// Check if blockNumber already exists to avoid duplicates
+	if !strings.Contains(sdl, "blockNumber") {
+		// Find the closing brace of the type definition and insert blockNumber before it
+		// We'll find the last closing brace (which should be the type definition's closing brace)
+		// and insert blockNumber with proper formatting
+		idx := strings.LastIndex(sdl, "}")
+		if idx != -1 {
+			// Find the newline before the closing brace to maintain formatting
+			newlineIdx := strings.LastIndex(sdl[:idx], "\n")
+			if newlineIdx != -1 {
+				// Extract indentation from the line before the closing brace
+				// Look backwards from newlineIdx to find the start of indentation
+				lineStart := newlineIdx + 1
+				indent := ""
+				if lineStart < idx {
+					// Get the whitespace before the closing brace
+					beforeBrace := sdl[lineStart:idx]
+					// Extract leading whitespace as indent
+					for i, r := range beforeBrace {
+						if r != ' ' && r != '\t' {
+							indent = beforeBrace[:i]
+							break
+						}
+					}
+					if indent == "" {
+						indent = beforeBrace
+					}
+				}
+				// If we couldn't determine indent, use 2 spaces as default
+				if indent == "" {
+					indent = "  "
+				}
+				// Insert blockNumber before the closing brace with proper indentation
+				sdl = sdl[:idx] + indent + "blockNumber: Int\n" + sdl[idx:]
+			} else {
+				// No newline found, just add with space
+				sdl = sdl[:idx] + " blockNumber: Int" + sdl[idx:]
+			}
+		}
+	}
+
+	// Convert view's Transform to model.Lens
 	lenses := []model.LensModule{}
 	for _, lense := range v.Transform.Lenses {
 		lenses = append(lenses, model.LensModule{
@@ -167,45 +257,79 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node) error {
 			Arguments: lense.Arguments,
 		})
 	}
-	lensConfig := model.Lens{
+	transform := immutable.Some(model.Lens{
 		Lenses: lenses,
-	}
+	})
 
-	err := defraNode.DB.LensRegistry().SetMigration(ctx, v.Name, lensConfig)
+	// Create the view with AddView (includes the lens transform)
+	// If the view already exists from SubscribeTo, AddView will return an error
+	// We handle that gracefully since the view might have been created without the transform
+	_, err := defraNode.DB.AddView(ctx, *v.Query, sdl, transform)
 	if err != nil {
-		return fmt.Errorf("error setting lens config: %v", err)
+		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "collection already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create view with lens transform: %w", err)
 	}
 
 	return nil
 }
 
-func (v *View) ApplyLensTransform(ctx context.Context, defraNode *node.Node, sourceDocuments []map[string]any) ([]map[string]any, error) {
-	src := enumerable.New(sourceDocuments)
-
-	transformed, err := defraNode.DB.LensRegistry().MigrateUp(ctx, src, v.Name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to apply lens transformation: %w", err)
-	}
-
-	// Convert back to slice
-	var result []map[string]any
-	err = enumerable.ForEach(transformed, func(item map[string]any) {
-		if item != nil {
-			result = append(result, item)
+// ApplyLensTransform queries the non-materialized view collection to get transformed results.
+// According to the DefraDB guide, non-materialized views automatically apply lens transformations
+// when queried. We simply query the view with the same filters as the source query.
+//
+// The sourceQuery parameter is the filtered source query (e.g., "Log(filter: {...}) { ... }").
+// We replace the source collection name with the view name and query it directly.
+func (v *View) ApplyLensTransform(ctx context.Context, defraNode *node.Node, sourceQuery string) ([]map[string]any, error) {
+	// Get fields from SDL to build the selection set for the view query
+	var fields string
+	if v.Sdl != nil && *v.Sdl != "" {
+		schemaFields, err := parseSDLFields(*v.Sdl)
+		if err == nil && len(schemaFields) > 0 {
+			fieldList := make([]string, 0, len(schemaFields))
+			for field := range schemaFields {
+				fieldList = append(fieldList, field)
+			}
+			fields = strings.Join(fieldList, " ")
 		}
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to iterate through transformed results: %w", err)
 	}
 
-	return result, nil
+	// If we couldn't get fields from SDL, use a minimal query
+	if fields == "" {
+		fields = "_docID"
+	}
+
+	// Extract the filter part from the source query and apply it to the view query
+	// Pattern: CollectionName(filter: {...}) { ... } -> ViewName(filter: {...}) { fields }
+	// Use unique view name to match the one created in ConfigureLens
+	uniqueViewName := v.getUniqueViewName()
+	re := regexp.MustCompile(`^\w+\s*(\([^)]*\))?\s*\{`)
+	matches := re.FindStringSubmatch(sourceQuery)
+
+	var viewQuery string
+	if len(matches) > 1 && matches[1] != "" {
+		// Source query has filters, apply them to view query
+		filterPart := matches[1]
+		viewQuery = fmt.Sprintf("%s%s { %s }", uniqueViewName, filterPart, fields)
+	} else {
+		return nil, fmt.Errorf("Must have at least one query param")
+	}
+
+	transformedDocs, err := defra.QueryArray[map[string]any](ctx, defraNode, viewQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query view collection %s: %w", uniqueViewName, err)
+	}
+
+	return transformedDocs, nil
 }
 
 func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node.Node, transformedDocument []map[string]any) ([]string, error) {
-	collection, err := defraNode.DB.GetCollectionByName(ctx, v.Name)
+	// Use unique view name to match the one created in ConfigureLens
+	uniqueViewName := v.Name
+	collection, err := defraNode.DB.GetCollectionByName(ctx, uniqueViewName)
 	if err != nil {
-		return nil, fmt.Errorf("error getting collection %s: %v", v.Name, err)
+		return nil, fmt.Errorf("error getting collection %s: %v", uniqueViewName, err)
 	}
 
 	createdDocumentIds := []string{}

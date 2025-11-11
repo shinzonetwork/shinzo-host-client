@@ -9,7 +9,6 @@ import (
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
-	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -19,22 +18,21 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	bigPeer, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
-	indexerDefra, testIndexer := startIndexer(t, bigPeer.DB.PeerInfo())
+	peerInfo, err := bigPeer.DB.PeerInfo()
+	require.NoError(t, err)
+	indexerDefra, testIndexer := startIndexer(t, peerInfo)
 	defer indexerDefra.Close(t.Context())
 	defer testIndexer.StopIndexing()
 
 	logs, err := defra.QueryArray[viewResult](t.Context(), indexerDefra, "Log { transactionHash }")
 	require.NoError(t, err)
 	require.Greater(t, len(logs), 0)
-
-	boostrapPeers, errs := defra.PeersIntoBootstrap([]client.PeerInfo{bigPeer.DB.PeerInfo()})
-	require.Len(t, errs, 0)
-	testHost := host.CreateHostWithTwoViews(t, boostrapPeers...)
+	testHost := host.CreateHostWithTwoViews(t, peerInfo...)
 	defer testHost.Close(t.Context())
 	require.Len(t, testHost.HostedViews, 2)
 
 	appConfig := defra.DefaultConfig
-	appConfig.DefraDB.P2P.BootstrapPeers = append(appConfig.DefraDB.P2P.BootstrapPeers, boostrapPeers...)
+	appConfig.DefraDB.P2P.BootstrapPeers = append(appConfig.DefraDB.P2P.BootstrapPeers, peerInfo...)
 	appDefra, err := defra.StartDefraInstanceWithTestConfig(t, appConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer appDefra.Close(t.Context())
@@ -114,17 +112,15 @@ type viewResult struct {
 	TransactionHash string `json:"transactionHash"`
 }
 
-func startIndexer(t *testing.T, bigPeer client.PeerInfo) (*node.Node, *indexer.ChainIndexer) {
+func startIndexer(t *testing.T, bigPeer []string) (*node.Node, *indexer.ChainIndexer) {
 	defraConfig := defra.DefaultConfig
-	bootstrapPeers, errs := defra.PeersIntoBootstrap([]client.PeerInfo{bigPeer})
-	require.Len(t, errs, 0)
-	defraConfig.DefraDB.P2P.BootstrapPeers = append(defraConfig.DefraDB.P2P.BootstrapPeers, bootstrapPeers...)
+	defraConfig.DefraDB.P2P.BootstrapPeers = append(defraConfig.DefraDB.P2P.BootstrapPeers, bigPeer...)
 	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t, defraConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}, "Block", "Transaction", "AccessListEntry", "Log")
 	require.NoError(t, err)
 	testConfig := indexer.DefaultConfig
-	testConfig.DefraDB.Url = indexerDefra.APIURL
-
-	i := indexer.CreateIndexer(testConfig)
+	testConfig.Geth = host.GetGethConfig()
+	i, err := indexer.CreateIndexer(testConfig)
+	require.NoError(t, err)
 	go func() {
 		err := i.StartIndexing(true)
 		if err != nil {

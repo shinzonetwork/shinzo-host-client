@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/file"
+	indexerConfig "github.com/shinzonetwork/indexer/config"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/networking"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
@@ -76,4 +77,20 @@ func CreateHostWithTwoViews(t *testing.T, boostrapPeers ...string) *Host {
 	// Verify the host processed the event
 	require.Len(t, testHost.HostedViews, 2, "Host should have two hosted view after receiving events")
 	return testHost
+}
+
+func GetGethConfig() indexerConfig.GethConfig {
+	return indexerConfig.GethConfig{
+		NodeURL: getGethNodeURL(),
+		WsURL:   os.Getenv("GCP_GETH_WS_URL"),
+		APIKey:  os.Getenv("GCP_GETH_API_KEY"),
+	}
+}
+
+func getGethNodeURL() string {
+	if gcpURL := os.Getenv("GCP_GETH_RPC_URL"); gcpURL != "" {
+		return gcpURL
+	}
+	// Fallback to public node for tests without GCP setup
+	return "https://ethereum-rpc.publicnode.com"
 }
