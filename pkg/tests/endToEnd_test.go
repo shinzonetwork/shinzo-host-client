@@ -179,8 +179,9 @@ func mockIndexer(ctx context.Context, t *testing.T, defraNode *node.Node) {
 func postMockBlock(t *testing.T, defraNode *node.Node, blockNumber uint64, numTransactions int, numLogs int, rng *rand.Rand) {
 	ctx := context.Background()
 
-	// Create block
-	blockHash := fmt.Sprintf("0x%016x", blockNumber)
+	// Create block with unique hash (include random component to ensure uniqueness)
+	// Even if blockNumber is the same, the hash will be different
+	blockHash := fmt.Sprintf("0x%016x%016x", blockNumber, rng.Uint64())
 	blockData := map[string]any{
 		"hash":             blockHash,
 		"number":           int64(blockNumber),
