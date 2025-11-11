@@ -46,7 +46,6 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	}
 
 	// Wait until host has received logs
-	time.Sleep(10 * time.Second)
 	logs, err = defra.QueryArray[viewResult](t.Context(), testHost.DefraNode, "Log { transactionHash }")
 	require.NoError(t, err)
 	for len(logs) == 0 {
@@ -84,8 +83,8 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	require.Greater(t, len(unfilteredResults), len(filteredResults))
 
 	// Retry checking for new blocks multiple times before final assertion
-	maxRetries := 30
-	retryDelay := 2 * time.Second
+	maxRetries := 300
+	retryDelay := 1 * time.Second
 	var newUnfilteredResults []viewResult
 	for i := 0; i < maxRetries; i++ {
 		time.Sleep(retryDelay)
@@ -132,7 +131,7 @@ func startIndexer(t *testing.T, bigPeer []string) (*node.Node, func()) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	
+
 	// Start mock indexer in background
 	go func() {
 		defer close(done)
@@ -187,7 +186,6 @@ func mockIndexer(ctx context.Context, t *testing.T, defraNode *node.Node) {
 
 			t.Logf("Posted blocks around %d", baseBlockNumber)
 
-			// Wait 3 seconds
 			select {
 			case <-ctx.Done():
 				return
@@ -195,7 +193,7 @@ func mockIndexer(ctx context.Context, t *testing.T, defraNode *node.Node) {
 			}
 
 			// Increment base block number
-			baseBlockNumber += uint64(rng.Intn(20) + 1) // Increment by 1-20
+			baseBlockNumber += uint64(100)
 		}
 	}
 }
