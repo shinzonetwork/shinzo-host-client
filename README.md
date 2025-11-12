@@ -56,3 +56,39 @@ The Host maintains a mapping of Views to a stack of block number timestamps at w
 Note that while only the top item in the stacks are used, having the entire stack can be quite useful when debugging.
 
 With this approach to Hosting Views, any block data that is received late (after other versions of that block have been received and processed) will not be processed into Views. In future iterations, when we add the attestation logic to the Host, we will have the means to identify newly updated documents as well as any late block data (as we will need to process the attestation logic on them as well); from here, we can trigger retrospective View processing on any late data received.
+
+
+## Connect to an Indexer
+
+**PEER ID INFO**
+IP_ADDRESS: 136.115.148.56
+PORT: 9171
+PEER_ID: 12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD
+
+`['/ip4/<IP_ADDRESS>/tcp/<PORT>/p2p/<PEER_ID>']`
+
+Step 1: `Update config.yaml`
+
+```yaml
+#... existing config.yaml ...
+defradb:
+    p2p:
+        bootstrap_peers: ['/ip4/<IP_ADDRESS>/tcp/9171/p2p/<PeerID>']
+        listen_addr: "/ip4/0.0.0.0/tcp/0"
+#... existing config.yaml ...
+```
+
+Step 2: `Run the host client`
+
+```bash
+make build
+make start
+```
+
+Step 3: `Verify connection`
+
+Check the logs for the host client - you should see a message indicating that the host client has connected to the Indexer.
+
+```log
+Nov 12 16:10:15.363 INF p2p Received new pubsub message PeerID=12D3KooWSfFo4Dr3T4AFupCGmDyEosFFcZeo7ozfm6itULeTmTDS SenderId=12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD Topic=bafyreidmrvhwhvnjcrucj7qz26mlsxi4cwjevzzpnb4rr23ighgqxn2n7i
+```
