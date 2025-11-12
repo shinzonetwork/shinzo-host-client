@@ -105,7 +105,13 @@ func startIndexer(t *testing.T, bigPeer client.PeerInfo) (*node.Node, *indexer.C
 	testConfig := indexer.DefaultConfig
 	testConfig.DefraDB.Url = indexerDefra.APIURL
 
-	i := indexer.CreateIndexer(testConfig)
+	// Configure GCP Geth connection
+	testConfig.Geth.NodeURL = "${GCP_GETH_RPC_URL}"
+	testConfig.Geth.WsURL = "${GCP_GETH_WS_URL}"
+	testConfig.Geth.APIKey = "${GCP_GETH_API_KEY}"
+
+	i, err := indexer.CreateIndexer(testConfig)
+	require.NoError(t, err)
 	go func() {
 		err := i.StartIndexing(true)
 		if err != nil {
