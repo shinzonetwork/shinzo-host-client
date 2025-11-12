@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -105,10 +106,14 @@ func startIndexer(t *testing.T, bigPeer client.PeerInfo) (*node.Node, *indexer.C
 	testConfig := indexer.DefaultConfig
 	testConfig.DefraDB.Url = indexerDefra.APIURL
 
-	// Configure GCP Geth connection
-	testConfig.Geth.NodeURL = "${GCP_GETH_RPC_URL}"
-	testConfig.Geth.WsURL = "${GCP_GETH_WS_URL}"
-	testConfig.Geth.APIKey = "${GCP_GETH_API_KEY}"
+	// Configure GCP Geth connection from environment variables
+	testConfig.Geth.NodeURL = os.Getenv("GCP_GETH_RPC_URL")
+	testConfig.Geth.WsURL = os.Getenv("GCP_GETH_WS_URL")
+	testConfig.Geth.APIKey = os.Getenv("GCP_GETH_API_KEY")
+
+	if testConfig.Geth.NodeURL == "" || testConfig.Geth.WsURL == "" || testConfig.Geth.APIKey == "" {
+		t.Fatalf("ENV Vars not set for Indexer. Required Vars: GCP_GETH_RPC_URL, GCP_GETH_WS_URL, GCP_GETH_API_KEY")
+	}
 
 	i, err := indexer.CreateIndexer(testConfig)
 	require.NoError(t, err)
