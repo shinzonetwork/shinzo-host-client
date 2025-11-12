@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
@@ -58,53 +56,55 @@ func queryBlockNumber(ctx context.Context, defraNode *node.Node) (uint64, error)
 	return block.Number, nil
 }
 
-func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
-	logger.Init(true)
+func TestMonitorHighestBlockNumber(t *testing.T) {
 	ctx := t.Context()
-	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t,
-		defra.DefaultConfig,
-		&appDefra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
-		"Block")
-	require.NoError(t, err)
-
-	testConfig := indexer.DefaultConfig
-	testConfig.DefraDB.Url = indexerDefra.APIURL
-	i := indexer.CreateIndexer(testConfig)
-	go func() {
-		err := i.StartIndexing(true)
-		if err != nil {
-			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
-		}
-	}()
-	defer i.StopIndexing()
-
-	for !i.IsStarted() || !i.HasIndexedAtLeastOneBlock() {
-		time.Sleep(100 * time.Millisecond)
-	}
-
 	testHost, err := StartHostingWithTestConfig(t)
 	require.NoError(t, err)
 	defer testHost.Close(ctx)
-	hostDefra := testHost.DefraNode
 
-	err = hostDefra.DB.Connect(ctx, indexerDefra.DB.PeerInfo())
-	require.NoError(t, err)
+	// Initially, mostRecentBlockReceived should be 0
+	require.Equal(t, uint64(0), testHost.mostRecentBlockReceived)
 
-	// Schema is applied automatically by the app-sdk
+	// Wait a bit for the monitoring goroutine to start
+	time.Sleep(100 * time.Millisecond)
 
-	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
-	require.NoError(t, err)
-	require.Greater(t, blockNumber, uint64(100))
+	// Add a block to defraNode
+	blockNumber1 := uint64(1000)
+	postDummyBlock(t, testHost.DefraNode, blockNumber1)
 
-	blockNumber, err = queryBlockNumber(ctx, hostDefra)
-	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
-		if err == nil {
+	// Wait for the monitoring goroutine to detect it (checks every second)
+	// Give it a bit more than 1 second to account for timing
+	maxWait := 3 * time.Second
+	startTime := time.Now()
+	for time.Since(startTime) < maxWait {
+		if testHost.mostRecentBlockReceived >= blockNumber1 {
 			break
 		}
-		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
-		time.Sleep(1 * time.Second)
-		blockNumber, err = queryBlockNumber(ctx, hostDefra)
+		time.Sleep(200 * time.Millisecond)
 	}
-	require.NoError(t, err) // We should now have the block number on the Host
-	require.Greater(t, blockNumber, uint64(100))
+
+	require.Equal(t, blockNumber1, testHost.mostRecentBlockReceived)
+
+	// Add another block with a higher number
+	blockNumber2 := uint64(2000)
+	postDummyBlock(t, testHost.DefraNode, blockNumber2)
+
+	// Wait for the monitoring goroutine to detect the new block
+	startTime = time.Now()
+	for time.Since(startTime) < maxWait {
+		if testHost.mostRecentBlockReceived >= blockNumber2 {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	require.Equal(t, blockNumber2, testHost.mostRecentBlockReceived)
+
+	// Add a block with a lower number - should not update mostRecentBlockReceived
+	blockNumber3 := uint64(500)
+	postDummyBlock(t, testHost.DefraNode, blockNumber3)
+
+	time.Sleep(1500 * time.Millisecond)
+
+	require.Equal(t, blockNumber2, testHost.mostRecentBlockReceived)
 }
