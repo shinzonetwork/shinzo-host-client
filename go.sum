@@ -2309,6 +2309,8 @@ github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNX
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
 github.com/shinzonetwork/app-sdk v0.0.0-20251113172529-6040934f2d2c h1:SS61uOFFEnW0inv5aPO2P7VYCjMQxUcVbgyuuuhrUPM=
 github.com/shinzonetwork/app-sdk v0.0.0-20251113172529-6040934f2d2c/go.mod h1:esInsGw95VtR0Gs9jpRgUwrxjFy5n9iXFpmjIFGnrvE=
+github.com/shinzonetwork/indexer v0.0.0-20251113191343-c03d197b6b4e h1:qLYzFEJoPplrpBVLqquw4Qi8td5dMYH3IFp8tTdfLtI=
+github.com/shinzonetwork/indexer v0.0.0-20251113191343-c03d197b6b4e/go.mod h1:OHkbNbpVRqihbj2K9/7yGXMrRR5g0rR1RqElvbdDUo4=
 github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec h1:+o6/UNVSABjHxYctVV//e5LJkskGiCRpHjl0Tnt3A6k=
 github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec/go.mod h1:ZQBTItczjnBe1GN7XGP3/zQEYyEWxAYlSRqK/g7aqWk=
 github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible h1:Bn1aCHHRnjv4Bl16T8rcaFjYSrGrIZvpiGO6P3Q4GpU=
