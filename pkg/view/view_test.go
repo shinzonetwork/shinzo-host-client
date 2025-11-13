@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/views"
+	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -113,7 +114,7 @@ func (h *MockHost) Close(ctx context.Context) error {
 // StartHostingWithEventSubscription creates a mock host for testing
 func StartHostingWithEventSubscription(t *testing.T, cfg *config.Config, eventSub *MockEventSubscription) (*MockHost, error) {
 	// Create DefraDB instance
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +235,7 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a DefraDB instance with real schema
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"})
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 

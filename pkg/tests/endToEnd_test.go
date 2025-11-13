@@ -9,6 +9,7 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -126,7 +127,7 @@ type viewResult struct {
 func startIndexer(t *testing.T, bigPeer []string) (*node.Node, func()) {
 	defraConfig := defra.DefaultConfig
 	defraConfig.DefraDB.P2P.BootstrapPeers = append(defraConfig.DefraDB.P2P.BootstrapPeers, bigPeer...)
-	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t, defraConfig, &defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"}, "Block", "Transaction", "AccessListEntry", "Log")
+	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t, defraConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()), "Block", "Transaction", "AccessListEntry", "Log")
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -214,7 +215,7 @@ func postMockBlock(t *testing.T, defraNode *node.Node, blockNumber uint64, numTr
 		"gasUsed":          "0x5208",
 		"gasLimit":         "0x1c9c380",
 		"baseFeePerGas":    "0x3b9aca00",
-		"nonce":            int64(blockNumber),
+		"nonce":            fmt.Sprintf("%d", blockNumber),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"size":             "0x208",
 		"stateRoot":        fmt.Sprintf("0x%016x", blockNumber+1000),
