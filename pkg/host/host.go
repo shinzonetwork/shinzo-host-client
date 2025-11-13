@@ -25,7 +25,7 @@ var DefaultConfig *config.Config = &config.Config{
 	},
 }
 
-var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
+var requiredPeers []string = []string{"/ip4/136.115.148.56/tcp/9171/p2p/12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD"} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
 	DefraNode              *node.Node
@@ -50,6 +50,8 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	logger.Init(true)
+
+	cfg.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers = append(cfg.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers, requiredPeers...)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
 		&defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
