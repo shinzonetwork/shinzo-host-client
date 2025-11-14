@@ -41,10 +41,12 @@ type Host struct {
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the block processing goroutine
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
+	blockMonitorCancel     context.CancelFunc // For canceling the block monitoring goroutine
 
 	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
 	attestationProcessedBlocks *stack.Stack[uint64]
 	viewProcessedBlocks        map[string]*stack.Stack[uint64] // The block numbers processed mapped to their respective view name
+	mostRecentBlockReceived    uint64                          // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -140,6 +142,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
 		processingCancel:           func() {},
 		playgroundServer:           playgroundServer,
+		blockMonitorCancel:         func() {},
 		attestationProcessedBlocks: stack.New[uint64](),
 		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
 	}
@@ -165,12 +168,18 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	newHost.processingCancel = processingCancel
 	go newHost.processAllViews(processingCtx)
 
+	// Start the block monitoring goroutine
+	blockMonitorCtx, blockMonitorCancel := context.WithCancel(context.Background())
+	newHost.blockMonitorCancel = blockMonitorCancel
+	go newHost.monitorHighestBlockNumber(blockMonitorCtx)
+
 	return newHost, nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
-	h.processingCancel() // Stop the block processing goroutine
+	h.processingCancel()   // Stop the block processing goroutine
+	h.blockMonitorCancel() // Stop the block monitoring goroutine
 
 	// Shutdown playground server if it exists
 	if h.playgroundServer != nil {
@@ -227,6 +236,31 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				}
 			} else {
 				logger.Sugar.Errorf("Received unknown event: %+v", event)
+			}
+		}
+	}
+}
+
+func (h *Host) monitorHighestBlockNumber(ctx context.Context) {
+	logger.Sugar.Info("Monitoring for new blocks...")
+	ticker := time.NewTicker(1 * time.Second) // Check every second
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Sugar.Info("Block monitoring stopped due to context cancellation")
+			return
+		case <-ticker.C:
+			highestBlockNumber, err := h.getCurrentBlockNumber(ctx)
+			if err != nil {
+				logger.Sugar.Errorf("Error fetching highest block number: %v", err)
+				continue
+			}
+
+			if highestBlockNumber > h.mostRecentBlockReceived {
+				logger.Sugar.Infof("Highest block number in defraNode: %d", highestBlockNumber)
+				h.mostRecentBlockReceived = highestBlockNumber
 			}
 		}
 	}

@@ -340,15 +340,15 @@ func postDummyLogWithBlockNumber(t *testing.T, hostDefra *node.Node, address str
 	blockHash := fmt.Sprintf("0x%x", blockNumber)
 	transactionHash := fmt.Sprintf("0x%x", rand.Uint64())
 	dummyLog := map[string]any{
-		"address":         address,
-		"blockNumber":     int64(blockNumber), // Convert uint64 to int64 for DefraDB
-		"blockHash":       blockHash,
-		"data":            "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"topics":          []string{"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"},
-		"transactionHash": transactionHash,
+		"address":          address,
+		"blockNumber":      int64(blockNumber), // Convert uint64 to int64 for DefraDB
+		"blockHash":        blockHash,
+		"data":             "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"topics":           []string{"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"},
+		"transactionHash":  transactionHash,
 		"transactionIndex": 0,
-		"logIndex":       0,
-		"removed":         "false",
+		"logIndex":         0,
+		"removed":          "false",
 	}
 
 	ctx := t.Context()
@@ -407,23 +407,23 @@ func postDummyTransactionWithBlockNumber(t *testing.T, hostDefra *node.Node, blo
 
 	blockHash := fmt.Sprintf("0x%x", blockNumber)
 	dummyTransaction := map[string]any{
-		"hash":        fmt.Sprintf("0x%x", rand.Uint64()),
-		"blockHash":   blockHash,
-		"blockNumber": int64(blockNumber), // Convert uint64 to int64 for DefraDB
-		"from":        "0xfrom123",
-		"to":          "0xto456",
-		"value":       "1000000000000000000",
-		"gas":         "21000",
-		"gasPrice":    "20000000000",
-		"gasUsed":     "21000",
-		"nonce":       "0",
-		"transactionIndex": 0,
-		"type":        "0x2",
-		"chainId":     "0x1",
-		"v":           "0x0",
-		"r":           "0x0",
-		"s":           "0x0",
-		"status":      true,
+		"hash":              fmt.Sprintf("0x%x", rand.Uint64()),
+		"blockHash":         blockHash,
+		"blockNumber":       int64(blockNumber), // Convert uint64 to int64 for DefraDB
+		"from":              "0xfrom123",
+		"to":                "0xto456",
+		"value":             "1000000000000000000",
+		"gas":               "21000",
+		"gasPrice":          "20000000000",
+		"gasUsed":           "21000",
+		"nonce":             "0",
+		"transactionIndex":  0,
+		"type":              "0x2",
+		"chainId":           "0x1",
+		"v":                 "0x0",
+		"r":                 "0x0",
+		"s":                 "0x0",
+		"status":            true,
 		"cumulativeGasUsed": "21000",
 		"effectiveGasPrice": "20000000000",
 	}

@@ -119,3 +119,56 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	require.NoError(t, err) // We should now have the block number on the Host
 	require.Greater(t, blockNumber, uint64(1))
 }
+
+func TestMonitorHighestBlockNumber(t *testing.T) {
+	ctx := t.Context()
+	testHost, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer testHost.Close(ctx)
+
+	// Initially, mostRecentBlockReceived should be 0
+	require.Equal(t, uint64(0), testHost.mostRecentBlockReceived)
+
+	// Wait a bit for the monitoring goroutine to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Add a block to defraNode
+	blockNumber1 := uint64(1000)
+	postDummyBlock(t, testHost.DefraNode, blockNumber1)
+
+	// Wait for the monitoring goroutine to detect it (checks every second)
+	// Give it a bit more than 1 second to account for timing
+	maxWait := 3 * time.Second
+	startTime := time.Now()
+	for time.Since(startTime) < maxWait {
+		if testHost.mostRecentBlockReceived >= blockNumber1 {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	require.Equal(t, blockNumber1, testHost.mostRecentBlockReceived)
+
+	// Add another block with a higher number
+	blockNumber2 := uint64(2000)
+	postDummyBlock(t, testHost.DefraNode, blockNumber2)
+
+	// Wait for the monitoring goroutine to detect the new block
+	startTime = time.Now()
+	for time.Since(startTime) < maxWait {
+		if testHost.mostRecentBlockReceived >= blockNumber2 {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	require.Equal(t, blockNumber2, testHost.mostRecentBlockReceived)
+
+	// Add a block with a lower number - should not update mostRecentBlockReceived
+	blockNumber3 := uint64(500)
+	postDummyBlock(t, testHost.DefraNode, blockNumber3)
+
+	time.Sleep(1500 * time.Millisecond)
+
+	require.Equal(t, blockNumber2, testHost.mostRecentBlockReceived)
+}
