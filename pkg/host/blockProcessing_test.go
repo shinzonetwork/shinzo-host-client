@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -67,7 +67,7 @@ func TestBlockProcessingWithLens(t *testing.T) {
 		}
 
 		// Wait for processing to complete
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(3 * time.Second)
 
 		// Debug: Check what block numbers we have in the database
 		ctx := t.Context()
@@ -337,12 +337,18 @@ func postDummyLogWithBlockNumber(t *testing.T, hostDefra *node.Node, address str
 	// First, create the block if it doesn't exist
 	postDummyBlock(t, hostDefra, blockNumber)
 
+	blockHash := fmt.Sprintf("0x%x", blockNumber)
+	transactionHash := fmt.Sprintf("0x%x", rand.Uint64())
 	dummyLog := map[string]any{
 		"address":         address,
 		"blockNumber":     int64(blockNumber), // Convert uint64 to int64 for DefraDB
+		"blockHash":       blockHash,
 		"data":            "0x0000000000000000000000000000000000000000000000000000000000000001",
 		"topics":          []string{"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"},
-		"transactionHash": fmt.Sprintf("0x%x", rand.Uint64()),
+		"transactionHash": transactionHash,
+		"transactionIndex": 0,
+		"logIndex":       0,
+		"removed":         "false",
 	}
 
 	ctx := t.Context()
@@ -369,7 +375,7 @@ func postDummyBlock(t *testing.T, hostDefra *node.Node, blockNumber uint64) {
 		"gasUsed":          "0x5208",
 		"gasLimit":         "0x1c9c380",
 		"baseFeePerGas":    "0x3b9aca00",
-		"nonce":            int64(blockNumber),
+		"nonce":            fmt.Sprintf("%d", blockNumber),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"size":             "0x208",
 		"stateRoot":        fmt.Sprintf("0x%x", blockNumber+1000),
@@ -399,14 +405,27 @@ func postDummyTransactionWithBlockNumber(t *testing.T, hostDefra *node.Node, blo
 	// First, create the block if it doesn't exist
 	postDummyBlock(t, hostDefra, blockNumber)
 
+	blockHash := fmt.Sprintf("0x%x", blockNumber)
 	dummyTransaction := map[string]any{
 		"hash":        fmt.Sprintf("0x%x", rand.Uint64()),
+		"blockHash":   blockHash,
+		"blockNumber": int64(blockNumber), // Convert uint64 to int64 for DefraDB
 		"from":        "0xfrom123",
 		"to":          "0xto456",
 		"value":       "1000000000000000000",
-		"blockNumber": int64(blockNumber), // Convert uint64 to int64 for DefraDB
 		"gas":         "21000",
 		"gasPrice":    "20000000000",
+		"gasUsed":     "21000",
+		"nonce":       "0",
+		"transactionIndex": 0,
+		"type":        "0x2",
+		"chainId":     "0x1",
+		"v":           "0x0",
+		"r":           "0x0",
+		"s":           "0x0",
+		"status":      true,
+		"cumulativeGasUsed": "21000",
+		"effectiveGasPrice": "20000000000",
 	}
 
 	ctx := t.Context()

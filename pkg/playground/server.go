@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shinzonetwork/host/playground"
+	"github.com/shinzonetwork/shinzo-host-client/playground"
 )
 
 // NewServer creates a new HTTP server that serves the playground UI
@@ -60,13 +60,13 @@ func NewServer(defraAPIURL string) (http.Handler, error) {
 		return nil, err
 	}
 	fileServer := http.FileServer(http.FS(sub))
-	
+
 	// Serve playground at root, but only if it's not an API request
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// If it's an API request, proxy it
-		if strings.HasPrefix(r.URL.Path, "/api/") || 
-		   r.URL.Path == "/health-check" || 
-		   r.URL.Path == "/openapi.json" {
+		if strings.HasPrefix(r.URL.Path, "/api/") ||
+			r.URL.Path == "/health-check" ||
+			r.URL.Path == "/openapi.json" {
 			r.URL.Scheme = defraURL.Scheme
 			r.URL.Host = defraURL.Host
 			proxy.ServeHTTP(w, r)
@@ -78,4 +78,3 @@ func NewServer(defraAPIURL string) (http.Handler, error) {
 
 	return mux, nil
 }
-

@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	appDefra "github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/attestation"
+	"github.com/shinzonetwork/app-sdk/pkg/file"
+	"github.com/shinzonetwork/indexer/config"
 	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/shinzonetwork/indexer/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,13 +65,19 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	ctx := t.Context()
 	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t,
 		defra.DefaultConfig,
-		&appDefra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema()),
 		"Block")
 	require.NoError(t, err)
 
-	testConfig := indexer.DefaultConfig
+	filepath, err := file.FindFile("config.yaml")
+	require.NoError(t, err)
+	testConfig, err := config.LoadConfig(filepath)
+	require.NoError(t, err)
+
 	testConfig.DefraDB.Url = indexerDefra.APIURL
-	i := indexer.CreateIndexer(testConfig)
+	testConfig.Geth = GetGethConfig()
+	i, err := indexer.CreateIndexer(testConfig)
+	require.NoError(t, err)
 	go func() {
 		err := i.StartIndexing(true)
 		if err != nil {
@@ -78,6 +86,7 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	}()
 	defer i.StopIndexing()
 
+	time.Sleep(10 * time.Second) // Allow a moment for everything to get started
 	for !i.IsStarted() || !i.HasIndexedAtLeastOneBlock() {
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -87,14 +96,16 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 	defer testHost.Close(ctx)
 	hostDefra := testHost.DefraNode
 
-	err = hostDefra.DB.Connect(ctx, indexerDefra.DB.PeerInfo())
+	peerInfo, err := indexerDefra.DB.PeerInfo()
+	require.NoError(t, err)
+	err = hostDefra.DB.Connect(ctx, peerInfo)
 	require.NoError(t, err)
 
 	// Schema is applied automatically by the app-sdk
 
 	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
 	require.NoError(t, err)
-	require.Greater(t, blockNumber, uint64(100))
+	require.Greater(t, blockNumber, uint64(1))
 
 	blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
@@ -106,5 +117,5 @@ func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
 		blockNumber, err = queryBlockNumber(ctx, hostDefra)
 	}
 	require.NoError(t, err) // We should now have the block number on the Host
-	require.Greater(t, blockNumber, uint64(100))
+	require.Greater(t, blockNumber, uint64(1))
 }

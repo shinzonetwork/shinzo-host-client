@@ -12,11 +12,12 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	"github.com/shinzonetwork/host/config"
-	playgroundserver "github.com/shinzonetwork/host/pkg/playground"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
-	"github.com/shinzonetwork/host/pkg/stack"
-	"github.com/shinzonetwork/host/pkg/view"
+	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/stack"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -39,7 +40,7 @@ type Host struct {
 	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the block processing goroutine
-	playgroundServer       *http.Server        // Playground HTTP server (if enabled)
+	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
 
 	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
 	attestationProcessedBlocks *stack.Stack[uint64]
@@ -58,7 +59,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	logger.Init(true)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
-		&defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
 		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
