@@ -7,28 +7,12 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/file"
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/networking"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
+	indexerConfig "github.com/shinzonetwork/indexer/config"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/networking"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/stretchr/testify/require"
 )
-
-var getTenBlocksQuery string = `query GetAll{
-  Block(limit:10){
-    number
-	hash
-    _version{
-      cid
-      signature{
-        type
-        identity
-        value
-        __typename
-      }
-    }
-  }
-}
-`
 
 func createHostWithMockViewEventReceiver(t *testing.T, boostrapPeers ...string) (*Host, *shinzohub.MockEventSubscription) {
 	mockEventSub := shinzohub.NewMockEventSubscription()
@@ -88,8 +72,25 @@ func CreateHostWithTwoViews(t *testing.T, boostrapPeers ...string) *Host {
 
 	sendMockNewViewEvent(t, "viewWithNoLensEvent", mockEventSub)
 	sendMockNewViewEvent(t, "viewWithLensEvent", mockEventSub)
+	time.Sleep(1 * time.Second) // Allow a moment for events to process
 
 	// Verify the host processed the event
 	require.Len(t, testHost.HostedViews, 2, "Host should have two hosted view after receiving events")
 	return testHost
+}
+
+func GetGethConfig() indexerConfig.GethConfig {
+	return indexerConfig.GethConfig{
+		NodeURL: getGethNodeURL(),
+		WsURL:   os.Getenv("GCP_GETH_WS_URL"),
+		APIKey:  os.Getenv("GCP_GETH_API_KEY"),
+	}
+}
+
+func getGethNodeURL() string {
+	if gcpURL := os.Getenv("GCP_GETH_RPC_URL"); gcpURL != "" {
+		return gcpURL
+	}
+	// Fallback to public node for tests without GCP setup
+	return "https://ethereum-rpc.publicnode.com"
 }

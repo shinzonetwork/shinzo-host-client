@@ -8,10 +8,11 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
-	"github.com/shinzonetwork/host/pkg/stack"
-	"github.com/shinzonetwork/host/pkg/view"
+	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/stack"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -54,7 +55,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	logger.Init(true)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
-		&defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
 		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)

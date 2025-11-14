@@ -10,7 +10,7 @@ import (
 
 func GetLatestCommitsQuery(docId string) string {
 	return fmt.Sprintf(`query {
-	latestCommits(docID: "%s") {
+	_latestCommits(docID: "%s") {
 	cid
 	delta
 	height

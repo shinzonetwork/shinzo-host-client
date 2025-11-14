@@ -13,3 +13,6 @@ shinzo:
 
 logger:
   development: true
+
+host:
+  lens_registry_path: "./.lens"

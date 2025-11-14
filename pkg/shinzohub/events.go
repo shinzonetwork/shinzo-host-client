@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 type RPCResponse struct {
@@ -121,8 +121,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					return
 				}
 
-				fmt.Printf("Raw JSON: %s\n", string(message))
-
 				// Now try to parse it
 				var msg RPCResponse
 				if err := json.Unmarshal(message, &msg); err != nil {
@@ -133,8 +131,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				// Look for Registered events and send them to the channel
 				registeredEvents := extractRegisteredEvents(msg)
 				for _, event := range registeredEvents {
-					fmt.Printf("Sending Registered event to channel: %s\n", event.ToString())
-
 					// Send event to channel (this will block if channel is full)
 					select {
 					case eventChan <- &event:
