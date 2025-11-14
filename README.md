@@ -58,3 +58,39 @@ Note that while only the top item in the stacks are used, having the entire stac
 With this approach to Hosting Views, any block data that is received late (after other versions of that block have been received and processed) will not be processed into Views. This is something that will be addressed in future iterations.
 
 Hosts manage attestation records posted by Indexers 3) by validating them and facilitating their transference to the application client. This involves, first, validating the signatures against their respective CIDs and then posting those CIDs (as well as the respective attested_doc and source_doc) to an AttestationRecord collection. Hosts will create a separate AttestationRecord collection for each collection in order to minimize the data requirements for application clients (they don't want all the attestation records for Views they aren't interested in). Application clients who care about attestations can easily subscribe to the AttestationRecords collection for their given collection with the `attestation.AddAttestationRecordCollection` method exposed in the app-sdk's attestation package. Further details and context around attestations can be found in ADRs #02 and #03.
+
+
+## Connect to an Indexer
+
+**PEER ID INFO**
+IP_ADDRESS: 136.115.148.56
+PORT: 9171
+PEER_ID: 12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD
+
+`['/ip4/<IP_ADDRESS>/tcp/<PORT>/p2p/<PEER_ID>']`
+
+Step 1: `Update config.yaml`
+
+```yaml
+#... existing config.yaml ...
+defradb:
+    p2p:
+        bootstrap_peers: ['/ip4/<IP_ADDRESS>/tcp/9171/p2p/<PeerID>']
+        listen_addr: "/ip4/0.0.0.0/tcp/0"
+#... existing config.yaml ...
+```
+
+Step 2: `Run the host client`
+
+```bash
+make build
+make start
+```
+
+Step 3: `Verify connection`
+
+Check the logs for the host client - you should see a message indicating that the host client has connected to the Indexer.
+
+```log
+Nov 12 16:10:15.363 INF p2p Received new pubsub message PeerID=12D3KooWSfFo4Dr3T4AFupCGmDyEosFFcZeo7ozfm6itULeTmTDS SenderId=12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD Topic=bafyreidmrvhwhvnjcrucj7qz26mlsxi4cwjevzzpnb4rr23ighgqxn2n7i
+```

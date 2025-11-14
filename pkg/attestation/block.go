@@ -12,7 +12,7 @@ type Block struct {
 	GasUsed          string        `json:"gasUsed"`
 	GasLimit         string        `json:"gasLimit"`
 	BaseFeePerGas    string        `json:"baseFeePerGas"`
-	Nonce            uint64        `json:"nonce"`
+	Nonce            string        `json:"nonce"`
 	Miner            string        `json:"miner"`
 	Size             string        `json:"size"`
 	StateRoot        string        `json:"stateRoot"`
