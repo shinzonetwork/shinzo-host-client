@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
