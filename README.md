@@ -15,6 +15,39 @@ go build -o bin/host cmd/main.go
 ./bin/host
 ```
 
+### GraphQL Playground
+
+The host includes an optional GraphQL Playground that provides a web-based interface for querying the embedded DefraDB instance. This is useful for development and debugging.
+
+**To enable the playground:**
+
+1. Download the playground assets:
+   ```bash
+   make deps-playground
+   ```
+
+2. Build or run with the hostplayground tag:
+   ```bash
+   # Build with playground
+   make build-playground
+   ./bin/host
+   
+   # Or run directly with playground
+   make start-playground
+   ```
+
+Once the host is running with the playground enabled, you'll see a message in the logs indicating the playground URL (typically `http://127.0.0.1:9182`). Open this URL in your browser to access the GraphQL Playground.
+
+The playground provides:
+- Interactive GraphQL query editor
+- Schema exploration and documentation
+- Query execution and result viewing
+- Support for subscriptions
+
+**Note:** The playground runs on a separate port (typically 9182) from defradb's API server (typically 9181). The playground UI proxies all GraphQL API requests to defradb's API server, so you can use the playground to interact with your embedded DefraDB instance.
+
+For more details, see the [playground README](playground/README.md).
+
 The host is designed to transform data it receives from Shinzo Indexers. So, when running the host app, you'll want to make sure to connect it to Indexer client(s) (or a mock Indexer - a defra instance that posts dummy primitives as if it were a real Indexer).
 
 ### Connecting to Indexer(s)
