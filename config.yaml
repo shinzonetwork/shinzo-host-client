@@ -1,12 +1,11 @@
 defradb:
-  url: "http://localhost:9182"
-  keyring_secret: "overwritten by DEFRA_KEYRING_SECRET env variable"
+  url: "localhost:9181"
+  keyring_secret: ""
   p2p:
-    bootstrap_peers: ["/ip4/192.168.4.22/tcp/9176/p2p/12D3KooWPJhb6bkdoyUQvFAS7Q3ufz44b7GwD3X1k5mULiFbxZZv"]
-    listen_addr: "/ip4/127.0.0.1/tcp/9172"
+    bootstrap_peers: []
+    listen_addr: "/ip4/0.0.0.0/tcp/0"
   store:
-    path: "./.defra"
-
+    path: "./.defra/data"
 shinzo:
   minimum_attestations: 1
   web_socket_url: ws://localhost:26657/websocket
@@ -16,3 +15,8 @@ logger:
 
 host:
   lens_registry_path: "./.lens"
+
+
+## In order to connect to an indexer you need to include it within your peers. \
+#  To do that copy the bootstrap_peers and paste it replacing the empty array.
+#  bootstrap_peers:['/ip4/34.68.131.15/tcp/9171/p2p/12D3KooWQ4n6rniwBosrPRHnAR4kjJCjajsNKMDX7P4CuqzrB3xW' ]
