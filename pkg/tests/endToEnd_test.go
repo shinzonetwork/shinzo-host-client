@@ -46,6 +46,14 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	primitives := []string{"Block", "Log", "Transaction", "AccessListEntry"}
+	for _, primitive := range primitives {
+		err = attestation.AddAttestationRecordCollection(t.Context(), appDefra, primitive)
+		require.NoError(t, err)
+	}
+
+	time.Sleep(10 * time.Second) // Allow some extra time for the host to start processing data
+
 	// Wait until host has received logs
 	logs, err = defra.QueryArray[viewResult](t.Context(), testHost.DefraNode, "Log { transactionHash }")
 	require.NoError(t, err)
@@ -117,6 +125,26 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 		require.Greater(t, len(record.CIDs), 0)
 		require.Greater(t, len(record.AttestedDocId), 0)
 		require.Greater(t, len(record.SourceDocId), 0)
+	}
+
+	// Now let's also check that we have attestations for each primitive in the host
+	for _, primitive := range []string{"Block", "Log", "Transaction"} { // AccessListEntry omitted because we can't include _version when querying nested objects currently with defra (see https://github.com/sourcenetwork/defradb/issues/1709). AccessListEntry does not contain a blockNumber reference. Luckily, attestation records on AccessListEntries are not very important to expose (and can still be associated directly with the attestations for other primitives)
+		attestationRecordsQuery := fmt.Sprintf(`query {
+		AttestationRecord_%s {
+			attested_doc
+			CIDs
+		}
+	}`, primitive)
+		attestationRecords, err := defra.QueryArray[attestation.AttestationRecord](t.Context(), testHost.DefraNode, attestationRecordsQuery)
+		require.NoError(t, err)
+		require.NotNil(t, attestationRecords)
+		require.Greater(t, len(attestationRecords), 0, "No attestation records for %s", primitive)
+		for _, record := range attestationRecords {
+			require.NotNil(t, record.CIDs)
+			require.Greater(t, len(record.CIDs), 0)
+			require.Greater(t, len(record.AttestedDocId), 0)
+			require.Len(t, record.SourceDocId, 0)
+		}
 	}
 }
 

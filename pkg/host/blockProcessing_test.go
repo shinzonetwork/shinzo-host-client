@@ -375,7 +375,7 @@ func postDummyBlock(t *testing.T, hostDefra *node.Node, blockNumber uint64) {
 		"gasUsed":          "0x5208",
 		"gasLimit":         "0x1c9c380",
 		"baseFeePerGas":    "0x3b9aca00",
-		"nonce":            fmt.Sprintf("%d", blockNumber),
+		"nonce":            fmt.Sprintf("%d", blockNumber+rand.Uint64()),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"size":             "0x208",
 		"stateRoot":        fmt.Sprintf("0x%x", blockNumber+1000),

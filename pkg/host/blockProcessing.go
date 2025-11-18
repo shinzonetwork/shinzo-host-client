@@ -83,7 +83,7 @@ func (h *Host) processView(ctx context.Context, view *view.View) error {
 	return nil
 }
 
-func (h *Host) processAllViews(ctx context.Context) {
+func (h *Host) processBlocks(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond) // Check for new blocks every 100ms
 	defer ticker.Stop()
 
@@ -97,9 +97,41 @@ func (h *Host) processAllViews(ctx context.Context) {
 			for _, view := range h.HostedViews {
 				err := h.processView(ctx, &view)
 				if err != nil {
-					logger.Sugar.Errorf("Error processing view %s: %v", view.Name, err)
+					logger.Sugar.Errorf("Error processing view %s: %w", view.Name, err)
 				}
+			}
+
+			// Process primitive attestation records
+			err := h.processPrimitiveAttestationRecords(ctx)
+			if err != nil {
+				logger.Sugar.Errorf("Error processing attestation records on primitives: %w", err)
 			}
 		}
 	}
+}
+
+func (h *Host) processPrimitiveAttestationRecords(ctx context.Context) error {
+	if !h.hasNewBlocks(ctx) {
+		return nil
+	}
+
+	currentBlockNumber, err := h.getCurrentBlockNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("Error getting current block number: %w", err)
+	}
+
+	lastProcessedBlockNumber := h.getMostRecentBlockNumberProcessed()
+	processFromBlockNumber := lastProcessedBlockNumber + 1
+
+	logger.Sugar.Infof("Processing attestation records on blocks %d -> %d...", processFromBlockNumber, currentBlockNumber)
+
+	err = h.PostPrimitiveAttestationRecords(ctx, processFromBlockNumber, currentBlockNumber)
+	if err != nil {
+		return fmt.Errorf("Error applying view: %w", err)
+	}
+
+	logger.Sugar.Infof("Successfully processed attestation records on blocks %d -> %d", processFromBlockNumber, currentBlockNumber)
+
+	h.attestationProcessedBlocks.Push(currentBlockNumber)
+	return nil
 }

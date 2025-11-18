@@ -64,3 +64,55 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 
 	return nil
 }
+
+// CreateAttestationRecordForPrimitive creates an attestation record for a primitive document (without source_doc)
+func CreateAttestationRecordForPrimitive(ctx context.Context, verifier SignatureVerifier, docId string, versions []attestation.Version) (*AttestationRecord, error) {
+	attestationRecord := &AttestationRecord{
+		AttestedDocId: docId,
+		SourceDocId:   "", // No source_doc for primitives
+		CIDs:          []string{},
+	}
+	for _, version := range versions {
+		// Validate the signature against the CID
+		if err := verifier.Verify(ctx, version.CID, version.Signature); err != nil {
+			// Todo here we might want to send a message to ShinzoHub (or similar) indicating that we received an invalid signature
+			if logger.Sugar != nil {
+				logger.Sugar.Errorf("Invalid signature for CID %s from identity %s: %w", version.CID, version.Signature.Identity, err)
+			}
+			continue
+		}
+		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
+	}
+
+	return attestationRecord, nil
+}
+
+// PostAttestationRecordForPrimitive posts an attestation record for a primitive (without source_doc)
+func (record *AttestationRecord) PostAttestationRecordForPrimitive(ctx context.Context, defraNode *node.Node, primitiveName string) error {
+	cidsArray := make([]string, len(record.CIDs))
+	for i, cid := range record.CIDs {
+		cidsArray[i] = fmt.Sprintf(`"%s"`, cid)
+	}
+	cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
+
+	attestationCollectionName := fmt.Sprintf("AttestationRecord_%s", primitiveName)
+	mutation := fmt.Sprintf(`
+		mutation {
+			create_%s(input: {
+				attested_doc: "%s",
+				CIDs: %s
+			}) {
+				_docID
+				attested_doc
+				CIDs
+			}
+		}
+	`, attestationCollectionName, record.AttestedDocId, cidsString)
+
+	_, err := defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
+	if err != nil {
+		return fmt.Errorf("error posting attestation record mutation: %v", err)
+	}
+
+	return nil
+}
