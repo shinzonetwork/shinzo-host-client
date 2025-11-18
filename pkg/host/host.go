@@ -92,31 +92,13 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 		// Start playground server on a different port (defradb port + 1)
 		// Parse the defradb URL to get the port and increment it
-		playgroundAddr := "127.0.0.1:9182" // default
+		playgroundAddr := cfg.ShinzoAppConfig.DefraDB.Url
 		if defraNode.APIURL != "" {
-			// Parse the API URL
-			apiURL := defraNode.APIURL
-			if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
-				apiURL = "http://" + apiURL
-			}
-			parsed, err := url.Parse(apiURL)
-			if err == nil {
-				host := parsed.Host
-				if host == "" {
-					host = parsed.Path
-				}
-				// Split host:port
-				parts := strings.Split(host, ":")
-				if len(parts) == 2 {
-					port, err := strconv.Atoi(parts[1])
-					if err == nil {
-						playgroundAddr = fmt.Sprintf("%s:%d", parts[0], port+1)
-					}
-				} else if len(parts) == 1 {
-					// No port specified, use default + 1
-					playgroundAddr = fmt.Sprintf("%s:9182", parts[0])
-				}
-			}
+			playgroundAddr = defraNode.APIURL
+		}
+		playgroundAddr, err = incrementPort(playgroundAddr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve defra url: %w", err)
 		}
 
 		playgroundServer = &http.Server{
@@ -174,6 +156,31 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	go newHost.monitorHighestBlockNumber(blockMonitorCtx)
 
 	return newHost, nil
+}
+
+func incrementPort(apiURL string) (string, error) {
+	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
+		apiURL = "http://" + apiURL
+	}
+	parsed, err := url.Parse(apiURL)
+	if err == nil {
+		host := parsed.Host
+		if host == "" {
+			host = parsed.Path
+		}
+		// Split host:port
+		parts := strings.Split(host, ":")
+		if len(parts) == 2 {
+			port, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("%s:%d", parts[0], port+1), nil
+		} else if len(parts) == 1 {
+			return "", fmt.Errorf("No port found")
+		}
+	}
+	return "", err
 }
 
 func (h *Host) Close(ctx context.Context) error {

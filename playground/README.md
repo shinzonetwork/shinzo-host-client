@@ -42,7 +42,7 @@ go run -tags hostplayground cmd/main.go
 
 ## Using the Playground
 
-Once the host is running with the playground enabled, open your browser and navigate to the URL shown in the startup logs (typically `http://localhost:9181`).
+Once the host is running with the playground enabled, open your browser and navigate to the URL shown in the startup logs (typically one port above where the DefraDB url is configured - e.g. if Defra's url is 'http://localhost:8080', then playground should be at 'http://localhost:8081').
 
 The playground provides:
 - An interactive GraphQL query editor
