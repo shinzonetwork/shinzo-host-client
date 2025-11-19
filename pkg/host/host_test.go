@@ -8,8 +8,12 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/attestation"
+	"github.com/shinzonetwork/host/pkg/stack"
+	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,4 +111,168 @@ func TestMonitorHighestBlockNumber(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	require.Equal(t, blockNumber2, testHost.mostRecentBlockReceived)
+}
+
+func TestHostedViewsPersistAcrossRestarts(t *testing.T) {
+	ctx := t.Context()
+	
+	// Create a temporary directory for the defra store that will persist
+	storePath := t.TempDir()
+	
+	// Create first host instance
+	testConfig1 := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: t.TempDir(),
+		},
+	}
+	testConfig1.ShinzoAppConfig.DefraDB.Store.Path = storePath
+	testConfig1.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	
+	host1, err := StartHosting(testConfig1)
+	require.NoError(t, err)
+	require.Len(t, host1.HostedViews, 0, "Initially should have no hosted views")
+	
+	// Prepare a view - this should store it to defra
+	query := "Log {address topics data transactionHash blockNumber}"
+	sdl := "type RecoveredView {transactionHash: String}"
+	testView := view.View{
+		Query:     &query,
+		Sdl:       &sdl,
+		Transform: models.Transform{},
+		Name:      "RecoveredView",
+	}
+	
+	err = host1.PrepareView(ctx, testView)
+	require.NoError(t, err)
+	
+	// Add the view to HostedViews manually (simulating what happens in handleIncomingEvents)
+	host1.HostedViews = append(host1.HostedViews, testView)
+	require.Len(t, host1.HostedViews, 1, "First host should have one hosted view")
+	
+	// Close the first host
+	err = host1.Close(ctx)
+	require.NoError(t, err)
+	
+	// Wait a bit to ensure defra is fully closed
+	time.Sleep(200 * time.Millisecond)
+	
+	// Create a second host instance with the same store path
+	testConfig2 := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: t.TempDir(),
+		},
+	}
+	testConfig2.ShinzoAppConfig.DefraDB.Store.Path = storePath
+	testConfig2.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	
+	host2, err := StartHosting(testConfig2)
+	require.NoError(t, err)
+	defer host2.Close(ctx)
+	
+	// The view should be recovered from defra
+	require.Len(t, host2.HostedViews, 1, "Second host should have recovered the view")
+	require.Equal(t, testView.Name, host2.HostedViews[0].Name, "Recovered view should have the same name")
+	require.NotNil(t, host2.HostedViews[0].Query)
+	require.Equal(t, *testView.Query, *host2.HostedViews[0].Query, "Recovered view should have the same query")
+	require.NotNil(t, host2.HostedViews[0].Sdl)
+	require.Equal(t, *testView.Sdl, *host2.HostedViews[0].Sdl, "Recovered view should have the same SDL")
+	
+	// Verify that viewProcessedBlocks was initialized (but should be empty since we didn't process any blocks)
+	require.Contains(t, host2.viewProcessedBlocks, testView.Name, "Recovered view should have a processed blocks stack")
+	stack := host2.viewProcessedBlocks[testView.Name]
+	require.NotNil(t, stack)
+	require.True(t, stack.IsEmpty(), "Processed blocks stack should be empty initially")
+}
+
+func TestRecoveredViewsRestoreLastProcessedBlock(t *testing.T) {
+	ctx := t.Context()
+	
+	// Create a temporary directory for the defra store that will persist
+	storePath := t.TempDir()
+	
+	// Create first host instance
+	testConfig1 := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: t.TempDir(),
+		},
+	}
+	testConfig1.ShinzoAppConfig.DefraDB.Store.Path = storePath
+	testConfig1.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	
+	host1, err := StartHosting(testConfig1)
+	require.NoError(t, err)
+	
+	// Prepare a view
+	query := "Log {address topics data transactionHash blockNumber}"
+	sdl := "type BlockTrackingView {transactionHash: String}"
+	testView := view.View{
+		Query:     &query,
+		Sdl:       &sdl,
+		Transform: models.Transform{},
+		Name:      "BlockTrackingView",
+	}
+	
+	err = host1.PrepareView(ctx, testView)
+	require.NoError(t, err)
+	host1.HostedViews = append(host1.HostedViews, testView)
+	host1.viewProcessedBlocks[testView.Name] = &stack.Stack[uint64]{}
+	
+	// Simulate processing some blocks by updating lastProcessedBlock
+	testBlockNumber := uint64(9999)
+	err = host1.updateViewLastProcessedBlock(ctx, testView.Name, testBlockNumber)
+	require.NoError(t, err)
+	host1.viewProcessedBlocks[testView.Name].Push(testBlockNumber)
+	
+	// Close the first host
+	err = host1.Close(ctx)
+	require.NoError(t, err)
+	
+	// Wait a bit to ensure defra is fully closed
+	time.Sleep(200 * time.Millisecond)
+	
+	// Create a second host instance with the same store path
+	testConfig2 := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: t.TempDir(),
+		},
+	}
+	testConfig2.ShinzoAppConfig.DefraDB.Store.Path = storePath
+	testConfig2.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	
+	host2, err := StartHosting(testConfig2)
+	require.NoError(t, err)
+	defer host2.Close(ctx)
+	
+	// Wait for recovery
+	time.Sleep(200 * time.Millisecond)
+	
+	// Verify the view was recovered
+	require.Len(t, host2.HostedViews, 1, "Second host should have recovered the view")
+	
+	// Verify that lastProcessedBlock was restored to the stack
+	require.Contains(t, host2.viewProcessedBlocks, testView.Name, "Recovered view should have a processed blocks stack")
+	recoveredStack := host2.viewProcessedBlocks[testView.Name]
+	require.NotNil(t, recoveredStack)
+	require.False(t, recoveredStack.IsEmpty(), "Processed blocks stack should not be empty after recovery")
+	
+	// Verify the block number was restored
+	recoveredBlock, err := recoveredStack.Peek()
+	require.NoError(t, err)
+	require.Equal(t, testBlockNumber, recoveredBlock, "Last processed block should be restored from defra")
 }
