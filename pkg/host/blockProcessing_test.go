@@ -10,6 +10,7 @@ import (
 	"github.com/shinzonetwork/host/config"
 	"github.com/shinzonetwork/host/pkg/attestation"
 	"github.com/shinzonetwork/host/pkg/shinzohub"
+	"github.com/shinzonetwork/host/pkg/stack"
 	"github.com/shinzonetwork/host/pkg/view"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/client"
@@ -582,4 +583,111 @@ func validateProcessedDataWithGaps(t *testing.T, host *Host, targetAddress strin
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func TestRecoveredViewsStillHosted(t *testing.T) {
+	// Create a temporary directory for the defra store that will persist
+	storePath := t.TempDir()
+	ctx := t.Context()
+
+	// Create first host instance
+	testConfig1 := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: t.TempDir(),
+		},
+	}
+	testConfig1.ShinzoAppConfig.DefraDB.Store.Path = storePath
+	testConfig1.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+
+	host1, err := StartHosting(testConfig1)
+	require.NoError(t, err)
+
+	// Create and prepare a view without lens
+	query := "Log {address topics data transactionHash blockNumber}"
+	sdl := "type RecoveredProcessingView {transactionHash: String address: String}"
+	testView := view.View{
+		Query:     &query,
+		Sdl:       &sdl,
+		Transform: models.Transform{},
+		Name:      "RecoveredProcessingView",
+	}
+
+	err = host1.PrepareView(ctx, testView)
+	require.NoError(t, err)
+
+	// Add the view to HostedViews manually (simulating what happens in handleIncomingEvents)
+	host1.HostedViews = append(host1.HostedViews, testView)
+	host1.viewProcessedBlocks[testView.Name] = &stack.Stack[uint64]{}
+
+	// Add some test data and wait for processing
+	targetAddress := "0x1e3aA9fE4Ef01D3cB3189c129a49E3C03126C636"
+	blockNumber1 := uint64(5000)
+	postDummyLogWithBlockNumber(t, host1.DefraNode, targetAddress, blockNumber1)
+
+	// Wait for processing
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify data was processed
+	processedData1, err := defra.QueryArray[map[string]any](ctx, host1.DefraNode, fmt.Sprintf("%s {transactionHash}", testView.Name))
+	require.NoError(t, err)
+	require.Greater(t, len(processedData1), 0, "First host should have processed data")
+
+	// Close the first host
+	err = host1.Close(ctx)
+	require.NoError(t, err)
+
+	// Wait a bit to ensure defra is fully closed
+	time.Sleep(200 * time.Millisecond)
+
+	// Create a second host instance with the same store path
+	testConfig2 := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: DefaultConfig.ShinzoAppConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: t.TempDir(),
+		},
+	}
+	testConfig2.ShinzoAppConfig.DefraDB.Store.Path = storePath
+	testConfig2.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+
+	host2, err := StartHosting(testConfig2)
+	require.NoError(t, err)
+	defer host2.Close(ctx)
+
+	// Wait for recovery and initialization
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify the view was recovered
+	require.Len(t, host2.HostedViews, 1, "Second host should have recovered the view")
+	require.Equal(t, testView.Name, host2.HostedViews[0].Name)
+	stack := host2.viewProcessedBlocks[testView.Name]
+	require.False(t, stack.IsEmpty(), "Should have one entry - the one we last processed before shutting down")
+
+	// Verify the view is still processing blocks - add new data
+	blockNumber2 := uint64(6000)
+	postDummyLogWithBlockNumber(t, host2.DefraNode, targetAddress, blockNumber2)
+
+	// Wait for processing
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify new data was processed by the recovered view
+	processedData2, err := defra.QueryArray[map[string]any](ctx, host2.DefraNode, fmt.Sprintf("%s {transactionHash}", testView.Name))
+	require.NoError(t, err)
+	require.Greater(t, len(processedData2), len(processedData1), "Recovered view should have processed new data")
+
+	// Verify that viewProcessedBlocks was initialized for the recovered view
+	require.Contains(t, host2.viewProcessedBlocks, testView.Name, "Recovered view should have a processed blocks stack")
+	require.NotNil(t, stack)
+	require.Greater(t, stack.Size(), 1)
+	host2LastProcessed, err := stack.Peek()
+	require.NoError(t, err)
+	host1LastProcessed, err := host1.viewProcessedBlocks[testView.Name].Peek()
+	require.NoError(t, err)
+	require.Greater(t, host2LastProcessed, host1LastProcessed)
 }

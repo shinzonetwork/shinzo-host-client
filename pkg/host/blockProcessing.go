@@ -80,6 +80,13 @@ func (h *Host) processView(ctx context.Context, view *view.View) error {
 	logger.Sugar.Infof("Successfully processed view %s on blocks %d -> %d", view.Name, processFromBlockNumber, currentBlockNumber)
 
 	h.viewProcessedBlocks[view.Name].Push(currentBlockNumber)
+
+	// Update the lastProcessedBlock in the View collection
+	err = h.updateViewLastProcessedBlock(ctx, view.Name, currentBlockNumber)
+	if err != nil {
+		return fmt.Errorf("error updating last processed block for view %s in Host's persistent storage: %w", view.Name, err)
+	}
+
 	return nil
 }
 

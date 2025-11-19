@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/shinzonetwork/host/pkg/shinzohub"
 	"github.com/shinzonetwork/host/pkg/stack"
 	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/host/schema"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -67,6 +69,16 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		return nil, err
 	}
 
+	viewSchemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetViewSchema())
+	err = viewSchemaApplier.ApplySchema(ctx, defraNode)
+	if err != nil {
+		if strings.Contains(err.Error(), "collection already exists") {
+			logger.Sugar.Warnf("error applying view schema: %w", err)
+		} else {
+			return nil, fmt.Errorf("error applying view schema: %w", err)
+		}
+	}
+
 	newHost := &Host{
 		DefraNode:                  defraNode,
 		HostedViews:                []view.View{},
@@ -77,6 +89,11 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		blockMonitorCancel:         func() {},
 		attestationProcessedBlocks: stack.New[uint64](),
 		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
+	}
+
+	err = newHost.recoverAnyStoredViews(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error recovering stored views: %w", err)
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
@@ -113,6 +130,51 @@ func (h *Host) Close(ctx context.Context) error {
 	h.processingCancel()   // Stop the block processing goroutine
 	h.blockMonitorCancel() // Stop the block monitoring goroutine
 	return h.DefraNode.Close(ctx)
+}
+
+func (h *Host) recoverAnyStoredViews(ctx context.Context) error {
+	query := `query {
+		View {
+			name
+			query
+			sdl
+			lastProcessedBlock
+		}
+	}`
+	
+	// Use a custom type to capture lastProcessedBlock since view.View doesn't have this field
+	type ViewWithBlock struct {
+		view.View
+		LastProcessedBlock *int64 `json:"lastProcessedBlock"`
+	}
+	
+	viewsWithBlock, err := defra.QueryArray[ViewWithBlock](ctx, h.DefraNode, query)
+	if err != nil {
+		// If the View collection doesn't exist yet or isn't queryable, that's okay - just log and continue
+		// This can happen if the schema hasn't been fully applied yet or if there are no views stored
+		if strings.Contains(err.Error(), "Cannot query field") || strings.Contains(err.Error(), "does not exist") {
+			logger.Sugar.Warnf("View collection not yet available for recovery: %v", err)
+			return nil
+		}
+		return err
+	}
+
+	// Convert to view.View and restore lastProcessedBlock to stacks
+	for _, vwb := range viewsWithBlock {
+		h.HostedViews = append(h.HostedViews, vwb.View)
+		
+		// Initialize viewProcessedBlocks for recovered views
+		if _, exists := h.viewProcessedBlocks[vwb.Name]; !exists {
+			h.viewProcessedBlocks[vwb.Name] = &stack.Stack[uint64]{}
+		}
+		
+		// Restore lastProcessedBlock to the stack if it exists
+		if vwb.LastProcessedBlock != nil && *vwb.LastProcessedBlock > 0 {
+			h.viewProcessedBlocks[vwb.Name].Push(uint64(*vwb.LastProcessedBlock))
+		}
+	}
+	
+	return nil
 }
 
 // waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle

@@ -131,3 +131,63 @@ func TestApplyViewWithLens(t *testing.T) {
 	require.Less(t, len(dataWritten), len(dataBefore)) // One log should've been filtered out
 	require.Len(t, dataWritten, 1)
 }
+
+func TestPrepareViewStoresViewToDefra(t *testing.T) {
+	query := "Log {address topics data transactionHash blockNumber}"
+	sdl := "type TestStoredView {transactionHash: String}"
+	testView := view.View{
+		Query:     &query,
+		Sdl:       &sdl,
+		Transform: models.Transform{},
+		Name:      "TestStoredView",
+	}
+
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer host.Close(t.Context())
+
+	// Prepare the view - this should store it to defra
+	err = host.PrepareView(t.Context(), testView)
+	require.NoError(t, err)
+
+	// Query the View collection to confirm the view was stored
+	type ViewDoc struct {
+		Name               string `json:"name"`
+		Query              string `json:"query"`
+		Sdl                string `json:"sdl"`
+		LastProcessedBlock *int64 `json:"lastProcessedBlock"`
+	}
+	
+	storedViews, err := defra.QueryArray[ViewDoc](t.Context(), host.DefraNode, `query {
+		View(filter: {name: {_eq: "TestStoredView"}}) {
+			name
+			query
+			sdl
+			lastProcessedBlock
+		}
+	}`)
+	require.NoError(t, err)
+	require.Len(t, storedViews, 1, "View should be stored in defra")
+	require.Equal(t, testView.Name, storedViews[0].Name)
+	require.Equal(t, *testView.Query, storedViews[0].Query)
+	require.Equal(t, *testView.Sdl, storedViews[0].Sdl)
+	// lastProcessedBlock should be 0 initially
+	require.NotNil(t, storedViews[0].LastProcessedBlock)
+	require.Equal(t, int64(0), *storedViews[0].LastProcessedBlock)
+	
+	// Test updating lastProcessedBlock
+	err = host.updateViewLastProcessedBlock(t.Context(), testView.Name, 12345)
+	require.NoError(t, err)
+	
+	// Query again to verify the update
+	storedViews, err = defra.QueryArray[ViewDoc](t.Context(), host.DefraNode, `query {
+		View(filter: {name: {_eq: "TestStoredView"}}) {
+			name
+			lastProcessedBlock
+		}
+	}`)
+	require.NoError(t, err)
+	require.Len(t, storedViews, 1)
+	require.NotNil(t, storedViews[0].LastProcessedBlock)
+	require.Equal(t, int64(12345), *storedViews[0].LastProcessedBlock)
+}
