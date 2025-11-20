@@ -79,8 +79,8 @@ ENV CGO_LDFLAGS="-L/usr/local/lib"
 # Copy source code
 COPY . .
 
-# Build the application with WASM support
-RUN make build-playground
+# Build the application with WASM support and playground enabled
+RUN make build-with-playground
 
 # Runtime stage
 FROM ubuntu:24.04
