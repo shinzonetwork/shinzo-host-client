@@ -1,14 +1,14 @@
 defradb:
-  url: "localhost:9181"
+  url: "0.0.0.0:9181"
   keyring_secret: ""
   p2p:
-    bootstrap_peers: []
+    bootstrap_peers: ['/ip4/136.115.148.56/tcp/9171/p2p/12D3KooWFjtA7yDgXXmgXi22EuoayGcgE2wEftSpJwcLRtgDLD9J' ]
     listen_addr: "/ip4/0.0.0.0/tcp/0"
   store:
     path: "./.defra/data"
 shinzo:
   minimum_attestations: 1
-  web_socket_url: ws://localhost:26657/websocket
+  web_socket_url: ws://34.29.171.79:8546
 
 logger:
   development: true
@@ -19,4 +19,3 @@ host:
 
 ## In order to connect to an indexer you need to include it within your peers. \
 #  To do that copy the bootstrap_peers and paste it replacing the empty array.
-#  bootstrap_peers:['/ip4/34.68.131.15/tcp/9171/p2p/12D3KooWQ4n6rniwBosrPRHnAR4kjJCjajsNKMDX7P4CuqzrB3xW' ]
