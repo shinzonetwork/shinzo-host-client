@@ -4,9 +4,9 @@ go 1.25.4
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/app-sdk v0.0.0-20251113172529-6040934f2d2c
-	github.com/shinzonetwork/indexer v0.0.0-20251113191343-c03d197b6b4e
-	github.com/shinzonetwork/view-creator v0.0.0-20250708160313-7af9785b76ec
+	github.com/shinzonetwork/app-sdk v0.0.0-20251120212127-2063981e00c4
+	github.com/shinzonetwork/indexer v0.1.1-0.20251120164521-e7d20c7b0344
+	github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07
 	github.com/sourcenetwork/defradb v0.20.0
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4

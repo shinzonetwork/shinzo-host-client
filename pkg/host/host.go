@@ -60,8 +60,15 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	logger.Init(true)
 
+	// Get the base schema and append attestation record schemas for all primitives
+	baseSchema := indexerschema.GetSchema()
+	modifiedSchema, err := appendAttestationRecordSchemas(baseSchema)
+	if err != nil {
+		return nil, fmt.Errorf("error appending attestation record schemas: %v", err)
+	}
+
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
-		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
+		defra.NewSchemaApplierFromProvidedSchema(modifiedSchema),
 		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
@@ -72,6 +79,26 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	err = waitForDefraDB(ctx, defraNode)
 	if err != nil {
 		return nil, err
+	}
+
+	// Add attestation record collections as P2P collections
+	primitives, err := extractSchemaTypes(baseSchema)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting primitive types: %v", err)
+	}
+
+	if len(primitives) == 0 {
+		return nil, fmt.Errorf("no primitive types found in schema")
+	}
+
+	attestationCollectionNames := make([]string, 0, len(primitives))
+	for _, primitive := range primitives {
+		attestationCollectionNames = append(attestationCollectionNames, fmt.Sprintf("AttestationRecord_%s", primitive))
+	}
+
+	err = defraNode.DB.AddP2PCollections(ctx, attestationCollectionNames...)
+	if err != nil {
+		return nil, fmt.Errorf("error adding attestation record collections as P2P collections: %v", err)
 	}
 
 	// Log API URL
@@ -148,7 +175,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	// Start the block processing goroutine
 	processingCtx, processingCancel := context.WithCancel(context.Background())
 	newHost.processingCancel = processingCancel
-	go newHost.processAllViews(processingCtx)
+	go newHost.processBlocks(processingCtx)
 
 	// Start the block monitoring goroutine
 	blockMonitorCtx, blockMonitorCancel := context.WithCancel(context.Background())

@@ -35,6 +35,7 @@ func createHostWithMockViewEventReceiver(t *testing.T, boostrapPeers ...string) 
 	testHostConfig.ShinzoAppConfig.DefraDB.Url = defraUrl
 	testHostConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers = append(DefaultConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers, boostrapPeers...)
 	testHostConfig.ShinzoAppConfig.DefraDB.P2P.ListenAddr = listenAddress
+	testHostConfig.ShinzoAppConfig.Logger.Development = false
 
 	testHost, err := StartHostingWithEventSubscription(testHostConfig, mockEventSub)
 	require.NoError(t, err)
@@ -70,11 +71,17 @@ func sendMockNewViewEvent(t *testing.T, eventSourceTextFileName string, mockEven
 func CreateHostWithTwoViews(t *testing.T, boostrapPeers ...string) *Host {
 	testHost, mockEventSub := createHostWithMockViewEventReceiver(t, boostrapPeers...)
 
+	time.Sleep(1 * time.Second) // Allow a moment for event receivers to setup
 	sendMockNewViewEvent(t, "viewWithNoLensEvent", mockEventSub)
 	sendMockNewViewEvent(t, "viewWithLensEvent", mockEventSub)
-	time.Sleep(1 * time.Second) // Allow a moment for events to process
 
 	// Verify the host processed the event
+	for i := 0; i < 60; i++ { // It may take a few moments to process the event
+		if len(testHost.HostedViews) > 1 {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
 	require.Len(t, testHost.HostedViews, 2, "Host should have two hosted view after receiving events")
 	return testHost
 }
