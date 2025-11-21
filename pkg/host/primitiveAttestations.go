@@ -13,8 +13,8 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
 )
 
-// extractPrimitiveTypes extracts all type names from a GraphQL SDL schema
-func extractPrimitiveTypes(schema string) ([]string, error) {
+// extractSchemaTypes extracts all type names from a GraphQL SDL schema
+func extractSchemaTypes(schema string) ([]string, error) {
 	// Find all type definitions: type TypeName { ... }
 	re := regexp.MustCompile(`type\s+(\w+)\s*@?[^{]*\{`)
 	matches := re.FindAllStringSubmatch(schema, -1)
@@ -45,7 +45,7 @@ func getPrimitiveAttestationRecordSDL(primitiveName string) string {
 
 // appendAttestationRecordSchemas appends attestation record schemas for all primitives to the base schema
 func appendAttestationRecordSchemas(baseSchema string) (string, error) {
-	primitives, err := extractPrimitiveTypes(baseSchema)
+	primitives, err := extractSchemaTypes(baseSchema)
 	if err != nil {
 		return "", fmt.Errorf("failed to extract primitive types: %w", err)
 	}
@@ -78,7 +78,7 @@ func generateQueryForPrimitive(primitiveName string, startingBlockNumber uint64,
 // PostPrimitiveAttestationRecords processes attestation records for all primitive types
 func (h *Host) PostPrimitiveAttestationRecords(ctx context.Context, startingBlockNumber uint64, endingBlockNumber uint64) error {
 	schema := indexerschema.GetSchema()
-	primitives, err := extractPrimitiveTypes(schema)
+	primitives, err := extractSchemaTypes(schema)
 	if err != nil {
 		return fmt.Errorf("failed to extract primitive types: %w", err)
 	}
@@ -109,7 +109,7 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 	if startingBlockNumber == 0 {
 		startingBlockNumber = 1
 	}
-	
+
 	// For AccessListEntry, query directly without nested blockNumber filters to avoid DefraDB planner panic
 	// We'll query all AccessListEntry and filter by transaction blockNumber in a separate query
 	var documents []map[string]any
@@ -117,7 +117,7 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 	if primitiveName == "AccessListEntry" {
 		// Query all AccessListEntry documents with transaction _docID (but not blockNumber to avoid panic)
 		accessListQuery := `AccessListEntry { _docID _version { cid signature { type identity value } } transaction { _docID } }`
-		
+
 		// Query documents - use a recover to catch any panics from DefraDB
 		func() {
 			defer func() {
@@ -128,12 +128,12 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 			}()
 			documents, err = defra.QueryArray[map[string]any](ctx, h.DefraNode, accessListQuery)
 		}()
-		
+
 		if err != nil {
 			logger.Sugar.Warnf("Skipping AccessListEntry attestation records due to query issue: %v", err)
 			return nil
 		}
-		
+
 		// Get unique transaction IDs from AccessListEntry documents
 		transactionIDs := make(map[string]bool)
 		for _, doc := range documents {
@@ -143,7 +143,7 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 				}
 			}
 		}
-		
+
 		// Query transactions to get block numbers for the transaction IDs
 		if len(transactionIDs) > 0 {
 			// Build filter for transaction IDs
@@ -152,10 +152,10 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 				txIDList = append(txIDList, fmt.Sprintf(`"%s"`, txID))
 			}
 			txIDFilter := strings.Join(txIDList, ", ")
-			
+
 			// Also filter by block number to reduce the set
 			transactionQuery := fmt.Sprintf(`Transaction(filter: { _and: [ { _docID: { _in: [%s] } }, { blockNumber: { _ge: %d } }, { blockNumber: { _le: %d } } ] }) { _docID blockNumber }`, txIDFilter, startingBlockNumber, endingBlockNumber)
-			
+
 			var transactions []map[string]any
 			func() {
 				defer func() {
@@ -166,12 +166,12 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 				}()
 				transactions, err = defra.QueryArray[map[string]any](ctx, h.DefraNode, transactionQuery)
 			}()
-			
+
 			if err != nil {
 				logger.Sugar.Warnf("Skipping AccessListEntry attestation records due to transaction query issue: %v", err)
 				return nil
 			}
-			
+
 			// Create a set of valid transaction IDs within the block range
 			validTxIDs := make(map[string]bool)
 			for _, tx := range transactions {
@@ -179,7 +179,7 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 					validTxIDs[txID] = true
 				}
 			}
-			
+
 			// Filter AccessListEntry documents to only those with valid transaction IDs
 			filteredDocuments := make([]map[string]any, 0)
 			for _, doc := range documents {
@@ -210,7 +210,7 @@ func (h *Host) postAttestationRecordsForPrimitive(ctx context.Context, primitive
 			}()
 			documents, err = defra.QueryArray[map[string]any](ctx, h.DefraNode, query)
 		}()
-		
+
 		if err != nil {
 			return fmt.Errorf("error fetching documents for primitive %s with query %s: %w", primitiveName, query, err)
 		}

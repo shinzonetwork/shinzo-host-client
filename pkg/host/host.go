@@ -82,7 +82,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	// Add attestation record collections as P2P collections
-	primitives, err := extractPrimitiveTypes(baseSchema)
+	primitives, err := extractSchemaTypes(baseSchema)
 	if err != nil {
 		return nil, fmt.Errorf("error extracting primitive types: %v", err)
 	}
