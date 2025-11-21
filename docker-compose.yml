@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  shinzo-host:
+    image: shinzo-host-client:playground
+    ports:
+      - "9181:9181"  # DefraDB API
+      - "9182:9182"  # GraphQL Playground
+      - "9171:9171"  # P2P networking
+    volumes:
+      - defra_data:/app/.defra/data
+      - lens_data:/app/.lens
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - DEFRA_URL=0.0.0.0:9181
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9181/api/v0/graphql"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  defra_data:
+  lens_data:
