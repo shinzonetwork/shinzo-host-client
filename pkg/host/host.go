@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -112,7 +113,12 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 			}
 		}()
 
-		fmt.Printf("🧪 GraphQL Playground available at http://%s\n", playgroundAddr)
+		// Display localhost for user-friendly URL
+		displayAddr := playgroundAddr
+		if strings.Contains(playgroundAddr, "0.0.0.0") {
+			displayAddr = strings.Replace(playgroundAddr, "0.0.0.0", "localhost", 1)
+		}
+		fmt.Printf("🧪 GraphQL Playground available at http://%s\n", displayAddr)
 		fmt.Printf("   (Playground proxies API requests to defradb at %s)\n", defraNode.APIURL)
 	}
 
@@ -163,24 +169,34 @@ func incrementPort(apiURL string) (string, error) {
 		apiURL = "http://" + apiURL
 	}
 	parsed, err := url.Parse(apiURL)
-	if err == nil {
-		host := parsed.Host
-		if host == "" {
-			host = parsed.Path
-		}
-		// Split host:port
-		parts := strings.Split(host, ":")
-		if len(parts) == 2 {
-			port, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%s:%d", parts[0], port+1), nil
-		} else if len(parts) == 1 {
-			return "", fmt.Errorf("No port found")
-		}
+	if err != nil {
+		return "", err
 	}
-	return "", err
+	
+	host := parsed.Host
+	if host == "" {
+		host = parsed.Path
+	}
+	
+	// Use net.SplitHostPort to properly handle both IPv4 and IPv6 addresses
+	hostPart, portStr, err := net.SplitHostPort(host)
+	if err != nil {
+		return "", fmt.Errorf("No port found in %s: %v", host, err)
+	}
+	
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", fmt.Errorf("Invalid port %s: %v", portStr, err)
+	}
+	
+	// Convert IPv6 wildcard [::] to 0.0.0.0 for server binding
+	if hostPart == "::" {
+		hostPart = "0.0.0.0"  // Bind to all interfaces in Docker
+	}
+	
+	// Return the binding address (for server) and display address (for logs)
+	bindAddr := net.JoinHostPort(hostPart, strconv.Itoa(port+1))
+	return bindAddr, nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
