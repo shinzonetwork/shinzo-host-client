@@ -8,8 +8,12 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/host/pkg/attestation"
+	"github.com/shinzonetwork/app-sdk/pkg/file"
+	"github.com/shinzonetwork/indexer/config"
+	"github.com/shinzonetwork/indexer/pkg/indexer"
 	"github.com/shinzonetwork/indexer/pkg/logger"
+	"github.com/shinzonetwork/indexer/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,6 +58,66 @@ func queryBlockNumber(ctx context.Context, defraNode *node.Node) (uint64, error)
 	}
 
 	return block.Number, nil
+}
+
+func TestHostCanReplicateFromIndexerViaRegularConnection(t *testing.T) {
+	logger.Init(true)
+	ctx := t.Context()
+	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t,
+		defra.DefaultConfig,
+		defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema()),
+		"Block")
+	require.NoError(t, err)
+
+	filepath, err := file.FindFile("config.yaml")
+	require.NoError(t, err)
+	testConfig, err := config.LoadConfig(filepath)
+	require.NoError(t, err)
+
+	testConfig.DefraDB.Url = indexerDefra.APIURL
+	testConfig.Geth = GetGethConfig()
+	i, err := indexer.CreateIndexer(testConfig)
+	require.NoError(t, err)
+	go func() {
+		err := i.StartIndexing(true)
+		if err != nil {
+			panic(fmt.Sprintf("Encountered unexpected error starting defra dependency: %v", err))
+		}
+	}()
+	defer i.StopIndexing()
+
+	time.Sleep(10 * time.Second) // Allow a moment for everything to get started
+	for !i.IsStarted() || !i.HasIndexedAtLeastOneBlock() {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	testHost, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer testHost.Close(ctx)
+	hostDefra := testHost.DefraNode
+
+	peerInfo, err := indexerDefra.DB.PeerInfo()
+	require.NoError(t, err)
+	err = hostDefra.DB.Connect(ctx, peerInfo)
+	require.NoError(t, err)
+
+	// Schema is applied automatically by the app-sdk
+
+	blockNumber, err := queryBlockNumber(ctx, indexerDefra)
+	require.NoError(t, err)
+	require.Greater(t, blockNumber, uint64(1))
+
+	blockNumber, err = queryBlockNumber(ctx, hostDefra)
+	for attempts := 1; attempts < 60; attempts++ { // It may take some time to sync now that we are connected
+		if err == nil {
+			break
+		}
+		t.Logf("Attempt %d to query block number from host failed. Trying again...", attempts)
+		time.Sleep(1 * time.Second)
+		blockNumber, err = queryBlockNumber(ctx, hostDefra)
+	}
+	require.NoError(t, err) // We should now have the block number on the Host
+	require.Greater(t, blockNumber, uint64(1))
 }
 
 func TestMonitorHighestBlockNumber(t *testing.T) {
