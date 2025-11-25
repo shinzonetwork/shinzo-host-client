@@ -11,6 +11,8 @@ import (
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -304,4 +306,284 @@ func postMockBlock(t *testing.T, defraNode *node.Node, blockNumber uint64, numTr
 	}
 
 	t.Logf("block %d - %d transactions, %d logs", blockNumber, numTransactions, numLogs)
+}
+
+// TestOutOfOrderBlockProcessing verifies that blocks posted out of order are eventually processed
+func TestOutOfOrderBlockProcessing(t *testing.T) {
+	// Create a bigPeer to serve as the entrypoint to the network
+	bigPeer, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer bigPeer.Close(t.Context())
+
+	peerInfo, err := bigPeer.DB.PeerInfo()
+	require.NoError(t, err)
+
+	// Create indexer Defra instance
+	indexerConfig := defra.DefaultConfig
+	indexerConfig.DefraDB.P2P.BootstrapPeers = append(indexerConfig.DefraDB.P2P.BootstrapPeers, peerInfo...)
+	indexerDefra, err := defra.StartDefraInstanceWithTestConfig(t, indexerConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()), "Block", "Transaction", "AccessListEntry", "Log")
+	require.NoError(t, err)
+	defer indexerDefra.Close(t.Context())
+
+	// Create host with a simple view (no lens)
+	testHostConfig := *host.DefaultConfig
+	testHostConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers = append(testHostConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers, peerInfo...)
+	testHostConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
+	testHostConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	testHostConfig.HostConfig.LensRegistryPath = t.TempDir()
+
+	mockEventSub := shinzohub.NewMockEventSubscription()
+	testHostConfig.Shinzo.WebSocketUrl = "ws://dummy-url" // Needed to start event handler
+	testHost, err := host.StartHostingWithEventSubscription(&testHostConfig, mockEventSub)
+	require.NoError(t, err)
+	defer testHost.Close(t.Context())
+
+	// Wait a bit for event handler to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Create a simple view that queries logs
+	query := "Log { transactionHash blockNumber }"
+	sdl := "type SimpleLogView { transactionHash: String blockNumber: Int }"
+	simpleView := view.View{
+		Query: &query,
+		Sdl:   &sdl,
+		Name:  "SimpleLogView",
+	}
+
+	// Register the view
+	viewEvent := &shinzohub.ViewRegisteredEvent{View: simpleView}
+	mockEventSub.SendEvent(viewEvent)
+
+	// Wait for view to be registered (with retries)
+	maxViewWait := 10
+	for i := 0; i < maxViewWait; i++ {
+		time.Sleep(200 * time.Millisecond)
+		if len(testHost.HostedViews) > 0 {
+			break
+		}
+		if i == maxViewWait-1 {
+			t.Fatalf("View was not registered after %d attempts", maxViewWait)
+		}
+	}
+	require.Len(t, testHost.HostedViews, 1)
+	require.Equal(t, "SimpleLogView", testHost.HostedViews[0].Name)
+	t.Logf("View registered successfully: %s", testHost.HostedViews[0].Name)
+
+	ctx := t.Context()
+
+	// Step 1: Post blocks out of order
+	// Post blocks 100, 102, 103, 105 (missing 101, 104)
+	baseBlockNumber := uint64(1000)
+	blocksToPost := []uint64{baseBlockNumber, baseBlockNumber + 2, baseBlockNumber + 3, baseBlockNumber + 5}
+	missingBlocks := []uint64{baseBlockNumber + 1, baseBlockNumber + 4}
+
+	t.Logf("Posting blocks out of order: %v (missing: %v)", blocksToPost, missingBlocks)
+
+	for _, blockNum := range blocksToPost {
+		postMockBlock(t, indexerDefra, blockNum, 5, 10, rand.New(rand.NewSource(time.Now().UnixNano())))
+		time.Sleep(100 * time.Millisecond) // Small delay between posts
+	}
+
+	// Wait for blocks to propagate to host's Defra instance
+	time.Sleep(2 * time.Second)
+
+	type blockResult struct {
+		TransactionHash string `json:"transactionHash"`
+		BlockNumber     uint64 `json:"blockNumber"`
+	}
+
+	var results []blockResult
+	// Wait for host to process available blocks
+	maxWait := 30
+	for i := 0; i < maxWait; i++ {
+		time.Sleep(500 * time.Millisecond)
+		// Check if view has processed some data
+		viewQuery := fmt.Sprintf("%s { transactionHash blockNumber }", simpleView.Name)
+		results, err = defra.QueryArray[blockResult](ctx, testHost.DefraNode, viewQuery)
+		require.NoError(t, err)
+		if len(results) > 0 {
+			t.Logf("View has processed %d results after %d attempts", len(results), i+1)
+			break
+		}
+		if i == maxWait-1 {
+			t.Fatalf("View did not process any data after %d attempts", maxWait)
+		}
+	}
+	require.NoError(t, err)
+	require.Greater(t, len(results), 0)
+
+	// Step 2: Verify view has data but chunks show missing blocks
+	// Wait a bit more for processing to complete
+	time.Sleep(10 * time.Second)
+
+	chunks := testHost.ViewProcessedChunks[simpleView.Name]
+	require.Greater(t, len(chunks), 0, "Should have at least one chunk")
+
+	lastChunk := chunks[len(chunks)-1]
+	t.Logf("Last chunk: %d-%d, missing blocks count: %d, missing: %v", lastChunk.StartBlock, lastChunk.EndBlock, len(lastChunk.MissingBlocks), lastChunk.MissingBlocks)
+
+	// Verify missing blocks are tracked
+	require.Greater(t, len(lastChunk.MissingBlocks), 0, "Should have missing blocks tracked")
+
+	// Check that the missing blocks we expect are in the chunk
+	missingSet := make(map[uint64]bool)
+	for _, mb := range lastChunk.MissingBlocks {
+		missingSet[mb] = true
+	}
+	for _, expectedMissing := range missingBlocks {
+		require.True(t, missingSet[expectedMissing], "Expected missing block %d should be in chunk", expectedMissing)
+	}
+
+	t.Logf("Verified missing blocks are tracked correctly: %v", missingBlocks)
+
+	// Verify view has some data but not all blocks
+	viewQuery := fmt.Sprintf("%s { transactionHash blockNumber }", simpleView.Name)
+	results, err = defra.QueryArray[blockResult](ctx, testHost.DefraNode, viewQuery)
+	require.NoError(t, err)
+	require.Greater(t, len(results), 0, "View should have processed some data")
+
+	// Extract block numbers from results to verify we're missing some
+	resultBlockNumbers := make(map[uint64]bool)
+	for _, result := range results {
+		resultBlockNumbers[result.BlockNumber] = true
+	}
+
+	// Step 3: Post the missing blocks
+	t.Logf("Posting missing blocks: %v", missingBlocks)
+	for _, blockNum := range missingBlocks {
+		postMockBlock(t, indexerDefra, blockNum, 5, 10, rand.New(rand.NewSource(time.Now().UnixNano())))
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Wait for blocks to propagate and verify they're in host's DefraDB
+	t.Logf("Waiting for blocks to propagate to host's DefraDB...")
+	allBlocksPresent := false
+	maxPropagationWait := 20
+	for i := 0; i < maxPropagationWait; i++ {
+		time.Sleep(500 * time.Millisecond)
+		// Check if blocks are in host's DefraDB
+		allBlocksPresent = true
+		for _, blockNum := range missingBlocks {
+			blockQuery := fmt.Sprintf("Block(filter: { number: { _eq: %d } }) { number }", blockNum)
+			blocks, err := defra.QueryArray[map[string]any](ctx, testHost.DefraNode, blockQuery)
+			if err != nil || len(blocks) == 0 {
+				allBlocksPresent = false
+				break
+			}
+		}
+		if allBlocksPresent {
+			t.Logf("All missing blocks are now in host's DefraDB after %d attempts", i+1)
+			break
+		}
+		if i == maxPropagationWait-1 {
+			t.Logf("Warning: Some blocks may not have propagated to host's DefraDB")
+		}
+	}
+	require.True(t, allBlocksPresent)
+
+	// Also verify logs are present for these blocks
+	var logs []map[string]any
+	for _, blockNum := range missingBlocks {
+		logQuery := fmt.Sprintf("Log(filter: { blockNumber: { _eq: %d } }) { blockNumber }", blockNum)
+		logs, err = defra.QueryArray[map[string]any](ctx, testHost.DefraNode, logQuery)
+		if err == nil && len(logs) > 0 {
+			t.Logf("Block %d: Found %d logs in host's DefraDB", blockNum, len(logs))
+		} else {
+			t.Logf("Block %d: No logs found in host's DefraDB yet", blockNum)
+		}
+	}
+	require.NoError(t, err)
+	require.Greater(t, len(logs), 0)
+
+	// Step 4: Wait for retry goroutine to process missing blocks
+	// The retry goroutine runs every 2 seconds, so we need to wait a bit
+	maxRetries := 30
+	retryDelay := 1 * time.Second
+	var finalChunks []*host.ProcessingChunk
+
+	// First, manually test if we can query for the missing blocks using the _in filter
+	t.Logf("Testing manual query for missing blocks...")
+	testQuery := fmt.Sprintf("Log(filter: { blockNumber: { _in: [%d, %d] } }) { blockNumber transactionHash }", missingBlocks[0], missingBlocks[1])
+	testResults, err := defra.QueryArray[map[string]any](ctx, testHost.DefraNode, testQuery)
+	if err != nil {
+		t.Logf("Error testing manual query: %v", err)
+	} else {
+		t.Logf("Manual query found %d results for missing blocks", len(testResults))
+		if len(testResults) > 0 {
+			for _, result := range testResults {
+				if bn, ok := result["blockNumber"].(float64); ok {
+					t.Logf("  Found block %d in query results", uint64(bn))
+				}
+			}
+		}
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		time.Sleep(retryDelay)
+		finalChunks = testHost.ViewProcessedChunks[simpleView.Name]
+		if len(finalChunks) > 0 {
+			lastChunk = finalChunks[len(finalChunks)-1]
+			remainingMissing := len(lastChunk.MissingBlocks)
+			if remainingMissing == 0 {
+				t.Logf("All missing blocks processed after %d retries", i+1)
+				break
+			}
+			// Log which blocks are still missing for debugging
+			if remainingMissing <= 10 {
+				t.Logf("Retry %d/%d: Still missing %d blocks: %v", i+1, maxRetries, remainingMissing, lastChunk.MissingBlocks)
+			} else {
+				t.Logf("Retry %d/%d: Still missing %d blocks (first 10: %v)", i+1, maxRetries, remainingMissing, lastChunk.MissingBlocks[:10])
+			}
+
+			// Every 5 retries, check if blocks are actually queryable
+			if i%5 == 0 && remainingMissing > 0 {
+				testQuery := fmt.Sprintf("Log(filter: { blockNumber: { _in: [%d] } }) { blockNumber }", lastChunk.MissingBlocks[0])
+				testResults, err := defra.QueryArray[map[string]any](ctx, testHost.DefraNode, testQuery)
+				if err == nil {
+					t.Logf("  Direct query for missing block %d returned %d results", lastChunk.MissingBlocks[0], len(testResults))
+				}
+			}
+		}
+		if i == maxRetries-1 {
+			// Log final state for debugging
+			if len(finalChunks) > 0 {
+				lastChunk = finalChunks[len(finalChunks)-1]
+				t.Logf("Final chunk state: %d-%d, missing: %d blocks: %v", lastChunk.StartBlock, lastChunk.EndBlock, len(lastChunk.MissingBlocks), lastChunk.MissingBlocks)
+			}
+			t.Fatalf("Missing blocks were not processed after %d retries", maxRetries)
+		}
+	}
+
+	// Step 5: Verify all blocks are now processed
+	finalChunks = testHost.ViewProcessedChunks[simpleView.Name]
+	require.Greater(t, len(finalChunks), 0, "Should have chunks")
+	lastChunk = finalChunks[len(finalChunks)-1]
+	require.Equal(t, 0, len(lastChunk.MissingBlocks), "All blocks should be processed, no missing blocks remaining")
+
+	// Verify view now has data from all blocks (including previously missing ones)
+	finalResults, err := defra.QueryArray[blockResult](ctx, testHost.DefraNode, viewQuery)
+	require.NoError(t, err)
+	require.Greater(t, len(finalResults), len(results), "Should have more results after processing missing blocks")
+
+	// Verify we now have data from all expected blocks
+	finalResultBlockNumbers := make(map[uint64]bool)
+	for _, result := range finalResults {
+		finalResultBlockNumbers[result.BlockNumber] = true
+	}
+
+	allBlocks := append(blocksToPost, missingBlocks...)
+	for _, blockNum := range allBlocks {
+		// Note: We check if the block number is in results, but since we're querying logs,
+		// we might have multiple logs per block, so we just verify the block number appears
+		hasBlock := false
+		for bn := range finalResultBlockNumbers {
+			if bn == blockNum {
+				hasBlock = true
+				break
+			}
+		}
+		require.True(t, hasBlock, "Should have processed data from block %d", blockNum)
+	}
+
+	t.Logf("Successfully verified all blocks (including previously missing ones) were processed")
 }

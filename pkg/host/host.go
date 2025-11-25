@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/stack"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -43,10 +43,12 @@ type Host struct {
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
 	blockMonitorCancel     context.CancelFunc // For canceling the block monitoring goroutine
 
-	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
-	attestationProcessedBlocks *stack.Stack[uint64]
-	viewProcessedBlocks        map[string]*stack.Stack[uint64] // The block numbers processed mapped to their respective view name
-	mostRecentBlockReceived    uint64                          // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+	// Chunk-based tracking of processed blocks per view
+	// Each view has a list of contiguous chunks, with the most recent chunk at the end
+	ViewProcessedChunks     map[string][]*ProcessingChunk // The processing chunks mapped to their respective view name (exported for testing)
+	chunksMutex             sync.RWMutex                  // Protects ViewProcessedChunks from concurrent access
+	mostRecentBlockReceived uint64                        // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+	chunkRetryCancel        context.CancelFunc            // For canceling the chunk retry goroutine
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -117,16 +119,16 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	newHost := &Host{
-		DefraNode:                  defraNode,
-		HostedViews:                []view.View{},
-		webhookCleanupFunction:     func() {},
-		eventSubscription:          eventSub,
-		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
-		processingCancel:           func() {},
-		playgroundServer:           playgroundServer,
-		blockMonitorCancel:         func() {},
-		attestationProcessedBlocks: stack.New[uint64](),
-		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
+		DefraNode:              defraNode,
+		HostedViews:            []view.View{},
+		webhookCleanupFunction: func() {},
+		eventSubscription:      eventSub,
+		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
+		processingCancel:       func() {},
+		playgroundServer:       playgroundServer,
+		blockMonitorCancel:     func() {},
+		ViewProcessedChunks:    map[string][]*ProcessingChunk{},
+		chunkRetryCancel:       func() {},
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
@@ -154,6 +156,11 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	blockMonitorCtx, blockMonitorCancel := context.WithCancel(context.Background())
 	newHost.blockMonitorCancel = blockMonitorCancel
 	go newHost.monitorHighestBlockNumber(blockMonitorCtx)
+
+	// Start the chunk retry goroutine
+	chunkRetryCtx, chunkRetryCancel := context.WithCancel(context.Background())
+	newHost.chunkRetryCancel = chunkRetryCancel
+	go newHost.retryMissingBlocks(chunkRetryCtx)
 
 	return newHost, nil
 }
@@ -187,6 +194,7 @@ func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()   // Stop the block processing goroutine
 	h.blockMonitorCancel() // Stop the block monitoring goroutine
+	h.chunkRetryCancel()   // Stop the chunk retry goroutine
 
 	// Shutdown playground server if it exists
 	if h.playgroundServer != nil {
@@ -239,7 +247,9 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					logger.Sugar.Errorf("Failed to prepare view: %v", err)
 				} else {
 					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
-					h.viewProcessedBlocks[registeredEvent.View.Name] = &stack.Stack[uint64]{}
+					h.chunksMutex.Lock()
+					h.ViewProcessedChunks[registeredEvent.View.Name] = []*ProcessingChunk{}
+					h.chunksMutex.Unlock()
 				}
 			} else {
 				logger.Sugar.Errorf("Received unknown event: %+v", event)

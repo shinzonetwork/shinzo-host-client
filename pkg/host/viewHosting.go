@@ -196,28 +196,125 @@ func sortDescendingBlockNumber(documents []map[string]any) ([]map[string]any, er
 	return sorted, nil
 }
 
-func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64, endingBlockNumber uint64) error {
+// extractBlockNumberFromDocument extracts block number from a document, handling different field locations.
+func extractBlockNumberFromDocument(doc map[string]any) (uint64, error) {
+	convertToUint64 := func(v any) (uint64, bool) {
+		switch val := v.(type) {
+		case uint64:
+			return val, true
+		case uint32:
+			return uint64(val), true
+		case int64:
+			if val < 0 {
+				return 0, false
+			}
+			return uint64(val), true
+		case int32:
+			if val < 0 {
+				return 0, false
+			}
+			return uint64(val), true
+		case int:
+			if val < 0 {
+				return 0, false
+			}
+			return uint64(val), true
+		case float64:
+			if val < 0 {
+				return 0, false
+			}
+			return uint64(val), true
+		case float32:
+			if val < 0 {
+				return 0, false
+			}
+			return uint64(val), true
+		default:
+			return 0, false
+		}
+	}
+
+	// Try blockNumber first (Log, Transaction)
+	if blockNum, ok := doc["blockNumber"]; ok && blockNum != nil {
+		if result, ok := convertToUint64(blockNum); ok {
+			return result, nil
+		}
+	}
+
+	// Try number field (Block)
+	if num, ok := doc["number"]; ok && num != nil {
+		if result, ok := convertToUint64(num); ok {
+			return result, nil
+		}
+	}
+
+	// Try nested transaction.blockNumber (AccessListEntry)
+	if transaction, ok := doc["transaction"].(map[string]any); ok && transaction != nil {
+		if blockNum, ok := transaction["blockNumber"]; ok && blockNum != nil {
+			if result, ok := convertToUint64(blockNum); ok {
+				return result, nil
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("unable to extract blockNumber from document")
+}
+
+// ApplyView processes a view for a range of blocks and returns the blocks that were processed and those that were missing.
+// processedBlocks: block numbers that had data and were successfully processed
+// missingBlocks: block numbers in the range that had no data
+func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64, endingBlockNumber uint64) (processedBlocks []uint64, missingBlocks []uint64, err error) {
 	query, err := graphql.WithBlockNumberFilter(*v.Query, startingBlockNumber, endingBlockNumber)
 	if err != nil {
-		return fmt.Errorf("Error assembling query: %w", err)
+		return nil, nil, fmt.Errorf("Error assembling query: %w", err)
 	}
 
 	query, err = graphql.WithReturnDocIdAndVersion(query)
 	if err != nil {
-		return fmt.Errorf("Error assembling query: %w", err)
+		return nil, nil, fmt.Errorf("Error assembling query: %w", err)
 	}
 
 	sourceDocuments, err := defra.QueryArray[map[string]any](ctx, h.DefraNode, query)
 	if err != nil {
-		return fmt.Errorf("Error fetching source data with query %s: %w", query, err)
+		return nil, nil, fmt.Errorf("Error fetching source data with query %s: %w", query, err)
 	}
+
+	// Extract block numbers from documents that were found
+	processedBlockSet := make(map[uint64]bool)
+	for _, doc := range sourceDocuments {
+		blockNum, err := extractBlockNumberFromDocument(doc)
+		if err != nil {
+			// Skip documents where we can't extract block number
+			logger.Sugar.Debugf("Skipping document without block number: %v", err)
+			continue
+		}
+		processedBlockSet[blockNum] = true
+	}
+
+	// Convert to sorted slice
+	processedBlocks = make([]uint64, 0, len(processedBlockSet))
+	for bn := range processedBlockSet {
+		processedBlocks = append(processedBlocks, bn)
+	}
+	sort.Slice(processedBlocks, func(i, j int) bool {
+		return processedBlocks[i] < processedBlocks[j]
+	})
+
+	// Calculate missing blocks
+	expectedBlocks := make([]uint64, 0, endingBlockNumber-startingBlockNumber+1)
+	for bn := startingBlockNumber; bn <= endingBlockNumber; bn++ {
+		expectedBlocks = append(expectedBlocks, bn)
+	}
+	missingBlocks = findMissingBlocks(expectedBlocks, processedBlocks)
+
+	// If no documents were found, return early (all blocks are missing)
 	if len(sourceDocuments) == 0 {
-		return fmt.Errorf("No source data found using query %s", query)
+		return processedBlocks, missingBlocks, nil
 	}
 
 	sourceDocuments, err = sortDescendingBlockNumber(sourceDocuments)
 	if err != nil {
-		return fmt.Errorf("Error sorting documents by blockNumber: %w", err)
+		return nil, nil, fmt.Errorf("Error sorting documents by blockNumber: %w", err)
 	}
 
 	type attestationInfo struct {
@@ -229,11 +326,11 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	for _, sourceDocument := range sourceDocuments {
 		sourceDocumentId, ok := sourceDocument["_docID"].(string)
 		if !ok {
-			return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
+			return nil, nil, fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
 		}
 		sourceVersion, err := extractVersionFromDocument(sourceDocument)
 		if err != nil {
-			return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			return nil, nil, fmt.Errorf("Error retrieving _version from source document: %w", err)
 		}
 		sourceAttestationInfo := &attestationInfo{
 			SourceDocumentId: sourceDocumentId,
@@ -243,7 +340,7 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		if v.HasLenses() {
 			transformed, err := v.ApplyLensTransform(ctx, h.DefraNode, query)
 			if err != nil {
-				return fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
+				return nil, nil, fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
 			}
 			if len(transformed) == 0 {
 				continue
@@ -255,25 +352,43 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		}
 	}
 
+	var attestationError error
 	for sourceDocumentAttestationInfo, transformedDocs := range transformedDocuments {
 		transformedDocIds, err := v.WriteTransformedToCollection(ctx, h.DefraNode, transformedDocs)
 		if err != nil {
-			return fmt.Errorf("Error writing transformed data to collection %s: %w", v.Name, err)
+			// Log error but continue to return processed/missing blocks so chunks can be updated
+			logger.Sugar.Errorf("Error writing transformed data to collection %s: %w", v.Name, err)
+			if attestationError == nil {
+				attestationError = fmt.Errorf("Error writing transformed data to collection %s: %w", v.Name, err)
+			}
+			continue
 		}
 
 		for _, transformedDocId := range transformedDocIds {
 			verifier := hostAttestation.NewDefraSignatureVerifier(h.DefraNode)
 			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, sourceDocumentAttestationInfo.Version)
 			if err != nil {
-				return fmt.Errorf("Error creating attestation record: %w", err)
+				// Log error but continue to return processed/missing blocks so chunks can be updated
+				logger.Sugar.Errorf("Error creating attestation record: %w", err)
+				if attestationError == nil {
+					attestationError = fmt.Errorf("Error creating attestation record: %w", err)
+				}
+				continue
 			}
 
 			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode, v.Name)
 			if err != nil {
-				return fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
+				// Log error but continue to return processed/missing blocks so chunks can be updated
+				logger.Sugar.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
+				if attestationError == nil {
+					attestationError = fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
+				}
+				continue
 			}
 		}
 	}
 
-	return nil
+	// Return processed/missing blocks even if there were attestation errors
+	// This allows chunks to be updated correctly even when attestation posting fails
+	return processedBlocks, missingBlocks, attestationError
 }
