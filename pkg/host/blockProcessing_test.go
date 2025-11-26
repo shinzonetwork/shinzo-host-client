@@ -82,12 +82,12 @@ func TestBlockProcessingWithLens(t *testing.T) {
 		t.Logf("Number of hosted views: %d", len(testHost.HostedViews))
 
 		// Debug: Check processed blocks
-		for viewName, stack := range testHost.viewProcessedBlocks {
-			blockNumber, err := stack.Peek()
-			if err != nil {
-				t.Logf("View %s: No processed blocks", viewName)
+		for viewName, chunks := range testHost.ViewProcessedChunks {
+			if len(chunks) == 0 {
+				t.Logf("View %s: No processed chunks", viewName)
 			} else {
-				t.Logf("View %s: Last processed block %d", viewName, blockNumber)
+				lastChunk := chunks[len(chunks)-1]
+				t.Logf("View %s: Last processed chunk %d-%d (missing: %d blocks)", viewName, lastChunk.StartBlock, lastChunk.EndBlock, len(lastChunk.MissingBlocks))
 			}
 		}
 
@@ -476,23 +476,22 @@ func validateProcessedDataWithProgress(t *testing.T, host *Host, targetAddress s
 		t.Logf("Round %d: Processed %d items", round, len(processedData))
 	}
 
-	// Validate that viewProcessedBlocks maps are updated correctly
+	// Validate that ViewProcessedChunks maps are updated correctly
 	currentProcessedBlocks := make(map[string]uint64)
-	for viewName, stack := range host.viewProcessedBlocks {
-		if !stack.IsEmpty() {
-			latestBlock, err := stack.Peek()
-			if err == nil {
-				currentProcessedBlocks[viewName] = latestBlock
+	for viewName, chunks := range host.ViewProcessedChunks {
+		if len(chunks) > 0 {
+			lastChunk := chunks[len(chunks)-1]
+			latestBlock := lastChunk.EndBlock
+			currentProcessedBlocks[viewName] = latestBlock
 
-				// Validate that block numbers are progressing (unless it's the first round)
-				if round > 1 && previousBlocks != nil {
-					if prevBlock, exists := previousBlocks[viewName]; exists {
-						require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
-						t.Logf("Round %d: View %s processed block %d (previous: %d)", round, viewName, latestBlock, prevBlock)
-					}
-				} else {
-					t.Logf("Round %d: View %s processed block %d", round, viewName, latestBlock)
+			// Validate that block numbers are progressing (unless it's the first round)
+			if round > 1 && previousBlocks != nil {
+				if prevBlock, exists := previousBlocks[viewName]; exists {
+					require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
+					t.Logf("Round %d: View %s processed block %d (previous: %d, missing: %d)", round, viewName, latestBlock, prevBlock, len(lastChunk.MissingBlocks))
 				}
+			} else {
+				t.Logf("Round %d: View %s processed block %d (missing: %d)", round, viewName, latestBlock, len(lastChunk.MissingBlocks))
 			}
 		}
 	}
@@ -561,23 +560,22 @@ func validateMultipleViewsProcessedWithProgress(t *testing.T, host *Host, round 
 		t.Logf("Round %d: View1 processed %d logs, View2 processed %d transactions", round, len(view1Data), len(view2Data))
 	}
 
-	// Validate that viewProcessedBlocks maps are updated correctly
+	// Validate that ViewProcessedChunks maps are updated correctly
 	currentProcessedBlocks := make(map[string]uint64)
-	for viewName, stack := range host.viewProcessedBlocks {
-		if !stack.IsEmpty() {
-			latestBlock, err := stack.Peek()
-			if err == nil {
-				currentProcessedBlocks[viewName] = latestBlock
+	for viewName, chunks := range host.ViewProcessedChunks {
+		if len(chunks) > 0 {
+			lastChunk := chunks[len(chunks)-1]
+			latestBlock := lastChunk.EndBlock
+			currentProcessedBlocks[viewName] = latestBlock
 
-				// Validate that block numbers are progressing (unless it's the first round)
-				if round > 1 && previousBlocks != nil {
-					if prevBlock, exists := previousBlocks[viewName]; exists {
-						require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
-						t.Logf("Round %d: View %s processed block %d (previous: %d)", round, viewName, latestBlock, prevBlock)
-					}
-				} else {
-					t.Logf("Round %d: View %s processed block %d", round, viewName, latestBlock)
+			// Validate that block numbers are progressing (unless it's the first round)
+			if round > 1 && previousBlocks != nil {
+				if prevBlock, exists := previousBlocks[viewName]; exists {
+					require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
+					t.Logf("Round %d: View %s processed block %d (previous: %d, missing: %d)", round, viewName, latestBlock, prevBlock, len(lastChunk.MissingBlocks))
 				}
+			} else {
+				t.Logf("Round %d: View %s processed block %d (missing: %d)", round, viewName, latestBlock, len(lastChunk.MissingBlocks))
 			}
 		}
 	}
