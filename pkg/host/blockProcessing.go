@@ -13,7 +13,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
-const maxChunkSize = 100
+const maxMissingBlocksPerChunk = 100
 
 // ProcessingChunk represents a contiguous range of blocks that have been processed or are being processed.
 // MissingBlocks contains the block numbers within the range that haven't been processed yet.
@@ -222,9 +222,43 @@ func (h *Host) updateChunksForView(viewName string, startBlock, endBlock uint64,
 		mostRecentChunk = chunks[len(chunks)-1]
 		logger.Sugar.Debugf("Updating chunks for view %s: existing chunk %d-%d, new range %d-%d", viewName, mostRecentChunk.StartBlock, mostRecentChunk.EndBlock, startBlock, endBlock)
 
-		// Check if extending would exceed max chunk size
-		proposedChunkSize := endBlock - mostRecentChunk.StartBlock + 1
-		shouldCreateNewChunk := proposedChunkSize > maxChunkSize
+		// Calculate how many missing blocks the chunk would have after adding new missing blocks
+		// First, remove processed blocks from the current missing list
+		processedSet := make(map[uint64]bool)
+		for _, pb := range processedBlocks {
+			processedSet[pb] = true
+		}
+		// Count how many current missing blocks would remain after removing processed ones
+		remainingMissing := 0
+		for _, mb := range mostRecentChunk.MissingBlocks {
+			if !processedSet[mb] {
+				remainingMissing++
+			}
+		}
+
+		// Count new missing blocks that aren't already in the chunk
+		existingMissingSet := make(map[uint64]bool)
+		for _, mb := range mostRecentChunk.MissingBlocks {
+			existingMissingSet[mb] = true
+		}
+		newMissingCount := 0
+		for _, mb := range missingBlocks {
+			if !existingMissingSet[mb] && !processedSet[mb] {
+				newMissingCount++
+			}
+		}
+
+		// If extending would add gaps, count those as missing too
+		if mostRecentChunk.EndBlock+1 < startBlock {
+			for bn := mostRecentChunk.EndBlock + 1; bn < startBlock; bn++ {
+				if !existingMissingSet[bn] && !processedSet[bn] {
+					newMissingCount++
+				}
+			}
+		}
+
+		totalMissingAfterUpdate := remainingMissing + newMissingCount
+		shouldCreateNewChunk := totalMissingAfterUpdate > maxMissingBlocksPerChunk
 
 		// Check if we can extend the existing chunk or need a new one
 		if mostRecentChunk.EndBlock+1 == startBlock && !shouldCreateNewChunk {
@@ -297,8 +331,7 @@ func (h *Host) updateChunksForView(viewName string, startBlock, endBlock uint64,
 				})
 			}
 		} else {
-			// There's a gap, overlap would exceed max size, or we need a new chunk
-			// Check if we should extend or create new chunk based on max size
+			// There's a gap, or we need a new chunk because missing blocks would exceed limit
 			if !shouldCreateNewChunk && mostRecentChunk.EndBlock+1 <= startBlock {
 				// There's a gap between the last chunk and new blocks, but we can extend
 				gapStart := mostRecentChunk.EndBlock + 1
@@ -331,130 +364,45 @@ func (h *Host) updateChunksForView(viewName string, startBlock, endBlock uint64,
 					return mostRecentChunk.MissingBlocks[i] < mostRecentChunk.MissingBlocks[j]
 				})
 			} else {
-				// Create new chunk (either because of gap or max size exceeded)
-				// Calculate the actual range for the new chunk, respecting max size
-				newChunkStart := startBlock
-				newChunkEnd := endBlock
-				if endBlock-startBlock+1 > maxChunkSize {
-					// Limit to max chunk size
-					newChunkEnd = startBlock + maxChunkSize - 1
-				}
-
-				// Filter missing blocks to only those in the new chunk range
-				newChunkMissing := make([]uint64, 0)
-				for _, mb := range missingBlocks {
-					if mb >= newChunkStart && mb <= newChunkEnd {
-						newChunkMissing = append(newChunkMissing, mb)
-					}
-				}
-
+				// Create new chunk (either because of gap or missing blocks would exceed limit)
 				mostRecentChunk = &ProcessingChunk{
-					StartBlock:    newChunkStart,
-					EndBlock:      newChunkEnd,
-					MissingBlocks: newChunkMissing,
+					StartBlock:    startBlock,
+					EndBlock:      endBlock,
+					MissingBlocks: missingBlocks,
 				}
+				// Remove processed blocks from missing list
+				mostRecentChunk.RemoveProcessedBlocks(processedBlocks)
+
 				chunks = append(chunks, mostRecentChunk)
 				h.ViewProcessedChunks[viewName] = chunks
 			}
 		}
 	} else {
-		// No chunks yet - create chunks, respecting max size
-		// Create multiple chunks if the range exceeds maxChunkSize
-		currentStart := startBlock
-		for currentStart <= endBlock {
-			currentEnd := currentStart + maxChunkSize - 1
-			if currentEnd > endBlock {
-				currentEnd = endBlock
-			}
-
-			// Filter missing blocks to only those in this chunk range
-			chunkMissing := make([]uint64, 0)
-			for _, mb := range missingBlocks {
-				if mb >= currentStart && mb <= currentEnd {
-					chunkMissing = append(chunkMissing, mb)
-				}
-			}
-
-			// Filter processed blocks to only those in this chunk range
-			chunkProcessed := make([]uint64, 0)
-			for _, pb := range processedBlocks {
-				if pb >= currentStart && pb <= currentEnd {
-					chunkProcessed = append(chunkProcessed, pb)
-				}
-			}
-
-			newChunk := &ProcessingChunk{
-				StartBlock:    currentStart,
-				EndBlock:      currentEnd,
-				MissingBlocks: chunkMissing,
-			}
-			// Remove processed blocks from missing list
-			newChunk.RemoveProcessedBlocks(chunkProcessed)
-
-			chunks = append(chunks, newChunk)
-			currentStart = currentEnd + 1
+		// No chunks yet - create first chunk
+		mostRecentChunk = &ProcessingChunk{
+			StartBlock:    startBlock,
+			EndBlock:      endBlock,
+			MissingBlocks: missingBlocks,
 		}
+		// Remove processed blocks from missing list
+		mostRecentChunk.RemoveProcessedBlocks(processedBlocks)
+
+		chunks = []*ProcessingChunk{mostRecentChunk}
 		h.ViewProcessedChunks[viewName] = chunks
-		mostRecentChunk = chunks[len(chunks)-1]
 	}
 
-	// Remove processed blocks from the most recent chunk's missing list
-	if mostRecentChunk != nil {
-		mostRecentChunk.RemoveProcessedBlocks(processedBlocks)
-	}
 }
 
 // mergeContiguousChunks merges chunks that are contiguous (last block of chunk N + 1 = first block of chunk N+1)
-// It also splits chunks that exceed maxChunkSize
+// Chunks are merged if the resulting chunk would have <= maxMissingBlocks missing blocks
+// Complete chunks (no missing blocks) are always merged together
 func (h *Host) mergeContiguousChunks(viewName string) {
 	h.chunksMutex.Lock()
 	defer h.chunksMutex.Unlock()
 	chunks := h.ViewProcessedChunks[viewName]
-	if len(chunks) == 0 {
-		return
-	}
-
-	// First, split any chunks that exceed maxChunkSize
-	var splitChunks []*ProcessingChunk
-	for _, chunk := range chunks {
-		chunkSize := chunk.EndBlock - chunk.StartBlock + 1
-		if chunkSize <= maxChunkSize {
-			splitChunks = append(splitChunks, chunk)
-			continue
-		}
-
-		// Split chunk into multiple chunks of maxChunkSize
-		currentStart := chunk.StartBlock
-		for currentStart <= chunk.EndBlock {
-			currentEnd := currentStart + maxChunkSize - 1
-			if currentEnd > chunk.EndBlock {
-				currentEnd = chunk.EndBlock
-			}
-
-			// Filter missing blocks to only those in this chunk range
-			chunkMissing := make([]uint64, 0)
-			for _, mb := range chunk.MissingBlocks {
-				if mb >= currentStart && mb <= currentEnd {
-					chunkMissing = append(chunkMissing, mb)
-				}
-			}
-
-			newChunk := &ProcessingChunk{
-				StartBlock:    currentStart,
-				EndBlock:      currentEnd,
-				MissingBlocks: chunkMissing,
-			}
-			splitChunks = append(splitChunks, newChunk)
-			currentStart = currentEnd + 1
-		}
-	}
-
-	if len(splitChunks) <= 1 {
-		h.ViewProcessedChunks[viewName] = splitChunks
+	if len(chunks) <= 1 {
 		return // Nothing to merge
 	}
-
-	chunks = splitChunks
 
 	// Sort chunks by StartBlock to ensure we process them in order
 	sortedChunks := make([]*ProcessingChunk, len(chunks))
@@ -470,38 +418,51 @@ func (h *Host) mergeContiguousChunks(viewName string) {
 		lastMerged := merged[len(merged)-1]
 
 		// Check if chunks are contiguous or overlapping
-		// Also check if merging would exceed max chunk size
-		proposedSize := current.EndBlock - lastMerged.StartBlock + 1
-		if current.StartBlock <= lastMerged.EndBlock+1 && proposedSize <= maxChunkSize {
-			// Contiguous or overlapping and within max size - merge them
-			if current.EndBlock > lastMerged.EndBlock {
-				lastMerged.EndBlock = current.EndBlock
-			}
-
-			// Merge missing blocks from both chunks
+		if current.StartBlock <= lastMerged.EndBlock+1 {
+			// Calculate how many missing blocks the merged chunk would have
 			missingSet := make(map[uint64]bool)
 			for _, mb := range lastMerged.MissingBlocks {
 				missingSet[mb] = true
 			}
 			for _, mb := range current.MissingBlocks {
-				if !missingSet[mb] {
-					lastMerged.MissingBlocks = append(lastMerged.MissingBlocks, mb)
-				}
+				missingSet[mb] = true
 			}
 
 			// If there's a gap between chunks, mark those blocks as missing
 			if lastMerged.EndBlock+1 < current.StartBlock {
 				for bn := lastMerged.EndBlock + 1; bn < current.StartBlock; bn++ {
-					if !missingSet[bn] {
-						lastMerged.MissingBlocks = append(lastMerged.MissingBlocks, bn)
-					}
+					missingSet[bn] = true
 				}
 			}
 
-			// Sort missing blocks
-			sort.Slice(lastMerged.MissingBlocks, func(i, j int) bool {
-				return lastMerged.MissingBlocks[i] < lastMerged.MissingBlocks[j]
-			})
+			totalMissing := len(missingSet)
+
+			// Merge if:
+			// 1. Both chunks are complete (no missing blocks), OR
+			// 2. The merged chunk would have <= maxMissingBlocks missing blocks
+			lastMergedComplete := len(lastMerged.MissingBlocks) == 0
+			currentComplete := len(current.MissingBlocks) == 0
+
+			if (lastMergedComplete && currentComplete) || totalMissing <= maxMissingBlocksPerChunk {
+				// Merge them
+				if current.EndBlock > lastMerged.EndBlock {
+					lastMerged.EndBlock = current.EndBlock
+				}
+
+				// Update missing blocks
+				lastMerged.MissingBlocks = make([]uint64, 0, totalMissing)
+				for mb := range missingSet {
+					lastMerged.MissingBlocks = append(lastMerged.MissingBlocks, mb)
+				}
+
+				// Sort missing blocks
+				sort.Slice(lastMerged.MissingBlocks, func(i, j int) bool {
+					return lastMerged.MissingBlocks[i] < lastMerged.MissingBlocks[j]
+				})
+			} else {
+				// Would exceed max missing blocks - don't merge
+				merged = append(merged, current)
+			}
 		} else {
 			// Not contiguous - add as new chunk
 			merged = append(merged, current)
@@ -578,7 +539,6 @@ func (h *Host) retryMissingBlocks(ctx context.Context) {
 				}
 
 				// Process each chunk that has missing blocks
-				// We iterate backwards to safely remove chunks
 				for i := len(chunksCopy) - 1; i >= 0; i-- {
 					// Re-read chunk from map to get current state (with lock)
 					h.chunksMutex.RLock()
@@ -594,19 +554,7 @@ func (h *Host) retryMissingBlocks(ctx context.Context) {
 					h.chunksMutex.RUnlock()
 
 					if len(missingBlocksCopy) == 0 {
-						// Chunk is complete - remove it if it's not the most recent chunk
-						if i < len(chunks)-1 {
-							// Not the most recent chunk, remove it
-							h.chunksMutex.Lock()
-							chunks = h.ViewProcessedChunks[viewName]
-							if i < len(chunks)-1 {
-								chunks = append(chunks[:i], chunks[i+1:]...)
-								h.ViewProcessedChunks[viewName] = chunks
-							}
-							h.chunksMutex.Unlock()
-							continue
-						}
-						// Most recent chunk is complete - keep it for tracking progress
+						// Chunk is complete - don't remove it, let it merge with other chunks
 						continue
 					}
 
@@ -666,16 +614,12 @@ func (h *Host) retryMissingBlocks(ctx context.Context) {
 					if i < len(chunks) {
 						chunks[i].RemoveProcessedBlocks(availableBlocks)
 						logger.Sugar.Infof("Processed %d missing blocks for view %s chunk %d-%d (%d still missing)", len(availableBlocks), viewName, chunk.StartBlock, chunk.EndBlock, len(chunks[i].MissingBlocks))
-
-						// After processing, check if chunk is now complete and remove if not most recent
-						if chunks[i].IsProcessingComplete() && i < len(chunks)-1 {
-							// Not the most recent chunk and now complete - remove it
-							chunks = append(chunks[:i], chunks[i+1:]...)
-							h.ViewProcessedChunks[viewName] = chunks
-						}
 					}
 					h.chunksMutex.Unlock()
 				}
+
+				// Merge chunks after processing all chunks for this view to consolidate complete chunks
+				h.mergeContiguousChunks(viewName)
 			}
 		}
 	}
