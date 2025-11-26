@@ -262,7 +262,7 @@ func extractBlockNumberFromDocument(doc map[string]any) (uint64, error) {
 
 // ApplyView processes a view for a range of blocks and returns the blocks that were processed and those that were missing.
 // processedBlocks: block numbers that had data and were successfully processed
-// missingBlocks: block numbers in the range that had no data
+// missingBlocks: block numbers in the range that had no data - we likely have not yet received these blocks from the Indexers
 func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber uint64, endingBlockNumber uint64) (processedBlocks []uint64, missingBlocks []uint64, err error) {
 	query, err := graphql.WithBlockNumberFilter(*v.Query, startingBlockNumber, endingBlockNumber)
 	if err != nil {
@@ -277,6 +277,11 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	sourceDocuments, err := defra.QueryArray[map[string]any](ctx, h.DefraNode, query)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Error fetching source data with query %s: %w", query, err)
+	}
+
+	sourceDocuments, err = sortDescendingBlockNumber(sourceDocuments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error sorting documents by blockNumber: %w", err)
 	}
 
 	// Extract block numbers from documents that were found
@@ -310,11 +315,6 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	// If no documents were found, return early (all blocks are missing)
 	if len(sourceDocuments) == 0 {
 		return processedBlocks, missingBlocks, nil
-	}
-
-	sourceDocuments, err = sortDescendingBlockNumber(sourceDocuments)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Error sorting documents by blockNumber: %w", err)
 	}
 
 	type attestationInfo struct {
@@ -352,43 +352,29 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		}
 	}
 
-	var attestationError error
 	for sourceDocumentAttestationInfo, transformedDocs := range transformedDocuments {
 		transformedDocIds, err := v.WriteTransformedToCollection(ctx, h.DefraNode, transformedDocs)
 		if err != nil {
-			// Log error but continue to return processed/missing blocks so chunks can be updated
-			logger.Sugar.Errorf("Error writing transformed data to collection %s: %w", v.Name, err)
-			if attestationError == nil {
-				attestationError = fmt.Errorf("Error writing transformed data to collection %s: %w", v.Name, err)
-			}
-			continue
+			return processedBlocks, missingBlocks, fmt.Errorf("error writting transformed data to collection %s: %w", v.Name, err)
 		}
 
 		for _, transformedDocId := range transformedDocIds {
 			verifier := hostAttestation.NewDefraSignatureVerifier(h.DefraNode)
 			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, sourceDocumentAttestationInfo.Version)
 			if err != nil {
-				// Log error but continue to return processed/missing blocks so chunks can be updated
-				logger.Sugar.Errorf("Error creating attestation record: %w", err)
-				if attestationError == nil {
-					attestationError = fmt.Errorf("Error creating attestation record: %w", err)
-				}
-				continue
+				return processedBlocks, missingBlocks, fmt.Errorf("error creating attestation record: %w", err)
 			}
 
 			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode, v.Name)
 			if err != nil {
-				// Log error but continue to return processed/missing blocks so chunks can be updated
-				logger.Sugar.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
-				if attestationError == nil {
-					attestationError = fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
+				if strings.Contains(err.Error(), "document with the given ID already exists") {
+					logger.Sugar.Warnf("error posting attestation record %+v: %w", attestationRecord, err)
+					continue
 				}
-				continue
+				return processedBlocks, missingBlocks, fmt.Errorf("error posting attestation record %+v: %w", attestationRecord, err)
 			}
 		}
 	}
 
-	// Return processed/missing blocks even if there were attestation errors
-	// This allows chunks to be updated correctly even when attestation posting fails
-	return processedBlocks, missingBlocks, attestationError
+	return processedBlocks, missingBlocks, nil
 }

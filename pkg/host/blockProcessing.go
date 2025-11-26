@@ -13,7 +13,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
-const maxChunkSize = 100 // Maximum number of blocks in a single chunk
+const maxChunkSize = 100
 
 // ProcessingChunk represents a contiguous range of blocks that have been processed or are being processed.
 // MissingBlocks contains the block numbers within the range that haven't been processed yet.
@@ -23,13 +23,11 @@ type ProcessingChunk struct {
 	MissingBlocks []uint64 // Sorted list of block numbers that are missing within this range
 }
 
-// IsComplete returns true if all blocks in the chunk have been processed (no missing blocks).
-func (c *ProcessingChunk) IsComplete() bool {
+func (c *ProcessingChunk) IsProcessingComplete() bool {
 	return len(c.MissingBlocks) == 0
 }
 
 // RemoveProcessedBlocks removes the given block numbers from MissingBlocks.
-// The blockNumbers slice should be sorted.
 func (c *ProcessingChunk) RemoveProcessedBlocks(blockNumbers []uint64) {
 	if len(blockNumbers) == 0 {
 		return
@@ -50,7 +48,6 @@ func (c *ProcessingChunk) RemoveProcessedBlocks(blockNumbers []uint64) {
 	}
 
 	c.MissingBlocks = newMissing
-	// Keep MissingBlocks sorted
 	sort.Slice(c.MissingBlocks, func(i, j int) bool {
 		return c.MissingBlocks[i] < c.MissingBlocks[j]
 	})
@@ -67,44 +64,6 @@ func (h *Host) getNextChunkStart(viewName string) uint64 {
 	}
 	lastChunk := chunks[len(chunks)-1]
 	return lastChunk.EndBlock + 1
-}
-
-// queryBlockNumbersInRange queries DefraDB to get the actual block numbers that exist
-// in the given range for the view's query. Returns a sorted slice of unique block numbers.
-func (h *Host) queryBlockNumbersInRange(ctx context.Context, v *view.View, startBlock, endBlock uint64) ([]uint64, error) {
-	// Use the view's query with a block number filter to get documents in the range
-	query, err := graphql.WithBlockNumberFilter(*v.Query, startBlock, endBlock)
-	if err != nil {
-		return nil, fmt.Errorf("error adding block number filter: %w", err)
-	}
-
-	// Query for documents - we only need the block number field
-	// We'll extract block numbers from the results
-	sourceDocuments, err := defra.QueryArray[map[string]any](ctx, h.DefraNode, query)
-	if err != nil {
-		return nil, fmt.Errorf("error querying source data: %w", err)
-	}
-
-	// Extract unique block numbers from documents
-	blockNumberSet := make(map[uint64]bool)
-	for _, doc := range sourceDocuments {
-		blockNum, err := extractBlockNumberFromDoc(doc)
-		if err != nil {
-			return nil, fmt.Errorf("error extracting block number from document %+v: %w", doc, err)
-		}
-		blockNumberSet[blockNum] = true
-	}
-
-	// Convert to sorted slice
-	blockNumbers := make([]uint64, 0, len(blockNumberSet))
-	for bn := range blockNumberSet {
-		blockNumbers = append(blockNumbers, bn)
-	}
-	sort.Slice(blockNumbers, func(i, j int) bool {
-		return blockNumbers[i] < blockNumbers[j]
-	})
-
-	return blockNumbers, nil
 }
 
 // extractBlockNumberFromDoc extracts the block number from a document, handling different field locations.
@@ -235,38 +194,16 @@ func (h *Host) processView(ctx context.Context, view *view.View) error {
 
 	// ApplyView now handles querying and returns processed/missing blocks
 	processedBlocks, missingBlocks, err := h.ApplyView(ctx, *view, startBlock, endBlock)
-	// Log error but continue to update chunks even if there were attestation errors
 	if err != nil {
-		logger.Sugar.Errorf("Error applying view (will still update chunks): %w", err)
+		return fmt.Errorf("error applying view %s from blocks %d to %d: %w", view.Name, startBlock, endBlock, err)
 	}
 
-	// Always update chunks if we have missing blocks, even if no blocks were processed
-	// This ensures we track gaps in the data
-	if len(processedBlocks) == 0 && len(missingBlocks) == 0 {
-		logger.Sugar.Debugf("No blocks found in range %d-%d for view %s", startBlock, endBlock, view.Name)
-		if err != nil {
-			return fmt.Errorf("Error applying view: %w", err)
-		}
-		return nil
-	}
+	logger.Sugar.Debugf("Updating chunks for view %s: range %d-%d, processed: %d blocks, missing: %d blocks", view.Name, startBlock, endBlock, len(processedBlocks), len(missingBlocks))
 
-	// Determine the actual range we processed
-	// The range should be from startBlock to endBlock (the query range)
-	// This ensures chunks are created for the range we queried, not just the blocks we found
-	actualStartBlock := startBlock
-	actualEndBlock := endBlock
-
-	logger.Sugar.Debugf("Updating chunks for view %s: range %d-%d, processed: %d blocks, missing: %d blocks", view.Name, actualStartBlock, actualEndBlock, len(processedBlocks), len(missingBlocks))
 	// Update chunks based on processed and missing blocks
-	// We do this even if there were errors, so chunks are correctly tracked
-	h.updateChunksForView(view.Name, actualStartBlock, actualEndBlock, processedBlocks, missingBlocks)
+	h.updateChunksForView(view.Name, startBlock, endBlock, processedBlocks, missingBlocks)
 
-	// Return error if there was one, but after updating chunks
-	if err != nil {
-		return fmt.Errorf("Error applying view: %w", err)
-	}
-
-	logger.Sugar.Infof("Successfully processed view %s on blocks %d -> %d (processed: %d, missing: %d blocks)", view.Name, actualStartBlock, actualEndBlock, len(processedBlocks), len(missingBlocks))
+	logger.Sugar.Infof("Successfully processed view %s on blocks %d -> %d (processed: %d, missing: %d blocks)", view.Name, startBlock, endBlock, len(processedBlocks), len(missingBlocks))
 
 	// Merge contiguous chunks after processing
 	h.mergeContiguousChunks(view.Name)
@@ -731,7 +668,7 @@ func (h *Host) retryMissingBlocks(ctx context.Context) {
 						logger.Sugar.Infof("Processed %d missing blocks for view %s chunk %d-%d (%d still missing)", len(availableBlocks), viewName, chunk.StartBlock, chunk.EndBlock, len(chunks[i].MissingBlocks))
 
 						// After processing, check if chunk is now complete and remove if not most recent
-						if chunks[i].IsComplete() && i < len(chunks)-1 {
+						if chunks[i].IsProcessingComplete() && i < len(chunks)-1 {
 							// Not the most recent chunk and now complete - remove it
 							chunks = append(chunks[:i], chunks[i+1:]...)
 							h.ViewProcessedChunks[viewName] = chunks
