@@ -90,13 +90,13 @@ func CreateHostWithTwoViews(t *testing.T, boostrapPeers ...string) *Host {
 func GetGethConfig() indexerConfig.GethConfig {
 	return indexerConfig.GethConfig{
 		NodeURL: getGethNodeURL(),
-		WsURL:   os.Getenv("GCP_GETH_WS_URL"),
-		APIKey:  os.Getenv("GCP_GETH_API_KEY"),
+		WsURL:   os.Getenv("GETH_WS_URL"),
+		APIKey:  os.Getenv("GETH_API_KEY"),
 	}
 }
 
 func getGethNodeURL() string {
-	if gcpURL := os.Getenv("GCP_GETH_RPC_URL"); gcpURL != "" {
+	if gcpURL := os.Getenv("GETH_RPC_URL"); gcpURL != "" {
 		return gcpURL
 	}
 	// Fallback to public node for tests without GCP setup
