@@ -272,9 +272,9 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 			if err != nil {
 				if strings.Contains(err.Error(), "document with the given ID already exists") {
 					logger.Sugar.Warnf("Error posting attestation record %+v: %w", attestationRecord, err)
-					continue
+				} else {
+					return fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
 				}
-				return fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
 			}
 		}
 	}
