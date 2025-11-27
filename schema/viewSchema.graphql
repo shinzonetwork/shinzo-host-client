@@ -1,0 +1,6 @@
+type View {
+    name: String @index(unique: true)
+    query: String
+    sdl: String
+    lastProcessedBlock: Int
+}
