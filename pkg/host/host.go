@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -48,7 +47,6 @@ type Host struct {
 	attestationProcessedBlocks *stack.Stack[uint64]
 	viewProcessedBlocks        map[string]*stack.Stack[uint64] // The block numbers processed mapped to their respective view name
 	mostRecentBlockReceived    uint64                          // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
-	processedBlocksMutex       sync.RWMutex                    // Protects access to attestationProcessedBlocks and viewProcessedBlocks
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -268,9 +266,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					logger.Sugar.Errorf("Failed to prepare view: %v", err)
 				} else {
 					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
-					h.processedBlocksMutex.Lock()
 					h.viewProcessedBlocks[registeredEvent.View.Name] = &stack.Stack[uint64]{}
-					h.processedBlocksMutex.Unlock()
 				}
 			} else {
 				logger.Sugar.Errorf("Received unknown event: %+v", event)
