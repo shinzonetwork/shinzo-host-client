@@ -74,6 +74,7 @@ func CreateHostWithTwoViews(t *testing.T, boostrapPeers ...string) *Host {
 	time.Sleep(1 * time.Second) // Allow a moment for event receivers to setup
 	sendMockNewViewEvent(t, "viewWithNoLensEvent", mockEventSub)
 	sendMockNewViewEvent(t, "viewWithLensEvent", mockEventSub)
+	time.Sleep(1 * time.Second) // Allow a moment for events to process
 
 	// Verify the host processed the event
 	for i := 0; i < 60; i++ { // It may take a few moments to process the event

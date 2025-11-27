@@ -12,6 +12,18 @@ import (
 )
 
 func (h *Host) getMostRecentBlockNumberProcessed() uint64 {
+	h.processedBlocksMutex.RLock()
+	defer h.processedBlocksMutex.RUnlock()
+
+	blockNumber, err := h.attestationProcessedBlocks.Peek()
+	if err != nil {
+		return 0
+	}
+	return blockNumber
+}
+
+// getMostRecentBlockNumberProcessedUnlocked is an unlocked version for use when already holding the lock
+func (h *Host) getMostRecentBlockNumberProcessedUnlocked() uint64 {
 	blockNumber, err := h.attestationProcessedBlocks.Peek()
 	if err != nil {
 		return 0
@@ -20,6 +32,18 @@ func (h *Host) getMostRecentBlockNumberProcessed() uint64 {
 }
 
 func (h *Host) getMostRecentBlockNumberProcessedForView(view *view.View) uint64 {
+	h.processedBlocksMutex.RLock()
+	defer h.processedBlocksMutex.RUnlock()
+
+	blockNumber, err := h.viewProcessedBlocks[view.Name].Peek()
+	if err != nil {
+		return 0
+	}
+	return blockNumber
+}
+
+// getMostRecentBlockNumberProcessedForViewUnlocked is an unlocked version for use when already holding the lock
+func (h *Host) getMostRecentBlockNumberProcessedForViewUnlocked(view *view.View) uint64 {
 	blockNumber, err := h.viewProcessedBlocks[view.Name].Peek()
 	if err != nil {
 		return 0
@@ -67,8 +91,11 @@ func (h *Host) processView(ctx context.Context, view *view.View) error {
 		return fmt.Errorf("Error getting current block number: %w", err)
 	}
 
-	lastProcessedBlockNumber := h.getMostRecentBlockNumberProcessedForView(view)
+	// Lock for the entire read-check-write operation to make it atomic
+	h.processedBlocksMutex.Lock()
+	lastProcessedBlockNumber := h.getMostRecentBlockNumberProcessedForViewUnlocked(view)
 	processFromBlockNumber := lastProcessedBlockNumber + 1
+	h.processedBlocksMutex.Unlock()
 
 	logger.Sugar.Infof("Processing view %s on blocks %d -> %d...", view.Name, processFromBlockNumber, currentBlockNumber)
 
@@ -79,7 +106,9 @@ func (h *Host) processView(ctx context.Context, view *view.View) error {
 
 	logger.Sugar.Infof("Successfully processed view %s on blocks %d -> %d", view.Name, processFromBlockNumber, currentBlockNumber)
 
+	h.processedBlocksMutex.Lock()
 	h.viewProcessedBlocks[view.Name].Push(currentBlockNumber)
+	h.processedBlocksMutex.Unlock()
 	return nil
 }
 
@@ -120,8 +149,11 @@ func (h *Host) processPrimitiveAttestationRecords(ctx context.Context) error {
 		return fmt.Errorf("Error getting current block number: %w", err)
 	}
 
-	lastProcessedBlockNumber := h.getMostRecentBlockNumberProcessed()
+	// Lock for the entire read-check-write operation to make it atomic
+	h.processedBlocksMutex.Lock()
+	lastProcessedBlockNumber := h.getMostRecentBlockNumberProcessedUnlocked()
 	processFromBlockNumber := lastProcessedBlockNumber + 1
+	h.processedBlocksMutex.Unlock()
 
 	logger.Sugar.Infof("Processing attestation records on blocks %d -> %d...", processFromBlockNumber, currentBlockNumber)
 
@@ -132,6 +164,8 @@ func (h *Host) processPrimitiveAttestationRecords(ctx context.Context) error {
 
 	logger.Sugar.Infof("Successfully processed attestation records on blocks %d -> %d", processFromBlockNumber, currentBlockNumber)
 
+	h.processedBlocksMutex.Lock()
 	h.attestationProcessedBlocks.Push(currentBlockNumber)
+	h.processedBlocksMutex.Unlock()
 	return nil
 }

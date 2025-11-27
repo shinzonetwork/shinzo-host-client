@@ -85,10 +85,13 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	// Wait for app defra to receive lens results
 	unfilteredResults, err = defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
 	require.NoError(t, err)
-	for len(unfilteredResults) == 0 {
+	for i := 0; i < maxRetries; i++ {
 		time.Sleep(1 * time.Second)
 		unfilteredResults, err = defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
 		require.NoError(t, err)
+		if len(unfilteredResults) > 0 {
+			break
+		}
 	}
 	require.Greater(t, len(unfilteredResults), 0)
 
@@ -121,8 +124,15 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 		CIDs
 	}
 }`, testHost.HostedViews[0].Name)
-	attestationRecords, err := defra.QueryArray[attestation.AttestationRecord](t.Context(), appDefra, attestationRecordsQuery)
-	require.NoError(t, err)
+	var attestationRecords []attestation.AttestationRecord
+	for i := 0; i < maxRetries; i++ {
+		time.Sleep(1 * time.Second) // It may take a moment for attestation records to sync
+		attestationRecords, err = defra.QueryArray[attestation.AttestationRecord](t.Context(), appDefra, attestationRecordsQuery)
+		require.NoError(t, err)
+		if len(attestationRecords) > 0 {
+			break
+		}
+	}
 	require.NotNil(t, attestationRecords)
 	require.Greater(t, len(attestationRecords), 0)
 	for _, record := range attestationRecords {

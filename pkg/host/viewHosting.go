@@ -270,6 +270,10 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 
 			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode, v.Name)
 			if err != nil {
+				if strings.Contains(err.Error(), "document with the given ID already exists") {
+					logger.Sugar.Warnf("Error posting attestation record %+v: %w", attestationRecord, err)
+					continue
+				}
 				return fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
 			}
 		}
