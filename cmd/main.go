@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/host"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
 )
 
 func findConfigFile() string {

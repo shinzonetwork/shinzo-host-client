@@ -7,8 +7,8 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	"github.com/shinzonetwork/host/pkg/attestation"
-	"github.com/shinzonetwork/host/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 func (h *Host) getMostRecentBlockNumberProcessed() uint64 {

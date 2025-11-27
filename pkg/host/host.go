@@ -3,17 +3,22 @@ package host
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	"github.com/shinzonetwork/host/config"
-	"github.com/shinzonetwork/host/pkg/shinzohub"
-	"github.com/shinzonetwork/host/pkg/stack"
-	"github.com/shinzonetwork/host/pkg/view"
-	"github.com/shinzonetwork/host/schema"
+	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/config"
+	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/stack"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
+	"github.com/shinzonetwork/shinzo-host-client/schema"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -36,6 +41,7 @@ type Host struct {
 	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the block processing goroutine
+	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
 	blockMonitorCancel     context.CancelFunc // For canceling the block monitoring goroutine
 
 	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
@@ -56,7 +62,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	logger.Init(true)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
-		&defra.SchemaApplierFromFile{DefaultPath: "schema/schema.graphql"},
+		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
 		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
@@ -79,6 +85,48 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		}
 	}
 
+	// Log API URL
+	if defraNode.APIURL != "" {
+		fmt.Printf("🚀 Host HTTP API available at %s\n", defraNode.APIURL)
+		fmt.Printf("📊 GraphQL endpoint at %s/api/v0/graphql\n", defraNode.APIURL)
+	}
+
+	// Start playground server if enabled
+	// We start our own HTTP server that serves the playground UI and proxies
+	// API requests to defradb's API server
+	var playgroundServer *http.Server
+	if isPlaygroundEnabled() && defraNode.APIURL != "" {
+		playgroundHandler, err := playgroundserver.NewServer(defraNode.APIURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create playground server: %v", err)
+		}
+
+		// Start playground server on a different port (defradb port + 1)
+		// Parse the defradb URL to get the port and increment it
+		playgroundAddr := cfg.ShinzoAppConfig.DefraDB.Url
+		if defraNode.APIURL != "" {
+			playgroundAddr = defraNode.APIURL
+		}
+		playgroundAddr, err = incrementPort(playgroundAddr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve defra url: %w", err)
+		}
+
+		playgroundServer = &http.Server{
+			Addr:    playgroundAddr,
+			Handler: playgroundHandler,
+		}
+
+		go func() {
+			if err := playgroundServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Sugar.Errorf("Playground server error: %v", err)
+			}
+		}()
+
+		fmt.Printf("🧪 GraphQL Playground available at http://%s\n", playgroundAddr)
+		fmt.Printf("   (Playground proxies API requests to defradb at %s)\n", defraNode.APIURL)
+	}
+
 	newHost := &Host{
 		DefraNode:                  defraNode,
 		HostedViews:                []view.View{},
@@ -86,6 +134,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		eventSubscription:          eventSub,
 		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
 		processingCancel:           func() {},
+		playgroundServer:           playgroundServer,
 		blockMonitorCancel:         func() {},
 		attestationProcessedBlocks: stack.New[uint64](),
 		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
@@ -125,10 +174,43 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	return newHost, nil
 }
 
+func incrementPort(apiURL string) (string, error) {
+	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
+		apiURL = "http://" + apiURL
+	}
+	parsed, err := url.Parse(apiURL)
+	if err == nil {
+		host := parsed.Host
+		if host == "" {
+			host = parsed.Path
+		}
+		// Split host:port
+		parts := strings.Split(host, ":")
+		if len(parts) == 2 {
+			port, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("%s:%d", parts[0], port+1), nil
+		} else if len(parts) == 1 {
+			return "", fmt.Errorf("No port found")
+		}
+	}
+	return "", err
+}
+
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()   // Stop the block processing goroutine
 	h.blockMonitorCancel() // Stop the block monitoring goroutine
+
+	// Shutdown playground server if it exists
+	if h.playgroundServer != nil {
+		if err := h.playgroundServer.Shutdown(ctx); err != nil {
+			logger.Sugar.Errorf("Error shutting down playground server: %v", err)
+		}
+	}
+
 	return h.DefraNode.Close(ctx)
 }
 
@@ -141,13 +223,13 @@ func (h *Host) recoverAnyStoredViews(ctx context.Context) error {
 			lastProcessedBlock
 		}
 	}`
-	
+
 	// Use a custom type to capture lastProcessedBlock since view.View doesn't have this field
 	type ViewWithBlock struct {
 		view.View
 		LastProcessedBlock *int64 `json:"lastProcessedBlock"`
 	}
-	
+
 	viewsWithBlock, err := defra.QueryArray[ViewWithBlock](ctx, h.DefraNode, query)
 	if err != nil {
 		// If the View collection doesn't exist yet or isn't queryable, that's okay - just log and continue
@@ -162,18 +244,18 @@ func (h *Host) recoverAnyStoredViews(ctx context.Context) error {
 	// Convert to view.View and restore lastProcessedBlock to stacks
 	for _, vwb := range viewsWithBlock {
 		h.HostedViews = append(h.HostedViews, vwb.View)
-		
+
 		// Initialize viewProcessedBlocks for recovered views
 		if _, exists := h.viewProcessedBlocks[vwb.Name]; !exists {
 			h.viewProcessedBlocks[vwb.Name] = &stack.Stack[uint64]{}
 		}
-		
+
 		// Restore lastProcessedBlock to the stack if it exists
 		if vwb.LastProcessedBlock != nil && *vwb.LastProcessedBlock > 0 {
 			h.viewProcessedBlocks[vwb.Name].Push(uint64(*vwb.LastProcessedBlock))
 		}
 	}
-	
+
 	return nil
 }
 
@@ -257,4 +339,12 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
 	return StartHosting(testConfig)
+}
+
+// isPlaygroundEnabled checks if the playground is enabled at build time.
+// This function will only return true when the code is built with the hostplayground tag.
+func isPlaygroundEnabled() bool {
+	// This will be true only when built with -tags hostplayground
+	// We use a build tag to conditionally compile this
+	return playgroundEnabled
 }
