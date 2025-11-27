@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/app-sdk v0.0.0-20251120212127-2063981e00c4
+	github.com/shinzonetwork/app-sdk v0.0.0-20251126222908-8dcfe163e234
 	github.com/shinzonetwork/indexer v0.1.1-0.20251120164521-e7d20c7b0344
 	github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07
 	github.com/sourcenetwork/defradb v0.20.0
@@ -15,6 +15,7 @@ require (
 )
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.3-20241127180247-a33202765966.1 // indirect
 	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go v0.116.0 // indirect
@@ -146,6 +147,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gofrs/uuid/v5 v5.3.2 // indirect
 	github.com/gogo/googleapis v1.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -362,6 +364,7 @@ require (
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/zalando/go-keyring v0.2.6 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
 	github.com/zondax/ledger-go v0.14.3 // indirect
