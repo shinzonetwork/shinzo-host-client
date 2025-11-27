@@ -36,6 +36,7 @@ func createHostWithMockViewEventReceiver(t *testing.T, boostrapPeers ...string) 
 	testHostConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers = append(DefaultConfig.ShinzoAppConfig.DefraDB.P2P.BootstrapPeers, boostrapPeers...)
 	testHostConfig.ShinzoAppConfig.DefraDB.P2P.ListenAddr = listenAddress
 	testHostConfig.ShinzoAppConfig.Logger.Development = false
+	testHostConfig.ShinzoAppConfig.DefraDB.KeyringSecret = "testSecret"
 
 	testHost, err := StartHostingWithEventSubscription(testHostConfig, mockEventSub)
 	require.NoError(t, err)
