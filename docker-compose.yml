@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  shinzo-host:
+    image: gcr.io/shinzo-468905/shinzo-host-client:latest
+    ports:
+      - "9181:9181"  # DefraDB API
+      - "9182:9182"  # GraphQL Playground
+      - "9171:9171"  # P2P networking
+    volumes:
+      - /data/defradb:/app/.defra/data
+      - /data/lens:/app/.lens
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - DEFRA_URL=0.0.0.0:9181
+      - LOG_LEVEL=error
+      - LOG_SOURCE=false
+      - LOG_STACKTRACE=false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9181/api/v0/graphql"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
