@@ -3,7 +3,7 @@ defradb:
   keyring_secret: ""
   p2p:
     bootstrap_peers: 
-     - '/ip4/34.30.60.55/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s'
+     # - '/ip4/34.30.60.55/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s'
      - '/ip4/136.112.206.228/tcp/9171/p2p/12D3KooWC2A7oX3zq3QLrL3NhrrSrLSxMArHRWQPCZGqF3XzPAYv'
     listen_addr: "/ip4/0.0.0.0/tcp/0"
   store:
