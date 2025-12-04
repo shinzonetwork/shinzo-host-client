@@ -14,9 +14,7 @@ Push to main → GitHub Actions (test + build) → Push to GHCR → Watchtower p
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `GCP_GETH_RPC_URL` | Yes | Ethereum JSON-RPC endpoint URL (for tests) |
-| `GCP_GETH_WS_URL` | Yes | Ethereum WebSocket endpoint URL (for tests) |
-| `GCP_GETH_API_KEY` | Yes | API key for Ethereum node authentication (for tests) |
+| `DEFRA_KEYRING_SECRET` | Yes | DefraDB keyring secret (for tests) |
 
 ## Workflow Behavior
 

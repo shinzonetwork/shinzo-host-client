@@ -35,9 +35,7 @@ jobs:
       - name: Run tests
         run: go test -count=1 -timeout=3m ./...
         env:
-          GCP_GETH_RPC_URL: ${{ secrets.GCP_GETH_RPC_URL }}
-          GCP_GETH_WS_URL: ${{ secrets.GCP_GETH_WS_URL }}
-          GCP_GETH_API_KEY: ${{ secrets.GCP_GETH_API_KEY }}
+          DEFRA_KEYRING_SECRET: ${{ secrets.DEFRA_KEYRING_SECRET }}
 
   # Job 2: Build and push image (Watchtower auto-deploys on :latest)
   build-and-push:
