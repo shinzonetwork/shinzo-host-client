@@ -4,17 +4,20 @@ services:
   shinzo-host:
     image: ghcr.io/shinzonetwork/shinzo-host-client:latest
     ports:
-      - "9181:9181"  # DefraDB API
-      - "9182:9182"  # GraphQL Playground
+      - "443:443"    # HTTPS GraphQL endpoint
+      - "444:444"    # HTTP GraphQL endpoint
       - "9171:9171"  # P2P networking
     volumes:
       - defra_data:/app/.defra/data
       - lens_data:/app/.lens
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      - DEFRA_URL=0.0.0.0:9181
+      - DEFRA_URL=0.0.0.0:443
+      - LOG_LEVEL=error
+      - LOG_SOURCE=false
+      - LOG_STACKTRACE=false
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9181/api/v0/graphql"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:443/api/v0/graphql"]
       interval: 30s
       timeout: 10s
       retries: 3
