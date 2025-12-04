@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   shinzo-host:
-    image: shinzo-host-client:playground
+    image: ghcr.io/shinzonetwork/shinzo-host-client:latest
     ports:
       - "9181:9181"  # DefraDB API
       - "9182:9182"  # GraphQL Playground
