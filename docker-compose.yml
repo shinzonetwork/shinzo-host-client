@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   shinzo-host:
-    image: gcr.io/shinzo-468905/shinzo-host-client:latest
+    image: ghcr.io/shinzonetwork/shinzo-host-client:latest
     ports:
       - "443:443"    # HTTPS GraphQL endpoint
       - "444:444"    # HTTP GraphQL endpoint

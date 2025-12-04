@@ -145,4 +145,4 @@ CMD ["./host"]
 
 
 # Shinzo Host Run Command
-# docker run -d   --name shinzo-host   --network shinzo-net   --user $(id -u):$(id -g)   -p 9182:9182   -p 9171:9171   -v /home/duncanbrown/data/defradb:/app/.defra/data   -v /home/duncanbrown/data/lens:/app/.lens   -v $(pwd)/config.yaml:/app/config.yaml:ro   -e DEFRA_URL=0.0.0.0:9181   -e LOG_LEVEL=error   -e LOG_SOURCE=false   -e LOG_STACKTRACE=false   --memory=4g   --memory-swap=4g   --restart unless-stopped   gcr.io/shinzo-468905/shinzo-host-client:latest
+# docker run -d   --name shinzo-host   --network shinzo-net   --user $(id -u):$(id -g)   -p 9182:9182   -p 9171:9171   -v /home/duncanbrown/data/defradb:/app/.defra/data   -v /home/duncanbrown/data/lens:/app/.lens   -v $(pwd)/config.yaml:/app/config.yaml:ro   -e DEFRA_URL=0.0.0.0:9181   -e LOG_LEVEL=error   -e LOG_SOURCE=false   -e LOG_STACKTRACE=false   --memory=16g   --memory-swap=16g   --restart unless-stopped   gcr.io/shinzo-468905/shinzo-host-client:latest
