@@ -52,7 +52,7 @@ func TestApplyViewWithoutLenses(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, len(dataBefore), 0)
 
-	err = host.ApplyView(t.Context(), testView, 1, 99999999)
+	_, _, err = host.ApplyView(t.Context(), testView, 1, 99999999)
 	require.NoError(t, err)
 
 	dataWritten, err := defra.QueryArray[attestation.Log](t.Context(), host.DefraNode, fmt.Sprintf("%s {transactionHash}", testView.Name))
@@ -104,8 +104,10 @@ func TestApplyViewWithoutLenses_StartingBlockPastWhatWeHaveDataFor(t *testing.T)
 	require.NoError(t, err)
 	require.Greater(t, len(dataBefore), 0)
 
-	err = host.ApplyView(t.Context(), testView, 9999999, 99999999)
-	require.Error(t, err)
+	processedBlocks, missingBlocks, err := host.ApplyView(t.Context(), testView, 9999999, 99999999)
+	require.NoError(t, err)
+	require.Len(t, processedBlocks, 0, "Should have no processed blocks when querying range with no data")
+	require.Greater(t, len(missingBlocks), 0, "Should have missing blocks when querying range with no data")
 
 	dataWritten, err := defra.QueryArray[attestation.Log](t.Context(), host.DefraNode, fmt.Sprintf("%s {transactionHash}", testView.Name))
 	require.NoError(t, err)
@@ -123,7 +125,7 @@ func TestApplyViewWithLens(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, len(dataBefore), 0)
 
-	err = testHost.ApplyView(t.Context(), testHost.HostedViews[0], 1, 9999999)
+	_, _, err = testHost.ApplyView(t.Context(), testHost.HostedViews[0], 1, 9999999)
 	require.NoError(t, err)
 
 	dataWritten, err := defra.QueryArray[attestation.Log](t.Context(), testHost.DefraNode, fmt.Sprintf("%s {transactionHash}", testHost.HostedViews[0].Name))
