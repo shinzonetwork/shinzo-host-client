@@ -340,7 +340,7 @@ func TestBlockProcessingWithGaps(t *testing.T) {
 // Helper functions
 
 func waitForData(t *testing.T, host *Host, viewName string, expectedCount int) {
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second) // Increased timeout for stability
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second) // Increased timeout for stability
 	defer cancel()
 
 	var queryField string
