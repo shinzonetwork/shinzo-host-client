@@ -489,21 +489,6 @@ func postDummyTransactionWithBlockNumber(t *testing.T, hostDefra *node.Node, blo
 	require.NoError(t, err)
 }
 
-func validateProcessedData(t *testing.T, host *Host, targetAddress string, round int) {
-	ctx := t.Context()
-
-	// Check that the view processed some data
-	require.Len(t, host.HostedViews, 1)
-	viewName := host.HostedViews[0].Name
-
-	// Query the processed data using a generic field
-	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {_docID}", viewName))
-	require.NoError(t, err)
-	require.Greater(t, len(processedData), 0, "Round %d: Should have processed some data", round)
-
-	t.Logf("Round %d: Processed %d items", round, len(processedData))
-}
-
 func validateProcessedDataWithProgress(t *testing.T, host *Host, targetAddress string, round int, previousCount int, previousBlocks map[string]uint64) (int, map[string]uint64) {
 	ctx := t.Context()
 
