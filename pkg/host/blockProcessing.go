@@ -23,27 +23,6 @@ func (h *Host) getMostRecentBlockNumberProcessedForView(view *view.View) uint64 
 	return 0
 }
 
-// getUnprocessedBlocks fetches all blocks from DefraDB that are newer than the given block number.
-func (h *Host) getUnprocessedBlocks(ctx context.Context, sinceBlockNumber uint64) ([]attestation.Block, error) {
-	// Query for all blocks with a number greater than sinceBlockNumber.
-	query := fmt.Sprintf(`query GetUnprocessedBlocks {
-		Block(filter: {number: {_gt: %d}}) {
-			number
-		}
-	}`, sinceBlockNumber)
-
-	blocks, err := defra.QueryArray[attestation.Block](ctx, h.DefraNode, query)
-	if err != nil {
-		// It's common to have no new blocks, so we check for "no documents found" and return an empty slice.
-		if strings.Contains(err.Error(), "no documents found") {
-			return []attestation.Block{}, nil
-		}
-		return nil, err
-	}
-
-	return blocks, nil
-}
-
 func (h *Host) getCurrentBlockNumber(ctx context.Context) (uint64, error) {
 	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
 	latestBlock, err := defra.QuerySingle[attestation.Block](ctx, h.DefraNode, query)
@@ -92,9 +71,7 @@ func (h *Host) processView(ctx context.Context, view *view.View) error {
 		}
 
 		// Mark all blocks in this range as processed
-		for blockNum := blockRange.Start; blockNum <= blockRange.End; blockNum++ {
-			tracker.Add(blockNum)
-		}
+		tracker.AddRange(blockRange.Start, blockRange.End)
 	}
 
 	return nil

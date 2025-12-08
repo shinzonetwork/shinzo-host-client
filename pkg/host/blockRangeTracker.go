@@ -125,3 +125,11 @@ func (b *BlockRangeTracker) GetUnprocessedRanges(latestKnownBlock uint64) []Bloc
 
 	return gaps
 }
+
+// AddRange efficiently adds a contiguous range of block numbers to the tracker.
+// This is more efficient than calling Add() for each block individually.
+func (b *BlockRangeTracker) AddRange(start, end uint64) {
+	for blockNum := start; blockNum <= end; blockNum++ {
+		b.Add(blockNum)
+	}
+}
