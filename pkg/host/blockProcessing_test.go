@@ -1,8 +1,11 @@
 package host
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"math/rand"
+	"regexp"
 	"testing"
 	"time"
 
@@ -67,7 +70,7 @@ func TestBlockProcessingWithLens(t *testing.T) {
 		}
 
 		// Wait for processing to complete
-		time.Sleep(3 * time.Second)
+		waitForData(t, testHost, "FilteredAndDecodedLogsWithLens_0xeca5fac61f15db6e84d31a17c1ef2f3f14f83e1aa8b9b0f32e4a87c23f4e5f6b", 1)
 
 		// Debug: Check what block numbers we have in the database
 		ctx := t.Context()
@@ -82,12 +85,12 @@ func TestBlockProcessingWithLens(t *testing.T) {
 		t.Logf("Number of hosted views: %d", len(testHost.HostedViews))
 
 		// Debug: Check processed blocks
-		for viewName, stack := range testHost.viewProcessedBlocks {
-			blockNumber, err := stack.Peek()
-			if err != nil {
-				t.Logf("View %s: No processed blocks", viewName)
-			} else {
+		for viewName, tracker := range testHost.viewProcessedBlocks {
+			blockNumber := tracker.GetHighest()
+			if blockNumber > 0 {
 				t.Logf("View %s: Last processed block %d", viewName, blockNumber)
+			} else {
+				t.Logf("View %s: No processed blocks", viewName)
 			}
 		}
 
@@ -177,7 +180,7 @@ func TestBlockProcessingWithoutLens(t *testing.T) {
 		}
 
 		// Wait for processing to complete
-		time.Sleep(500 * time.Millisecond)
+		waitForData(t, testHost, "FilteredAndDecodedLogs", 1)
 
 		// Validate the results with improved checks
 		currentProcessedCount, currentProcessedBlocks := validateProcessedDataWithProgress(t, testHost, targetAddress, round+1, previousProcessedCount, previousProcessedBlocks)
@@ -268,7 +271,10 @@ func TestBlockProcessingMultipleViews(t *testing.T) {
 		}
 
 		// Wait for processing to complete
-		time.Sleep(500 * time.Millisecond)
+		waitForData(t, testHost, "View1", 1) // Wait for at least 1 document in each view
+		// log the number of documents in View1
+		log.Printf("View1 done")
+		waitForData(t, testHost, "View2", 1)
 
 		// Validate both views processed data with progress tracking
 		currentView1Count, currentView2Count, currentProcessedBlocks := validateMultipleViewsProcessedWithProgress(t, testHost, round+1, previousView1Count, previousView2Count, previousProcessedBlocks)
@@ -322,7 +328,7 @@ func TestBlockProcessingWithGaps(t *testing.T) {
 		}
 
 		// Wait for processing to complete
-		time.Sleep(500 * time.Millisecond)
+		waitForData(t, testHost, "FilteredAndDecodedLogsWithLens_0xeca5fac61f15db6e84d31a17c1ef2f3f14f83e1aa8b9b0f32e4a87c23f4e5f6b", 1)
 
 		// Validate the results with improved checks
 		currentProcessedCount, currentProcessedBlocks := validateProcessedDataWithProgress(t, testHost, targetAddress, round+1, previousProcessedCount, previousProcessedBlocks)
@@ -332,6 +338,48 @@ func TestBlockProcessingWithGaps(t *testing.T) {
 }
 
 // Helper functions
+
+func waitForData(t *testing.T, host *Host, viewName string, expectedCount int) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second) // Increased timeout for stability
+	defer cancel()
+
+	var queryField string
+
+	// Find the view and get a field from its SDL to make the query generic
+	for _, v := range host.HostedViews {
+		if v.Name == viewName {
+			if v.Sdl != nil {
+				// A simple regex to find the first field name, avoiding full parsing dependency
+				re := regexp.MustCompile(`type\s+\w+\s*\{[\s\n]*(\w+):`)
+				matches := re.FindStringSubmatch(*v.Sdl)
+				if len(matches) > 1 {
+					queryField = matches[1]
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback to _docID if no field could be parsed
+	if queryField == "" {
+		queryField = "_docID"
+	}
+
+	query := fmt.Sprintf("%s {%s}", viewName, queryField)
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for data in view %s using query '%s'", viewName, query)
+		default:
+			processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, query)
+			if err == nil && len(processedData) >= expectedCount {
+				return // Success
+			}
+			time.Sleep(200 * time.Millisecond) // Poll every 200ms
+		}
+	}
+}
 
 func postDummyLogWithBlockNumber(t *testing.T, hostDefra *node.Node, address string, blockNumber uint64) {
 	// First, create the block if it doesn't exist
@@ -448,8 +496,8 @@ func validateProcessedData(t *testing.T, host *Host, targetAddress string, round
 	require.Len(t, host.HostedViews, 1)
 	viewName := host.HostedViews[0].Name
 
-	// Query the processed data
-	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {transactionHash}", viewName))
+	// Query the processed data using a generic field
+	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {_docID}", viewName))
 	require.NoError(t, err)
 	require.Greater(t, len(processedData), 0, "Round %d: Should have processed some data", round)
 
@@ -463,8 +511,8 @@ func validateProcessedDataWithProgress(t *testing.T, host *Host, targetAddress s
 	require.Len(t, host.HostedViews, 1)
 	viewName := host.HostedViews[0].Name
 
-	// Query the processed data
-	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {transactionHash}", viewName))
+	// Query the processed data using a generic field
+	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {_docID}", viewName))
 	require.NoError(t, err)
 	require.Greater(t, len(processedData), 0, "Round %d: Should have processed some data", round)
 
@@ -478,21 +526,19 @@ func validateProcessedDataWithProgress(t *testing.T, host *Host, targetAddress s
 
 	// Validate that viewProcessedBlocks maps are updated correctly
 	currentProcessedBlocks := make(map[string]uint64)
-	for viewName, stack := range host.viewProcessedBlocks {
-		if !stack.IsEmpty() {
-			latestBlock, err := stack.Peek()
-			if err == nil {
-				currentProcessedBlocks[viewName] = latestBlock
+	for viewName, tracker := range host.viewProcessedBlocks {
+		latestBlock := tracker.GetHighest()
+		if latestBlock > 0 {
+			currentProcessedBlocks[viewName] = latestBlock
 
-				// Validate that block numbers are progressing (unless it's the first round)
-				if round > 1 && previousBlocks != nil {
-					if prevBlock, exists := previousBlocks[viewName]; exists {
-						require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
-						t.Logf("Round %d: View %s processed block %d (previous: %d)", round, viewName, latestBlock, prevBlock)
-					}
-				} else {
-					t.Logf("Round %d: View %s processed block %d", round, viewName, latestBlock)
+			// Validate that block numbers are progressing (unless it's the first round)
+			if round > 1 && previousBlocks != nil {
+				if prevBlock, exists := previousBlocks[viewName]; exists {
+					require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
+					t.Logf("Round %d: View %s processed block %d (previous: %d)", round, viewName, latestBlock, prevBlock)
 				}
+			} else {
+				t.Logf("Round %d: View %s processed block %d", round, viewName, latestBlock)
 			}
 		}
 	}
@@ -507,11 +553,11 @@ func validateAllLogsProcessed(t *testing.T, host *Host) {
 	viewName := host.HostedViews[0].Name
 
 	// Get all logs
-	allLogs, err := defra.QueryArray[attestation.Log](ctx, host.DefraNode, "Log {transactionHash}")
+	allLogs, err := defra.QueryArray[attestation.Log](ctx, host.DefraNode, "Log {_docID}")
 	require.NoError(t, err)
 
 	// Get processed data
-	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {transactionHash}", viewName))
+	processedData, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, fmt.Sprintf("%s {_docID}", viewName))
 	require.NoError(t, err)
 
 	// Without lens, all logs should be processed (or at least most of them due to timing)
@@ -525,12 +571,12 @@ func validateMultipleViewsProcessed(t *testing.T, host *Host) {
 	require.Len(t, host.HostedViews, 2)
 
 	// Check View1 (Log processing)
-	view1Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View1 {transactionHash}")
+	view1Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View1 {_docID}")
 	require.NoError(t, err)
 	require.Greater(t, len(view1Data), 0, "View1 should have processed logs")
 
 	// Check View2 (Transaction processing)
-	view2Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View2 {hash}")
+	view2Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View2 {_docID}")
 	require.NoError(t, err)
 	require.Greater(t, len(view2Data), 0, "View2 should have processed transactions")
 
@@ -543,12 +589,12 @@ func validateMultipleViewsProcessedWithProgress(t *testing.T, host *Host, round 
 	require.Len(t, host.HostedViews, 2)
 
 	// Check View1 (Log processing)
-	view1Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View1 {transactionHash}")
+	view1Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View1 {_docID}")
 	require.NoError(t, err)
 	require.Greater(t, len(view1Data), 0, "Round %d: View1 should have processed logs", round)
 
 	// Check View2 (Transaction processing)
-	view2Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View2 {hash}")
+	view2Data, err := defra.QueryArray[map[string]any](ctx, host.DefraNode, "View2 {_docID}")
 	require.NoError(t, err)
 	require.Greater(t, len(view2Data), 0, "Round %d: View2 should have processed transactions", round)
 
@@ -563,21 +609,19 @@ func validateMultipleViewsProcessedWithProgress(t *testing.T, host *Host, round 
 
 	// Validate that viewProcessedBlocks maps are updated correctly
 	currentProcessedBlocks := make(map[string]uint64)
-	for viewName, stack := range host.viewProcessedBlocks {
-		if !stack.IsEmpty() {
-			latestBlock, err := stack.Peek()
-			if err == nil {
-				currentProcessedBlocks[viewName] = latestBlock
+	for viewName, tracker := range host.viewProcessedBlocks {
+		latestBlock := tracker.GetHighest()
+		if latestBlock > 0 {
+			currentProcessedBlocks[viewName] = latestBlock
 
-				// Validate that block numbers are progressing (unless it's the first round)
-				if round > 1 && previousBlocks != nil {
-					if prevBlock, exists := previousBlocks[viewName]; exists {
-						require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
-						t.Logf("Round %d: View %s processed block %d (previous: %d)", round, viewName, latestBlock, prevBlock)
-					}
-				} else {
-					t.Logf("Round %d: View %s processed block %d", round, viewName, latestBlock)
+			// Validate that block numbers are progressing (unless it's the first round)
+			if round > 1 && previousBlocks != nil {
+				if prevBlock, exists := previousBlocks[viewName]; exists {
+					require.GreaterOrEqual(t, latestBlock, prevBlock, "Round %d: View %s block number should not decrease", round, viewName)
+					t.Logf("Round %d: View %s processed block %d (previous: %d)", round, viewName, latestBlock, prevBlock)
 				}
+			} else {
+				t.Logf("Round %d: View %s processed block %d", round, viewName, latestBlock)
 			}
 		}
 	}
