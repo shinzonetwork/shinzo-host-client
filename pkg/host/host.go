@@ -42,10 +42,10 @@ type Host struct {
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
 	blockMonitorCancel     context.CancelFunc // For canceling the block monitoring goroutine
 
-	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
-	attestationProcessedBlocks *ProcessedBlocks
-	viewProcessedBlocks        map[string]*ProcessedBlocks // The block numbers processed mapped to their respective view name
-	mostRecentBlockReceived    uint64                      // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+	// These trackers keep track of processed block ranges for attestations and views
+	attestationRangeTracker *BlockRangeTracker
+	viewRangeTrackers       map[string]*BlockRangeTracker // Block range trackers mapped to their respective view name
+	mostRecentBlockReceived uint64                        // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -116,16 +116,16 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	newHost := &Host{
-		DefraNode:                  defraNode,
-		HostedViews:                []view.View{},
-		webhookCleanupFunction:     func() {},
-		eventSubscription:          eventSub,
-		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
-		processingCancel:           func() {},
-		playgroundServer:           playgroundServer,
-		blockMonitorCancel:         func() {},
-		attestationProcessedBlocks: NewProcessedBlocks(cfg.Shinzo.StartHeight),
-		viewProcessedBlocks:        make(map[string]*ProcessedBlocks),
+		DefraNode:               defraNode,
+		HostedViews:             []view.View{},
+		webhookCleanupFunction:  func() {},
+		eventSubscription:       eventSub,
+		LensRegistryPath:        cfg.HostConfig.LensRegistryPath,
+		processingCancel:        func() {},
+		playgroundServer:        playgroundServer,
+		blockMonitorCancel:      func() {},
+		attestationRangeTracker: NewBlockRangeTracker(),
+		viewRangeTrackers:       make(map[string]*BlockRangeTracker),
 	}
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
@@ -238,7 +238,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					logger.Sugar.Errorf("Failed to prepare view: %v", err)
 				} else {
 					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
-					h.viewProcessedBlocks[registeredEvent.View.Name] = NewProcessedBlocks(h.getMostRecentBlockNumberProcessed())
+					h.viewRangeTrackers[registeredEvent.View.Name] = NewBlockRangeTracker()
 				}
 			} else {
 				logger.Sugar.Errorf("Received unknown event: %+v", event)

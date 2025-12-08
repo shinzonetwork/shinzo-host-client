@@ -13,11 +13,11 @@ import (
 )
 
 func (h *Host) getMostRecentBlockNumberProcessed() uint64 {
-	return h.attestationProcessedBlocks.GetHighest()
+	return h.attestationRangeTracker.GetHighest()
 }
 
 func (h *Host) getMostRecentBlockNumberProcessedForView(view *view.View) uint64 {
-	if tracker, exists := h.viewProcessedBlocks[view.Name]; exists {
+	if tracker, exists := h.viewRangeTrackers[view.Name]; exists {
 		return tracker.GetHighest()
 	}
 	return 0
@@ -48,6 +48,10 @@ func (h *Host) getCurrentBlockNumber(ctx context.Context) (uint64, error) {
 	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
 	latestBlock, err := defra.QuerySingle[attestation.Block](ctx, h.DefraNode, query)
 	if err != nil {
+		// Handle the case where no blocks exist yet
+		if strings.Contains(err.Error(), "no documents found") {
+			return 0, nil // Return 0 when no blocks exist
+		}
 		return 0, err
 	}
 
@@ -55,41 +59,44 @@ func (h *Host) getCurrentBlockNumber(ctx context.Context) (uint64, error) {
 }
 
 func (h *Host) processView(ctx context.Context, view *view.View) error {
-	// Get all blocks since the last highest processed block for this view
-	lastProcessed := h.getMostRecentBlockNumberProcessedForView(view)
-	blocksToProcess, err := h.getUnprocessedBlocks(ctx, lastProcessed)
+	// Get the latest block number available in DefraDB
+	latestBlock, err := h.getCurrentBlockNumber(ctx)
 	if err != nil {
-		return fmt.Errorf("error getting unprocessed blocks: %w", err)
+		return fmt.Errorf("error getting current block number: %w", err)
 	}
 
-	if len(blocksToProcess) == 0 {
-		return nil // No new blocks to process
+	// Get the tracker for this view (create if doesn't exist)
+	tracker, exists := h.viewRangeTrackers[view.Name]
+	if !exists {
+		tracker = NewBlockRangeTracker()
+		h.viewRangeTrackers[view.Name] = tracker
 	}
 
-	logger.Sugar.Infof("Processing view %s on %d new blocks...", view.Name, len(blocksToProcess))
+	// Find unprocessed ranges
+	unprocessedRanges := tracker.GetUnprocessedRanges(latestBlock)
+	if len(unprocessedRanges) == 0 {
+		return nil // No gaps to fill
+	}
 
-	for _, block := range blocksToProcess {
-		// Check if the block has been processed to handle out-of-order arrivals
-		if h.viewProcessedBlocks[view.Name].HasProcessed(block.Number) {
-			continue
-		}
+	logger.Sugar.Infof("Processing view %s: found %d unprocessed ranges", view.Name, len(unprocessedRanges))
 
-		err := h.ApplyView(ctx, *view, block.Number, block.Number)
+	// Process each range
+	for _, blockRange := range unprocessedRanges {
+		err := h.ApplyView(ctx, *view, blockRange.Start, blockRange.End)
 		if err != nil {
-			// If no source data is found, it's not a critical error, just log and continue
 			if strings.Contains(err.Error(), "No source data found") {
-				logger.Sugar.Debugf("No source data for view %s on block %d", view.Name, block.Number)
+				logger.Sugar.Debugf("No source data for view %s in range %d-%d", view.Name, blockRange.Start, blockRange.End)
 			} else {
-				logger.Sugar.Errorf("Error applying view %s on block %d: %w", view.Name, block.Number, err)
+				logger.Sugar.Errorf("Error applying view %s on range %d-%d: %w", view.Name, blockRange.Start, blockRange.End, err)
 			}
-			// Add to processed list even if it fails to avoid retrying a failing block indefinitely
-			h.viewProcessedBlocks[view.Name].Add(block.Number)
-			continue
 		}
-		h.viewProcessedBlocks[view.Name].Add(block.Number)
+
+		// Mark all blocks in this range as processed
+		for blockNum := blockRange.Start; blockNum <= blockRange.End; blockNum++ {
+			tracker.Add(blockNum)
+		}
 	}
 
-	logger.Sugar.Infof("Successfully processed view %s", view.Name)
 	return nil
 }
 

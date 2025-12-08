@@ -85,7 +85,7 @@ func TestBlockProcessingWithLens(t *testing.T) {
 		t.Logf("Number of hosted views: %d", len(testHost.HostedViews))
 
 		// Debug: Check processed blocks
-		for viewName, tracker := range testHost.viewProcessedBlocks {
+		for viewName, tracker := range testHost.viewRangeTrackers {
 			blockNumber := tracker.GetHighest()
 			if blockNumber > 0 {
 				t.Logf("View %s: Last processed block %d", viewName, blockNumber)
@@ -511,7 +511,7 @@ func validateProcessedDataWithProgress(t *testing.T, host *Host, targetAddress s
 
 	// Validate that viewProcessedBlocks maps are updated correctly
 	currentProcessedBlocks := make(map[string]uint64)
-	for viewName, tracker := range host.viewProcessedBlocks {
+	for viewName, tracker := range host.viewRangeTrackers {
 		latestBlock := tracker.GetHighest()
 		if latestBlock > 0 {
 			currentProcessedBlocks[viewName] = latestBlock
@@ -594,7 +594,7 @@ func validateMultipleViewsProcessedWithProgress(t *testing.T, host *Host, round 
 
 	// Validate that viewProcessedBlocks maps are updated correctly
 	currentProcessedBlocks := make(map[string]uint64)
-	for viewName, tracker := range host.viewProcessedBlocks {
+	for viewName, tracker := range host.viewRangeTrackers {
 		latestBlock := tracker.GetHighest()
 		if latestBlock > 0 {
 			currentProcessedBlocks[viewName] = latestBlock

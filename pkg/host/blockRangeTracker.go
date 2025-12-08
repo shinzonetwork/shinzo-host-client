@@ -112,7 +112,7 @@ func (b *BlockRangeTracker) GetUnprocessedRanges(latestKnownBlock uint64) []Bloc
 	}
 
 	for _, r := range b.ranges {
-		if r.Start > lastProcessed+1 { // <--- THE BUG IS HERE
+		if r.Start > lastProcessed+1 {
 			gaps = append(gaps, BlockRange{Start: lastProcessed + 1, End: r.Start - 1})
 		}
 		lastProcessed = r.End
