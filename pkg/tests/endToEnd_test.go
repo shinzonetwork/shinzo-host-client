@@ -46,15 +46,29 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	primitives := []string{"Block", "Log", "Transaction"}
+	for _, primitive := range primitives {
+		err = attestation.AddAttestationRecordCollection(t.Context(), appDefra, primitive)
+		require.NoError(t, err)
+	}
+
+	time.Sleep(10 * time.Second) // Allow some extra time for the host to start receiving data
+
 	// Wait until host has received logs
+	maxRetries := 300
 	logs, err = defra.QueryArray[viewResult](t.Context(), testHost.DefraNode, "Log { transactionHash }")
 	require.NoError(t, err)
-	for len(logs) == 0 {
+	for i := 0; i < maxRetries; i++ {
 		time.Sleep(1 * time.Second)
 		logs, err = defra.QueryArray[viewResult](t.Context(), testHost.DefraNode, "Log { transactionHash }")
 		require.NoError(t, err)
+		if len(logs) > 0 {
+			break
+		}
 	}
 	require.Greater(t, len(logs), 0)
+
+	time.Sleep(10 * time.Second) // Allow some time for the host to process the logs they've received
 
 	// Check host has lens results
 	unfilteredQuery := fmt.Sprintf("%s { transactionHash }", testHost.HostedViews[0].Name)
@@ -71,10 +85,13 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	// Wait for app defra to receive lens results
 	unfilteredResults, err = defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
 	require.NoError(t, err)
-	for len(unfilteredResults) == 0 {
+	for i := 0; i < maxRetries; i++ {
 		time.Sleep(1 * time.Second)
 		unfilteredResults, err = defra.QueryArray[viewResult](t.Context(), appDefra, unfilteredQuery)
 		require.NoError(t, err)
+		if len(unfilteredResults) > 0 {
+			break
+		}
 	}
 	require.Greater(t, len(unfilteredResults), 0)
 
@@ -84,7 +101,6 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 	require.Greater(t, len(unfilteredResults), len(filteredResults))
 
 	// Retry checking for new blocks multiple times before final assertion
-	maxRetries := 300
 	retryDelay := 1 * time.Second
 	var newUnfilteredResults []viewResult
 	for i := 0; i < maxRetries; i++ {
@@ -108,8 +124,15 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 		CIDs
 	}
 }`, testHost.HostedViews[0].Name)
-	attestationRecords, err := defra.QueryArray[attestation.AttestationRecord](t.Context(), appDefra, attestationRecordsQuery)
-	require.NoError(t, err)
+	var attestationRecords []attestation.AttestationRecord
+	for i := 0; i < maxRetries; i++ {
+		time.Sleep(1 * time.Second) // It may take a moment for attestation records to sync
+		attestationRecords, err = defra.QueryArray[attestation.AttestationRecord](t.Context(), appDefra, attestationRecordsQuery)
+		require.NoError(t, err)
+		if len(attestationRecords) > 0 {
+			break
+		}
+	}
 	require.NotNil(t, attestationRecords)
 	require.Greater(t, len(attestationRecords), 0)
 	for _, record := range attestationRecords {
@@ -117,6 +140,33 @@ func TestReadViewsInAppAfterProcessingIndexerPrimitivesWithHost(t *testing.T) {
 		require.Greater(t, len(record.CIDs), 0)
 		require.Greater(t, len(record.AttestedDocId), 0)
 		require.Greater(t, len(record.SourceDocId), 0)
+	}
+
+	// Now let's also check that we have attestations for each primitive in the app's defra instance
+	for _, primitive := range []string{"Block", "Log", "Transaction"} { // AccessListEntry omitted because we can't include _version when querying nested objects currently with defra (see https://github.com/sourcenetwork/defradb/issues/1709). AccessListEntry does not contain a blockNumber reference. Luckily, attestation records on AccessListEntries are not very important to expose (and can still be associated directly with the attestations for other primitives)
+		attestationRecordsQuery := fmt.Sprintf(`query {
+		AttestationRecord_%s {
+			attested_doc
+			CIDs
+		}
+	}`, primitive)
+		var attestationRecords []attestation.AttestationRecord
+		for i := 0; i < maxRetries; i++ {
+			time.Sleep(1 * time.Second)
+			attestationRecords, err = defra.QueryArray[attestation.AttestationRecord](t.Context(), appDefra, attestationRecordsQuery)
+			require.NoError(t, err)
+			if len(attestationRecords) > 0 {
+				break
+			}
+		}
+		require.NotNil(t, attestationRecords)
+		require.Greater(t, len(attestationRecords), 0, "No attestation records for %s", primitive)
+		for _, record := range attestationRecords {
+			require.NotNil(t, record.CIDs)
+			require.Greater(t, len(record.CIDs), 0)
+			require.Greater(t, len(record.AttestedDocId), 0)
+			require.Len(t, record.SourceDocId, 0)
+		}
 	}
 }
 
@@ -151,6 +201,7 @@ func startIndexer(t *testing.T, bigPeer []string) (*node.Node, func()) {
 			t.Logf("Warning: Mock indexer did not stop within 5 seconds")
 		}
 		// Close the defra node after mock indexer has stopped
+		time.Sleep(5 * time.Second) // Allow a moment for blocks to finish posting
 		indexerDefra.Close(context.Background())
 	}
 

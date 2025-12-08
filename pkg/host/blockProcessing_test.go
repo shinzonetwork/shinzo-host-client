@@ -366,7 +366,7 @@ func postDummyLogWithBlockNumber(t *testing.T, hostDefra *node.Node, address str
 
 func postDummyBlock(t *testing.T, hostDefra *node.Node, blockNumber uint64) {
 	dummyBlock := map[string]any{
-		"hash":             fmt.Sprintf("0x%x", blockNumber), // Simple hash based on block number
+		"hash":             fmt.Sprintf("0x%x", blockNumber+rand.Uint64()), // Simple hash based on block number and some random number for uniqueness
 		"number":           int64(blockNumber),
 		"timestamp":        "2024-01-01T00:00:00Z",
 		"parentHash":       fmt.Sprintf("0x%x", blockNumber-1),
