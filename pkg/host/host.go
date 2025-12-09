@@ -14,6 +14,7 @@ import (
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -71,6 +72,12 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	err = waitForDefraDB(ctx, defraNode)
 	if err != nil {
 		return nil, err
+	}
+
+	// Initialize attestation record schemas for all document types
+	err = initializeAttestationSchemas(ctx, defraNode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize attestation schemas: %w", err)
 	}
 
 	// Log API URL
@@ -252,6 +259,25 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
 	return StartHosting(testConfig)
+}
+
+// initializeAttestationSchemas creates attestation record collections for all document types
+func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) error {
+	// Document types that need attestation record collections
+	documentTypes := []string{"Block", "Transaction", "Log", "AccessList"}
+
+	for _, docType := range documentTypes {
+		collectionName := fmt.Sprintf("Document_%s", docType)
+
+		err := hostAttestation.AddAttestationRecordCollection(ctx, defraNode, collectionName)
+		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+			return fmt.Errorf("failed to create attestation collection for %s: %w", docType, err)
+		}
+
+		logger.Sugar.Infof("✅ Attestation collection AttestationRecord_%s initialized", collectionName)
+	}
+
+	return nil
 }
 
 // isPlaygroundEnabled checks if the playground is enabled at build time.
