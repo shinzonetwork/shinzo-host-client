@@ -40,7 +40,7 @@ type Host struct {
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the block processing goroutine
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
-	blockMonitorCancel     context.CancelFunc // For canceling the block monitoring goroutine
+	config                 *config.Config     // Host configuration including StartHeight
 
 	// These trackers keep track of processed block ranges for attestations and views
 	attestationRangeTracker *BlockRangeTracker
@@ -123,7 +123,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		LensRegistryPath:        cfg.HostConfig.LensRegistryPath,
 		processingCancel:        func() {},
 		playgroundServer:        playgroundServer,
-		blockMonitorCancel:      func() {},
+		config:                  cfg,
 		attestationRangeTracker: NewBlockRangeTracker(),
 		viewRangeTrackers:       make(map[string]*BlockRangeTracker),
 	}
@@ -144,15 +144,13 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		}
 	}
 
-	// Start the block processing goroutine
+	// Start the integrated block processing goroutine with BlockRangeTracker
 	processingCtx, processingCancel := context.WithCancel(context.Background())
 	newHost.processingCancel = processingCancel
-	go newHost.processAllViews(processingCtx)
+	go newHost.processAllViewsWithSubscription(processingCtx)
 
-	// Start the block monitoring goroutine
-	blockMonitorCtx, blockMonitorCancel := context.WithCancel(context.Background())
-	newHost.blockMonitorCancel = blockMonitorCancel
-	go newHost.monitorHighestBlockNumber(blockMonitorCtx)
+	// Block monitoring is now handled by the event-driven processAllViews goroutine
+	// No separate monitoring goroutine needed
 
 	return newHost, nil
 }
@@ -184,8 +182,7 @@ func incrementPort(apiURL string) (string, error) {
 
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
-	h.processingCancel()   // Stop the block processing goroutine
-	h.blockMonitorCancel() // Stop the block monitoring goroutine
+	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
 
 	// Shutdown playground server if it exists
 	if h.playgroundServer != nil {
@@ -247,30 +244,8 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 	}
 }
 
-func (h *Host) monitorHighestBlockNumber(ctx context.Context) {
-	logger.Sugar.Info("Monitoring for new blocks...")
-	ticker := time.NewTicker(1 * time.Second) // Check every second
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Sugar.Info("Block monitoring stopped due to context cancellation")
-			return
-		case <-ticker.C:
-			highestBlockNumber, err := h.getCurrentBlockNumber(ctx)
-			if err != nil {
-				logger.Sugar.Errorf("Error fetching highest block number: %v", err)
-				continue
-			}
-
-			if highestBlockNumber > h.mostRecentBlockReceived {
-				logger.Sugar.Infof("Highest block number in defraNode: %d", highestBlockNumber)
-				h.mostRecentBlockReceived = highestBlockNumber
-			}
-		}
-	}
-}
+// monitorHighestBlockNumber has been removed - block monitoring is now handled
+// by the event-driven processAllViews goroutine for better efficiency
 
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig := DefaultConfig
