@@ -67,6 +67,9 @@ func (h *Host) processWithBlockSubscription(ctx context.Context) error {
 	// Also do an initial check for existing blocks
 	go h.processInitialBlocks(ctx)
 
+	// Process any attestation gaps on startup
+	go h.processAttestationGaps(ctx)
+
 	// Add a periodic check to see if Block documents exist
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
@@ -520,4 +523,71 @@ func (h *Host) processViewWithRangeTracker(ctx context.Context, view *view.View,
 	}
 
 	return nil
+}
+
+// ========================================
+// EFFICIENT ATTESTATION PROCESSING
+// ========================================
+
+// processBlockForAttestations efficiently processes a single block for attestations using range tracker
+func (h *Host) processBlockForAttestations(ctx context.Context, blockNumber uint64) error {
+	// Check if entire block already processed
+	if h.attestationRangeTracker.Contains(blockNumber) {
+		return nil // Skip entire block
+	}
+
+	// Get all documents in this block
+	docs, err := h.getDocumentsInBlock(ctx, blockNumber)
+	if err != nil {
+		return err
+	}
+
+	// Process all documents in block
+	for _, doc := range docs {
+		err := h.handleDocumentAttestation(ctx, doc, blockNumber)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Mark entire block as processed
+	h.attestationRangeTracker.Add(blockNumber)
+	return nil
+}
+
+// processAttestationGaps processes all unprocessed ranges for attestations (startup/gap filling)
+func (h *Host) processAttestationGaps(ctx context.Context) error {
+	latestBlock, err := h.getCurrentBlockNumber(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Get all unprocessed ranges
+	gaps := h.attestationRangeTracker.GetUnprocessedRanges(latestBlock)
+
+	for _, gap := range gaps {
+		logger.Sugar.Infof("Processing attestation gap: blocks %d-%d", gap.Start, gap.End)
+
+		for blockNum := gap.Start; blockNum <= gap.End; blockNum++ {
+			err := h.processBlockForAttestations(ctx, blockNum)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// getCurrentBlockNumber queries DefraDB for the highest block number
+func (h *Host) getCurrentBlockNumber(ctx context.Context) (uint64, error) {
+	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
+	latestBlock, err := defra.QuerySingle[hostAttestation.Block](ctx, h.DefraNode, query)
+	if err != nil {
+		// Handle the case where no blocks exist yet
+		if strings.Contains(err.Error(), "no documents found") {
+			return 0, nil // Return 0 when no blocks exist
+		}
+		return 0, err
+	}
+	return latestBlock.Number, nil
 }

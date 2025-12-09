@@ -210,3 +210,43 @@ func ExtractVersionsFromDocument(docData map[string]interface{}) ([]attestation.
 	// If no version data found, return empty slice (not an error)
 	return []attestation.Version{}, nil
 }
+
+// ========================================
+// ATTESTATION RECORD MERGING
+// ========================================
+
+// MergeAttestationRecords merges two attestation records with the same attested document
+// This is useful when multiple sources attest to the same document and you want to combine their CIDs
+func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationRecord, error) {
+	if record1.AttestedDocId != record2.AttestedDocId {
+		return nil, fmt.Errorf("cannot merge records with different attested document IDs: %s vs %s", record1.AttestedDocId, record2.AttestedDocId)
+	}
+
+	// Create merged record
+	merged := &AttestationRecord{
+		AttestedDocId: record1.AttestedDocId,
+		SourceDocId:   record1.SourceDocId, // Use first record's source doc ID
+		CIDs:          make([]string, 0),
+	}
+
+	// Merge CIDs, avoiding duplicates
+	cidSet := make(map[string]bool)
+
+	// Add CIDs from first record
+	for _, cid := range record1.CIDs {
+		if !cidSet[cid] {
+			merged.CIDs = append(merged.CIDs, cid)
+			cidSet[cid] = true
+		}
+	}
+
+	// Add CIDs from second record
+	for _, cid := range record2.CIDs {
+		if !cidSet[cid] {
+			merged.CIDs = append(merged.CIDs, cid)
+			cidSet[cid] = true
+		}
+	}
+
+	return merged, nil
+}

@@ -133,3 +133,16 @@ func (b *BlockRangeTracker) AddRange(start, end uint64) {
 		b.Add(blockNum)
 	}
 }
+
+// Contains checks if a block number has been processed (is within any tracked range).
+func (b *BlockRangeTracker) Contains(blockNumber uint64) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, r := range b.ranges {
+		if blockNumber >= r.Start && blockNumber <= r.End {
+			return true
+		}
+	}
+	return false
+}
