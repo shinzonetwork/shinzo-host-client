@@ -58,6 +58,9 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		cfg = DefaultConfig
 	}
 
+	// Add Shinzo hosted node as a required peer. This will need to be updated if the IP or PeerID changes
+	requiredPeers = append(requiredPeers, "/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s")
+	
 	logger.Init(true)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
