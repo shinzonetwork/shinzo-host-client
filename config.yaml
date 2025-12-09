@@ -18,5 +18,5 @@ host:
 
 
 ## In order to connect to an indexer you need to include it within your peers. \
-#  To do that copy the bootstrap_peers and paste it replacing the empty array.
+#  You may want to add more peers to or replace the bootstrap_peers array.
 #  bootstrap_peers:['/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s' ]
