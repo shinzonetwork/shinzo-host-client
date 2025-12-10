@@ -226,33 +226,54 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	}
 
 	transformedDocuments := map[*attestationInfo][]map[string]any{} // mapping source doc attestation info to transformed docs ([]map[string]any)
-	for _, sourceDocument := range sourceDocuments {
-		sourceDocumentId, ok := sourceDocument["_docID"].(string)
-		if !ok {
-			return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
-		}
-		sourceVersion, err := extractVersionFromDocument(sourceDocument)
-		if err != nil {
-			return fmt.Errorf("Error retrieving _version from source document: %w", err)
-		}
-		sourceAttestationInfo := &attestationInfo{
-			SourceDocumentId: sourceDocumentId,
-			Version:          sourceVersion,
-		}
+	if v.HasLenses() {
+		for _, sourceDocument := range sourceDocuments {
+			sourceDocumentId, ok := sourceDocument["_docID"].(string)
+			if !ok {
+				return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
+			}
+			sourceVersion, err := extractVersionFromDocument(sourceDocument)
+			if err != nil {
+				return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			}
+			sourceAttestationInfo := &attestationInfo{
+				SourceDocumentId: sourceDocumentId,
+				Version:          sourceVersion,
+			}
 
-		if v.HasLenses() {
 			transformed, err := v.ApplyLensTransform(ctx, h.DefraNode, query)
 			if err != nil {
 				return fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
 			}
-			if len(transformed) == 0 {
-				continue
+			if len(transformed) > 0 {
+				transformedDocuments[sourceAttestationInfo] = transformed
 			}
-			transformedDocuments[sourceAttestationInfo] = transformed
-		} else {
-			// For views without lenses, use the source collection directly
-			transformedDocuments[sourceAttestationInfo] = sourceDocuments
 		}
+	} else {
+		// For views without lenses, the source documents are the transformed documents.
+		// We can process them all at once.
+		// We just need to collect all the version information.
+		var allVersions []attestation.Version
+		var sourceDocIDs []string
+		for _, doc := range sourceDocuments {
+			version, err := extractVersionFromDocument(doc)
+			if err != nil {
+				return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			}
+			allVersions = append(allVersions, version...)
+			if docID, ok := doc["_docID"].(string); ok {
+				sourceDocIDs = append(sourceDocIDs, docID)
+			}
+		}
+
+		// Create a single attestation info for the batch
+		// Note: This assumes that for non-lensed views, we can bundle attestations.
+		// This might need refinement if individual attestations are required per document.
+		sourceAttestationInfo := &attestationInfo{
+			SourceDocumentId: strings.Join(sourceDocIDs, ","), // Combine IDs
+			Version:          allVersions,
+		}
+		transformedDocuments[sourceAttestationInfo] = sourceDocuments
 	}
 
 	for sourceDocumentAttestationInfo, transformedDocs := range transformedDocuments {
