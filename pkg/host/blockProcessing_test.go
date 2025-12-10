@@ -115,6 +115,7 @@ func TestBlockProcessingWithoutLens(t *testing.T) {
 		},
 	}
 	testHostConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
+	testHostConfig.ShinzoAppConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testHostConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
 
 	testHost, err := StartHostingWithEventSubscription(testHostConfig, mockEventSub)
@@ -203,6 +204,7 @@ func TestBlockProcessingMultipleViews(t *testing.T) {
 		},
 	}
 	testHostConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
+	testHostConfig.ShinzoAppConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testHostConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
 
 	testHost, err := StartHostingWithEventSubscription(testHostConfig, mockEventSub)

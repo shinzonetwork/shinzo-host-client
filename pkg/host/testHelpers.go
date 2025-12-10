@@ -28,6 +28,7 @@ func createHostWithMockViewEventReceiver(t *testing.T, boostrapPeers ...string) 
 		},
 	}
 	testHostConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
+	testHostConfig.ShinzoAppConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	ipAddress, err := networking.GetLANIP()
 	require.NoError(t, err)
 	listenAddress := fmt.Sprintf("/ip4/%s/tcp/0", ipAddress)
