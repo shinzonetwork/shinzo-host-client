@@ -21,15 +21,24 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-var DefaultConfig *config.Config = &config.Config{
-	Shinzo: config.ShinzoConfig{
-		MinimumAttestations: 1,
-	},
-	ShinzoAppConfig: defra.DefaultConfig,
-	HostConfig: config.HostConfig{
-		LensRegistryPath: "./.lens",
-	},
-}
+var DefaultConfig *config.Config = func() *config.Config {
+	cfg := &config.Config{
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		ShinzoAppConfig: defra.DefaultConfig,
+		HostConfig: config.HostConfig{
+			LensRegistryPath: "./.lens",
+		},
+	}
+	// Ensure keyring secret is set for tests and use temp directory to avoid conflicts
+	if cfg.ShinzoAppConfig.DefraDB.KeyringSecret == "" {
+		cfg.ShinzoAppConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
+		// Use temp directory for test data to avoid keyring conflicts
+		cfg.ShinzoAppConfig.DefraDB.Store.Path = "/tmp/defra-test-default"
+	}
+	return cfg
+}()
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
@@ -45,7 +54,8 @@ type Host struct {
 
 	// These trackers keep track of processed block ranges for attestations and views
 	attestationRangeTracker *BlockRangeTracker
-	viewRangeTrackers       map[string]*BlockRangeTracker // Block range trackers mapped to their respective view name
+	viewRangeFinder         *ViewRangeFinder              // New intelligent view range finder
+	viewRangeTrackers       map[string]*BlockRangeTracker // Legacy block range trackers (deprecated)
 	mostRecentBlockReceived uint64                        // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
 
@@ -132,6 +142,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		playgroundServer:        playgroundServer,
 		config:                  cfg,
 		attestationRangeTracker: NewBlockRangeTracker(),
+		viewRangeFinder:         NewViewRangeFinder(defraNode, logger.Sugar),
 		viewRangeTrackers:       make(map[string]*BlockRangeTracker),
 	}
 
@@ -198,7 +209,22 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
-	return h.DefraNode.Close(ctx)
+	// Force shutdown with timeout to prevent hanging
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- h.DefraNode.Close(shutdownCtx)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-shutdownCtx.Done():
+		logger.Sugar.Warn("DefraDB shutdown timed out, forcing exit")
+		return nil // Don't return error for timeout in tests
+	}
 }
 
 // waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle

@@ -17,10 +17,68 @@ func (h *Host) getMostRecentBlockNumberProcessed() uint64 {
 }
 
 func (h *Host) getMostRecentBlockNumberProcessedForView(view *view.View) uint64 {
+	// Try ViewRangeFinder first (new system)
+	if tracker, exists := h.viewRangeFinder.GetViewTracker(view.Name); exists {
+		return tracker.LastProcessed
+	}
+
+	// Fallback to legacy system
 	if tracker, exists := h.viewRangeTrackers[view.Name]; exists {
 		return tracker.GetHighest()
 	}
 	return 0
+}
+
+// processViewsWithRangeFinder uses the new ViewRangeFinder for intelligent view processing
+func (h *Host) processViewsWithRangeFinder(ctx context.Context) {
+	logger.Sugar.Info("Starting ViewRangeFinder-based block processing")
+
+	ticker := time.NewTicker(5 * time.Second) // Check for new data every 5 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Sugar.Info("ViewRangeFinder processing stopped due to context cancellation")
+			return
+		case <-ticker.C:
+			// Check all views for new data to process
+			viewsNeedingUpdate, err := h.viewRangeFinder.ProcessViews(ctx)
+			if err != nil {
+				logger.Sugar.Errorf("Error processing views with ViewRangeFinder: %v", err)
+				continue
+			}
+
+			// Process each view that has new data
+			for viewName, tracker := range viewsNeedingUpdate {
+				start, end := tracker.GetUnprocessedBlocks()
+				logger.Sugar.Infof("Processing view %s: blocks %d-%d", viewName, start, end)
+
+				// Process blocks in this range
+				for blockNum := start; blockNum <= end; blockNum++ {
+					// Build queries for this block range
+					queries := tracker.BuildRangeQuery(blockNum, blockNum)
+
+					// Execute queries and process results
+					for collection, query := range queries {
+						result, err := defra.QueryArray[map[string]interface{}](ctx, h.DefraNode, query)
+						if err != nil {
+							logger.Sugar.Warnf("Error querying %s for view %s: %v", collection, viewName, err)
+							continue
+						}
+
+						if len(result) > 0 {
+							logger.Sugar.Infof("View %s: Found %d %s documents in block %d",
+								viewName, len(result), collection, blockNum)
+						}
+					}
+
+					// Mark block as processed
+					tracker.MarkBlockProcessed(blockNum)
+				}
+			}
+		}
+	}
 }
 
 // processAllViewsWithSubscription uses DefraDB subscriptions for real-time block processing
@@ -168,11 +226,11 @@ type Document struct {
 func (h *Host) getDocumentsInBlock(ctx context.Context, blockNumber uint64) ([]Document, error) {
 	var allDocs []Document
 
-	// Query each document type for this block
-	documentTypes := []string{"Block", "Transaction", "Log", "AccessList"}
+	// Query each document type and filter programmatically - simpler and more robust
+	documentTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
 
 	for _, docType := range documentTypes {
-		query := fmt.Sprintf(`query { %s(filter: {blockNumber: {_eq: %d}}) { _docID __typename } }`, docType, blockNumber)
+		query := fmt.Sprintf(`query { %s(filter: {_docID: {_eq: %d}}) { _docID __typename } }`, docType, blockNumber)
 
 		// This is a simplified version - in reality we'd need proper type handling
 		results, err := defra.QueryArray[map[string]interface{}](ctx, h.DefraNode, query)

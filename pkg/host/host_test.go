@@ -41,7 +41,9 @@ func TestStartHosting(t *testing.T) {
 	myHost, err := StartHosting(nil)
 
 	assert.NoError(t, err)
-	myHost.Close(context.Background())
+	if myHost != nil {
+		myHost.Close(context.Background())
+	}
 }
 
 func queryBlockNumber(ctx context.Context, defraNode *node.Node) (uint64, error) {

@@ -95,7 +95,71 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 		}
 	}
 
+	// Register view with the new ViewRangeFinder
+	viewConfig := h.createViewConfig(v)
+	startHeight := uint64(h.config.Shinzo.StartHeight)
+	if startHeight == 0 {
+		startHeight = 23000000 // Default start height
+	}
+	h.viewRangeFinder.RegisterView(viewConfig, startHeight)
+
 	return nil
+}
+
+// createViewConfig converts a view.View to a ViewConfig for the ViewRangeFinder
+func (h *Host) createViewConfig(v view.View) ViewConfig {
+	config := ViewConfig{
+		Name:           v.Name,
+		TrackedFields:  make(map[string]FieldConfig),
+		ProcessingMode: "incremental",
+	}
+
+	// Analyze the view query to determine which collections it tracks
+	if v.Query != nil {
+		queryStr := *v.Query
+
+		// Check for Log collection
+		if strings.Contains(queryStr, "Log") {
+			config.TrackedFields["Log"] = FieldConfig{
+				Collection:     "Log",
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"address", "transactionHash", "topics", "data"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for Transaction collection
+		if strings.Contains(queryStr, "Transaction") {
+			config.TrackedFields["Transaction"] = FieldConfig{
+				Collection:     "Transaction",
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"hash", "from", "to", "value"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for Block collection
+		if strings.Contains(queryStr, "Block") {
+			config.TrackedFields["Block"] = FieldConfig{
+				Collection:     "Block",
+				BlockField:     "number",
+				IndexFields:    []string{"hash", "miner", "timestamp"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for AccessListEntry collection
+		if strings.Contains(queryStr, "AccessListEntry") {
+			config.TrackedFields["AccessListEntry"] = FieldConfig{
+				Collection:     "AccessListEntry",
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"address", "storageKeys"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+	}
+
+	return config
 }
 
 // sortDescendingBlockNumber sorts documents by blockNumber in descending order
