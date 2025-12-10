@@ -79,9 +79,16 @@ func (v *View) filterDocumentFields(document map[string]any) (map[string]any, er
 
 	// Filter the document to only include fields defined in the schema
 	filteredDocument := make(map[string]any)
+	// Create a case-insensitive map of schema fields for matching
+	schemaFieldsLower := make(map[string]string)
+	for field := range schemaFields {
+		schemaFieldsLower[strings.ToLower(field)] = field
+	}
+
+	// Filter the document, matching keys case-insensitively
 	for key, value := range document {
-		if schemaFields[key] {
-			filteredDocument[key] = value
+		if originalKey, ok := schemaFieldsLower[strings.ToLower(key)]; ok {
+			filteredDocument[originalKey] = value
 		}
 	}
 

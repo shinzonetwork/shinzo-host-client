@@ -20,6 +20,7 @@ type ShinzoConfig struct {
 	MinimumAttestations int    `yaml:"minimum_attestations"`
 	RPCUrl              string `yaml:"rpc_url"`
 	WebSocketUrl        string `yaml:"web_socket_url"`
+	StartHeight         uint64 `yaml:"start_height"`
 }
 
 type HostConfig struct {

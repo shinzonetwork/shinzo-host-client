@@ -95,7 +95,71 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 		}
 	}
 
+	// Register view with the new ViewRangeFinder
+	viewConfig := h.createViewConfig(v)
+	startHeight := uint64(h.config.Shinzo.StartHeight)
+	if startHeight == 0 {
+		startHeight = 23000000 // Default start height
+	}
+	h.viewRangeFinder.RegisterView(viewConfig, startHeight)
+
 	return nil
+}
+
+// createViewConfig converts a view.View to a ViewConfig for the ViewRangeFinder
+func (h *Host) createViewConfig(v view.View) ViewConfig {
+	config := ViewConfig{
+		Name:           v.Name,
+		TrackedFields:  make(map[string]FieldConfig),
+		ProcessingMode: "incremental",
+	}
+
+	// Analyze the view query to determine which collections it tracks
+	if v.Query != nil {
+		queryStr := *v.Query
+
+		// Check for Log collection
+		if strings.Contains(queryStr, "Log") {
+			config.TrackedFields["Log"] = FieldConfig{
+				Collection:     "Log",
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"address", "transactionHash", "topics", "data"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for Transaction collection
+		if strings.Contains(queryStr, "Transaction") {
+			config.TrackedFields["Transaction"] = FieldConfig{
+				Collection:     "Transaction",
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"hash", "from", "to", "value"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for Block collection
+		if strings.Contains(queryStr, "Block") {
+			config.TrackedFields["Block"] = FieldConfig{
+				Collection:     "Block",
+				BlockField:     "number",
+				IndexFields:    []string{"hash", "miner", "timestamp"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for AccessListEntry collection
+		if strings.Contains(queryStr, "AccessListEntry") {
+			config.TrackedFields["AccessListEntry"] = FieldConfig{
+				Collection:     "AccessListEntry",
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"address", "storageKeys"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+	}
+
+	return config
 }
 
 // sortDescendingBlockNumber sorts documents by blockNumber in descending order
@@ -226,33 +290,54 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	}
 
 	transformedDocuments := map[*attestationInfo][]map[string]any{} // mapping source doc attestation info to transformed docs ([]map[string]any)
-	for _, sourceDocument := range sourceDocuments {
-		sourceDocumentId, ok := sourceDocument["_docID"].(string)
-		if !ok {
-			return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
-		}
-		sourceVersion, err := extractVersionFromDocument(sourceDocument)
-		if err != nil {
-			return fmt.Errorf("Error retrieving _version from source document: %w", err)
-		}
-		sourceAttestationInfo := &attestationInfo{
-			SourceDocumentId: sourceDocumentId,
-			Version:          sourceVersion,
-		}
+	if v.HasLenses() {
+		for _, sourceDocument := range sourceDocuments {
+			sourceDocumentId, ok := sourceDocument["_docID"].(string)
+			if !ok {
+				return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
+			}
+			sourceVersion, err := extractVersionFromDocument(sourceDocument)
+			if err != nil {
+				return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			}
+			sourceAttestationInfo := &attestationInfo{
+				SourceDocumentId: sourceDocumentId,
+				Version:          sourceVersion,
+			}
 
-		if v.HasLenses() {
 			transformed, err := v.ApplyLensTransform(ctx, h.DefraNode, query)
 			if err != nil {
 				return fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
 			}
-			if len(transformed) == 0 {
-				continue
+			if len(transformed) > 0 {
+				transformedDocuments[sourceAttestationInfo] = transformed
 			}
-			transformedDocuments[sourceAttestationInfo] = transformed
-		} else {
-			// For views without lenses, use the source collection directly
-			transformedDocuments[sourceAttestationInfo] = sourceDocuments
 		}
+	} else {
+		// For views without lenses, the source documents are the transformed documents.
+		// We can process them all at once.
+		// We just need to collect all the version information.
+		var allVersions []attestation.Version
+		var sourceDocIDs []string
+		for _, doc := range sourceDocuments {
+			version, err := extractVersionFromDocument(doc)
+			if err != nil {
+				return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			}
+			allVersions = append(allVersions, version...)
+			if docID, ok := doc["_docID"].(string); ok {
+				sourceDocIDs = append(sourceDocIDs, docID)
+			}
+		}
+
+		// Create a single attestation info for the batch
+		// Note: This assumes that for non-lensed views, we can bundle attestations.
+		// This might need refinement if individual attestations are required per document.
+		sourceAttestationInfo := &attestationInfo{
+			SourceDocumentId: strings.Join(sourceDocIDs, ","), // Combine IDs
+			Version:          allVersions,
+		}
+		transformedDocuments[sourceAttestationInfo] = sourceDocuments
 	}
 
 	for sourceDocumentAttestationInfo, transformedDocs := range transformedDocuments {

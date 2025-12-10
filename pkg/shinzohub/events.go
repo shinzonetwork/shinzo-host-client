@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -114,9 +116,24 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				fmt.Printf("Context cancelled, stopping message loop\n")
 				return
 			default:
+				// Set a deadline for the next read
+				if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+					fmt.Printf("Failed to set read deadline: %v\n", err)
+					return
+				}
+
 				// Read raw message first to see what we're getting
 				_, message, err := conn.ReadMessage()
 				if err != nil {
+					// Check if the error is a timeout, which is expected
+					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || websocket.IsUnexpectedCloseError(err) {
+						fmt.Printf("WebSocket closed: %v\n", err)
+						return
+					}
+					// If it's not a timeout, it might be a real error
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						continue // It's a timeout, continue to next loop iteration
+					}
 					fmt.Printf("Failed to read message: %v\n", err)
 					return
 				}
