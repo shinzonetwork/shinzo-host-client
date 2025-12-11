@@ -95,13 +95,13 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 		}
 	}
 
-	// Register view with the new ViewRangeFinder
-	viewConfig := h.createViewConfig(v)
-	startHeight := uint64(h.config.Shinzo.StartHeight)
-	if startHeight == 0 {
-		startHeight = 23000000 // Default start height
-	}
-	h.viewRangeFinder.RegisterView(viewConfig, startHeight)
+	// COMMENTED: View range finder - focusing on pure attestation events
+	// viewConfig := h.createViewConfig(v)
+	// startHeight := uint64(h.config.Shinzo.StartHeight)
+	// if startHeight == 0 {
+	// 	startHeight = 23000000 // Default start height
+	// }
+	// h.viewRangeFinder.RegisterView(viewConfig, startHeight)
 
 	return nil
 }

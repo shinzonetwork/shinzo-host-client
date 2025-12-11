@@ -17,7 +17,8 @@ import (
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
+
+	// "github.com/shinzonetwork/shinzo-host-client/pkg/view" // COMMENTED: Focusing on event-driven attestations
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -43,20 +44,24 @@ var DefaultConfig *config.Config = func() *config.Config {
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
-	DefraNode              *node.Node
-	HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
+	DefraNode      *node.Node
+	NetworkHandler *defra.NetworkHandler // P2P network control
+	// COMMENTED: View-related fields - focusing on pure event-driven attestation system
+	// HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
 	webhookCleanupFunction func()
 	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
-	processingCancel       context.CancelFunc // For canceling the block processing goroutine
+	processingCancel       context.CancelFunc // For canceling the event processing goroutine
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
 	config                 *config.Config     // Host configuration including StartHeight
 
-	// These trackers keep track of processed block ranges for attestations and views
+	// EVENT-DRIVEN ATTESTATION SYSTEM: Only track attestation processing
 	attestationRangeTracker *BlockRangeTracker
-	viewRangeFinder         *ViewRangeFinder              // New intelligent view range finder
-	viewRangeTrackers       map[string]*BlockRangeTracker // Legacy block range trackers (deprecated)
-	mostRecentBlockReceived uint64                        // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+	processingPipeline      *ProcessingPipeline // Complete message processing pipeline
+	// COMMENTED: View processing will be redesigned later for efficiency
+	// viewRangeFinder         *ViewRangeFinder              // New intelligent view range finder
+	// viewRangeTrackers       map[string]*BlockRangeTracker // Legacy block range trackers (deprecated)
+	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -70,12 +75,15 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	logger.Init(true)
 
-	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
+	defraNode, networkHandler, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
 		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
 		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
 	}
+
+	// Store network handler for P2P control
+	// Note: P2P will be started after gap processing completes
 
 	ctx := context.Background()
 
@@ -133,8 +141,10 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	newHost := &Host{
-		DefraNode:               defraNode,
-		HostedViews:             []view.View{},
+		DefraNode:      defraNode,
+		NetworkHandler: networkHandler,
+		// COMMENTED: View initialization - pure event-driven attestation focus
+		// HostedViews:             []view.View{},
 		webhookCleanupFunction:  func() {},
 		eventSubscription:       eventSub,
 		LensRegistryPath:        cfg.HostConfig.LensRegistryPath,
@@ -142,9 +152,40 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		playgroundServer:        playgroundServer,
 		config:                  cfg,
 		attestationRangeTracker: NewBlockRangeTracker(),
-		viewRangeFinder:         NewViewRangeFinder(defraNode, logger.Sugar),
-		viewRangeTrackers:       make(map[string]*BlockRangeTracker),
+		// COMMENTED: View processing will be redesigned for efficiency
+		// viewRangeFinder:         NewViewRangeFinder(defraNode, logger.Sugar),
+		// viewRangeTrackers:       make(map[string]*BlockRangeTracker),
 	}
+
+	cacheSize := cfg.Shinzo.CacheSize
+	if cacheSize <= 0 {
+		cacheSize = 10000 // Default cache size
+	}
+
+	queueSize := cfg.Shinzo.CacheQueueSize
+	if queueSize <= 0 {
+		queueSize = 1000 // Default queue size
+	}
+
+	workerCount := cfg.Shinzo.WorkerCount
+	if workerCount <= 0 {
+		workerCount = 4 // Default worker count
+	}
+
+	cacheMaxAge := time.Duration(cfg.Shinzo.CacheMaxAgeSeconds) * time.Second
+	if cacheMaxAge <= 0 {
+		cacheMaxAge = 5 * time.Minute // Default 5 minutes
+	}
+
+	// Create simplified processing pipeline (no cache)
+	newHost.processingPipeline = NewProcessingPipeline(
+		context.Background(), cacheSize, cacheMaxAge, queueSize, 0, newHost)
+
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: cache=%d, queue=%d, workers=%d",
+		cacheSize, queueSize, workerCount)
+
+	// START THE PROCESSING PIPELINE (CRITICAL!)
+	newHost.processingPipeline.Start()
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
 		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
@@ -162,10 +203,10 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		}
 	}
 
-	// Start the integrated block processing goroutine with BlockRangeTracker
+	// Start the event-driven attestation processing system
 	processingCtx, processingCancel := context.WithCancel(context.Background())
 	newHost.processingCancel = processingCancel
-	go newHost.processAllViewsWithSubscription(processingCtx)
+	go newHost.processAttestationEventsWithSubscription(processingCtx)
 
 	// Block monitoring is now handled by the event-driven processAllViews goroutine
 	// No separate monitoring goroutine needed
@@ -261,18 +302,19 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				return // Event channel closed
 			}
 
-			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
-				logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
-				err := h.PrepareView(ctx, registeredEvent.View)
-				if err != nil {
-					logger.Sugar.Errorf("Failed to prepare view: %v", err)
-				} else {
-					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
-					h.viewRangeTrackers[registeredEvent.View.Name] = NewBlockRangeTracker()
-				}
-			} else {
-				logger.Sugar.Errorf("Received unknown event: %+v", event)
-			}
+			// COMMENTED: View event handling - focusing on pure attestation events
+			// if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
+			// 	logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
+			// 	err := h.PrepareView(ctx, registeredEvent.View)
+			// 	if err != nil {
+			// 		logger.Sugar.Errorf("Failed to prepare view: %v", err)
+			// 	} else {
+			// 		h.HostedViews = append(h.HostedViews, registeredEvent.View)
+			// 		h.viewRangeTrackers[registeredEvent.View.Name] = NewBlockRangeTracker()
+			// 	}
+			// } else {
+			logger.Sugar.Debugf("Received event (view processing disabled): %+v", event)
+			// }
 		}
 	}
 }

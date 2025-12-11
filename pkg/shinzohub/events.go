@@ -75,8 +75,8 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		return cancel, nil, fmt.Errorf("failed to connect to Tendermint WebSocket: %w", err)
 	}
 
-	// Create a buffered channel for events
-	eventChan := make(chan ShinzoEvent, 100) // Buffer up to 100 events
+	// Create an unbuffered channel for events (direct processing)
+	eventChan := make(chan ShinzoEvent)
 
 	// Subscribe to Registered events
 	subscribeMsg := map[string]interface{}{

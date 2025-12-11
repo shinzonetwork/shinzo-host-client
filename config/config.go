@@ -21,6 +21,17 @@ type ShinzoConfig struct {
 	RPCUrl              string `yaml:"rpc_url"`
 	WebSocketUrl        string `yaml:"web_socket_url"`
 	StartHeight         uint64 `yaml:"start_height"`
+
+	// P2P Control Settings
+	P2PEnabled  bool   `yaml:"p2p_enabled"`
+	WaitForGaps bool   `yaml:"wait_for_gaps"`
+	MaxGapSize  uint64 `yaml:"max_gap_size"`
+
+	// Message Cache Settings
+	CacheSize          int `yaml:"cache_size"`            // Maximum number of messages in cache
+	CacheQueueSize     int `yaml:"cache_queue_size"`      // Size of processing queue
+	CacheMaxAgeSeconds int `yaml:"cache_max_age_seconds"` // Maximum age of cached messages
+	WorkerCount        int `yaml:"worker_count"`          // Number of worker goroutines
 }
 
 type HostConfig struct {
