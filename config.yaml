@@ -21,7 +21,6 @@ shinzo:
   # web_socket_url: ""  # Commented out to test without shinzohub connection
   
   # P2P Control Settings
-  p2p_enabled: true          # Toggle P2P network participation
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
   
