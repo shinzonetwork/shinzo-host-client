@@ -179,7 +179,8 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	// Create simplified processing pipeline (no cache)
 	newHost.processingPipeline = NewProcessingPipeline(
-		context.Background(), cacheSize, cacheMaxAge, queueSize, 0, newHost)
+		context.Background(), newHost, 0, cacheMaxAge, cacheSize, queueSize, workerCount,
+	)
 
 	logger.Sugar.Infof("🔧 Processing pipeline initialized: cache=%d, queue=%d, workers=%d",
 		cacheSize, queueSize, workerCount)
@@ -242,6 +243,11 @@ func incrementPort(apiURL string) (string, error) {
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
+
+	// Stop the processing pipeline
+	if h.processingPipeline != nil {
+		h.processingPipeline.Stop()
+	}
 
 	// Shutdown playground server if it exists
 	if h.playgroundServer != nil {

@@ -2,54 +2,135 @@ package host
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 )
 
-// ProcessingPipeline coordinates direct document processing (no cache needed)
-type ProcessingPipeline struct {
-	host   *Host
-	ctx    context.Context
-	cancel context.CancelFunc
+// DocumentJob represents a document to be processed.
+type DocumentJob struct {
+	docID       string
+	docType     string
+	blockNumber uint64
+	docData     map[string]interface{}
 }
 
-// NewProcessingPipeline creates a simplified processing pipeline
-func NewProcessingPipeline(ctx context.Context, cacheSize int, cacheMaxAge time.Duration, queueSize int, bufferTimeout time.Duration, host *Host) *ProcessingPipeline {
+// ProcessingPipeline coordinates document processing with bounded workers and queue.
+type ProcessingPipeline struct {
+	host        *Host
+	ctx         context.Context
+	cancel      context.CancelFunc
+	jobQueue    chan DocumentJob
+	workerCount int
+	wg          sync.WaitGroup
+
+	// Metrics for monitoring
+	queuedCount    int64
+	processedCount int64
+	droppedCount   int64
+	mu             sync.Mutex
+}
+
+// NewProcessingPipeline creates a processing pipeline with bounded workers and queue.
+func NewProcessingPipeline(
+	ctx context.Context,
+	host *Host,
+	bufferTimeout time.Duration,
+	cacheMaxAge time.Duration,
+	cacheSize, queueSize, workerCount int,
+) *ProcessingPipeline {
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
 	return &ProcessingPipeline{
-		host:   host,
-		ctx:    pipelineCtx,
-		cancel: cancel,
+		host:        host,
+		ctx:         pipelineCtx,
+		cancel:      cancel,
+		jobQueue:    make(chan DocumentJob, queueSize),
+		workerCount: workerCount,
 	}
 }
 
-// Start starts the simplified processing pipeline
+// Start starts the processing pipeline with worker pool.
 func (pp *ProcessingPipeline) Start() {
-	logger.Sugar.Info("🚀 Starting direct processing pipeline (no cache)")
-	// No background processes needed - direct processing from subscriptions
+	logger.Sugar.Infof("🚀 Starting processing pipeline with %d workers and queue size %d", pp.workerCount, cap(pp.jobQueue))
+
+	for i := 0; i < pp.workerCount; i++ {
+		pp.wg.Add(1)
+		go pp.worker(i)
+	}
+
 	logger.Sugar.Info("✅ Processing pipeline ready")
 }
 
-// Stop stops the processing pipeline
+// Stop stops the processing pipeline.
 func (pp *ProcessingPipeline) Stop() {
 	logger.Sugar.Info("🛑 Stopping processing pipeline")
 	pp.cancel()
 
-	logger.Sugar.Info("✅ Processing pipeline stopped")
+	close(pp.jobQueue)
+
+	pp.wg.Wait()
+
+	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, dropped: %d)", pp.processedCount, pp.droppedCount)
 }
 
-// processDocumentDirect processes a document directly (simple approach)
-func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
-	workerID := int(blockNumber % 1000)
-	logger.Sugar.Infof("👷 Worker %d processing %s document %s", workerID, docType, docID)
+// worker processes jobs from the queue.
+func (pp *ProcessingPipeline) worker(workerID int) {
+	defer pp.wg.Done()
 
-	// Process directly
-	err := pp.host.processDocumentAttestation(pp.ctx, docID, docType, blockNumber, docData)
+	logger.Sugar.Debugf("🔧 Worker %d started", workerID)
+
+	for {
+		select {
+		case <-pp.ctx.Done():
+			logger.Sugar.Debugf("🛑 Worker %d stopped (context cancelled)", workerID)
+			return
+
+		case job, ok := <-pp.jobQueue:
+			if !ok {
+				logger.Sugar.Debugf("🛑 Worker %d stopped (queue closed)", workerID)
+				return
+			}
+			pp.processJob(workerID, job)
+		}
+	}
+}
+
+// processJob processes a single document job.
+func (pp *ProcessingPipeline) processJob(workerID int, job DocumentJob) {
+	logger.Sugar.Infof("👷 Worker %d processing %s document %s", workerID, job.docType, job.docID)
+
+	err := pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
 	if err != nil {
 		logger.Sugar.Errorf("❌ Worker %d failed: %v", workerID, err)
 	} else {
-		logger.Sugar.Debugf("✅ Worker %d completed %s document %s", workerID, docType, docID)
+		logger.Sugar.Debugf("✅ Worker %d completed %s document %s", workerID, job.docType, job.docID)
+	}
+
+	pp.mu.Lock()
+	pp.processedCount++
+	pp.mu.Unlock()
+}
+
+// processDocumentDirect enqueues a document for processing (non-blocking with drop on full).
+func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
+	job := DocumentJob{
+		docID:       docID,
+		docType:     docType,
+		blockNumber: blockNumber,
+		docData:     docData,
+	}
+
+	select {
+	case pp.jobQueue <- job:
+		pp.mu.Lock()
+		pp.queuedCount++
+		pp.mu.Unlock()
+	default:
+		pp.mu.Lock()
+		pp.droppedCount++
+		pp.mu.Unlock()
+		logger.Sugar.Warnf("⚠️  Queue full! Dropped %s document %s (total dropped: %d)", docType, docID, pp.droppedCount)
 	}
 }

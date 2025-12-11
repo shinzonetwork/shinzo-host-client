@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/shinzonetwork/app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
@@ -20,11 +22,29 @@ type SignatureVerifier interface {
 }
 
 type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
-	defraNode *node.Node
+	defraNode  *node.Node
+	httpClient *http.Client
 }
 
 func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
-	return &DefraSignatureVerifier{defraNode: defraNode}
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100, // Total idle connections
+			MaxIdleConnsPerHost: 10,  // Idle connections per host
+			MaxConnsPerHost:     50,  // Max connections per host
+			IdleConnTimeout:     90 * time.Second,
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+		},
+	}
+
+	return &DefraSignatureVerifier{
+		defraNode:  defraNode,
+		httpClient: httpClient,
+	}
 }
 
 // Verify verifies that the signature is valid for the given CID using DefraDB's HTTP API
@@ -96,8 +116,7 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 		return fmt.Errorf("failed to create HTTP request for signature verification: %w", err)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := v.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to execute signature verification request for CID %s: %w", cid, err)
 	}

@@ -145,8 +145,8 @@ func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[strin
 					}
 
 					if docID != "" {
-						// Process directly via pipeline
-						go h.processingPipeline.processDocumentDirect(docID, docType, blockNumber, docMap)
+						// Process via pipeline (enqueued to worker pool)
+						h.processingPipeline.processDocumentDirect(docID, docType, blockNumber, docMap)
 					}
 				}
 			}
