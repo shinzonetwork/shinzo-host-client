@@ -3,7 +3,7 @@ defradb:
   keyring_secret: "pingpong"
   # P2P Configuration (controlled by NetworkHandler)
   p2p:
-    enabled: true  # Start disabled, NetworkHandler will enable after gap processing
+    enabled: false  # Start disabled, NetworkHandler will enable after gap processing
     bootstrap_peers: ['/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s']
     listen_addr: "/ip4/0.0.0.0/tcp/0"
     # Filter P2P topics - only subscribe to document-related topics
