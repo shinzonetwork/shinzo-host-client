@@ -2,7 +2,6 @@ package attestation
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -60,40 +59,17 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 		return fmt.Errorf("defradb node or API URL is not available for signature verification")
 	}
 
-	// Determine key type from signature type
+	// Validate signature type - only ES256K is expected from DefraDB
+	if strings.ToUpper(signature.Type) != "ES256K" {
+		return fmt.Errorf("invalid signature type %s, expected ES256K", signature.Type)
+	}
 	keyType := "secp256k1"
-	sigType := strings.ToLower(signature.Type)
-	switch sigType {
-	case "", "ed25519", "eddsa":
-		keyType = "ed25519"
-	case "es256k", "ecdsa-secp256k1", "secp256k1":
-		keyType = "secp256k1"
-	default:
-		return fmt.Errorf("encountered unexpected signature type %s", signature.Type)
-	}
 
-	var publicKeyStr string
-
-	// Check if identity looks like hex (starts with 0-9a-fA-F and reasonable length)
-	if len(signature.Identity) >= 32 && len(signature.Identity) <= 130 { // Typical key lengths in hex
-		if keyBytes, hexErr := hex.DecodeString(signature.Identity); hexErr == nil && len(keyBytes) > 0 {
-			publicKeyStr = signature.Identity // Already valid hex
-		} else {
-			return fmt.Errorf("identity appears to be hex but is invalid: %v", hexErr)
-		}
-	} else {
-		// Try base64 decoding then hex
-		if base64Decoded, base64Err := base64.URLEncoding.DecodeString(signature.Identity); base64Err == nil && len(base64Decoded) > 0 {
-			decodedStr := string(base64Decoded)
-			if keyBytes, keyErr := hex.DecodeString(decodedStr); keyErr == nil && len(keyBytes) > 0 {
-				publicKeyStr = hex.EncodeToString(keyBytes)
-			} else {
-				return fmt.Errorf("identity contains invalid hex after base64 decoding")
-			}
-		} else {
-			return fmt.Errorf("identity must be valid hex or base64-encoded hex")
-		}
+	// Validate and use hex identity directly (DefraDB always provides hex format)
+	if keyBytes, hexErr := hex.DecodeString(signature.Identity); hexErr != nil || len(keyBytes) == 0 {
+		return fmt.Errorf("identity must be valid hex format, got: %s", signature.Identity)
 	}
+	publicKeyStr := signature.Identity
 
 	baseURL, err := url.Parse(v.defraNode.APIURL)
 	if err != nil {
