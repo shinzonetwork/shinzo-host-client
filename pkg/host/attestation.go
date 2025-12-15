@@ -21,6 +21,13 @@ type Document struct {
 func (h *Host) processDocumentAttestation(ctx context.Context, docID string, docType string, blockNumber uint64, docData map[string]interface{}) error {
 	logger.Sugar.Debugf("🔍 Processing %s document %s for attestation (block %d)", docType, docID, blockNumber)
 
+	// Track document metrics
+	if h.metrics != nil {
+		h.metrics.IncrementDocumentsReceived()
+		h.metrics.IncrementDocumentByType(docType)
+		h.metrics.UpdateMostRecentBlock(blockNumber)
+	}
+
 	// Create Document struct
 	document := Document{
 		ID:          docID,
@@ -29,14 +36,27 @@ func (h *Host) processDocumentAttestation(ctx context.Context, docID string, doc
 		Data:        docData,
 	}
 
+	// Process document for views (if ViewManager is available)
+	if h.viewManager != nil {
+		h.viewManager.ProcessDocument(ctx, document)
+	}
+
 	// Handle attestation
 	err := h.handleDocumentAttestation(ctx, document, blockNumber)
 	if err != nil {
+		// Track attestation error
+		if h.metrics != nil {
+			h.metrics.IncrementAttestationErrors()
+		}
 		return fmt.Errorf("failed to create attestation for %s document %s: %w", docType, docID, err)
 	}
 
-	// Mark block as processed
-	h.attestationRangeTracker.Add(blockNumber)
+	// Track successful attestation and document processing
+	if h.metrics != nil {
+		h.metrics.IncrementAttestationsCreated()
+		h.metrics.IncrementDocumentsProcessed()
+	}
+
 	logger.Sugar.Debugf("✅ Attestation created for %s document %s", docType, docID)
 	return nil
 }

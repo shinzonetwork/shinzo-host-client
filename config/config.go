@@ -23,9 +23,13 @@ type ShinzoConfig struct {
 	StartHeight         uint64 `yaml:"start_height"`
 
 	// P2P Control Settings
-	P2PEnabled  bool   `yaml:"p2p_enabled"`
-	WaitForGaps bool   `yaml:"wait_for_gaps"`
-	MaxGapSize  uint64 `yaml:"max_gap_size"`
+	P2PEnabled bool `yaml:"p2p_enabled"`
+
+	// View Management Settings
+	ViewInactivityTimeout string `yaml:"view_inactivity_timeout"` // Stop updating after inactivity (default: 24h)
+	ViewCleanupInterval   string `yaml:"view_cleanup_interval"`   // Check for inactive views (default: 1h)
+	ViewWorkerCount       int    `yaml:"view_worker_count"`       // Workers for lens transformations (default: 2)
+	ViewQueueSize         int    `yaml:"view_queue_size"`         // Queue size for view processing jobs (default: 1000)
 
 	// Message Cache Settings
 	CacheSize          int `yaml:"cache_size"`            // Maximum number of messages in cache

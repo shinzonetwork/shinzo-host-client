@@ -22,6 +22,21 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// parseTimeoutOrDefault parses a duration string or returns a default value
+func parseTimeoutOrDefault(timeoutStr string, defaultDuration time.Duration) time.Duration {
+	if timeoutStr == "" {
+		return defaultDuration
+	}
+
+	duration, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		logger.Sugar.Warnf("Invalid timeout format '%s', using default %v", timeoutStr, defaultDuration)
+		return defaultDuration
+	}
+
+	return duration
+}
+
 var DefaultConfig *config.Config = func() *config.Config {
 	cfg := &config.Config{
 		Shinzo: config.ShinzoConfig{
@@ -56,11 +71,14 @@ type Host struct {
 	config                 *config.Config     // Host configuration including StartHeight
 
 	// EVENT-DRIVEN ATTESTATION SYSTEM: Only track attestation processing
-	attestationRangeTracker *BlockRangeTracker
-	processingPipeline      *ProcessingPipeline // Complete message processing pipeline
-	// COMMENTED: View processing will be redesigned later for efficiency
-	// viewRangeFinder         *ViewRangeFinder              // New intelligent view range finder
-	// viewRangeTrackers       map[string]*BlockRangeTracker // Legacy block range trackers (deprecated)
+	processingPipeline *ProcessingPipeline // Complete message processing pipeline
+
+	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
+	viewManager *ViewManager // Manages view lifecycle and processing
+
+	// METRICS SYSTEM: Track attestation and document processing metrics
+	metrics *HostMetrics // Comprehensive metrics tracking
+
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
 
@@ -145,16 +163,13 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		NetworkHandler: networkHandler,
 		// COMMENTED: View initialization - pure event-driven attestation focus
 		// HostedViews:             []view.View{},
-		webhookCleanupFunction:  func() {},
-		eventSubscription:       eventSub,
-		LensRegistryPath:        cfg.HostConfig.LensRegistryPath,
-		processingCancel:        func() {},
-		playgroundServer:        playgroundServer,
-		config:                  cfg,
-		attestationRangeTracker: NewBlockRangeTracker(),
-		// COMMENTED: View processing will be redesigned for efficiency
-		// viewRangeFinder:         NewViewRangeFinder(defraNode, logger.Sugar),
-		// viewRangeTrackers:       make(map[string]*BlockRangeTracker),
+		webhookCleanupFunction: func() {},
+		eventSubscription:      eventSub,
+		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
+		processingCancel:       func() {},
+		playgroundServer:       playgroundServer,
+		config:                 cfg,
+		metrics:                NewHostMetrics(),
 	}
 
 	cacheSize := cfg.Shinzo.CacheSize
@@ -187,6 +202,32 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	// START THE PROCESSING PIPELINE (CRITICAL!)
 	newHost.processingPipeline.Start()
+
+	// Initialize ViewManager with configuration
+	viewConfig := ViewManagerConfig{
+		InactivityTimeout: parseTimeoutOrDefault(cfg.Shinzo.ViewInactivityTimeout, 24*time.Hour),
+		CleanupInterval:   parseTimeoutOrDefault(cfg.Shinzo.ViewCleanupInterval, time.Hour),
+		WorkerCount:       cfg.Shinzo.ViewWorkerCount,
+		QueueSize:         cfg.Shinzo.ViewQueueSize,
+	}
+
+	// Set defaults if not configured
+	if viewConfig.WorkerCount <= 0 {
+		viewConfig.WorkerCount = 2
+	}
+	if viewConfig.QueueSize <= 0 {
+		viewConfig.QueueSize = 1000
+	}
+
+	newHost.viewManager = NewViewManager(defraNode, viewConfig)
+
+	// Set metrics callback for ViewManager
+	newHost.viewManager.metricsCallback = func() *HostMetrics {
+		return newHost.metrics
+	}
+
+	logger.Sugar.Infof("🎯 ViewManager initialized: workers=%d, queue=%d, timeout=%v",
+		viewConfig.WorkerCount, viewConfig.QueueSize, viewConfig.InactivityTimeout)
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
 		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
@@ -244,34 +285,43 @@ func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
 
-	// Stop the processing pipeline
+	// Close the playground server if it's running
+	if h.playgroundServer != nil {
+		if err := h.playgroundServer.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down playground server: %v\n", err)
+		}
+	}
+
+	// Close the ViewManager
+	if h.viewManager != nil {
+		if err := h.viewManager.Close(); err != nil {
+			fmt.Printf("Error shutting down ViewManager: %v\n", err)
+		}
+	}
+
+	// Close the processing pipeline
 	if h.processingPipeline != nil {
 		h.processingPipeline.Stop()
 	}
 
-	// Shutdown playground server if it exists
-	if h.playgroundServer != nil {
-		if err := h.playgroundServer.Shutdown(ctx); err != nil {
-			logger.Sugar.Errorf("Error shutting down playground server: %v", err)
-		}
+	// Close the DefraDB node
+	if h.DefraNode != nil {
+		return h.DefraNode.Close(ctx)
 	}
 
-	// Force shutdown with timeout to prevent hanging
-	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	return nil
+}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- h.DefraNode.Close(shutdownCtx)
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-shutdownCtx.Done():
-		logger.Sugar.Warn("DefraDB shutdown timed out, forcing exit")
-		return nil // Don't return error for timeout in tests
+// GetMetricsHandler returns an HTTP handler for the metrics endpoint
+func (h *Host) GetMetricsHandler() http.Handler {
+	if h.metrics == nil {
+		// Return a handler that returns empty metrics if not initialized
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"error": "metrics not initialized"}`))
+		})
 	}
+	return h.metrics
 }
 
 // waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle

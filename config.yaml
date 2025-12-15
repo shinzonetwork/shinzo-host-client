@@ -4,7 +4,9 @@ defradb:
   # P2P Configuration (controlled by NetworkHandler)
   p2p:
     enabled: true
-    bootstrap_peers: ['/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s']
+    bootstrap_peers: 
+      - '/ip4/136.112.206.228/tcp/9171/p2p/12D3KooWC2A7oX3zq3QLrL3NhrrSrLSxMArHRWQPCZGqF3XzPAYv'
+      - '/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s'
     listen_addr: "/ip4/0.0.0.0/tcp/0"
     # Filter P2P topics - only subscribe to document-related topics
     topic_filter:
@@ -29,6 +31,12 @@ shinzo:
   cache_queue_size: 500         # CRITICAL: Small queue to prevent memory explosion  
   cache_max_age_seconds: 10     # CRITICAL: Aggressive cleanup every 10 seconds
   worker_count: 4               # CRITICAL: Fewer workers to prevent goroutine explosion
+
+  # View Management Settings
+  view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
+  view_cleanup_interval: "1h"     # Check for inactive views every hour
+  view_worker_count: 2            # Workers for lens transformations
+  view_queue_size: 1000           # Queue size for view processing jobs
 
 logger:
   development: false
