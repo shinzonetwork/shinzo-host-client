@@ -74,20 +74,25 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 
 	var publicKeyStr string
 
-	base64Decoded, base64Err := base64.StdEncoding.DecodeString(signature.Identity)
-	if base64Err != nil {
-		base64Decoded, base64Err = base64.URLEncoding.DecodeString(signature.Identity)
-	}
-	if base64Err == nil && len(base64Decoded) > 0 {
-		decodedStr := string(base64Decoded)
-
-		if keyBytes, keyErr := hex.DecodeString(decodedStr); keyErr == nil && len(keyBytes) > 0 {
-			publicKeyStr = hex.EncodeToString(keyBytes)
+	// Check if identity looks like hex (starts with 0-9a-fA-F and reasonable length)
+	if len(signature.Identity) >= 32 && len(signature.Identity) <= 130 { // Typical key lengths in hex
+		if keyBytes, hexErr := hex.DecodeString(signature.Identity); hexErr == nil && len(keyBytes) > 0 {
+			publicKeyStr = signature.Identity // Already valid hex
 		} else {
-			return fmt.Errorf("identity in expected format, expected base64 encoded hex-represented ASCII")
+			return fmt.Errorf("identity appears to be hex but is invalid: %v", hexErr)
 		}
 	} else {
-		return fmt.Errorf("identity in unexpected format, expected base64 encoded")
+		// Try base64 decoding then hex
+		if base64Decoded, base64Err := base64.URLEncoding.DecodeString(signature.Identity); base64Err == nil && len(base64Decoded) > 0 {
+			decodedStr := string(base64Decoded)
+			if keyBytes, keyErr := hex.DecodeString(decodedStr); keyErr == nil && len(keyBytes) > 0 {
+				publicKeyStr = hex.EncodeToString(keyBytes)
+			} else {
+				return fmt.Errorf("identity contains invalid hex after base64 decoding")
+			}
+		} else {
+			return fmt.Errorf("identity must be valid hex or base64-encoded hex")
+		}
 	}
 
 	baseURL, err := url.Parse(v.defraNode.APIURL)
