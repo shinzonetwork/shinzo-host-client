@@ -64,6 +64,9 @@ type ViewManager struct {
 
 	// Metrics callback
 	metricsCallback func() *HostMetrics
+
+	// Endpoint management for view HTTP endpoints
+	endpointManager *ViewEndpointManager
 }
 
 // NewViewManager creates a new view manager
@@ -82,6 +85,9 @@ func NewViewManager(defraNode *node.Node, config ViewManagerConfig) *ViewManager
 		ctx:               ctx,
 		cancel:            cancel,
 	}
+
+	// Initialize endpoint manager
+	vm.endpointManager = NewViewEndpointManager(defraNode, vm)
 
 	// Start background processes
 	vm.startWorkers()
@@ -132,7 +138,13 @@ func (vm *ViewManager) RegisterView(ctx context.Context, viewDef view.View) erro
 	// Store managed view
 	vm.activeViews[viewDef.Name] = managedView
 
-	logger.Sugar.Infof("✅ View %s registered successfully", viewDef.Name)
+	// LIFECYCLE STEP 3: Create HTTP endpoint for the view
+	endpoint, err := vm.endpointManager.CreateEndpointForView(viewDef.Name)
+	if err != nil {
+		return fmt.Errorf("failed to create endpoint for view %s: %w", viewDef.Name, err)
+	}
+
+	logger.Sugar.Infof("✅ View %s registered successfully with endpoint %s", viewDef.Name, endpoint.Path)
 	return nil
 }
 
@@ -299,20 +311,41 @@ func (vm *ViewManager) processViewJob(ctx context.Context, job ViewProcessingJob
 	// Build query for this specific document
 	query := vm.buildDocumentQuery(doc)
 
-	// Apply lens transformation
-	transformedData, err := view.View.ApplyLensTransform(ctx, vm.defraNode, query)
-	if err != nil {
-		return fmt.Errorf("lens transformation failed: %w", err)
-	}
-
-	// Write transformed data to view collection
-	if len(transformedData) > 0 {
-		docIds, err := view.View.WriteTransformedToCollection(ctx, vm.defraNode, transformedData)
+	// Check if view has lenses configured
+	if len(view.View.Transform.Lenses) > 0 {
+		// Apply lens transformation
+		logger.Sugar.Debugf("🔍 Applying lens transformation with query: %s", query)
+		transformedData, err := view.View.ApplyLensTransform(ctx, vm.defraNode, query)
 		if err != nil {
-			return fmt.Errorf("failed to write to view collection: %w", err)
+			return fmt.Errorf("lens transformation failed: %w", err)
 		}
 
-		logger.Sugar.Debugf("✅ Wrote %d documents to view %s (IDs: %v)", len(transformedData), view.View.Name, docIds)
+		logger.Sugar.Debugf("🔄 Lens transformation returned %d documents", len(transformedData))
+		if len(transformedData) > 0 {
+			logger.Sugar.Debugf("📋 First transformed document: %+v", transformedData[0])
+		}
+
+		// Write transformed data to view collection
+		if len(transformedData) > 0 {
+			docIds, err := view.View.WriteTransformedToCollection(ctx, vm.defraNode, transformedData)
+			if err != nil {
+				return fmt.Errorf("failed to write to view collection: %w", err)
+			}
+
+			logger.Sugar.Debugf("✅ Wrote %d documents to view %s (IDs: %v)", len(transformedData), view.View.Name, docIds)
+
+			// LIFECYCLE STEP 4: Update HTTP endpoint with new data
+			err = vm.endpointManager.UpdateViewData(view.View.Name, transformedData)
+			if err != nil {
+				logger.Sugar.Warnf("Failed to update endpoint data for view %s: %v", view.View.Name, err)
+			} else {
+				logger.Sugar.Debugf("🌐 Updated endpoint data for view %s", view.View.Name)
+			}
+		}
+	} else {
+		// Views without lenses are not processed - they should define proper lens transformations
+		logger.Sugar.Warnf("⚠️ View %s has no lens transformations configured - skipping processing", view.View.Name)
+		return fmt.Errorf("view %s has no lens transformations configured", view.View.Name)
 	}
 
 	// Update processing statistics
@@ -326,8 +359,16 @@ func (vm *ViewManager) processViewJob(ctx context.Context, job ViewProcessingJob
 
 // buildDocumentQuery creates a query to fetch the specific document for lens processing
 func (vm *ViewManager) buildDocumentQuery(doc Document) string {
-	// Build a query to fetch this specific document by ID
-	return fmt.Sprintf(`query { %s(filter: {_docID: {_eq: "%s"}}) { _docID _version } }`, doc.Type, doc.ID)
+	// Build a query to fetch this specific document by ID with all relevant fields
+	// The ApplyLensTransform method expects just the collection part, not a full GraphQL query
+	// Include all fields that the filter_transaction lens might need
+	fields := "_docID _version hash blockNumber from to value gasPrice gasUsed transactionHash address topics data"
+
+	// Return just the collection query part that ApplyLensTransform expects
+	// Format: CollectionName(filter: {...}) { fields }
+	query := fmt.Sprintf(`%s(filter: {_docID: {_eq: "%s"}}) { %s }`, doc.Type, doc.ID, fields)
+
+	return query
 }
 
 // startCleanupProcess begins the background cleanup routine
@@ -372,6 +413,11 @@ func (vm *ViewManager) cleanupInactiveViews() {
 	if deactivatedCount > 0 {
 		logger.Sugar.Infof("🧹 Deactivated %d inactive views", deactivatedCount)
 	}
+}
+
+// GetEndpointManager returns the endpoint manager for HTTP route registration
+func (vm *ViewManager) GetEndpointManager() *ViewEndpointManager {
+	return vm.endpointManager
 }
 
 // Close shuts down the view manager

@@ -3,7 +3,9 @@ package host
 import (
 	"context"
 	"fmt"
+	"net/http"
 
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
@@ -67,4 +69,32 @@ type ViewManagerStatus struct {
 	IsActive    bool
 	ViewCount   int
 	ActiveViews int
+}
+
+// RegisterViewEndpoints registers all view HTTP endpoints with the provided mux
+func (h *Host) RegisterViewEndpoints(mux *http.ServeMux) {
+	if h.viewManager != nil && h.viewManager.GetEndpointManager() != nil {
+		h.viewManager.GetEndpointManager().RegisterEndpointsWithMux(mux)
+
+		// Register the views listing endpoint
+		mux.HandleFunc("/api/v0/views", h.handleViewList)
+
+		logger.Sugar.Info("🌐 Registered all view endpoints with HTTP server")
+	}
+}
+
+// GetViewEndpoints returns information about all registered view endpoints
+func (h *Host) GetViewEndpoints() map[string]*ViewEndpoint {
+	if h.viewManager != nil && h.viewManager.GetEndpointManager() != nil {
+		return h.viewManager.GetEndpointManager().GetAllEndpoints()
+	}
+	return make(map[string]*ViewEndpoint)
+}
+
+// RefreshViewData manually refreshes the data for a specific view endpoint
+func (h *Host) RefreshViewData(ctx context.Context, viewName string) error {
+	if h.viewManager != nil && h.viewManager.GetEndpointManager() != nil {
+		return h.viewManager.GetEndpointManager().QueryViewData(ctx, viewName)
+	}
+	return fmt.Errorf("ViewManager or EndpointManager not initialized")
 }

@@ -546,3 +546,108 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 		cidSet[cid] = true
 	}
 }
+
+func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
+		type TestDoc {
+			name: String
+		}
+	`)
+
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
+	require.NoError(t, err)
+	defer defraNode.Close(t.Context())
+
+	viewName := "Document_Test"
+	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+
+	record := &AttestationRecord{
+		AttestedDocId: "doc-123",
+		SourceDocId:   "doc-123",
+		CIDs:          []string{"cid-1"},
+	}
+
+	err = record.PostAttestationRecord(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+
+	collection := fmt.Sprintf("AttestationRecord_%s", viewName)
+	query := fmt.Sprintf(`
+		query {
+			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+			}
+		}
+	`, collection)
+
+	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "doc-123", results[0].AttestedDocId)
+}
+
+func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T) {
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
+		type TestDoc {
+			name: String
+		}
+	`)
+
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
+	require.NoError(t, err)
+	defer defraNode.Close(t.Context())
+
+	viewName := "Document_Test"
+	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+
+	record := &AttestationRecord{
+		AttestedDocId: "doc-123",
+		SourceDocId:   "doc-123",
+		CIDs:          []string{"cid-1"},
+	}
+
+	err = record.PostAttestationRecord(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+	err = record.PostAttestationRecord(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+
+	collection := fmt.Sprintf("AttestationRecord_%s", viewName)
+	query := fmt.Sprintf(`
+		query {
+			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+			}
+		}
+	`, collection)
+
+	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(results), 1)
+}
+
+func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
+	records := []*AttestationRecord{
+		{AttestedDocId: "doc-123", SourceDocId: "source-1", CIDs: []string{"cid-1"}},
+		{AttestedDocId: "doc-123", SourceDocId: "source-2", CIDs: []string{"cid-2", "cid-3"}},
+		{AttestedDocId: "doc-123", SourceDocId: "source-3", CIDs: []string{"cid-3", "cid-4"}},
+	}
+
+	merged := records[0]
+	var err error
+	for i := 1; i < len(records); i++ {
+		merged, err = MergeAttestationRecords(merged, records[i])
+		require.NoError(t, err)
+	}
+
+	require.NotNil(t, merged)
+	require.Equal(t, "doc-123", merged.AttestedDocId)
+	require.Equal(t, "source-1", merged.SourceDocId)
+	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3", "cid-4"}, merged.CIDs)
+}

@@ -56,8 +56,9 @@ func parseSDLFields(sdl string) (map[string]bool, error) {
 
 // getUniqueViewName generates a unique view name by appending "_view" to the base view name
 // This ensures that views don't conflict with collections that have the same name
+// However, DefraDB creates collections with just the view name, so we return the base name
 func (v *View) getUniqueViewName() string {
-	return fmt.Sprintf("%s_view", v.Name)
+	return v.Name // DefraDB creates collections with the view name directly
 }
 
 // filterDocumentFields filters a document to only include fields defined in the SDL schema

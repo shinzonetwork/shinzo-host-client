@@ -75,7 +75,7 @@ func TestDefraSignatureVerifier_Verify_UnsupportedSignatureType(t *testing.T) {
 		Value:    "signature",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "unexpected signature type")
+	require.Contains(t, err.Error(), "invalid signature type")
 }
 
 func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
@@ -99,7 +99,7 @@ func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 		Value:    "signature",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "unexpected format")
+	require.Contains(t, err.Error(), "identity must be valid hex")
 }
 
 func TestDefraSignatureVerifier_Verify_ValidSignature(t *testing.T) {
@@ -163,4 +163,3 @@ func TestDefraSignatureVerifier_Verify_WithNilNode(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "defradb node or API URL is not available")
 }
-

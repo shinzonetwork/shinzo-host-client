@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -35,6 +36,14 @@ func parseTimeoutOrDefault(timeoutStr string, defaultDuration time.Duration) tim
 	}
 
 	return duration
+}
+
+// maxInt returns the maximum of two integers
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 var DefaultConfig *config.Config = func() *config.Config {
@@ -74,7 +83,9 @@ type Host struct {
 	processingPipeline *ProcessingPipeline // Complete message processing pipeline
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
-	viewManager *ViewManager // Manages view lifecycle and processing
+	viewManager             *ViewManager                       // Manages view lifecycle and processing
+	viewRegistrationHandler *shinzohub.ViewRegistrationHandler // Handles Shinzo Hub view registration events
+	viewEndpointManager     *ViewEndpointManager               // Manages HTTP endpoints for views
 
 	// METRICS SYSTEM: Track attestation and document processing metrics
 	metrics *HostMetrics // Comprehensive metrics tracking
@@ -203,22 +214,13 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	// START THE PROCESSING PIPELINE (CRITICAL!)
 	newHost.processingPipeline.Start()
 
-	// Initialize ViewManager with configuration
+	// Initialize ViewManager for lens transformations and view lifecycle management
 	viewConfig := ViewManagerConfig{
 		InactivityTimeout: parseTimeoutOrDefault(cfg.Shinzo.ViewInactivityTimeout, 24*time.Hour),
-		CleanupInterval:   parseTimeoutOrDefault(cfg.Shinzo.ViewCleanupInterval, time.Hour),
-		WorkerCount:       cfg.Shinzo.ViewWorkerCount,
-		QueueSize:         cfg.Shinzo.ViewQueueSize,
+		CleanupInterval:   parseTimeoutOrDefault(cfg.Shinzo.ViewCleanupInterval, 1*time.Hour),
+		WorkerCount:       maxInt(cfg.Shinzo.ViewWorkerCount, 4),  // Ensure at least 4 workers
+		QueueSize:         maxInt(cfg.Shinzo.ViewQueueSize, 1000), // Ensure at least 1000 queue size
 	}
-
-	// Set defaults if not configured
-	if viewConfig.WorkerCount <= 0 {
-		viewConfig.WorkerCount = 2
-	}
-	if viewConfig.QueueSize <= 0 {
-		viewConfig.QueueSize = 1000
-	}
-
 	newHost.viewManager = NewViewManager(defraNode, viewConfig)
 
 	// Set metrics callback for ViewManager
@@ -228,6 +230,18 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	logger.Sugar.Infof("🎯 ViewManager initialized: workers=%d, queue=%d, timeout=%v",
 		viewConfig.WorkerCount, viewConfig.QueueSize, viewConfig.InactivityTimeout)
+
+	// Initialize ViewRegistrationHandler for Shinzo Hub events
+	newHost.viewRegistrationHandler = shinzohub.NewViewRegistrationHandler(cfg.Shinzo.StartHeight)
+	newHost.viewRegistrationHandler.SetViewManager(newHost.viewManager)
+
+	// Initialize ViewEndpointManager for HTTP endpoints
+	newHost.viewEndpointManager = NewViewEndpointManager(defraNode, newHost.viewManager)
+
+	logger.Sugar.Info("🌐 ViewEndpointManager initialized for dynamic route creation")
+
+	// Setup HTTP server with view endpoints
+	newHost.setupViewHTTPServer()
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
 		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
@@ -254,6 +268,40 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	// No separate monitoring goroutine needed
 
 	return newHost, nil
+}
+
+// setupViewHTTPServer creates an HTTP server that serves view endpoints alongside DefraDB API
+func (h *Host) setupViewHTTPServer() {
+	// Note: View endpoints will be registered dynamically as views are created
+	// The /api/v0/views listing endpoint is handled by RegisterViewEndpoints
+	logger.Sugar.Info("🌐 View HTTP endpoints configured and ready")
+}
+
+// handleViewList provides a list of all available view endpoints
+func (h *Host) handleViewList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	endpoints := h.GetViewEndpoints()
+	response := map[string]interface{}{
+		"available_views": len(endpoints),
+		"endpoints":       make([]map[string]string, 0, len(endpoints)),
+	}
+
+	for name, endpoint := range endpoints {
+		response["endpoints"] = append(response["endpoints"].([]map[string]string), map[string]string{
+			"view_name":    name,
+			"path":         endpoint.Path,
+			"last_updated": endpoint.LastUpdated,
+		})
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func incrementPort(apiURL string) (string, error) {
@@ -358,19 +406,24 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				return // Event channel closed
 			}
 
-			// COMMENTED: View event handling - focusing on pure attestation events
-			// if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
-			// 	logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
-			// 	err := h.PrepareView(ctx, registeredEvent.View)
-			// 	if err != nil {
-			// 		logger.Sugar.Errorf("Failed to prepare view: %v", err)
-			// 	} else {
-			// 		h.HostedViews = append(h.HostedViews, registeredEvent.View)
-			// 		h.viewRangeTrackers[registeredEvent.View.Name] = NewBlockRangeTracker()
-			// 	}
-			// } else {
-			logger.Sugar.Debugf("Received event (view processing disabled): %+v", event)
-			// }
+			// Process view registration events using the new ViewRegistrationHandler
+			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
+				logger.Sugar.Infof("📋 Received new view registration: %s (creator: %s)", registeredEvent.View.Name, registeredEvent.Creator)
+
+				// Process the event through the ViewRegistrationHandler
+				if h.viewRegistrationHandler != nil {
+					err := h.viewRegistrationHandler.ProcessRegisteredEvent(ctx, *registeredEvent)
+					if err != nil {
+						logger.Sugar.Errorf("❌ Failed to process view registration for %s: %v", registeredEvent.View.Name, err)
+					} else {
+						logger.Sugar.Infof("✅ Successfully processed view registration for %s", registeredEvent.View.Name)
+					}
+				} else {
+					logger.Sugar.Warn("ViewRegistrationHandler not initialized - cannot process view registration")
+				}
+			} else {
+				logger.Sugar.Debugf("Received non-view event: %+v", event)
+			}
 		}
 	}
 }
