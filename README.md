@@ -1,58 +1,91 @@
 # shinzo-host-client
-The Host Client's role is to facilitate the hosting of `View`s. A `View` is a collection of data that is useful to an application. `View`s are described using [the view-creator tool](https://github.com/shinzonetwork/view-creator) and comprise of SDLs, Lens transforms, and source data. A Host performs Lens transforms on Primitive data (blocks, transactions, logs, etc.) to write to a `View` and serve requests from subscribers.
 
-## How to Use
+The Shinzo Host Client facilitates the hosting of **Views**, which are structured collections of data useful to applications. **Views** are defined using the [view-creator tool](https://github.com/shinzonetwork/shinzo-view-creator) and consists of SDLs, Lens transforms, and source data.
 
-To run the host client app
+The Host Client receives **primitive data** (blocks, transactions, logs, etc.) from Shinzo Indexers, applies Lens transforms, writes to Views, and serves requests from subscribers. Hosts also contribute to network security by producing Attestation Records.
+
+## Installation & Running
+
+Clone the repository:
+
+```bash
+git clone https://github.com/shinzonetwork/shinzo-host-client.git
+cd shinzo-host-client
+```
+
+Run directly:
 
 ```bash
 go run cmd/main.go
 ```
 
-Or, build and run with
+Or, build and run:
+
 ```bash
 go build -o bin/host cmd/main.go
 ./bin/host
 ```
 
-### GraphQL Playground
+## Running with GraphQL Playground (Optional)
 
 The host includes an optional GraphQL Playground that provides a web-based interface for querying the embedded DefraDB instance. This is useful for development and debugging.
 
 **To enable the playground:**
 
 1. Download the playground assets:
-   ```bash
-   make deps-playground
-   ```
+
+```bash
+make deps-playground
+```
 
 2. Build or run with the hostplayground tag:
-   ```bash
-   # Build with playground
-   make build-playground
-   ./bin/host
+
+```bash
+# Build with playground
+make build-playground
+./bin/host
    
-   # Or run directly with playground
-   make start-playground
-   ```
+# Or run directly with playground
+make start-playground
+```
 
 Once the host is running with the playground enabled, you'll see a message in the logs indicating the playground URL (typically `http://127.0.0.1:9182`). Open this URL in your browser to access the GraphQL Playground.
 
 The playground provides:
+
 - Interactive GraphQL query editor
 - Schema exploration and documentation
 - Query execution and result viewing
 - Support for subscriptions
 
-**Note:** The playground runs on a separate port (typically 9182) from defradb's API server (typically 9181). The playground UI proxies all GraphQL API requests to defradb's API server, so you can use the playground to interact with your embedded DefraDB instance.
-
-For more details, see the [playground README](playground/README.md).
+> **Note:** The playground runs on a separate port (9182) from defradb's API server (9181). The playground UI proxies all GraphQL API requests to defradb's API server, so you can use the playground to interact with your embedded DefraDB instance. For more details, see the [playground README](playground/README.md).
 
 The host is designed to transform data it receives from Shinzo Indexers. So, when running the host app, you'll want to make sure to connect it to Indexer client(s) (or a mock Indexer - a defra instance that posts dummy primitives as if it were a real Indexer).
 
-### Connecting to Indexer(s)
+## Configuration
 
-To connect your Host client to Indexer(s) (or mocks), you can either
+The Host Client reads from [config.yaml](/config.yaml), which comes with sensible defaults. The only field you need to set is `defradb.keyring_secret` which can alternatively be set with the following command in the terminal window.
+
+```bash
+export DEFRA_KEYRING_SECRET=<make_a_password>
+```
+
+### Key Fields
+
+* **defradb.url** – API endpoint of your local DefraDB node. Defaults work for most setups.
+* **defradb.keyring_secret** – Requires a secret to generate your private keys. 
+* **p2p.bootstrap_peers** – Seed peers for joining the Shinzo network. Defaults include a reliable bootstrap peer.
+* **p2p.listen_addr** – Default is suitable for local runs. Override when containerizing.
+* **store.path** – Directory where local DefraDB data is stored.
+* **shinzo.web_socket_url** – Defaults to a hosted ShinzoHub node. Only change if connecting to a different node.
+* **logger.development** – Set to `false` for production.
+* **host.lens_registry_path** – Where received WASM lens files are stored.
+
+> The default `config.yaml` is ready for most local development workflows. Modify only if connecting to custom peers or storage paths.
+
+## Connecting to Indexer(s)
+
+Hosts receive primitive data from Indexers and serve Views to subscribers. To connect your Host client to Indexer(s) (or mocks), you can either
 
 1) Connect them directly to the Indexer
 2) Connect them to the Indexer by hopping through a "big peer"
