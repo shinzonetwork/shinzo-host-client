@@ -217,4 +217,4 @@ To minimize data requirements for application clients, the Host creates a **sepa
 
 Application clients that require attestations can subscribe to these collections using the `attestation.AddAttestationRecordCollection` method provided by the app-sdk’s attestation package.
 
-Further design details and background on attestations can be found in ADRs #02 and #03.
+Further design details and background on attestations can be found in ADRs [#02](/adr/02-AttestationRecords.md) and [#03](/adr/03-AttestationRecordAmmendment.md).
