@@ -19,6 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/sourcenetwork/corelog"
 
 	// "github.com/shinzonetwork/shinzo-host-client/pkg/view" // COMMENTED: Focusing on event-driven attestations
 	"github.com/sourcenetwork/defradb/node"
@@ -104,6 +105,11 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	logger.Init(true)
+
+	// Configure DefraDB logging - set to error level to hide INFO logs from HTTP requests
+	corelog.SetConfigOverride("http", corelog.Config{
+		Level: corelog.LevelError,
+	})
 
 	defraNode, networkHandler, err := defra.StartDefraInstance(
 		cfg.ShinzoAppConfig,

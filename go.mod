@@ -9,6 +9,7 @@ require (
 	github.com/shinzonetwork/app-sdk v0.0.0-20251211155759-dffb4a65354c
 	github.com/shinzonetwork/indexer v0.1.1-0.20251120164521-e7d20c7b0344
 	github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07
+	github.com/sourcenetwork/corelog v0.0.8
 	github.com/sourcenetwork/defradb v0.20.0
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
@@ -321,7 +322,6 @@ require (
 	github.com/sourcenetwork/corekv/chunk v0.2.4 // indirect
 	github.com/sourcenetwork/corekv/memory v0.2.4 // indirect
 	github.com/sourcenetwork/corekv/namespace v0.2.4 // indirect
-	github.com/sourcenetwork/corelog v0.0.8 // indirect
 	github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 // indirect
 	github.com/sourcenetwork/go-p2p v0.1.6 // indirect
 	github.com/sourcenetwork/goji v0.0.8 // indirect
