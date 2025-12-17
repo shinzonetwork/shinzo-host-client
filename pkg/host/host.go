@@ -16,6 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 
@@ -104,9 +105,11 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	logger.Init(true)
 
-	defraNode, networkHandler, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
+	defraNode, networkHandler, err := defra.StartDefraInstance(
+		cfg.ShinzoAppConfig,
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
-		"Block", "Transaction", "AccessListEntry", "Log")
+		"Block", "Transaction", "AccessListEntry", "Log",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
 	}
@@ -119,6 +122,12 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	err = waitForDefraDB(ctx, defraNode)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply local schema after DefraDB is ready (for use with non-branchable)
+	err = applySchema(ctx, defraNode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	// Initialize attestation record schemas for all document types
@@ -463,4 +472,16 @@ func isPlaygroundEnabled() bool {
 	// This will be true only when built with -tags hostplayground
 	// We use a build tag to conditionally compile this
 	return playgroundEnabled
+}
+
+// applySchema applies the GraphQL schema to DefraDB node
+func applySchema(ctx context.Context, defraNode *node.Node) error {
+	fmt.Println("Applying schema...")
+
+	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchema())
+	if err != nil && strings.Contains(err.Error(), "collection already exists") {
+		fmt.Println("Schema already exists, skipping...")
+		return nil
+	}
+	return err
 }
