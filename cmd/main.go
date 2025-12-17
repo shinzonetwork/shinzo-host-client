@@ -61,7 +61,7 @@ func main() {
 
 	// Add metrics endpoint to the existing pprof server
 	http.Handle("/metrics", myHost.GetMetricsHandler())
-	log.Printf("📈 Metrics endpoint available at: http://localhost:8080/metrics")
+	log.Printf("📈 Metrics endpoint available at: http://localhost:%s/metrics", pprofPort)
 
 	for true {
 		time.Sleep(1 * time.Second) // Run forever unless stopped
