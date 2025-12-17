@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -305,28 +306,27 @@ func (h *Host) handleViewList(w http.ResponseWriter, r *http.Request) {
 }
 
 func incrementPort(apiURL string) (string, error) {
+	// Ensure URL has protocol
 	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
 		apiURL = "http://" + apiURL
 	}
+
 	parsed, err := url.Parse(apiURL)
-	if err == nil {
-		host := parsed.Host
-		if host == "" {
-			host = parsed.Path
-		}
-		// Split host:port
-		parts := strings.Split(host, ":")
-		if len(parts) == 2 {
-			port, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%s:%d", parts[0], port+1), nil
-		} else if len(parts) == 1 {
-			return "", fmt.Errorf("No port found")
-		}
+	if err != nil {
+		return "", fmt.Errorf("invalid URL %s: %v", apiURL, err)
 	}
-	return "", err
+
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		return "", fmt.Errorf("invalid host:port %s: %v", parsed.Host, err)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid port %s: %v", portStr, err)
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
@@ -462,5 +462,26 @@ func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) err
 func isPlaygroundEnabled() bool {
 	// This will be true only when built with -tags hostplayground
 	// We use a build tag to conditionally compile this
-	return playgroundEnabled
+	return true
 }
+
+// docker run -d \
+//   --name shinzo-indexer \
+//   --restart unless-stopped \
+//   -p 8080:8080 \
+//   -p 9171:9171 \
+//   -p 9181:9181 \
+//   -e GETH_RPC_URL="http://136.112.206.228:8545" \
+//   -e GETH_WS_URL="ws://136.112.206.228:8546" \
+//   -e GETH_API_KEY="HxUPHPzQgpuzuUrY4zbbYSOHd73dbyMXn+sN8Oz0PH8=" \
+//   -e INDEXER_START_HEIGHT="23700000" \
+//   -e DEFRADB_KEYRING_SECRET="pingpong" \
+//   -v ~/data/defradb2:/app/.defra \
+//   -v ~/data/logs2:/app/logs \
+//   -v ./config:/app/config:ro \
+//   --health-cmd="curl -f http://localhost:8080/health" \
+//   --health-interval=30s \
+//   --health-timeout=10s \
+//   --health-retries=3 \
+//   --health-start-period=60s \
+//   shinzo-indexer
