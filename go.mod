@@ -2,14 +2,14 @@ module github.com/shinzonetwork/shinzo-host-client
 
 go 1.25.5
 
-replace github.com/sourcenetwork/defradb => ../defradb
+// replace github.com/sourcenetwork/defradb => ../defradb
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/shinzonetwork/app-sdk v0.0.0-20251211155759-dffb4a65354c
 	github.com/shinzonetwork/indexer v0.1.1-0.20251120164521-e7d20c7b0344
 	github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07
-	github.com/sourcenetwork/defradb v0.20.0
+	github.com/sourcenetwork/defradb v0.20.1-0.20251212172922-d546f2339bdc
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
