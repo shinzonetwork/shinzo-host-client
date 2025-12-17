@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shinzonetwork/app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -74,12 +74,13 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 		}
 	}
 
-	err = attestation.AddAttestationRecordCollection(ctx, h.DefraNode, v.Name)
+	// Use the single AttestationRecord collection for all views
+	err = hostAttestation.AddAttestationRecordCollection(ctx, h.DefraNode)
 	if err != nil {
 		if strings.Contains(err.Error(), "collection already exists") {
-			logger.Sugar.Warnf("Error subscribing to view %+v: %w", v, err)
+			logger.Sugar.Warnf("AttestationRecord collection already exists")
 		} else {
-			return fmt.Errorf("Error subscribing to view %+v: %w", v, err)
+			return fmt.Errorf("Error creating AttestationRecord collection: %w", err)
 		}
 	}
 

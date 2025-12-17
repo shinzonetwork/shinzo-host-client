@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/config"
@@ -445,22 +444,15 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	return StartHosting(testConfig)
 }
 
-// initializeAttestationSchemas creates attestation record collections for all document types
+// initializeAttestationSchemas creates a single consistent AttestationRecord collection
 func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) error {
-	// Document types that need attestation record collections
-	documentTypes := []string{"Block", "Transaction", "Log", "AccessList"}
-
-	for _, docType := range documentTypes {
-		collectionName := fmt.Sprintf("Document_%s", docType)
-
-		err := hostAttestation.AddAttestationRecordCollection(ctx, defraNode, collectionName)
-		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-			return fmt.Errorf("failed to create attestation collection for %s: %w", docType, err)
-		}
-
-		logger.Sugar.Infof("✅ Attestation collection AttestationRecord_%s initialized", collectionName)
+	// Create single AttestationRecord collection for all document types
+	err := hostAttestation.AddAttestationRecordCollection(ctx, defraNode)
+	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+		return fmt.Errorf("failed to create AttestationRecord collection: %w", err)
 	}
 
+	logger.Sugar.Infof("✅ AttestationRecord collection initialized for all document types")
 	return nil
 }
 

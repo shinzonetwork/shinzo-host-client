@@ -20,8 +20,9 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 23603421  # Start closer to latest block for testing (was 23500000)
-  # web_socket_url: ""  # Commented out to test without shinzohub connection
-  
+  # web_socket_url: "ws://3"  # Commented out to test without shinzohub connection
+  # web_socket_url: ws://34.29.171.79:26657/websocket
+
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this

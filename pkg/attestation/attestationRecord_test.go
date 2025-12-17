@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shinzonetwork/app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -208,8 +208,8 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	testVersions := testDocResult.Version
 
-	testViewName := "TestView"
-	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
+	// Use single AttestationRecord collection
+	err = AddAttestationRecordCollection(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
@@ -225,18 +225,22 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testViewName)
+	// Use docType instead of viewName for PostAttestationRecord
+	testDocType := "TestDoc"
+	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testDocType)
 	require.NoError(t, err)
 
-	expectedAttestationCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
-	query := fmt.Sprintf(`
-		%s {
+	// Query the single AttestationRecord collection
+	query := `
+		AttestationRecord {
 			_docID
 			attested_doc
 			source_doc
 			CIDs
+			docType
+			count
 		}
-	`, expectedAttestationCollectionName)
+	`
 
 	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -461,23 +465,24 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	require.Contains(t, merged.CIDs, doc2Result.Version[0].CID)
 
 	// Post the merged record to DefraDB
-	testViewName := "TestView"
-	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
+	err = AddAttestationRecordCollection(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	err = merged.PostAttestationRecord(t.Context(), defraNode, testViewName)
+	testDocType := "TestDoc"
+	err = merged.PostAttestationRecord(t.Context(), defraNode, testDocType)
 	require.NoError(t, err)
 
 	// Verify the merged record was stored correctly
-	expectedCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
-	query := fmt.Sprintf(`
-		%s {
+	query := `
+		AttestationRecord {
 			_docID
 			attested_doc
 			source_doc
 			CIDs
+			docType
+			count
 		}
-	`, expectedCollectionName)
+	`
 
 	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)

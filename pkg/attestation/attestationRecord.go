@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shinzonetwork/app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -34,28 +34,32 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 	return attestationRecord, nil
 }
 
-func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defraNode *node.Node, viewName string) error {
+func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defraNode *node.Node, docType string) error {
 	cidsArray := make([]string, len(record.CIDs))
 	for i, cid := range record.CIDs {
 		cidsArray[i] = fmt.Sprintf(`"%s"`, cid)
 	}
 	cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
 
-	attestationCollectionName := fmt.Sprintf("AttestationRecord_%s", viewName)
+	// Use consistent collection name for all attestation records
 	mutation := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {
+			create_AttestationRecord(input: {
 				attested_doc: "%s",
 				source_doc: "%s",
-				CIDs: %s
+				CIDs: %s,
+				docType: "%s",
+				count: 1
 			}) {
 				_docID
 				attested_doc
 				source_doc
 				CIDs
+				docType
+				count
 			}
 		}
-	`, attestationCollectionName, record.AttestedDocId, record.SourceDocId, cidsString)
+	`, record.AttestedDocId, record.SourceDocId, cidsString, docType)
 
 	_, err := defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
 	if err != nil {
@@ -67,9 +71,10 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 
 // Wrapper functions for app-sdk attestation functionality
 
-// AddAttestationRecordCollection wraps the app-sdk function
-func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, associatedViewName string) error {
-	return attestation.AddAttestationRecordCollection(ctx, defraNode, associatedViewName)
+// AddAttestationRecordCollection creates a single consistent AttestationRecord collection
+func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node) error {
+	// Always use "AttestationRecord" as the collection name for consistency
+	return attestation.AddAttestationRecordCollection(ctx, defraNode, "AttestationRecord")
 }
 
 // GetAttestationRecords wraps the app-sdk function and converts types
@@ -113,18 +118,15 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
 	}
 
-	// For document attestations, we use a generic view name since this is document-level attestation
-	attestationViewName := fmt.Sprintf("Document_%s", docType)
-
-	// Ensure the attestation collection exists for this document type (using app-sdk wrapper)
-	err = AddAttestationRecordCollection(ctx, defraNode, attestationViewName)
+	// Ensure the single AttestationRecord collection exists
+	err = AddAttestationRecordCollection(ctx, defraNode)
 	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-		return fmt.Errorf("failed to add attestation collection for %s: %w", attestationViewName, err)
+		return fmt.Errorf("failed to add AttestationRecord collection: %w", err)
 	}
 
 	// Post the attestation record to DefraDB
-	logger.Sugar.Infof("💾 Posting attestation record to collection: AttestationRecord_%s", attestationViewName)
-	err = attestationRecord.PostAttestationRecord(ctx, defraNode, attestationViewName)
+	logger.Sugar.Infof("💾 Posting attestation record to collection: AttestationRecord")
+	err = attestationRecord.PostAttestationRecord(ctx, defraNode, docType)
 	if err != nil {
 		return fmt.Errorf("failed to post attestation record for document %s: %w", docID, err)
 	}
@@ -132,22 +134,21 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 	logger.Sugar.Infof("✅ Successfully created attestation record:")
 	logger.Sugar.Infof("   📄 Document ID: %s", docID)
 	logger.Sugar.Infof("   📂 Document Type: %s", docType)
-	logger.Sugar.Infof("   🗂️  Collection: AttestationRecord_%s", attestationViewName)
+	logger.Sugar.Infof("   🗂️  Collection: AttestationRecord")
 	logger.Sugar.Infof("   🔗 Attested Doc: %s", attestationRecord.AttestedDocId)
 	logger.Sugar.Infof("   📋 Source Doc: %s", attestationRecord.SourceDocId)
 	logger.Sugar.Infof("   ✅ Verified CIDs: %v", attestationRecord.CIDs)
 	logger.Sugar.Infof("   🔢 Total Signatures: %d", len(attestationRecord.CIDs))
-	logger.Sugar.Infof("   🔍 Query with: { AttestationRecord_%s(filter: {attested_doc: {_eq: \"%s\"}}) { attested_doc source_doc CIDs _docID } }", attestationViewName, docID)
+	logger.Sugar.Infof("   🔍 Query with: { AttestationRecord(filter: {attested_doc: {_eq: \"%s\"}, docType: {_eq: \"%s\"}}) { attested_doc source_doc CIDs docType count _docID } }", docID, docType)
 
 	return nil
 }
 
 // CheckExistingAttestation checks if an attestation already exists for a document
 func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string) ([]AttestationRecord, error) {
-	attestationViewName := fmt.Sprintf("Document_%s", docType)
-
+	// Use consistent AttestationRecord collection name
 	// Use app-sdk wrapper function
-	existing, err := GetAttestationRecords(ctx, defraNode, attestationViewName, []string{docID})
+	existing, err := GetAttestationRecords(ctx, defraNode, "AttestationRecord", []string{docID})
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return nil, nil // No existing attestation, not an error
