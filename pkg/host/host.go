@@ -13,10 +13,10 @@ import (
 
 	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 
 	// "github.com/shinzonetwork/shinzo-host-client/pkg/view" // COMMENTED: Focusing on event-driven attestations
@@ -105,7 +105,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	logger.Init(true)
 
 	defraNode, networkHandler, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
-		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
+		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
 		"Block", "Transaction", "AccessListEntry", "Log")
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
