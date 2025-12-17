@@ -5,8 +5,10 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers: 
-      - '/ip4/136.112.206.228/tcp/9171/p2p/12D3KooWC2A7oX3zq3QLrL3NhrrSrLSxMArHRWQPCZGqF3XzPAYv'
-      - '/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s'
+      # Branchable - http://34.72.60.210:8080/health
+      # - '/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s'
+      # Non branchable - http://136.112.206.228:8080/health
+      - '/ip4/136.112.206.228/tcp/9171/p2p/12D3KooWMPcJy1i1FdRBHpDuTw5wE2teKbGnaymzZGdrX5wgjsD2'
     listen_addr: "/ip4/0.0.0.0/tcp/0"
     # Filter P2P topics - only subscribe to document-related topics
     topic_filter:
@@ -19,7 +21,7 @@ defradb:
     path: "./.defra/data"
 shinzo:
   minimum_attestations: 1
-  start_height: 23603421  # Start closer to latest block for testing (was 23500000)
+  start_height: 23700000  # Start closer to latest block for testing (was 23500000) 23700000 23603421
   # web_socket_url: ""  # Commented out to test without shinzohub connection
   
   # P2P Control Settings
@@ -28,9 +30,9 @@ shinzo:
   
   # Message Cache & Worker Pool Settings - AGGRESSIVE MEMORY PROTECTION
   cache_size: 1000              # CRITICAL: Small cache to prevent memory explosion
-  cache_queue_size: 500         # CRITICAL: Small queue to prevent memory explosion  
+  cache_queue_size: 5000         # CRITICAL: Small queue to prevent memory explosion  
   cache_max_age_seconds: 10     # CRITICAL: Aggressive cleanup every 10 seconds
-  worker_count: 4               # CRITICAL: Fewer workers to prevent goroutine explosion
+  worker_count: 100               # CRITICAL: Fewer workers to prevent goroutine explosion
 
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
