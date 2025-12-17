@@ -90,11 +90,25 @@ Hosts receive primitive data from Indexers and serve Views to subscribers. To co
 1) Connect them directly to the Indexer
 2) Connect them to the Indexer by hopping through a "big peer"
 
-If you are looking to connect to the rest of the Shinzo network, connecting directly to a deployed and running Indexer is the correct approach. When a defra instance is first started, they will log their "peer info" - the Indexer client will do this as well.
+### Direct Connection
 
-In your config.yaml, you'll want to include the Indexer client's "peer info" in your `bootstrap_peers` array. An example "peer info" looks like `"/ip4/183.123.3.12/tcp/9171/p2p/12D3KooWLttXvtbokAphdVWL6hx7VEviDnHYwQs5SmAw1Y1yfcZT"` - with the ip address, port, and `PeerId` replaced accordingly with what was seen in the logs. If there are other peers you'd like to connect with (e.g. more Indexers, your application client, etc.), you may also include their info as well.
+If your goal is to connect to the rest of the Shinzo network, the correct approach is to connect directly to a deployed and running Indexer. When a Defra instance is first started, it will log its peer info, and Indexer clients do the same.
 
-If you are developing locally, then, while you can connect directly to an Indexer, you will likely prefer the devex of connecting to an Indexer by hopping through a "big peer". It is recommended to use [the example big peer](https://github.com/shinzonetwork/app-sdk/tree/Examples/hostDemo/examples/bigPeer). You'll want to clone it and run it like a standard go program (with `go run` or `go build` and running the built binary, as above with the host client app). You'll want to retrieve the "peer info" from the big peer's logs and include it in the `boostrap_peers` array in your `config.yaml` for the Host client, the Indexer client, and any other Shinzo apps you may be working with. The big peer will serve as an entrypoint for all your Defra nodes and serve as a means of facilitation their discovery and connection to one another. When developing locally, it is recommended to keep the (lightweight) big peer running at all times to save you the hassle of re-configuring all your bootstrap peers again.
+You will need to include this peer info in the `bootstrap_peers` array of your `config.yaml`. For example:
+
+```bash
+/ip4/183.123.3.12/tcp/9171/p2p/12D3KooWLttXvtbokAphdVWL6hx7VEviDnHYwQs5SmAw1Y1yfcZT
+```
+
+Replace the `IP address`, `port`, and `PeerId` with the values from your logs.  If there are other peers you'd like to connect with (e.g. more Indexers, your application client, etc.), you may also include their info as well. Connecting directly ensures that your Host client is fully integrated with the live network and receives all the relevant primitives from deployed Indexers.
+
+### Connection via Big Peer
+
+For local development, it is often more convenient to connect to an Indexer through a big peer. This approach simplifies DevEx by providing a single entrypoint for all your local Defra nodes and reducing the need to manually configure multiple bootstrap peers. You can use [the example big peer](https://github.com/shinzonetwork/app-sdk/tree/Examples/hostDemo/examples/bigPeer) provided in the repository.
+
+To set it up, clone the [big peer repository](https://github.com/shinzonetwork/app-sdk/tree/Examples/hostDemo/examples/bigPeer) and run it as a standard Go program using either `go run` or `go build` followed by executing the binary. Retrieve the **peer info** from the big peer’s logs, and include it in the `boostrap_peers` array in your `config.yaml` for the Host client, Indexer client, and any other local Shinzo apps you are working with. The big peer will serve as an entrypoint for all your Defra nodes and serve as a means of facilitation their discovery and connection to one another. It is recommended to keep this lightweight peer running at all times during development to avoid repeatedly reconfiguring bootstrap peers.
+
+This approach is particularly useful when you are testing or experimenting locally and do not need to connect to the live Shinzo network. It ensures your Host client can still receive primitive data from local Indexers and participate in passive replication without the complexity of managing multiple direct peer connections.
 
 ## How it Works
 
@@ -106,7 +120,7 @@ Since the transmission of data from one node to another (moving from Indexer -> 
 2) Hosting Views -> transforming primitives as described in the View definition, applying Lens transforms as required
 3) Managing attestation records from the Indexers
 
-Currently, with respect to 1), the Host client will, assuming `web_socket_url` in `config.yaml` is not nil, attempt to establish a websocket with a ShinzoHub node (please provide the websocket to one - at time of writing, if you run ShinzoHub locally, that would be "ws://localhost:26657/websocket") and subscribe to the new View created event. Currently, when the Host receives a new View event, they will automatically begin Hosting it (eventually, we will provide more optionality around this). 
+Currently, with respect to 1), the Host client will, assuming `web_socket_url` in `config.yaml` is not nil, attempt to establish a websocket with a ShinzoHub node (please provide the websocket to one - at time of writing, if you run ShinzoHub locally, that would be "ws://localhost:26657/websocket") and subscribe to the new View created event. Currently, when the Host receives a new View event, they will automatically begin Hosting it (eventually, we will provide more optionality around this).
 
 Setting up a View for Hosting involves:
 
