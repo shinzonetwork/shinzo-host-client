@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
 )
 
 // DocumentJob represents a document to be processed.

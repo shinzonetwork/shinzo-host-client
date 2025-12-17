@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 

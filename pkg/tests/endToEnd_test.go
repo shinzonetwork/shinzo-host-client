@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
 	"github.com/sourcenetwork/defradb/client"

@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
