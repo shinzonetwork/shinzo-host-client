@@ -21,6 +21,7 @@ type Block {
     uncles: [String]
     # Relationships
     transactions: [Transaction] @relation(name: "block_transactions")
+    attestationRecord: AttestationRecord @relation(name: "block_attestationRecord")
 }
 
 type Transaction {
@@ -50,12 +51,14 @@ type Transaction {
     block: Block @relation(name: "block_transactions")
     logs: [Log] @relation(name: "transaction_logs")
     accessList: [AccessListEntry] @relation(name: "transaction_accessList")
+    attestationRecord: AttestationRecord @relation(name: "transaction_attestationRecord")
 }
 
 type AccessListEntry {
     address: String
     storageKeys: [String]
     transaction: Transaction @relation(name: "transaction_accessList")
+    attestationRecord: AttestationRecord @relation(name: "accessList_attestationRecord")
 }
 
 type Log {
@@ -71,6 +74,7 @@ type Log {
     # Relationships
     block: Block @index @relation(name: "block_transactions")
     transaction: Transaction @index @relation(name: "transaction_logs")
+    attestationRecord: AttestationRecord @relation(name: "log_attestationRecord")
 }
 
 type AttestationRecord {
