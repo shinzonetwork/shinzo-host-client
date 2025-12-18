@@ -348,12 +348,12 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 
 		for _, transformedDocId := range transformedDocIds {
 			verifier := hostAttestation.NewDefraSignatureVerifier(h.DefraNode)
-			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, sourceDocumentAttestationInfo.Version)
+			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, "View", sourceDocumentAttestationInfo.Version)
 			if err != nil {
 				return fmt.Errorf("Error creating attestation record: %w", err)
 			}
 
-			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode, v.Name)
+			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode)
 			if err != nil {
 				return fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
 			}
@@ -362,3 +362,9 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 
 	return nil
 }
+
+// curl -k -X POST https://35.239.160.177:443/api/v0/graphql \
+//   -H "Content-Type: application/json" \
+//   -d '{
+//     "query": "query { Block(order: {number: DESC}) { number } }"
+//   }'

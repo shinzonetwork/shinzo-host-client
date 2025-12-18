@@ -48,7 +48,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -100,7 +100,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -141,7 +141,7 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -157,7 +157,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 	sourceDocId := "source-doc-456"
 	versions := []attestation.Version{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -225,7 +225,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testViewName)
+	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	expectedAttestationCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
@@ -465,7 +465,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
 	require.NoError(t, err)
 
-	err = merged.PostAttestationRecord(t.Context(), defraNode, testViewName)
+	err = merged.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	// Verify the merged record was stored correctly
@@ -568,7 +568,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		CIDs:          []string{"cid-1"},
 	}
 
-	err = record.PostAttestationRecord(t.Context(), defraNode, viewName)
+	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	collection := fmt.Sprintf("AttestationRecord_%s", viewName)
@@ -610,9 +610,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		CIDs:          []string{"cid-1"},
 	}
 
-	err = record.PostAttestationRecord(t.Context(), defraNode, viewName)
+	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
-	err = record.PostAttestationRecord(t.Context(), defraNode, viewName)
+	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	collection := fmt.Sprintf("AttestationRecord_%s", viewName)
