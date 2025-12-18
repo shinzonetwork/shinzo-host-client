@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
@@ -138,10 +138,10 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	// Initialize attestation record schemas for all document types
-	err = initializeAttestationSchemas(ctx, defraNode)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize attestation schemas: %w", err)
-	}
+	// err = initializeAttestationSchemas(ctx, defraNode)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to initialize attestation schemas: %w", err)
+	// }
 
 	// Log API URL
 	if defraNode.APIURL != "" {

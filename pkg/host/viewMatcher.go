@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 )
 
 // ViewMatcher maps documents to applicable views based on collection and field criteria

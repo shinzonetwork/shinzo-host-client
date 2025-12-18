@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/shinzonetwork/app-sdk/pkg/config"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
 	"gopkg.in/yaml.v3"
 )
 

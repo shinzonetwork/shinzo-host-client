@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/views"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/sourcenetwork/immutable"
