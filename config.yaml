@@ -1,5 +1,5 @@
 defradb:
-  url: "localhost:9181"
+  url: "localhost:9182"
   keyring_secret: ""
   p2p:
     bootstrap_peers: ['/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s' ]
