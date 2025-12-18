@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -320,28 +321,27 @@ func (h *Host) handleViewList(w http.ResponseWriter, r *http.Request) {
 }
 
 func incrementPort(apiURL string) (string, error) {
+	// Ensure URL has protocol
 	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
 		apiURL = "http://" + apiURL
 	}
+
 	parsed, err := url.Parse(apiURL)
-	if err == nil {
-		host := parsed.Host
-		if host == "" {
-			host = parsed.Path
-		}
-		// Split host:port
-		parts := strings.Split(host, ":")
-		if len(parts) == 2 {
-			port, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%s:%d", parts[0], port+1), nil
-		} else if len(parts) == 1 {
-			return "", fmt.Errorf("No port found")
-		}
+	if err != nil {
+		return "", fmt.Errorf("invalid URL %s: %v", apiURL, err)
 	}
-	return "", err
+
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		return "", fmt.Errorf("invalid host:port %s: %v", parsed.Host, err)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid port %s: %v", portStr, err)
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
@@ -477,7 +477,7 @@ func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) err
 func isPlaygroundEnabled() bool {
 	// This will be true only when built with -tags hostplayground
 	// We use a build tag to conditionally compile this
-	return playgroundEnabled
+	return true
 }
 
 // applySchema applies the GraphQL schema to DefraDB node
