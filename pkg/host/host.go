@@ -14,11 +14,13 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/sourcenetwork/corelog"
 
@@ -90,8 +92,10 @@ type Host struct {
 	viewRegistrationHandler *shinzohub.ViewRegistrationHandler // Handles Shinzo Hub view registration events
 	viewEndpointManager     *ViewEndpointManager               // Manages HTTP endpoints for views
 
+	healthServer *server.HealthServer
+
 	// METRICS SYSTEM: Track attestation and document processing metrics
-	metrics *HostMetrics // Comprehensive metrics tracking
+	metrics *server.HostMetrics // Comprehensive metrics tracking
 
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
@@ -196,7 +200,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		processingCancel:       func() {},
 		playgroundServer:       playgroundServer,
 		config:                 cfg,
-		metrics:                NewHostMetrics(),
+		metrics:                server.NewHostMetrics(),
 	}
 
 	cacheSize := cfg.Shinzo.CacheSize
@@ -240,7 +244,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	newHost.viewManager = NewViewManager(defraNode, viewConfig)
 
 	// Set metrics callback for ViewManager
-	newHost.viewManager.metricsCallback = func() *HostMetrics {
+	newHost.viewManager.metricsCallback = func() *server.HostMetrics {
 		return newHost.metrics
 	}
 
@@ -283,7 +287,112 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	// Block monitoring is now handled by the event-driven processAllViews goroutine
 	// No separate monitoring goroutine needed
 
+	// Initialize and start health server
+	var healthDefraURL string
+	if cfg.ShinzoAppConfig.DefraDB.Url != "" {
+		healthDefraURL = cfg.ShinzoAppConfig.DefraDB.Url
+	} else if defraNode != nil && defraNode.APIURL != "" {
+		healthDefraURL = defraNode.APIURL
+	}
+
+	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL)
+
+	// Start health server in background
+	go func() {
+		if err := newHost.healthServer.Start(); err != nil {
+			logger.Sugar.Errorf("Health server failed: %v", err)
+		}
+	}()
+
+	logger.Sugar.Info("🏥 Health server started on port 8080")
+
 	return newHost, nil
+}
+
+// HealthChecker interface implementation for Host
+func (h *Host) IsHealthy() bool {
+	// Check if DefraDB is accessible and processing pipeline is running
+	return h.DefraNode != nil && h.processingPipeline != nil
+}
+
+func (h *Host) GetCurrentBlock() int64 {
+	if h.metrics != nil {
+		return int64(h.metrics.MostRecentBlock)
+	}
+	return 0
+}
+
+func (h *Host) GetLastProcessedTime() time.Time {
+	if h.metrics != nil {
+		return h.metrics.LastDocumentTime
+	}
+	return time.Time{}
+}
+
+func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
+	p2pInfo := &server.P2PInfo{
+		Enabled:  h.NetworkHandler != nil,
+		PeerInfo: []server.PeerInfo{},
+	}
+
+	// Get actual peer information using signer package methods
+	if h.DefraNode != nil && h.NetworkHandler != nil {
+		// Get peer ID and public key using the same approach as indexer
+		peerPubKey, err := h.GetPeerPublicKey()
+		if err == nil {
+			// Create peer info with actual data
+			peerInfo := server.PeerInfo{
+				ID:        peerPubKey,                          // Use peer public key as ID for now
+				Addresses: []string{"/ip4/127.0.0.1/tcp/9171"}, // Default local address
+				PublicKey: peerPubKey,
+			}
+
+			p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, peerInfo)
+		}
+	}
+
+	return p2pInfo, nil
+}
+
+func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.PeerIDRegistration, error) {
+	// Use the signer package approach like the indexer
+	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ShinzoAppConfig)
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
+	}
+
+	// Sign with peer ID
+	peerSignedMsg, err := signer.SignWithP2PKeys(message, h.DefraNode, h.config.ShinzoAppConfig)
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
+	}
+
+	// Get node and peer public keys from signer helpers
+	nodePubKey, err := h.GetNodePublicKey()
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, fmt.Errorf("failed to get node public key: %w", err)
+	}
+
+	peerPubKey, err := h.GetPeerPublicKey()
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, fmt.Errorf("failed to get peer public key: %w", err)
+	}
+
+	return server.DefraPKRegistration{
+			PublicKey:   nodePubKey,
+			SignedPKMsg: signedMsg,
+		}, server.PeerIDRegistration{
+			PeerID:        peerPubKey,
+			SignedPeerMsg: peerSignedMsg,
+		}, nil
+}
+
+func (h *Host) GetNodePublicKey() (string, error) {
+	return signer.GetDefraPublicKey(h.DefraNode, h.config.ShinzoAppConfig)
+}
+
+func (h *Host) GetPeerPublicKey() (string, error) {
+	return signer.GetP2PPublicKey(h.DefraNode, h.config.ShinzoAppConfig)
 }
 
 // setupViewHTTPServer creates an HTTP server that serves view endpoints alongside DefraDB API

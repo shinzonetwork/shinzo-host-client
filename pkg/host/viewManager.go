@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -63,7 +64,7 @@ type ViewManager struct {
 	cleanupTicker *time.Ticker
 
 	// Metrics callback
-	metricsCallback func() *HostMetrics
+	metricsCallback func() *server.HostMetrics
 
 	// Endpoint management for view HTTP endpoints
 	endpointManager *ViewEndpointManager
