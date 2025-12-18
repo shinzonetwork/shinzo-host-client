@@ -464,24 +464,3 @@ func isPlaygroundEnabled() bool {
 	// We use a build tag to conditionally compile this
 	return true
 }
-
-// docker run -d \
-//   --name shinzo-indexer \
-//   --restart unless-stopped \
-//   -p 8080:8080 \
-//   -p 9171:9171 \
-//   -p 9181:9181 \
-//   -e GETH_RPC_URL="http://136.112.206.228:8545" \
-//   -e GETH_WS_URL="ws://136.112.206.228:8546" \
-//   -e GETH_API_KEY="HxUPHPzQgpuzuUrY4zbbYSOHd73dbyMXn+sN8Oz0PH8=" \
-//   -e INDEXER_START_HEIGHT="23700000" \
-//   -e DEFRADB_KEYRING_SECRET="pingpong" \
-//   -v ~/data/defradb2:/app/.defra \
-//   -v ~/data/logs2:/app/logs \
-//   -v ./config:/app/config:ro \
-//   --health-cmd="curl -f http://localhost:8080/health" \
-//   --health-interval=30s \
-//   --health-timeout=10s \
-//   --health-retries=3 \
-//   --health-start-period=60s \
-//   shinzo-indexer
