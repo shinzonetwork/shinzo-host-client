@@ -8,7 +8,7 @@ require (
 	github.com/shinzonetwork/indexer v0.1.1-0.20251120164521-e7d20c7b0344
 	github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20251217231012-a7ad297eb2c5
+	github.com/sourcenetwork/defradb v0.20.1-0.20251217232152-b3787f631698
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
