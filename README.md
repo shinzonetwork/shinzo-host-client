@@ -115,9 +115,10 @@ This approach is particularly useful when you are testing or experimenting local
 Below is a concrete example of connecting the Host client to a running Indexer.
 
 **PEER ID INFO**
-IP_ADDRESS: 136.115.148.56
-PORT: 9171
-PEER_ID: 12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD
+
+- IP_ADDRESS: 136.115.148.56
+- PORT: 9171
+- PEER_ID: 12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD
 
 Peer info format:
 
