@@ -231,8 +231,13 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	logger.Sugar.Infof("🔧 Processing pipeline initialized: cache=%d, queue=%d, workers=%d",
 		cacheSize, queueSize, workerCount)
 
-	// START THE PROCESSING PIPELINE (CRITICAL!)
+	// Start the process pipeline
 	newHost.processingPipeline.Start()
+
+	// Start unified event listener to track all document updates
+	if err := newHost.startEventListener(context.Background()); err != nil {
+		return nil, err
+	}
 
 	// Initialize ViewManager for lens transformations and view lifecycle management
 	viewConfig := ViewManagerConfig{
@@ -280,9 +285,9 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	// Start the event-driven attestation processing system
-	processingCtx, processingCancel := context.WithCancel(context.Background())
-	newHost.processingCancel = processingCancel
-	go newHost.processAttestationEventsWithSubscription(processingCtx)
+	// processingCtx, processingCancel := context.WithCancel(context.Background())
+	// newHost.processingCancel = processingCancel
+	// go newHost.processAttestationEventsWithSubscription(processingCtx)
 
 	// Block monitoring is now handled by the event-driven processAllViews goroutine
 	// No separate monitoring goroutine needed

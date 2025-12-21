@@ -88,7 +88,7 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	// Assemble and log the complete curl equivalent request
 	curlCmd := fmt.Sprintf("curl -X GET '%s'", fullURL)
 	if logger.Sugar != nil {
-		logger.Sugar.Infof("Signature verification request for CID %s: %s", cid, curlCmd)
+		logger.Sugar.Debugf("Signature verification request for CID %s: %s", cid, curlCmd)
 	}
 
 	// Make HTTP GET request to the verify-signature endpoint
