@@ -5,21 +5,17 @@ go 1.25.5
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/shinzonetwork/app-sdk v0.0.0-20251114205912-74a90bdb58b5
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251218182531-407c30d55a0f
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251222184045-95d844f8e128
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/shinzo-view-creator v0.0.0-20251222192811-1c960c73fce8
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20251218041027-34b49ea24d69
+	github.com/sourcenetwork/defradb v0.20.1-0.20251221233107-fce850da34d2
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-// require github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07 // indirect
-
-// replace github.com/shinzonetwork/shinzo-view-creator => github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
