@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"testing"
 
-	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/views"
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	indexerschema "github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )

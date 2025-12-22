@@ -6,7 +6,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
-	"github.com/shinzonetwork/view-creator/core/models"
+	"github.com/shinzonetwork/shinzo-view-creator/core/models"
 	"github.com/stretchr/testify/require"
 )
 

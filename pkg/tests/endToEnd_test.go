@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
+	indexerschema "github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"

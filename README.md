@@ -1,5 +1,5 @@
 # shinzo-host-client
-The Host Client's role is to facilitate the hosting of `View`s. A `View` is a collection of data that is useful to an application. `View`s are described using [the view-creator tool](https://github.com/shinzonetwork/view-creator) and comprise of SDLs, Lens transforms, and source data. A Host performs Lens transforms on Primitive data (blocks, transactions, logs, etc.) to write to a `View` and serve requests from subscribers.
+The Host Client's role is to facilitate the hosting of `View`s. A `View` is a collection of data that is useful to an application. `View`s are described using [the view-creator tool](https://github.com/shinzonetwork/shinzo-view-creator) and comprise of SDLs, Lens transforms, and source data. A Host performs Lens transforms on Primitive data (blocks, transactions, logs, etc.) to write to a `View` and serve requests from subscribers.
 
 ## How to Use
 
