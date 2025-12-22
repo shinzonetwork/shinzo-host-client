@@ -14,6 +14,10 @@ import (
 
 // startEventListener subscribes to DefraDB's event bus to track all document updates.
 func (h *Host) startEventListener(ctx context.Context) error {
+	// Ensure logger is initialized
+	if logger.Sugar == nil {
+		logger.Init(true)
+	}
 	subscription, err := h.DefraNode.DB.Events().Subscribe(event.UpdateName)
 	if err != nil {
 		return err
