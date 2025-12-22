@@ -15,11 +15,11 @@ import (
 // HealthServer provides HTTP endpoints for health checks and metrics
 type HealthServer struct {
 	server   *http.Server
-	indexer  HealthChecker
+	host     HealthChecker
 	defraURL string
 }
 
-// HealthChecker interface for checking indexer health
+// HealthChecker interface for checking host health
 type HealthChecker interface {
 	IsHealthy() bool
 	GetCurrentBlock() int64
@@ -80,7 +80,7 @@ type MetricsResponse struct {
 var startTime = time.Now()
 
 // NewHealthServer creates a new health server
-func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthServer {
+func NewHealthServer(port int, host HealthChecker, defraURL string) *HealthServer {
 	mux := http.NewServeMux()
 
 	hs := &HealthServer{
@@ -90,7 +90,7 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		},
-		indexer:  indexer,
+		host:     host,
 		defraURL: defraURL,
 	}
 
@@ -129,10 +129,10 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime:           time.Since(startTime).String(),
 	}
 
-	if hs.indexer != nil {
-		response.CurrentBlock = hs.indexer.GetCurrentBlock()
-		response.LastProcessed = hs.indexer.GetLastProcessedTime()
-		p2p, err := hs.indexer.GetPeerInfo()
+	if hs.host != nil {
+		response.CurrentBlock = hs.host.GetCurrentBlock()
+		response.LastProcessed = hs.host.GetLastProcessedTime()
+		p2p, err := hs.host.GetPeerInfo()
 		response.P2P = p2p
 		if err != nil {
 			response.Status = "unhealthy"
@@ -140,7 +140,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !hs.indexer.IsHealthy() {
+		if !hs.host.IsHealthy() {
 			response.Status = "unhealthy"
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
@@ -157,10 +157,10 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check if indexer is ready (has processed at least one block recently)
+	// Check if host is ready (has processed at least one block recently)
 	ready := true
-	if hs.indexer != nil {
-		lastProcessed := hs.indexer.GetLastProcessedTime()
+	if hs.host != nil {
+		lastProcessed := hs.host.GetLastProcessedTime()
 		if time.Since(lastProcessed) > 5*time.Minute && !lastProcessed.IsZero() {
 			ready = false
 		}
@@ -178,10 +178,10 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		Uptime:           time.Since(startTime).String(),
 	}
 
-	if hs.indexer != nil {
-		response.CurrentBlock = hs.indexer.GetCurrentBlock()
-		response.LastProcessed = hs.indexer.GetLastProcessedTime()
-		p2p, err := hs.indexer.GetPeerInfo()
+	if hs.host != nil {
+		response.CurrentBlock = hs.host.GetCurrentBlock()
+		response.LastProcessed = hs.host.GetLastProcessedTime()
+		p2p, err := hs.host.GetPeerInfo()
 		response.P2P = p2p
 		if err != nil {
 			response.Status = "unhealthy"
@@ -190,8 +190,8 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		}
 
 		// Include signed registration information on the registration endpoint.
-		const registrationMessage = "Shinzo Network Indexer registration"
-		defraReg, peerReg, signErr := hs.indexer.SignMessages(registrationMessage)
+		const registrationMessage = "Shinzo Network host registration"
+		defraReg, peerReg, signErr := hs.host.SignMessages(registrationMessage)
 		registration := &DisplayRegistration{
 			Enabled: signErr == nil,
 			Message: normalizeHex(hex.EncodeToString([]byte(registrationMessage))),
@@ -228,10 +228,10 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime: time.Since(startTime).String(),
 	}
 
-	if hs.indexer != nil {
-		metrics.CurrentBlock = hs.indexer.GetCurrentBlock()
-		metrics.LastProcessedTime = hs.indexer.GetLastProcessedTime()
-		metrics.BlocksProcessed = hs.indexer.GetCurrentBlock() // Simplified
+	if hs.host != nil {
+		metrics.CurrentBlock = hs.host.GetCurrentBlock()
+		metrics.LastProcessedTime = hs.host.GetLastProcessedTime()
+		metrics.BlocksProcessed = hs.host.GetCurrentBlock() // Simplified
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -246,7 +246,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := map[string]interface{}{
-		"service":   "Shinzo Network Indexer",
+		"service":   "Shinzo Network Host",
 		"version":   "1.0.0",
 		"status":    "running",
 		"timestamp": time.Now(),
