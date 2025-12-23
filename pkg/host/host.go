@@ -57,7 +57,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
-
+	
 	logger.Init(true)
 
 	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
