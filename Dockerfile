@@ -1,5 +1,5 @@
 # Multi-stage build like indexer
-FROM ubuntu:24.04 AS builder
+FROM golang:1.25 AS builder
 
 # Install build dependencies including WASM runtimes
 RUN apt-get update && apt-get install -y \
@@ -16,22 +16,8 @@ RUN apt-get update && apt-get install -y \
     coreutils \
     libgcc-s1 \
     libstdc++6 \
-    curl \
-    libssl-dev \
-    gzip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Go (detect architecture like indexer)
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        curl -L https://go.dev/dl/go1.25.4.linux-amd64.tar.gz | tar -xz -C /usr/local; \
-    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -L https://go.dev/dl/go1.25.4.linux-arm64.tar.gz | tar -xz -C /usr/local; \
-    else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
-    fi
-ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Set working directory
 WORKDIR /app
