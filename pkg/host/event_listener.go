@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/immutable"
 
+	"github.com/shinzonetwork/app-sdk/pkg/defra"
 	"github.com/shinzonetwork/app-sdk/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
@@ -53,7 +55,7 @@ func (h *Host) startEventListener(ctx context.Context) error {
 							updateEvent.DocID, updateEvent.CollectionID, updateEvent.Cid)
 					}
 
-					doc, err := h.getDocumentByID(context.Background(), updateEvent.DocID, updateEvent.CollectionID)
+					doc, err := h.getDocumentByID(context.Background(), updateEvent.DocID, updateEvent.CollectionID, updateEvent.Cid)
 					if err != nil {
 						logger.Sugar.Debugf("⚠️  Could not fetch document %s: %v (skipping attestation)", updateEvent.DocID, err)
 						if h.metrics != nil {
@@ -92,7 +94,8 @@ func (h *Host) startEventListener(ctx context.Context) error {
 }
 
 // getDocumentByID fetches a document from DefraDB by its ID and collection ID.
-func (h *Host) getDocumentByID(ctx context.Context, docID string, collectionID string) (map[string]interface{}, error) {
+// It also fetches the signature for the given CID from the commits.
+func (h *Host) getDocumentByID(ctx context.Context, docID string, collectionID string, versionCid cid.Cid) (map[string]interface{}, error) {
 	cols, err := h.DefraNode.DB.GetCollections(ctx, client.CollectionFetchOptions{
 		CollectionID: immutable.Some(collectionID),
 	})
@@ -119,7 +122,59 @@ func (h *Host) getDocumentByID(ctx context.Context, docID string, collectionID s
 		return nil, fmt.Errorf("failed to convert document to map: %w", err)
 	}
 
+	// Fetch signature for the CID from commits
+	if versionCid.Defined() {
+		signature := h.getSignatureForCID(ctx, docID, versionCid.String())
+		docMap["_version"] = []interface{}{
+			map[string]interface{}{
+				"cid":       versionCid.String(),
+				"signature": signature,
+			},
+		}
+	}
+
 	return docMap, nil
+}
+
+// getSignatureForCID fetches the signature for a specific CID from the document's commits.
+func (h *Host) getSignatureForCID(ctx context.Context, docID string, targetCID string) map[string]interface{} {
+	query := fmt.Sprintf(`query {
+		_commits(docID: "%s", cid: "%s") {
+			cid
+			signature {
+				value
+				identity
+				type
+			}
+		}
+	}`, docID, targetCID)
+
+	type CommitResult struct {
+		Commits []struct {
+			CID       string `json:"cid"`
+			Signature struct {
+				Value    string `json:"value"`
+				Identity string `json:"identity"`
+				Type     string `json:"type"`
+			} `json:"signature"`
+		} `json:"_commits"`
+	}
+
+	result, err := defra.QuerySingle[CommitResult](ctx, h.DefraNode, query)
+	if err != nil {
+		logger.Sugar.Debugf("Failed to fetch signature for CID %s: %v", targetCID, err)
+		return nil
+	}
+
+	if len(result.Commits) > 0 && result.Commits[0].Signature.Identity != "" {
+		return map[string]interface{}{
+			"value":    result.Commits[0].Signature.Value,
+			"identity": result.Commits[0].Signature.Identity,
+			"type":     result.Commits[0].Signature.Type,
+		}
+	}
+
+	return nil
 }
 
 // getDocTypeFromCollectionID determines the document type from the collection ID.
