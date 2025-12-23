@@ -5,10 +5,10 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Branchable - http://34.72.60.210:8080/health
-      # - '/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWBBeucFveKxPV2PbzXi56ijtXKkiRmTRbb9ELUcEREK4s'
-      # Non branchable - http://136.112.206.228:8080/health
-      - '/ip4/136.112.206.228/tcp/9171/p2p/12D3KooWMPcJy1i1FdRBHpDuTw5wE2teKbGnaymzZGdrX5wgjsD2'
+      # Branchable - http://34.55.253.70:8080/health
+      - '/ip4/34.55.253.70/tcp/9171/p2p/12D3KooWM8LZVqDY42BWEdZeMpooi2FM6dqXgJ5raRHhDG6NyueV'
+      # Non branchable - http://34.67.151.150:8080/health
+      # - '/ip4/34.67.151.150/tcp/9171/p2p/12D3KooWJKqrkrLHtgU35gPFeyGU5etEh5vWVW9gZojJJho7q7Ev'
     listen_addr: "/ip4/0.0.0.0/tcp/0"
     # Filter P2P topics - only subscribe to document-related topics
     topic_filter:
