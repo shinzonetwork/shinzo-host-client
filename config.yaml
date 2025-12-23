@@ -41,8 +41,8 @@ shinzo:
   view_queue_size: 1000           # Queue size for view processing jobs
 
 logger:
-  development: false
-  level: "error"  # Only show errors, suppress all P2P info/warn messages
+  development: true
+  level: "debug"  # Only show errors, suppress all P2P info/warn messages
   # Alternative: Suppress specific P2P logging
   # modules:
   #   p2p: "error"     # Suppress P2P info messages
