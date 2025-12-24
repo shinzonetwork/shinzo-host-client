@@ -4,8 +4,7 @@ go 1.25.5
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/app-sdk v0.0.0-20251114205912-74a90bdb58b5
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251222184045-95d844f8e128
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251224183542-9b17a5cd72be
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/shinzo-view-creator v0.0.0-20251222192811-1c960c73fce8
 	github.com/sourcenetwork/corelog v0.0.8
