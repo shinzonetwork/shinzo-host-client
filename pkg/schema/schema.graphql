@@ -47,7 +47,7 @@ type Transaction {
     cumulativeGasUsed: String
     effectiveGasPrice: String
     # Relationships
-    block: Block @relation(name: "block_transactions")
+    block: Block @index @relation(name: "block_transactions")
     logs: [Log] @relation(name: "transaction_logs")
     accessList: [AccessListEntry] @relation(name: "transaction_accessList")
 }
@@ -55,29 +55,20 @@ type Transaction {
 type AccessListEntry {
     address: String
     storageKeys: [String]
-    transaction: Transaction @relation(name: "transaction_accessList")
+    transaction: Transaction @index @relation(name: "transaction_accessList")
 }
 
 type Log {
     address: String
     topics: [String]
     data: String
-    transactionHash: String
-    blockHash: String
+    transactionHash: String @index
+    blockHash: String @index
     blockNumber: Int @index
-    transactionIndex: Int
-    logIndex: Int
+    transactionIndex: Int @index
+    logIndex: Int @index
     removed: String
     # Relationships
     block: Block @index @relation(name: "block_transactions")
     transaction: Transaction @index @relation(name: "transaction_logs")
 }
-
-type AttestationRecord {
-    attested_doc: String @index
-    source_doc: String
-    CIDs: [String]
-    doc_type: String @index
-    vote_count: Int @crdt(type: pcounter)
-}
-
