@@ -37,7 +37,7 @@ type UserWithDocId struct {
 }
 
 func startAndSeedDefraNode(t *testing.T) *node.Node {
-	logger.Init(true)
+	logger.Init(true, "./logs")
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema("type User {name: String}"), "User")
 	require.NoError(t, err)

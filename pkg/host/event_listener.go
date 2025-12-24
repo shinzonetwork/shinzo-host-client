@@ -8,8 +8,8 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/immutable"
 
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
 )
@@ -18,7 +18,7 @@ import (
 func (h *Host) startEventListener(ctx context.Context) error {
 	// Ensure logger is initialized
 	if logger.Sugar == nil {
-		logger.Init(true)
+		logger.Init(true, "./logs")
 	}
 	subscription, err := h.DefraNode.DB.Events().Subscribe(event.UpdateName)
 	if err != nil {
