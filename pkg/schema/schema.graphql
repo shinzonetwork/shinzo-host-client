@@ -72,3 +72,12 @@ type Log {
     block: Block @index @relation(name: "block_transactions")
     transaction: Transaction @index @relation(name: "transaction_logs")
 }
+
+type AttestationRecord {
+    attested_doc: String @index
+    source_doc: String
+    CIDs: [String]
+    doc_type: String @index
+    vote_count: Int @crdt(type: pcounter)
+}
+
