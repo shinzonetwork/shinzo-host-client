@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	schema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/stretchr/testify/require"
@@ -166,11 +168,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 }
 
 func TestPostAttestationRecord(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
-		type TestDoc {
-			name: String
-		}
-	`)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
 
 	type TestDoc struct {
 		Name    string                `json:"name"`
@@ -377,11 +375,7 @@ func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
 // ========================================
 
 func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
-		type TestDoc {
-			name: String
-		}
-	`)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
 
 	type TestDoc struct {
 		Name    string                `json:"name"`
@@ -548,11 +542,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 }
 
 func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
-		type TestDoc {
-			name: String
-		}
-	`)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
 	require.NoError(t, err)
@@ -590,11 +580,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 }
 
 func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
-		type TestDoc {
-			name: String
-		}
-	`)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
 	require.NoError(t, err)
