@@ -109,7 +109,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		cfg = DefaultConfig
 	}
 
-	logger.Init(true, "./logs")
+	logger.Init(true)
 
 	// Configure DefraDB logging - set to error level to hide INFO logs from HTTP requests
 	corelog.SetConfigOverride("http", corelog.Config{
