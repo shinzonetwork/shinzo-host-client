@@ -215,7 +215,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	workerCount := cfg.Shinzo.WorkerCount
 	if workerCount <= 0 {
-		workerCount = 4 // Default worker count
+		workerCount = 10 // Default worker count
 	}
 
 	cacheMaxAge := time.Duration(cfg.Shinzo.CacheMaxAgeSeconds) * time.Second
@@ -234,16 +234,11 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
 
-	// Start unified event listener to track all document updates
-	// if err := newHost.startEventListener(context.Background()); err != nil {
-	// 	return nil, err
-	// }
-
 	// Initialize ViewManager for lens transformations and view lifecycle management
 	viewConfig := ViewManagerConfig{
 		InactivityTimeout: parseTimeoutOrDefault(cfg.Shinzo.ViewInactivityTimeout, 24*time.Hour),
 		CleanupInterval:   parseTimeoutOrDefault(cfg.Shinzo.ViewCleanupInterval, 1*time.Hour),
-		WorkerCount:       maxInt(cfg.Shinzo.ViewWorkerCount, 4),  // Ensure at least 4 workers
+		WorkerCount:       maxInt(cfg.Shinzo.ViewWorkerCount, 10), // Ensure at least 10 workers
 		QueueSize:         maxInt(cfg.Shinzo.ViewQueueSize, 1000), // Ensure at least 1000 queue size
 	}
 	newHost.viewManager = NewViewManager(defraNode, viewConfig)
