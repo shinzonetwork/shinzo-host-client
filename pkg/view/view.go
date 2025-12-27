@@ -265,14 +265,18 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node) error {
 			Arguments: lense.Arguments,
 		})
 	}
-	transform := immutable.Some(model.Lens{
+	lens := model.Lens{
 		Lenses: lenses,
-	})
+	}
+	lensCID, err := defraNode.DB.AddLens(ctx, lens)
+	if err != nil {
+		return fmt.Errorf("failed to register lens: %w", err)
+	}
 
-	// Create the view with AddView (includes the lens transform)
+	// Create the view with AddView using the lens CID
 	// If the view already exists from SubscribeTo, AddView will return an error
 	// We handle that gracefully since the view might have been created without the transform
-	_, err := defraNode.DB.AddView(ctx, *v.Query, sdl, transform)
+	_, err = defraNode.DB.AddView(ctx, *v.Query, sdl, immutable.Some(lensCID))
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "collection already exists") {
 			return nil
