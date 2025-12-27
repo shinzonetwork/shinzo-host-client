@@ -5,7 +5,7 @@ Written by Quinn Purdy on November 7, 2025
 
 ## Context
 
-The Shinzo team has conducted a number of experiments around Defra's built in "attestation" system, described in the prior ADR. These experiments, and the learnings from each of them, can be found [here](https://github.com/shinzonetwork/app-sdk/tree/Experiments/attestations/experiments).
+The Shinzo team has conducted a number of experiments around Defra's built in "attestation" system, described in the prior ADR. These experiments, and the learnings from each of them, can be found [here](https://github.com/shinzonetwork/shinzo-app-sdk/tree/Experiments/attestations/experiments).
 
 The Shinzo team has also made a first pass at the attestation system previously described and has received additional feedback from stakeholders on the Defra team.
 

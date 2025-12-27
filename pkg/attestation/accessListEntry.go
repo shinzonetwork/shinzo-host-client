@@ -1,6 +1,6 @@
 package attestation
 
-import "github.com/shinzonetwork/app-sdk/pkg/attestation"
+import "github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 
 type AccessListEntry struct {
 	Address     string      `json:"address"`

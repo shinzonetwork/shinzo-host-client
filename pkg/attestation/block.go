@@ -1,6 +1,6 @@
 package attestation
 
-import "github.com/shinzonetwork/app-sdk/pkg/attestation"
+import "github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 
 type Block struct {
 	Hash             string        `json:"hash"`
