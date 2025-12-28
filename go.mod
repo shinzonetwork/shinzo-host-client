@@ -4,11 +4,11 @@ go 1.25.5
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251224183542-9b17a5cd72be
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228011251-3033136518e1
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/shinzo-view-creator v0.0.0-20251222192811-1c960c73fce8
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20251221233107-fce850da34d2
+	github.com/sourcenetwork/defradb v0.20.1-0.20251228011124-b90581e73b84
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
@@ -189,7 +189,7 @@ require (
 	github.com/ipfs/bbloom v0.0.4 // indirect
 	github.com/ipfs/boxo v0.35.0 // indirect
 	github.com/ipfs/go-block-format v0.2.3 // indirect
-	github.com/ipfs/go-cid v0.5.0
+	github.com/ipfs/go-cid v0.5.0 // indirect
 	github.com/ipfs/go-cidutil v0.1.0 // indirect
 	github.com/ipfs/go-datastore v0.9.0 // indirect
 	github.com/ipfs/go-dsqueue v0.0.5 // indirect
@@ -325,7 +325,7 @@ require (
 	github.com/sourcenetwork/corekv/memory v0.2.4 // indirect
 	github.com/sourcenetwork/corekv/namespace v0.2.4 // indirect
 	github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 // indirect
-	github.com/sourcenetwork/go-p2p v0.1.6 // indirect
+	github.com/sourcenetwork/go-p2p v0.1.7 // indirect
 	github.com/sourcenetwork/goji v0.0.8 // indirect
 	github.com/sourcenetwork/graphql-go v0.7.10-0.20251126162830-73185f9b1d45 // indirect
 	github.com/sourcenetwork/raccoondb v0.2.1-0.20240722161350-d4a78b691ec8 // indirect
