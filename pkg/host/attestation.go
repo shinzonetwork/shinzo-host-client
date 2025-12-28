@@ -19,7 +19,7 @@ type Document struct {
 
 // processDocumentAttestation handles attestation processing for a single document
 func (h *Host) processDocumentAttestation(ctx context.Context, docID string, docType string, blockNumber uint64, docData map[string]interface{}) error {
-	logger.Sugar.Debugf("🔍 Processing %s document %s for attestation (block %d)", docType, docID, blockNumber)
+	// logger.Sugar.Debugf("🔍 Processing %s document %s for attestation (block %d)", docType, docID, blockNumber)
 
 	// Track document metrics
 	if h.metrics != nil {
@@ -57,7 +57,7 @@ func (h *Host) processDocumentAttestation(ctx context.Context, docID string, doc
 		h.metrics.IncrementDocumentsProcessed()
 	}
 
-	logger.Sugar.Debugf("✅ Attestation created for %s document %s", docType, docID)
+	// logger.Sugar.Debugf("✅ Attestation created for %s document %s", docType, docID)
 	return nil
 }
 

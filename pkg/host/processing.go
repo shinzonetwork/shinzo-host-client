@@ -79,7 +79,7 @@ func (pp *ProcessingPipeline) Stop() {
 func (pp *ProcessingPipeline) worker(workerID int) {
 	defer pp.wg.Done()
 
-	logger.Sugar.Debugf("🔧 Worker %d started", workerID)
+	// logger.Sugar.Debugf("🔧 Worker %d started", workerID)
 
 	for {
 		select {
@@ -99,21 +99,22 @@ func (pp *ProcessingPipeline) worker(workerID int) {
 
 // processJob processes a single document job.
 func (pp *ProcessingPipeline) processJob(workerID int, job DocumentJob) {
-	logger.Sugar.Infof("👷 Worker %d processing %s document %s", workerID, job.docType, job.docID)
+	// logger.Sugar.Debugf("👷 Worker %d processing %s document %s", workerID, job.docType, job.docID)
 
 	err := pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
 	if err != nil {
 		logger.Sugar.Errorf("❌ Worker %d failed: %v", workerID, err)
-	} else {
-		logger.Sugar.Debugf("✅ Worker %d completed %s document %s", workerID, job.docType, job.docID)
 	}
+	// else {
+	// 	logger.Sugar.Debugf("✅ Worker %d completed %s document %s", workerID, job.docType, job.docID)
+	// }
 
 	pp.mu.Lock()
 	pp.processedCount++
 	pp.mu.Unlock()
 }
 
-// processDocumentDirect enqueues a document for processing (non-blocking with drop on full).
+// processDocumentDirect enqueues a document for processing (blocks when queue is full).
 func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
 	job := DocumentJob{
 		docID:       docID,
@@ -127,10 +128,7 @@ func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, block
 		pp.mu.Lock()
 		pp.queuedCount++
 		pp.mu.Unlock()
-	default:
-		pp.mu.Lock()
-		pp.droppedCount++
-		pp.mu.Unlock()
-		logger.Sugar.Warnf("⚠️  Queue full! Dropped %s document %s (total dropped: %d)", docType, docID, pp.droppedCount)
+	case <-pp.ctx.Done():
+		return
 	}
 }

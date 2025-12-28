@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -86,10 +85,10 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	fullURL := apiURL.String()
 
 	// Assemble and log the complete curl equivalent request
-	curlCmd := fmt.Sprintf("curl -X GET '%s'", fullURL)
-	if logger.Sugar != nil {
-		logger.Sugar.Debugf("Signature verification request for CID %s: %s", cid, curlCmd)
-	}
+	// curlCmd := fmt.Sprintf("curl -X GET '%s'", fullURL)
+	// if logger.Sugar != nil {
+	// 	logger.Sugar.Debugf("Signature verification request for CID %s: %s", cid, curlCmd)
+	// }
 
 	// Make HTTP GET request to the verify-signature endpoint
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)

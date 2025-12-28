@@ -130,17 +130,17 @@ func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType st
 
 // HandleDocumentAttestation is the main handler for processing document attestations
 func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string, versions []attestation.Version) error {
-	logger.Sugar.Debugf("🔐 Processing attestation for document %s (type: %s)", docID, docType)
+	// logger.Sugar.Debugf("🔐 Processing attestation for document %s (type: %s)", docID, docType)
 
 	if len(versions) == 0 {
-		logger.Sugar.Debugf("📊 No signatures found for document %s, skipping attestation", docID)
+		// logger.Sugar.Debugf("📊 No signatures found for document %s, skipping attestation", docID)
 		return nil
 	}
 
-	logger.Sugar.Debugf("📝 Found %d signatures for document %s:", len(versions), docID)
-	for i, version := range versions {
-		logger.Sugar.Debugf("  Signature %d: CID=%s, Identity=%s, Type=%s", i+1, version.CID, version.Signature.Identity, version.Signature.Type)
-	}
+	// logger.Sugar.Debugf("📝 Found %d signatures for document %s:", len(versions), docID)
+	// for i, version := range versions {
+	// 	logger.Sugar.Debugf("  Signature %d: CID=%s, Identity=%s, Type=%s", i+1, version.CID, version.Signature.Identity, version.Signature.Type)
+	// }
 
 	// Create attestation record with signature verification
 	verifier := NewDefraSignatureVerifier(defraNode)
@@ -152,21 +152,21 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 	// AttestationRecord schema is now defined in schema.graphql and loaded at startup
 
 	// Post the attestation record to DefraDB
-	logger.Sugar.Debugf("💾 Posting attestation record to collection: AttestationRecord")
+	// logger.Sugar.Debugf("💾 Posting attestation record to collection: AttestationRecord")
 	err = attestationRecord.PostAttestationRecord(ctx, defraNode)
 	if err != nil {
 		return fmt.Errorf("failed to post attestation record for document %s: %w", docID, err)
 	}
 
-	logger.Sugar.Debugf("✅ Successfully created attestation record:")
-	logger.Sugar.Debugf("   📄 Document ID: %s", docID)
-	logger.Sugar.Debugf("   📂 Document Type: %s", docType)
-	logger.Sugar.Debugf("   🗂️  Collection: AttestationRecord")
-	logger.Sugar.Debugf("   🔗 Attested Doc: %s", attestationRecord.AttestedDocId)
-	logger.Sugar.Debugf("   📋 Source Doc: %s", attestationRecord.SourceDocId)
-	logger.Sugar.Debugf("   ✅ Verified CIDs: %v", attestationRecord.CIDs)
-	logger.Sugar.Debugf("   🔢 Total Signatures: %d", len(attestationRecord.CIDs))
-	logger.Sugar.Debugf("   �️  Vote Count: %d", attestationRecord.VoteCount)
+	// logger.Sugar.Debugf("✅ Successfully created attestation record:")
+	// logger.Sugar.Debugf("   📄 Document ID: %s", docID)
+	// logger.Sugar.Debugf("   📂 Document Type: %s", docType)
+	// logger.Sugar.Debugf("   🗂️  Collection: AttestationRecord")
+	// logger.Sugar.Debugf("   🔗 Attested Doc: %s", attestationRecord.AttestedDocId)
+	// logger.Sugar.Debugf("   📋 Source Doc: %s", attestationRecord.SourceDocId)
+	// logger.Sugar.Debugf("   ✅ Verified CIDs: %v", attestationRecord.CIDs)
+	// logger.Sugar.Debugf("   🔢 Total Signatures: %d", len(attestationRecord.CIDs))
+	// logger.Sugar.Debugf("   �️  Vote Count: %d", attestationRecord.VoteCount)
 
 	return nil
 }
