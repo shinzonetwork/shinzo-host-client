@@ -2,10 +2,19 @@ package host
 
 import (
 	"context"
+	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+)
+
+const (
+	attestationWriterCount = 100
+	maxRetries             = 10
+	baseDelay              = 50 * time.Millisecond
+	maxDelay               = 2 * time.Second
 )
 
 // DocumentJob represents a document to be processed.
@@ -25,11 +34,22 @@ type ProcessingPipeline struct {
 	workerCount int
 	wg          sync.WaitGroup
 
+	// Attestation writers pool
+	attestationQueue chan attestationJob
+
 	// Metrics for monitoring
 	queuedCount    int64
 	processedCount int64
 	droppedCount   int64
 	mu             sync.Mutex
+}
+
+// attestationJob represents a prepared attestation ready to be written.
+type attestationJob struct {
+	docID       string
+	docType     string
+	blockNumber uint64
+	docData     map[string]interface{}
 }
 
 // NewProcessingPipeline creates a processing pipeline with bounded workers and queue.
@@ -43,17 +63,24 @@ func NewProcessingPipeline(
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
 	return &ProcessingPipeline{
-		host:        host,
-		ctx:         pipelineCtx,
-		cancel:      cancel,
-		jobQueue:    make(chan DocumentJob, queueSize),
-		workerCount: workerCount,
+		host:             host,
+		ctx:              pipelineCtx,
+		cancel:           cancel,
+		jobQueue:         make(chan DocumentJob, queueSize),
+		workerCount:      workerCount,
+		attestationQueue: make(chan attestationJob, queueSize),
 	}
 }
 
 // Start starts the processing pipeline with worker pool.
 func (pp *ProcessingPipeline) Start() {
-	logger.Sugar.Infof("🚀 Starting processing pipeline with %d workers and queue size %d", pp.workerCount, cap(pp.jobQueue))
+	logger.Sugar.Infof("🚀 Starting processing pipeline with %d workers, %d attestation writers, queue size %d",
+		pp.workerCount, attestationWriterCount, cap(pp.jobQueue))
+
+	for i := 0; i < attestationWriterCount; i++ {
+		pp.wg.Add(1)
+		go pp.attestationWriter(i)
+	}
 
 	for i := 0; i < pp.workerCount; i++ {
 		pp.wg.Add(1)
@@ -69,49 +96,105 @@ func (pp *ProcessingPipeline) Stop() {
 	pp.cancel()
 
 	close(pp.jobQueue)
+	close(pp.attestationQueue)
 
 	pp.wg.Wait()
 
 	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, dropped: %d)", pp.processedCount, pp.droppedCount)
 }
 
-// worker processes jobs from the queue.
+// worker processes jobs from the queue and enqueues attestation writes.
 func (pp *ProcessingPipeline) worker(workerID int) {
 	defer pp.wg.Done()
-
-	// logger.Sugar.Debugf("🔧 Worker %d started", workerID)
-
 	for {
 		select {
 		case <-pp.ctx.Done():
-			logger.Sugar.Debugf("🛑 Worker %d stopped (context cancelled)", workerID)
+			logger.Sugar.Debugf("Worker %d stopped (context cancelled)", workerID)
 			return
-
 		case job, ok := <-pp.jobQueue:
 			if !ok {
-				logger.Sugar.Debugf("🛑 Worker %d stopped (queue closed)", workerID)
+				logger.Sugar.Debugf("Worker %d stopped (queue closed)", workerID)
 				return
 			}
-			pp.processJob(workerID, job)
+			select {
+			case pp.attestationQueue <- attestationJob{
+				docID:       job.docID,
+				docType:     job.docType,
+				blockNumber: job.blockNumber,
+				docData:     job.docData,
+			}:
+			case <-pp.ctx.Done():
+				return
+			}
 		}
 	}
 }
 
-// processJob processes a single document job.
-func (pp *ProcessingPipeline) processJob(workerID int, job DocumentJob) {
-	// logger.Sugar.Debugf("👷 Worker %d processing %s document %s", workerID, job.docType, job.docID)
-
-	err := pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
-	if err != nil {
-		logger.Sugar.Errorf("❌ Worker %d failed: %v", workerID, err)
+// attestationWriter processes attestation jobs with retry logic for transaction conflicts.
+func (pp *ProcessingPipeline) attestationWriter(writerID int) {
+	defer pp.wg.Done()
+	for {
+		select {
+		case <-pp.ctx.Done():
+			return
+		case job, ok := <-pp.attestationQueue:
+			if !ok {
+				return
+			}
+			pp.processAttestation(writerID, job)
+		}
 	}
-	// else {
-	// 	logger.Sugar.Debugf("✅ Worker %d completed %s document %s", workerID, job.docType, job.docID)
-	// }
+}
+
+// processAttestation processes a single attestation job with retry logic for transaction conflicts.
+func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJob) {
+	var err error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err = pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
+		if err == nil {
+			break
+		}
+
+		if !isTransactionConflict(err) {
+			break
+		}
+
+		if pp.ctx.Err() != nil {
+			break
+		}
+
+		delay := baseDelay * time.Duration(1<<attempt)
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()))
+		if attempt < maxRetries-1 {
+			logger.Sugar.Debugf("Writer %d: transaction conflict for %s %s, retrying in %v (attempt %d/%d)",
+				writerID, job.docType, job.docID, jitter, attempt+1, maxRetries)
+			select {
+			case <-time.After(jitter):
+			case <-pp.ctx.Done():
+				return
+			}
+		}
+	}
+
+	if err != nil {
+		logger.Sugar.Errorf("Attestation failed for %s %s: %v", job.docType, job.docID, err)
+	}
 
 	pp.mu.Lock()
 	pp.processedCount++
 	pp.mu.Unlock()
+}
+
+// isTransactionConflict checks if the error is a transaction conflict that should be retried.
+func isTransactionConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "transaction conflict") || strings.Contains(errStr, "Please retry")
 }
 
 // processDocumentDirect enqueues a document for processing (blocks when queue is full).
