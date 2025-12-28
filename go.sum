@@ -2260,8 +2260,10 @@ github.com/segmentio/asm v1.2.0/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228011251-3033136518e1 h1:lVOLU7dhLCUXi1OuvLar8hAKNpdPtgraS+Gx4Lot2dg=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228011251-3033136518e1/go.mod h1:HxxyWe7Zkzh96C1+9+9JuGK/ixAX7+7SF0G26hzyjds=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228013032-e09f6e680d53 h1:FyPVBjlbvbCow7q18WYQhbj9Fn8MekPOqi1mLsswwFk=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228013032-e09f6e680d53/go.mod h1:ErpNCyAVpWyP5LyYhOMky8CN5DfkYHn3jOuNTLIa3rI=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228021408-e3627f8c91c9 h1:H1vPhHNvp7bW29UQ9PYKBWzWgn3wP+1soD12hEby8w0=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251228021408-e3627f8c91c9/go.mod h1:aznn51Z/GL2//lZoTrjNe9Z1vCx7NSOnkMSqk5HPdXs=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8 h1:g+7aGWLyrrFFHWq7mch0b0Af2YXCNKR2xOTQ/Ed/z70=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8/go.mod h1:IpuhmHiO6IYcutRGG+c1vvUvxYb2c8yqB1eyHOdXx3c=
 github.com/shinzonetwork/shinzo-view-creator v0.0.0-20251222192811-1c960c73fce8 h1:peto0dZM8lXDn8Ra/z60i4F7+BkRF5KBbUpYUqEmOUI=
@@ -2333,8 +2335,9 @@ github.com/sourcenetwork/corekv/namespace v0.2.4 h1:hOQQwbupvy5QxR8J0m9VUWD+78p5
 github.com/sourcenetwork/corekv/namespace v0.2.4/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
 github.com/sourcenetwork/corelog v0.0.8 h1:jCo0mFBpWrfhUCGzzN3uUtPGyQv3jnITdPO1s2ME3RY=
 github.com/sourcenetwork/corelog v0.0.8/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
-github.com/sourcenetwork/defradb v0.20.1-0.20251228011124-b90581e73b84 h1:6x5UNGLeRlqMHyL0Bt9OizBcSEbs+hSWQTeHra1dXZk=
-github.com/sourcenetwork/defradb v0.20.1-0.20251228011124-b90581e73b84/go.mod h1:AXjcRqTDTXhRrh/qdyHQLUX5ATXE7jn+1aMHO+P+DpI=
+github.com/sourcenetwork/defradb v0.20.1-0.20251228012835-d4593e209ea2 h1:xPwTPN0lfjCcFjw4PWIZ4MXsL4Q8GtgBRe6pg//Kjy4=
+github.com/sourcenetwork/defradb v0.20.1-0.20251228012835-d4593e209ea2/go.mod h1:AXjcRqTDTXhRrh/qdyHQLUX5ATXE7jn+1aMHO+P+DpI=
+github.com/sourcenetwork/defradb v0.20.1-0.20251228021150-187936c29de2/go.mod h1:AXjcRqTDTXhRrh/qdyHQLUX5ATXE7jn+1aMHO+P+DpI=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14/go.mod h1:jUoQv592uUX1u7QBjAY4C+l24X9ArhPfifOqXpDHz4U=
 github.com/sourcenetwork/go-p2p v0.1.7 h1:eKNoFrgVaYFvgpKHRbjc9o5kODOkPehfTtcXVxkegSw=
