@@ -38,7 +38,7 @@ jobs:
           DEFRA_KEYRING_SECRET: ${{ secrets.DEFRA_KEYRING_SECRET }}
 
   # Job 2: Build and push image (non-branchable)
-  build-and-push:
+  build-and-push-standard:
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -110,7 +110,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-
+ # Job 4: Build summary
+  build-summary:
+    needs: [build-and-push-standard, build-and-push-branchable]
+    runs-on: ubuntu-latest
+    env:
+      SHORT_SHA: ${{ needs.build-and-push-standard.outputs.short_sha }}
+      COMMIT: ${{ github.sha }}
+    steps:
       - name: Build summary
         env:
           SHORT_SHA: ${{ steps.short_sha.outputs.sha }}
