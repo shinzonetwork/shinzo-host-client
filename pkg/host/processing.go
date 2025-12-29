@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	attestationWriterCount = 100
+	attestationWriterCount = 500
 	maxRetries             = 10
-	baseDelay              = 50 * time.Millisecond
+	baseDelay              = 10 * time.Millisecond
 	maxDelay               = 2 * time.Second
 )
 
@@ -148,6 +148,12 @@ func (pp *ProcessingPipeline) attestationWriter(writerID int) {
 
 // processAttestation processes a single attestation job with retry logic for transaction conflicts.
 func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJob) {
+	if pp.host.metrics != nil {
+		pp.host.metrics.IncrementDocumentsReceived()
+		pp.host.metrics.IncrementDocumentByType(job.docType)
+		pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
+	}
+
 	var err error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		err = pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
@@ -179,8 +185,19 @@ func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJo
 		}
 	}
 
+	if pp.host.metrics != nil {
+		if err != nil {
+			pp.host.metrics.IncrementAttestationErrors()
+		} else {
+			pp.host.metrics.IncrementAttestationsCreated()
+			pp.host.metrics.IncrementDocumentsProcessed()
+		}
+	}
+
 	if err != nil {
-		logger.Sugar.Errorf("Attestation failed for %s %s: %v", job.docType, job.docID, err)
+		if logger.Sugar != nil {
+			logger.Sugar.Warnf("Attestation failed for %s %s: %v", job.docType, job.docID, err)
+		}
 	}
 
 	pp.mu.Lock()
