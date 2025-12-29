@@ -175,8 +175,8 @@ func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJo
 		}
 		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()))
 		if attempt < maxRetries-1 {
-			logger.Sugar.Debugf("Writer %d: transaction conflict for %s %s, retrying in %v (attempt %d/%d)",
-				writerID, job.docType, job.docID, jitter, attempt+1, maxRetries)
+			// logger.Sugar.Debugf("Writer %d: transaction conflict for %s %s, retrying in %v (attempt %d/%d)",
+			// 	writerID, job.docType, job.docID, jitter, attempt+1, maxRetries)
 			select {
 			case <-time.After(jitter):
 			case <-pp.ctx.Done():

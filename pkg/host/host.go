@@ -53,19 +53,31 @@ func maxInt(a, b int) int {
 
 var DefaultConfig *config.Config = func() *config.Config {
 	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			Url:           "localhost:9181",
+			KeyringSecret: "test-keyring-secret-for-testing",
+			P2P: config.DefraDBP2PConfig{
+				Enabled:             true,
+				BootstrapPeers:      []string{},
+				ListenAddr:          "/ip4/0.0.0.0/tcp/9171",
+				MaxRetries:          5,
+				RetryBaseDelayMs:    1000,
+				ReconnectIntervalMs: 60000,
+				EnableAutoReconnect: true,
+			},
+			Store: config.DefraDBStoreConfig{
+				Path: "/tmp/defra-test-default",
+			},
+		},
 		Shinzo: config.ShinzoConfig{
 			MinimumAttestations: 1,
 		},
-		ShinzoAppConfig: defra.DefaultConfig,
+		Logger: config.LoggerConfig{
+			Development: true,
+		},
 		HostConfig: config.HostConfig{
 			LensRegistryPath: "./.lens",
 		},
-	}
-	// Ensure keyring secret is set for tests and use temp directory to avoid conflicts
-	if cfg.ShinzoAppConfig.DefraDB.KeyringSecret == "" {
-		cfg.ShinzoAppConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-		// Use temp directory for test data to avoid keyring conflicts
-		cfg.ShinzoAppConfig.DefraDB.Store.Path = "/tmp/defra-test-default"
 	}
 	return cfg
 }()
@@ -117,7 +129,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	})
 
 	defraNode, networkHandler, err := defra.StartDefraInstance(
-		cfg.ShinzoAppConfig,
+		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
 		"Block", "Transaction", "AccessListEntry", "Log",
 	)
@@ -165,7 +177,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 		// Start playground server on a different port (defradb port + 1)
 		// Parse the defradb URL to get the port and increment it
-		playgroundAddr := cfg.ShinzoAppConfig.DefraDB.Url
+		playgroundAddr := cfg.DefraDB.Url
 		if defraNode.APIURL != "" {
 			playgroundAddr = defraNode.APIURL
 		}
@@ -289,8 +301,8 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 	// Initialize and start health server
 	var healthDefraURL string
-	if cfg.ShinzoAppConfig.DefraDB.Url != "" {
-		healthDefraURL = cfg.ShinzoAppConfig.DefraDB.Url
+	if cfg.DefraDB.Url != "" {
+		healthDefraURL = cfg.DefraDB.Url
 	} else if defraNode != nil && defraNode.APIURL != "" {
 		healthDefraURL = defraNode.APIURL
 	}
@@ -356,13 +368,13 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 
 func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.PeerIDRegistration, error) {
 	// Use the signer package approach like the indexer
-	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ShinzoAppConfig)
+	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ToAppConfig())
 	if err != nil {
 		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
 	}
 
 	// Sign with peer ID
-	peerSignedMsg, err := signer.SignWithP2PKeys(message, h.DefraNode, h.config.ShinzoAppConfig)
+	peerSignedMsg, err := signer.SignWithP2PKeys(message, h.DefraNode, h.config.ToAppConfig())
 	if err != nil {
 		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
 	}
@@ -388,11 +400,11 @@ func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.
 }
 
 func (h *Host) GetNodePublicKey() (string, error) {
-	return signer.GetDefraPublicKey(h.DefraNode, h.config.ShinzoAppConfig)
+	return signer.GetDefraPublicKey(h.DefraNode, h.config.ToAppConfig())
 }
 
 func (h *Host) GetPeerPublicKey() (string, error) {
-	return signer.GetP2PPublicKey(h.DefraNode, h.config.ShinzoAppConfig)
+	return signer.GetP2PPublicKey(h.DefraNode, h.config.ToAppConfig())
 }
 
 // setupViewHTTPServer creates an HTTP server that serves view endpoints alongside DefraDB API
@@ -557,8 +569,8 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig := DefaultConfig
-	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.Url = "127.0.0.1:0"
 	return StartHosting(testConfig)
 }
 

@@ -80,4 +80,3 @@ type AttestationRecord {
     doc_type: String @index
     vote_count: Int @crdt(type: pcounter)
 }
-
