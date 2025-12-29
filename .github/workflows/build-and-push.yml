@@ -71,6 +71,8 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}-standard
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
+          build-args: |
+            BUILD_TAGS=playground
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

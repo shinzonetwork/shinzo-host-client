@@ -1,6 +1,9 @@
 # Multi-stage build like indexer
 FROM golang:1.25 AS builder
 
+# Build arguments
+ARG BUILD_TAGS=playground
+
 # Install build dependencies including WASM runtimes
 RUN apt-get update && apt-get install -y \
     git \
@@ -65,8 +68,20 @@ ENV CGO_LDFLAGS="-L/usr/local/lib"
 # Copy source code
 COPY . .
 
-# Build the application with WASM support and playground enabled
-RUN make build-branchable-with-playground
+# Build the application with conditional branchable tag and always playground
+RUN set -ex && \
+    echo "Building with BUILD_TAGS=${BUILD_TAGS}" && \
+    # Always include hostplayground, conditionally include branchable
+    if [ "${BUILD_TAGS}" = "branchable" ]; then \
+        TAGS="branchable,playground"; \
+    else \
+        TAGS="playground"; \
+    fi && \
+    echo "Final build tags: ${TAGS}" && \
+    cd playground && go generate . && \
+    cd .. && \
+    go build -tags "${TAGS}" -o bin/host cmd/main.go && \
+    echo "Build completed successfully"
 
 # Runtime stage
 FROM ubuntu:24.04
