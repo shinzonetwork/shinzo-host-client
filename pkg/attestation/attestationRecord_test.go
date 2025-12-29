@@ -226,7 +226,7 @@ func TestPostAttestationRecord(t *testing.T) {
 	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	expectedAttestationCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
+	expectedAttestationCollectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", testViewName)
 	query := fmt.Sprintf(`
 		%s {
 			_docID
@@ -463,7 +463,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the merged record was stored correctly
-	expectedCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
+	expectedCollectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", testViewName)
 	query := fmt.Sprintf(`
 		%s {
 			_docID
@@ -561,7 +561,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	collection := fmt.Sprintf("AttestationRecord_%s", viewName)
+	collection := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
 	query := fmt.Sprintf(`
 		query {
 			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
@@ -601,7 +601,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	collection := fmt.Sprintf("AttestationRecord_%s", viewName)
+	collection := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
 	query := fmt.Sprintf(`
 		query {
 			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
