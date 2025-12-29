@@ -5,11 +5,15 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Branchable - http://34.67.151.150:8080/health
-      - '/ip4/34.67.151.150/tcp/9171/p2p/12D3KooWM8LZVqDY42BWEdZeMpooi2FM6dqXgJ5raRHhDG6NyueV'
-      # Non branchable - http://23.236.53.225:8080/health
-      # - '/ip4/23.236.53.225/tcp/9171/p2p/12D3KooWJKqrkrLHtgU35gPFeyGU5etEh5vWVW9gZojJJho7q7Ev'
+      # Non branchable new - http://34.171.98.17:8080/health
+      - '/ip4/34.171.98.17/tcp/9171/p2p/12D3KooWGkoFLJo7yY4Jr2ZL5Qwtc2vxcszB4dDfbAbDLCZKFZCw'
+      # Branchable new - http://35.223.238.251:8080/health
+      # - '/ip4/35.223.238.251/tcp/9171/p2p/12D3KooWKgpVJQAXUGcxUe3PrqaXUZVEW5BaSh9DAxrQvEXDQKgq'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
+    max_retries: 5                  # Number of connection attempts before marking peer as failed
+    retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
+    reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
+    enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
     # Filter P2P topics - only subscribe to document-related topics
     topic_filter:
       - "Block"
@@ -29,7 +33,7 @@ shinzo:
   max_gap_size: 1000          # Skip P2P if gap is larger than this
   
   # Message Cache & Worker Pool Settings - AGGRESSIVE MEMORY PROTECTION
-  cache_size: 1000              # CRITICAL: Small cache to prevent memory explosion
+  cache_size: 10000              # CRITICAL: Small cache to prevent memory explosion
   cache_queue_size: 5000         # CRITICAL: Small queue to prevent memory explosion  
   cache_max_age_seconds: 10     # CRITICAL: Aggressive cleanup every 10 seconds
   worker_count: 500               # CRITICAL: Fewer workers to prevent goroutine explosion
