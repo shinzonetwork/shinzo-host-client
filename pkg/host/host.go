@@ -128,7 +128,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	})
 
 	defraNode, networkHandler, err := defra.StartDefraInstance(
-		cfg.ShinzoAppConfig,
+		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
 		constants.AllCollections...,
 	)
