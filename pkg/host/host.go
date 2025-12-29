@@ -17,6 +17,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -85,10 +86,8 @@ var DefaultConfig *config.Config = func() *config.Config {
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
-	DefraNode      *node.Node
-	NetworkHandler *defra.NetworkHandler // P2P network control
-	// COMMENTED: View-related fields - focusing on pure event-driven attestation system
-	// HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
+	DefraNode              *node.Node
+	NetworkHandler         *defra.NetworkHandler // P2P network control
 	webhookCleanupFunction func()
 	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
@@ -129,9 +128,9 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	})
 
 	defraNode, networkHandler, err := defra.StartDefraInstance(
-		cfg.ToAppConfig(),
-		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
-		"Block", "Transaction", "AccessListEntry", "Log",
+		cfg.ShinzoAppConfig,
+		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
+		constants.AllCollections...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
@@ -334,6 +333,14 @@ func (h *Host) GetCurrentBlock() int64 {
 	return 0
 }
 
+// ProcessViewRegistrationEvent processes a view registration event through the ViewRegistrationHandler
+func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub.ViewRegisteredEvent) error {
+	if h.viewRegistrationHandler == nil {
+		return fmt.Errorf("ViewRegistrationHandler not initialized")
+	}
+	return h.viewRegistrationHandler.ProcessRegisteredEvent(ctx, event)
+}
+
 func (h *Host) GetLastProcessedTime() time.Time {
 	if h.metrics != nil {
 		return h.metrics.LastDocumentTime
@@ -514,7 +521,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	maxAttempts := 30
 
 	// Simple query to check if the schema is ready
-	query := `{ Block { __typename } }`
+	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		_, err := defra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
@@ -574,20 +581,21 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	return StartHosting(testConfig)
 }
 
+// Not used - attestation schemas are now created automatically during startup
 // initializeAttestationSchemas creates attestation record collections for all document types
 func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) error {
 	// Document types that need attestation record collections
-	documentTypes := []string{"Block", "Transaction", "Log", "AccessList"}
+	documentTypes := constants.AllCollections
 
 	for _, docType := range documentTypes {
-		collectionName := fmt.Sprintf("Document_%s", docType)
+		collectionName := docType
 
 		err := hostAttestation.AddAttestationRecordCollection(ctx, defraNode, collectionName)
 		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
 			return fmt.Errorf("failed to create attestation collection for %s: %w", docType, err)
 		}
 
-		logger.Sugar.Infof("✅ Attestation collection AttestationRecord_%s initialized", collectionName)
+		logger.Sugar.Infof("✅ Attestation collection %s initialized", collectionName)
 	}
 
 	return nil
@@ -605,7 +613,7 @@ func isPlaygroundEnabled() bool {
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchema())
+	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchemaForBuild())
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, skipping...")
 		return nil
