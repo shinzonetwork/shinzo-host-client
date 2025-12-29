@@ -12,13 +12,9 @@ const CollectionName = "shinzo"
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB
 type DefraDBP2PConfig struct {
-	Enabled             bool     `yaml:"enabled"`
-	BootstrapPeers      []string `yaml:"bootstrap_peers"`
-	ListenAddr          string   `yaml:"listen_addr"`
-	MaxRetries          int      `yaml:"max_retries"`
-	RetryBaseDelayMs    int      `yaml:"retry_base_delay_ms"`
-	ReconnectIntervalMs int      `yaml:"reconnect_interval_ms"`
-	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
+	Enabled        bool     `yaml:"enabled"`
+	BootstrapPeers []string `yaml:"bootstrap_peers"`
+	ListenAddr     string   `yaml:"listen_addr"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB
