@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
 // HostMetrics tracks various metrics for the host
@@ -43,12 +44,26 @@ type HostMetrics struct {
 	StartTime        time.Time `json:"start_time"`
 	LastDocumentTime time.Time `json:"last_document_time"`
 	MostRecentBlock  uint64    `json:"most_recent_block"`
+
+	// Build configuration metrics
+	BuildTags  string `json:"build_tags"`
+	SchemaType string `json:"schema_type"`
 }
 
 // NewHostMetrics creates a new metrics instance
 func NewHostMetrics() *HostMetrics {
+	buildTags := "standard"
+	schemaType := "non-branchable"
+
+	if schema.IsBranchable() {
+		buildTags = "branchable"
+		schemaType = "branchable"
+	}
+
 	return &HostMetrics{
-		StartTime: time.Now(),
+		StartTime:  time.Now(),
+		BuildTags:  buildTags,
+		SchemaType: schemaType,
 	}
 }
 
@@ -160,6 +175,8 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		StartTime:              m.StartTime,
 		LastDocumentTime:       m.LastDocumentTime,
 		MostRecentBlock:        atomic.LoadUint64(&m.MostRecentBlock),
+		BuildTags:              m.BuildTags,
+		SchemaType:             m.SchemaType,
 	}
 }
 
