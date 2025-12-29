@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
@@ -241,7 +242,7 @@ func analyzeViewQueryForBlockRange(viewDef view.View) string {
 	}
 
 	// Check for collection references
-	collections := []string{"Block", "Transaction", "Log", "AccessListEntry"}
+	collections := constants.AllCollections
 	for _, collection := range collections {
 		if strings.Contains(query, collection) {
 			requirement.Collections = append(requirement.Collections, collection)

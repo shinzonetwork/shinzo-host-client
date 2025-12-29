@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // ViewMatcher maps documents to applicable views based on collection and field criteria
@@ -44,7 +45,7 @@ func (vm *ViewMatcher) RegisterView(managedView *ManagedView) {
 // indexViewByQuery analyzes a GraphQL query to determine collection dependencies
 func (vm *ViewMatcher) indexViewByQuery(managedView *ManagedView, queryStr string) {
 	// Check for collection references in the query
-	collections := []string{"Block", "Transaction", "Log", "AccessListEntry"}
+	collections := constants.AllCollections
 
 	for _, collection := range collections {
 		if strings.Contains(queryStr, collection) {
@@ -57,7 +58,7 @@ func (vm *ViewMatcher) indexViewByQuery(managedView *ManagedView, queryStr strin
 	fieldPatterns := map[string][]string{
 		"address":     {"address", "from", "to", "miner"},
 		"hash":        {"hash", "transactionHash", "blockHash", "parentHash"},
-		"blockNumber": {"blockNumber", "number"},
+		"blockNumber": {"blockNumber", "number", "transaction.blockNumber"},
 		"timestamp":   {"timestamp"},
 		"value":       {"value", "gasPrice", "gasUsed"},
 	}

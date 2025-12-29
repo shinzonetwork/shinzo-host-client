@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // HostMetrics tracks various metrics for the host
@@ -89,13 +91,13 @@ func (m *HostMetrics) IncrementDocumentsDropped() {
 // IncrementDocumentByType atomically increments the counter for a specific document type
 func (m *HostMetrics) IncrementDocumentByType(docType string) {
 	switch docType {
-	case "Block":
+	case constants.CollectionBlock:
 		atomic.AddInt64(&m.BlocksProcessed, 1)
-	case "Transaction":
+	case constants.CollectionTransaction:
 		atomic.AddInt64(&m.TransactionsProcessed, 1)
-	case "Log":
+	case constants.CollectionLog:
 		atomic.AddInt64(&m.LogsProcessed, 1)
-	case "AccessListEntry":
+	case constants.CollectionAccessListEntry:
 		atomic.AddInt64(&m.AccessListsProcessed, 1)
 	}
 }

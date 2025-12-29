@@ -7,6 +7,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // Document represents a document from DefraDB
@@ -58,10 +59,10 @@ func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
 	logger.Sugar.Info("🚀 Starting simple DefraDB subscriptions")
 
 	// Start simple subscriptions (direct processing)
-	go h.subscribeToDocumentType(ctx, "Block")
-	go h.subscribeToDocumentType(ctx, "Transaction")
-	go h.subscribeToDocumentType(ctx, "Log")
-	go h.subscribeToDocumentType(ctx, "AccessListEntry")
+	go h.subscribeToDocumentType(ctx, constants.CollectionBlock)
+	go h.subscribeToDocumentType(ctx, constants.CollectionTransaction)
+	go h.subscribeToDocumentType(ctx, constants.CollectionLog)
+	go h.subscribeToDocumentType(ctx, constants.CollectionAccessListEntry)
 
 	logger.Sugar.Info("✅ All subscriptions started")
 
@@ -77,13 +78,13 @@ func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
 	// Create subscription query
 	var subscription string
 	switch docType {
-	case "Block":
+	case constants.CollectionBlock:
 		subscription = `subscription { Block { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
-	case "Transaction":
+	case constants.CollectionTransaction:
 		subscription = `subscription { Transaction { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
-	case "Log":
+	case constants.CollectionLog:
 		subscription = `subscription { Log { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
-	case "AccessListEntry":
+	case constants.CollectionAccessListEntry:
 		subscription = `subscription { AccessListEntry { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
 	default:
 		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } schemaVersionId } } }`, docType)
@@ -130,13 +131,13 @@ func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[strin
 					}
 
 					blockNumber := uint64(0)
-					if docType == "Block" {
+					if docType == constants.CollectionBlock {
 						if num, exists := docMap["number"]; exists {
 							if numFloat, ok := num.(float64); ok {
 								blockNumber = uint64(numFloat)
 							}
 						}
-					} else if docType == "Transaction" || docType == "Log" {
+					} else if docType == constants.CollectionTransaction || docType == constants.CollectionLog {
 						if num, exists := docMap["blockNumber"]; exists {
 							if numFloat, ok := num.(float64); ok {
 								blockNumber = uint64(numFloat)

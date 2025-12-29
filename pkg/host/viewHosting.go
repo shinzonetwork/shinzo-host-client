@@ -10,6 +10,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
@@ -120,8 +121,8 @@ func (h *Host) createViewConfig(v view.View) ViewConfig {
 
 		// Check for Log collection
 		if strings.Contains(queryStr, "Log") {
-			config.TrackedFields["Log"] = FieldConfig{
-				Collection:     "Log",
+			config.TrackedFields[constants.CollectionLog] = FieldConfig{
+				Collection:     constants.CollectionLog,
 				BlockField:     "blockNumber",
 				IndexFields:    []string{"address", "transactionHash", "topics", "data"},
 				FilterCriteria: make(map[string]interface{}),
@@ -130,8 +131,8 @@ func (h *Host) createViewConfig(v view.View) ViewConfig {
 
 		// Check for Transaction collection
 		if strings.Contains(queryStr, "Transaction") {
-			config.TrackedFields["Transaction"] = FieldConfig{
-				Collection:     "Transaction",
+			config.TrackedFields[constants.CollectionTransaction] = FieldConfig{
+				Collection:     constants.CollectionTransaction,
 				BlockField:     "blockNumber",
 				IndexFields:    []string{"hash", "from", "to", "value"},
 				FilterCriteria: make(map[string]interface{}),
@@ -140,8 +141,8 @@ func (h *Host) createViewConfig(v view.View) ViewConfig {
 
 		// Check for Block collection
 		if strings.Contains(queryStr, "Block") {
-			config.TrackedFields["Block"] = FieldConfig{
-				Collection:     "Block",
+			config.TrackedFields[constants.CollectionBlock] = FieldConfig{
+				Collection:     constants.CollectionBlock,
 				BlockField:     "number",
 				IndexFields:    []string{"hash", "miner", "timestamp"},
 				FilterCriteria: make(map[string]interface{}),
@@ -150,9 +151,9 @@ func (h *Host) createViewConfig(v view.View) ViewConfig {
 
 		// Check for AccessListEntry collection
 		if strings.Contains(queryStr, "AccessListEntry") {
-			config.TrackedFields["AccessListEntry"] = FieldConfig{
-				Collection:     "AccessListEntry",
-				BlockField:     "blockNumber",
+			config.TrackedFields[constants.CollectionAccessListEntry] = FieldConfig{
+				Collection:     constants.CollectionAccessListEntry,
+				BlockField:     "transaction.blockNumber",
 				IndexFields:    []string{"address", "storageKeys"},
 				FilterCriteria: make(map[string]interface{}),
 			}

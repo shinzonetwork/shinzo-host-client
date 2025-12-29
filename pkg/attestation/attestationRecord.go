@@ -8,6 +8,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -69,7 +70,7 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 	// Use upsert to merge P-counter vote_count and CIDs for same attested_doc
 	mutation := fmt.Sprintf(`
 		mutation {
-			upsert_AttestationRecord(
+			upsert_%v(
 				create: {
 					attested_doc: "%s",
 					source_doc: "%s",
@@ -91,7 +92,7 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 				vote_count
 			}
 		}
-	`, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId)
+	`, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId)
 
 	_, err = defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
 	if err != nil {
@@ -112,7 +113,7 @@ func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, a
 func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType string, viewDocIds []string) ([]AttestationRecord, error) {
 	query := fmt.Sprintf(`
 		query {
-			AttestationRecord(filter: {doc_type: {_eq: "%s"}}) {
+			%s(filter: {doc_type: {_eq: "%s"}}) {
 				_docID
 				attested_doc
 				source_doc
@@ -121,7 +122,7 @@ func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType st
 				vote_count
 			}
 		}
-	`, docType)
+	`, constants.CollectionAttestationRecord, docType)
 
 	return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
 }
@@ -176,7 +177,7 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 	// Query the general attestation collection for this specific document
 	query := fmt.Sprintf(`
 		query {
-			AttestationRecord(filter: {attested_doc: {_eq: "%s"}, doc_type: {_eq: "%s"}}) {
+			%s(filter: {attested_doc: {_eq: "%s"}, doc_type: {_eq: "%s"}}) {
 				_docID
 				attested_doc
 				source_doc
@@ -185,7 +186,7 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 				vote_count
 			}
 		}
-	`, docID, docType)
+	`, constants.CollectionAttestationRecord, docID, docType)
 
 	existing, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
 	if err != nil {
