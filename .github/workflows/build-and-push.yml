@@ -14,7 +14,7 @@ env:
   IMAGE_NAME: shinzonetwork/shinzo-host-client
 
 jobs:
-  # # Job 1: Run tests
+  # Job 1: Run tests
   # test:
   #   runs-on: ubuntu-latest
   #   timeout-minutes: 30
@@ -43,6 +43,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      short_sha: ${{ steps.short_sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +69,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}-standard
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -78,6 +80,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      short_sha: ${{ steps.short_sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -113,19 +117,25 @@ jobs:
     needs: [build-and-push-standard, build-and-push-branchable]
     runs-on: ubuntu-latest
     env:
-      SHORT_SHA: ${{ needs.build-and-push-standard.outputs.short_sha }}
+      SHORT_SHA_STANDARD: ${{ needs.build-and-push-standard.outputs.short_sha }}
+      SHORT_SHA_BRANCHABLE: ${{ needs.build-and-push-branchable.outputs.short_sha }}
       COMMIT: ${{ github.sha }}
     steps:
       - name: Build summary
         env:
-          SHORT_SHA: ${{ steps.short_sha.outputs.sha }}
+          SHORT_SHA_STANDARD: ${{ needs.build-and-push-standard.outputs.short_sha }}
+          SHORT_SHA_BRANCHABLE: ${{ needs.build-and-push-branchable.outputs.short_sha }}
           COMMIT: ${{ github.sha }}
         run: |
           echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Type | Image Tag |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|-----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Standard | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHORT_SHA_STANDARD\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branchable | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHORT_SHA_BRANCHABLE\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHORT_SHA\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`$COMMIT\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🔄 **Watchtower** will auto-deploy within ~5 minutes" >> $GITHUB_STEP_SUMMARY
