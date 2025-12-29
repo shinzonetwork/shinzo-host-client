@@ -79,13 +79,13 @@ func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
 	var subscription string
 	switch docType {
 	case constants.CollectionBlock:
-		subscription = `subscription { Block { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
 	case constants.CollectionTransaction:
-		subscription = `subscription { Transaction { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
 	case constants.CollectionLog:
-		subscription = `subscription { Log { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
 	case constants.CollectionAccessListEntry:
-		subscription = `subscription { AccessListEntry { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
 	default:
 		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } schemaVersionId } } }`, docType)
 	}
