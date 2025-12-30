@@ -14,9 +14,10 @@ import (
 
 // HealthServer provides HTTP endpoints for health checks and metrics
 type HealthServer struct {
-	server   *http.Server
-	host     HealthChecker
-	defraURL string
+	server          *http.Server
+	host            HealthChecker
+	defraURL        string
+	hostMetrics     http.Handler
 }
 
 // HealthChecker interface for checking host health
@@ -80,7 +81,7 @@ type MetricsResponse struct {
 var startTime = time.Now()
 
 // NewHealthServer creates a new health server
-func NewHealthServer(port int, host HealthChecker, defraURL string) *HealthServer {
+func NewHealthServer(port int, host HealthChecker, defraURL string, metricsHandler http.Handler) *HealthServer {
 	mux := http.NewServeMux()
 
 	hs := &HealthServer{
@@ -90,8 +91,9 @@ func NewHealthServer(port int, host HealthChecker, defraURL string) *HealthServe
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		},
-		host:     host,
-		defraURL: defraURL,
+		host:        host,
+		defraURL:    defraURL,
+		hostMetrics: metricsHandler,
 	}
 
 	// Register routes
@@ -99,6 +101,11 @@ func NewHealthServer(port int, host HealthChecker, defraURL string) *HealthServe
 	mux.HandleFunc("/registration", hs.registrationHandler)
 	mux.HandleFunc("/stats", hs.metricsHandler)
 	mux.HandleFunc("/", hs.rootHandler)
+
+	// Register metrics endpoint if handler provided
+	if metricsHandler != nil {
+		mux.Handle("/metrics", metricsHandler)
+	}
 
 	return hs
 }
@@ -251,9 +258,10 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 		"status":    "running",
 		"timestamp": time.Now(),
 		"endpoints": []string{
-			"/health 	   - Health probe",
+			"/health       - Health probe",
 			"/registration - Registration information",
-			"/stats 	   - Basic metrics/stats",
+			"/stats        - Basic metrics/stats",
+			"/metrics      - Detailed host metrics",
 		},
 	}
 

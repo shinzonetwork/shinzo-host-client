@@ -306,7 +306,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		healthDefraURL = defraNode.APIURL
 	}
 
-	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL)
+	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL, newHost.metrics)
 
 	// Start health server in background
 	go func() {
