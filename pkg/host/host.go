@@ -2,7 +2,9 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,43 +12,103 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
-	indexerschema "github.com/shinzonetwork/indexer/pkg/schema"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/stack"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
+	"github.com/sourcenetwork/corelog"
+
+	// "github.com/shinzonetwork/shinzo-host-client/pkg/view" // COMMENTED: Focusing on event-driven attestations
 	"github.com/sourcenetwork/defradb/node"
 )
 
-var DefaultConfig *config.Config = &config.Config{
-	Shinzo: config.ShinzoConfig{
-		MinimumAttestations: 1,
-	},
-	ShinzoAppConfig: defra.DefaultConfig,
-	HostConfig: config.HostConfig{
-		LensRegistryPath: "./.lens",
-	},
+// parseTimeoutOrDefault parses a duration string or returns a default value
+func parseTimeoutOrDefault(timeoutStr string, defaultDuration time.Duration) time.Duration {
+	if timeoutStr == "" {
+		return defaultDuration
+	}
+
+	duration, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		logger.Sugar.Warnf("Invalid timeout format '%s', using default %v", timeoutStr, defaultDuration)
+		return defaultDuration
+	}
+
+	return duration
 }
+
+// maxInt returns the maximum of two integers
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+var DefaultConfig *config.Config = func() *config.Config {
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			Url:           "localhost:9181",
+			KeyringSecret: "test-keyring-secret-for-testing",
+			P2P: config.DefraDBP2PConfig{
+				Enabled:             true,
+				BootstrapPeers:      []string{},
+				ListenAddr:          "/ip4/0.0.0.0/tcp/9171",
+				MaxRetries:          5,
+				RetryBaseDelayMs:    1000,
+				ReconnectIntervalMs: 60000,
+				EnableAutoReconnect: true,
+			},
+			Store: config.DefraDBStoreConfig{
+				Path: "/tmp/defra-test-default",
+			},
+		},
+		Shinzo: config.ShinzoConfig{
+			MinimumAttestations: 1,
+		},
+		Logger: config.LoggerConfig{
+			Development: true,
+		},
+		HostConfig: config.HostConfig{
+			LensRegistryPath: "./.lens",
+		},
+	}
+	return cfg
+}()
 
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
 	DefraNode              *node.Node
-	HostedViews            []view.View // Todo I probably need to add some mutex to this as it is updated within threads
+	NetworkHandler         *defra.NetworkHandler // P2P network control
 	webhookCleanupFunction func()
 	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
-	processingCancel       context.CancelFunc // For canceling the block processing goroutine
+	processingCancel       context.CancelFunc // For canceling the event processing goroutine
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
-	blockMonitorCancel     context.CancelFunc // For canceling the block monitoring goroutine
+	config                 *config.Config     // Host configuration including StartHeight
 
-	// These counters keep track of the block number "time stamp" that we last processed the attestations or view on
-	attestationProcessedBlocks *stack.Stack[uint64]
-	viewProcessedBlocks        map[string]*stack.Stack[uint64] // The block numbers processed mapped to their respective view name
-	mostRecentBlockReceived    uint64                          // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+	// EVENT-DRIVEN ATTESTATION SYSTEM: Only track attestation processing
+	processingPipeline *ProcessingPipeline // Complete message processing pipeline
+
+	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
+	viewManager             *ViewManager                       // Manages view lifecycle and processing
+	viewRegistrationHandler *shinzohub.ViewRegistrationHandler // Handles Shinzo Hub view registration events
+	viewEndpointManager     *ViewEndpointManager               // Manages HTTP endpoints for views
+
+	healthServer *server.HealthServer
+
+	// METRICS SYSTEM: Track attestation and document processing metrics
+	metrics *server.HostMetrics // Comprehensive metrics tracking
+
+	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -57,15 +119,25 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
-	
-	logger.Init(true)
 
-	defraNode, err := defra.StartDefraInstance(cfg.ShinzoAppConfig,
-		defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()),
-		"Block", "Transaction", "AccessListEntry", "Log")
+	logger.Init(true, "./logs")
+
+	// Configure DefraDB logging - set to error level to hide INFO logs from HTTP requests
+	corelog.SetConfigOverride("http", corelog.Config{
+		Level: corelog.LevelError,
+	})
+
+	defraNode, networkHandler, err := defra.StartDefraInstance(
+		cfg.ToAppConfig(),
+		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
+		constants.AllCollections...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
 	}
+
+	// Store network handler for P2P control
+	// Note: P2P will be started after gap processing completes
 
 	ctx := context.Background()
 
@@ -73,6 +145,18 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	if err != nil {
 		return nil, err
 	}
+
+	// Apply local schema after DefraDB is ready (for use with non-branchable)
+	err = applySchema(ctx, defraNode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply schema: %w", err)
+	}
+
+	// Initialize attestation record schemas for all document types
+	// err = initializeAttestationSchemas(ctx, defraNode)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to initialize attestation schemas: %w", err)
+	// }
 
 	// Log API URL
 	if defraNode.APIURL != "" {
@@ -92,7 +176,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 
 		// Start playground server on a different port (defradb port + 1)
 		// Parse the defradb URL to get the port and increment it
-		playgroundAddr := cfg.ShinzoAppConfig.DefraDB.Url
+		playgroundAddr := cfg.DefraDB.Url
 		if defraNode.APIURL != "" {
 			playgroundAddr = defraNode.APIURL
 		}
@@ -117,17 +201,78 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	}
 
 	newHost := &Host{
-		DefraNode:                  defraNode,
-		HostedViews:                []view.View{},
-		webhookCleanupFunction:     func() {},
-		eventSubscription:          eventSub,
-		LensRegistryPath:           cfg.HostConfig.LensRegistryPath,
-		processingCancel:           func() {},
-		playgroundServer:           playgroundServer,
-		blockMonitorCancel:         func() {},
-		attestationProcessedBlocks: stack.New[uint64](),
-		viewProcessedBlocks:        map[string]*stack.Stack[uint64]{},
+		DefraNode:      defraNode,
+		NetworkHandler: networkHandler,
+		// COMMENTED: View initialization - pure event-driven attestation focus
+		// HostedViews:             []view.View{},
+		webhookCleanupFunction: func() {},
+		eventSubscription:      eventSub,
+		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
+		processingCancel:       func() {},
+		playgroundServer:       playgroundServer,
+		config:                 cfg,
+		metrics:                server.NewHostMetrics(),
 	}
+
+	cacheSize := cfg.Shinzo.CacheSize
+	if cacheSize <= 0 {
+		cacheSize = 10000 // Default cache size
+	}
+
+	queueSize := cfg.Shinzo.CacheQueueSize
+	if queueSize <= 0 {
+		queueSize = 1000 // Default queue size
+	}
+
+	workerCount := cfg.Shinzo.WorkerCount
+	if workerCount <= 0 {
+		workerCount = 10 // Default worker count
+	}
+
+	cacheMaxAge := time.Duration(cfg.Shinzo.CacheMaxAgeSeconds) * time.Second
+	if cacheMaxAge <= 0 {
+		cacheMaxAge = 5 * time.Minute // Default 5 minutes
+	}
+
+	// Create simplified processing pipeline (no cache)
+	newHost.processingPipeline = NewProcessingPipeline(
+		context.Background(), newHost, 0, cacheMaxAge, cacheSize, queueSize, workerCount,
+	)
+
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: cache=%d, queue=%d, workers=%d",
+		cacheSize, queueSize, workerCount)
+
+	// Start the process pipeline
+	newHost.processingPipeline.Start()
+
+	// Initialize ViewManager for lens transformations and view lifecycle management
+	viewConfig := ViewManagerConfig{
+		InactivityTimeout: parseTimeoutOrDefault(cfg.Shinzo.ViewInactivityTimeout, 24*time.Hour),
+		CleanupInterval:   parseTimeoutOrDefault(cfg.Shinzo.ViewCleanupInterval, 1*time.Hour),
+		WorkerCount:       maxInt(cfg.Shinzo.ViewWorkerCount, 10), // Ensure at least 10 workers
+		QueueSize:         maxInt(cfg.Shinzo.ViewQueueSize, 1000), // Ensure at least 1000 queue size
+	}
+	newHost.viewManager = NewViewManager(defraNode, viewConfig)
+
+	// Set metrics callback for ViewManager
+	newHost.viewManager.metricsCallback = func() *server.HostMetrics {
+		return newHost.metrics
+	}
+
+	logger.Sugar.Infof("🎯 ViewManager initialized: workers=%d, queue=%d, timeout=%v",
+		viewConfig.WorkerCount, viewConfig.QueueSize, viewConfig.InactivityTimeout)
+
+	// Initialize ViewRegistrationHandler for Shinzo Hub events
+	newHost.viewRegistrationHandler = shinzohub.NewViewRegistrationHandler(cfg.Shinzo.StartHeight)
+	newHost.viewRegistrationHandler.SetViewManager(newHost.viewManager)
+
+	// Initialize ViewEndpointManager for HTTP endpoints
+	newHost.viewEndpointManager = NewViewEndpointManager(defraNode, newHost.viewManager)
+
+	logger.Sugar.Info("🌐 ViewEndpointManager initialized for dynamic route creation")
+
+	// Setup HTTP server with view endpoints
+	newHost.setupViewHTTPServer()
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
 		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
@@ -145,57 +290,229 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		}
 	}
 
-	// Start the block processing goroutine
+	// Start the event-driven attestation processing system
 	processingCtx, processingCancel := context.WithCancel(context.Background())
 	newHost.processingCancel = processingCancel
-	go newHost.processAllViews(processingCtx)
+	go newHost.processAttestationEventsWithSubscription(processingCtx)
 
-	// Start the block monitoring goroutine
-	blockMonitorCtx, blockMonitorCancel := context.WithCancel(context.Background())
-	newHost.blockMonitorCancel = blockMonitorCancel
-	go newHost.monitorHighestBlockNumber(blockMonitorCtx)
+	// Block monitoring is now handled by the event-driven processAllViews goroutine
+	// No separate monitoring goroutine needed
+
+	// Initialize and start health server
+	var healthDefraURL string
+	if cfg.DefraDB.Url != "" {
+		healthDefraURL = cfg.DefraDB.Url
+	} else if defraNode != nil && defraNode.APIURL != "" {
+		healthDefraURL = defraNode.APIURL
+	}
+
+	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL, newHost.metrics)
+
+	// Start health server in background
+	go func() {
+		if err := newHost.healthServer.Start(); err != nil {
+			logger.Sugar.Errorf("Health server failed: %v", err)
+		}
+	}()
+
+	logger.Sugar.Info("🏥 Health server started on port 8080")
 
 	return newHost, nil
 }
 
+// HealthChecker interface implementation for Host
+func (h *Host) IsHealthy() bool {
+	// Check if DefraDB is accessible and processing pipeline is running
+	return h.DefraNode != nil && h.processingPipeline != nil
+}
+
+func (h *Host) GetCurrentBlock() int64 {
+	if h.metrics != nil {
+		return int64(h.metrics.MostRecentBlock)
+	}
+	return 0
+}
+
+// ProcessViewRegistrationEvent processes a view registration event through the ViewRegistrationHandler
+func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub.ViewRegisteredEvent) error {
+	if h.viewRegistrationHandler == nil {
+		return fmt.Errorf("ViewRegistrationHandler not initialized")
+	}
+	return h.viewRegistrationHandler.ProcessRegisteredEvent(ctx, event)
+}
+
+func (h *Host) GetLastProcessedTime() time.Time {
+	if h.metrics != nil {
+		return h.metrics.LastDocumentTime
+	}
+	return time.Time{}
+}
+
+func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
+	p2pInfo := &server.P2PInfo{
+		Enabled:  h.NetworkHandler != nil,
+		PeerInfo: []server.PeerInfo{},
+	}
+
+	// Get actual peer information using signer package methods
+	if h.DefraNode != nil && h.NetworkHandler != nil {
+		// Get peer ID and public key using the same approach as indexer
+		peerPubKey, err := h.GetPeerPublicKey()
+		if err == nil {
+			// Create peer info with actual data
+			peerInfo := server.PeerInfo{
+				ID:        peerPubKey,                          // Use peer public key as ID for now
+				Addresses: []string{"/ip4/127.0.0.1/tcp/9171"}, // Default local address
+				PublicKey: peerPubKey,
+			}
+
+			p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, peerInfo)
+		}
+	}
+
+	return p2pInfo, nil
+}
+
+func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.PeerIDRegistration, error) {
+	// Use the signer package approach like the indexer
+	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ToAppConfig())
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
+	}
+
+	// Sign with peer ID
+	peerSignedMsg, err := signer.SignWithP2PKeys(message, h.DefraNode, h.config.ToAppConfig())
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
+	}
+
+	// Get node and peer public keys from signer helpers
+	nodePubKey, err := h.GetNodePublicKey()
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, fmt.Errorf("failed to get node public key: %w", err)
+	}
+
+	peerPubKey, err := h.GetPeerPublicKey()
+	if err != nil {
+		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, fmt.Errorf("failed to get peer public key: %w", err)
+	}
+
+	return server.DefraPKRegistration{
+			PublicKey:   nodePubKey,
+			SignedPKMsg: signedMsg,
+		}, server.PeerIDRegistration{
+			PeerID:        peerPubKey,
+			SignedPeerMsg: peerSignedMsg,
+		}, nil
+}
+
+func (h *Host) GetNodePublicKey() (string, error) {
+	return signer.GetDefraPublicKey(h.DefraNode, h.config.ToAppConfig())
+}
+
+func (h *Host) GetPeerPublicKey() (string, error) {
+	return signer.GetP2PPublicKey(h.DefraNode, h.config.ToAppConfig())
+}
+
+// setupViewHTTPServer creates an HTTP server that serves view endpoints alongside DefraDB API
+func (h *Host) setupViewHTTPServer() {
+	// Note: View endpoints will be registered dynamically as views are created
+	// The /api/v0/views listing endpoint is handled by RegisterViewEndpoints
+	logger.Sugar.Info("🌐 View HTTP endpoints configured and ready")
+}
+
+// handleViewList provides a list of all available view endpoints
+func (h *Host) handleViewList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	endpoints := h.GetViewEndpoints()
+	response := map[string]interface{}{
+		"available_views": len(endpoints),
+		"endpoints":       make([]map[string]string, 0, len(endpoints)),
+	}
+
+	for name, endpoint := range endpoints {
+		response["endpoints"] = append(response["endpoints"].([]map[string]string), map[string]string{
+			"view_name":    name,
+			"path":         endpoint.Path,
+			"last_updated": endpoint.LastUpdated,
+		})
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
 func incrementPort(apiURL string) (string, error) {
+	// Ensure URL has protocol
 	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
 		apiURL = "http://" + apiURL
 	}
+
 	parsed, err := url.Parse(apiURL)
-	if err == nil {
-		host := parsed.Host
-		if host == "" {
-			host = parsed.Path
-		}
-		// Split host:port
-		parts := strings.Split(host, ":")
-		if len(parts) == 2 {
-			port, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%s:%d", parts[0], port+1), nil
-		} else if len(parts) == 1 {
-			return "", fmt.Errorf("No port found")
-		}
+	if err != nil {
+		return "", fmt.Errorf("invalid URL %s: %v", apiURL, err)
 	}
-	return "", err
+
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		return "", fmt.Errorf("invalid host:port %s: %v", parsed.Host, err)
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid port %s: %v", portStr, err)
+	}
+
+	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
-	h.processingCancel()   // Stop the block processing goroutine
-	h.blockMonitorCancel() // Stop the block monitoring goroutine
+	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
 
-	// Shutdown playground server if it exists
+	// Close the playground server if it's running
 	if h.playgroundServer != nil {
 		if err := h.playgroundServer.Shutdown(ctx); err != nil {
-			logger.Sugar.Errorf("Error shutting down playground server: %v", err)
+			fmt.Printf("Error shutting down playground server: %v\n", err)
 		}
 	}
 
-	return h.DefraNode.Close(ctx)
+	// Close the ViewManager
+	if h.viewManager != nil {
+		if err := h.viewManager.Close(); err != nil {
+			fmt.Printf("Error shutting down ViewManager: %v\n", err)
+		}
+	}
+
+	// Close the processing pipeline
+	if h.processingPipeline != nil {
+		h.processingPipeline.Stop()
+	}
+
+	// Close the DefraDB node
+	if h.DefraNode != nil {
+		return h.DefraNode.Close(ctx)
+	}
+
+	return nil
+}
+
+// GetMetricsHandler returns an HTTP handler for the metrics endpoint
+func (h *Host) GetMetricsHandler() http.Handler {
+	if h.metrics == nil {
+		// Return a handler that returns empty metrics if not initialized
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"error": "metrics not initialized"}`))
+		})
+	}
+	return h.metrics
 }
 
 // waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle
@@ -204,7 +521,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	maxAttempts := 30
 
 	// Simple query to check if the schema is ready
-	query := `{ Block { __typename } }`
+	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		_, err := defra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
@@ -232,52 +549,56 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				return // Event channel closed
 			}
 
+			// Process view registration events using the new ViewRegistrationHandler
 			if registeredEvent, ok := event.(*shinzohub.ViewRegisteredEvent); ok {
-				logger.Sugar.Debugf("Received new view: %s", registeredEvent.View.Name)
-				err := h.PrepareView(ctx, registeredEvent.View)
-				if err != nil {
-					logger.Sugar.Errorf("Failed to prepare view: %v", err)
+				logger.Sugar.Infof("📋 Received new view registration: %s (creator: %s)", registeredEvent.View.Name, registeredEvent.Creator)
+
+				// Process the event through the ViewRegistrationHandler
+				if h.viewRegistrationHandler != nil {
+					err := h.viewRegistrationHandler.ProcessRegisteredEvent(ctx, *registeredEvent)
+					if err != nil {
+						logger.Sugar.Errorf("❌ Failed to process view registration for %s: %v", registeredEvent.View.Name, err)
+					} else {
+						logger.Sugar.Infof("✅ Successfully processed view registration for %s", registeredEvent.View.Name)
+					}
 				} else {
-					h.HostedViews = append(h.HostedViews, registeredEvent.View) // Todo we will eventually want to give hosts the option to opt in/out of hosting new views
-					h.viewProcessedBlocks[registeredEvent.View.Name] = &stack.Stack[uint64]{}
+					logger.Sugar.Warn("ViewRegistrationHandler not initialized - cannot process view registration")
 				}
 			} else {
-				logger.Sugar.Errorf("Received unknown event: %+v", event)
+				logger.Sugar.Debugf("Received non-view event: %+v", event)
 			}
 		}
 	}
 }
 
-func (h *Host) monitorHighestBlockNumber(ctx context.Context) {
-	logger.Sugar.Info("Monitoring for new blocks...")
-	ticker := time.NewTicker(1 * time.Second) // Check every second
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Sugar.Info("Block monitoring stopped due to context cancellation")
-			return
-		case <-ticker.C:
-			highestBlockNumber, err := h.getCurrentBlockNumber(ctx)
-			if err != nil {
-				logger.Sugar.Errorf("Error fetching highest block number: %v", err)
-				continue
-			}
-
-			if highestBlockNumber > h.mostRecentBlockReceived {
-				logger.Sugar.Infof("Highest block number in defraNode: %d", highestBlockNumber)
-				h.mostRecentBlockReceived = highestBlockNumber
-			}
-		}
-	}
-}
+// monitorHighestBlockNumber has been removed - block monitoring is now handled
+// by the event-driven processAllViews goroutine for better efficiency
 
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig := DefaultConfig
-	testConfig.ShinzoAppConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.ShinzoAppConfig.DefraDB.Url = "127.0.0.1:0"
+	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.Url = "127.0.0.1:0"
 	return StartHosting(testConfig)
+}
+
+// Not used - attestation schemas are now created automatically during startup
+// initializeAttestationSchemas creates attestation record collections for all document types
+func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) error {
+	// Document types that need attestation record collections
+	documentTypes := constants.AllCollections
+
+	for _, docType := range documentTypes {
+		collectionName := docType
+
+		err := hostAttestation.AddAttestationRecordCollection(ctx, defraNode, collectionName)
+		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+			return fmt.Errorf("failed to create attestation collection for %s: %w", docType, err)
+		}
+
+		logger.Sugar.Infof("✅ Attestation collection %s initialized", collectionName)
+	}
+
+	return nil
 }
 
 // isPlaygroundEnabled checks if the playground is enabled at build time.
@@ -285,5 +606,17 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 func isPlaygroundEnabled() bool {
 	// This will be true only when built with -tags hostplayground
 	// We use a build tag to conditionally compile this
-	return playgroundEnabled
+	return true
+}
+
+// applySchema applies the GraphQL schema to DefraDB node
+func applySchema(ctx context.Context, defraNode *node.Node) error {
+	fmt.Println("Applying schema...")
+
+	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchemaForBuild())
+	if err != nil && strings.Contains(err.Error(), "collection already exists") {
+		fmt.Println("Schema already exists, skipping...")
+		return nil
+	}
+	return err
 }

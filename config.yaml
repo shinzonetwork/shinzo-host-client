@@ -1,22 +1,57 @@
 defradb:
-  url: "localhost:9182"
-  keyring_secret: ""
+  url: "localhost:9181"
+  keyring_secret: "pingpong"
+  # P2P Configuration (controlled by NetworkHandler)
   p2p:
-    bootstrap_peers: ['/ip4/34.67.151.150/tcp/9171/p2p/12D3KooWM8LZVqDY42BWEdZeMpooi2FM6dqXgJ5raRHhDG6NyueV' ]
-    listen_addr: "/ip4/0.0.0.0/tcp/0"
+    enabled: true
+    bootstrap_peers:
+      # Non branchable new - http://34.171.98.17:8080/health
+      - '/ip4/34.171.98.17/tcp/9171/p2p/12D3KooWGkoFLJo7yY4Jr2ZL5Qwtc2vxcszB4dDfbAbDLCZKFZCw'
+      # Branchable new - http://35.223.238.251:8080/health
+      # - '/ip4/35.223.238.251/tcp/9171/p2p/12D3KooWKgpVJQAXUGcxUe3PrqaXUZVEW5BaSh9DAxrQvEXDQKgq'
+    listen_addr: "/ip4/0.0.0.0/tcp/9171"
+    max_retries: 5                  # Number of connection attempts before marking peer as failed
+    retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
+    reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
+    enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
+    # Filter P2P topics - only subscribe to document-related topics
+    topic_filter:
+      - "Block"
+      - "Transaction" 
+      - "Log"
+      - "AccessListEntry"
+      - "AttestationRecord"
   store:
     path: "./.defra/data"
 shinzo:
   minimum_attestations: 1
+  start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
+  # web_socket_url: ""  # Commented out to test without shinzohub connection
+  
+  # P2P Control Settings
+  wait_for_gaps: true         # Wait for gap processing before starting P2P
+  max_gap_size: 1000          # Skip P2P if gap is larger than this
+  
+  # Message Cache & Worker Pool Settings - AGGRESSIVE MEMORY PROTECTION
+  cache_size: 10000              # CRITICAL: Small cache to prevent memory explosion
+  cache_queue_size: 5000         # CRITICAL: Small queue to prevent memory explosion  
+  cache_max_age_seconds: 10     # CRITICAL: Aggressive cleanup every 10 seconds
+  worker_count: 500               # CRITICAL: Fewer workers to prevent goroutine explosion
+
+  # View Management Settings
+  view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
+  view_cleanup_interval: "1h"     # Check for inactive views every hour
+  view_worker_count: 2            # Workers for lens transformations
+  view_queue_size: 1000           # Queue size for view processing jobs
   web_socket_url: ws://34.29.171.79:26657/websocket
 
 logger:
   development: true
+  level: "debug"  # Only show errors, suppress all P2P info/warn messages
+  # Alternative: Suppress specific P2P logging
+  # modules:
+  #   p2p: "error"     # Suppress P2P info messages
+  #   coreblock: "error" # Suppress DAG head messages
 
 host:
   lens_registry_path: "./.lens"
-
-
-## In order to connect to an indexer you need to include it within your peers. \
-#  You may want to add more peers to or replace the bootstrap_peers array.
-#  bootstrap_peers:['/ip4/34.67.151.150/tcp/9171/p2p/12D3KooWM8LZVqDY42BWEdZeMpooi2FM6dqXgJ5raRHhDG6NyueV' ]

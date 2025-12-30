@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
@@ -73,8 +77,8 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		return cancel, nil, fmt.Errorf("failed to connect to Tendermint WebSocket: %w", err)
 	}
 
-	// Create a buffered channel for events
-	eventChan := make(chan ShinzoEvent, 100) // Buffer up to 100 events
+	// Create an unbuffered channel for events (direct processing)
+	eventChan := make(chan ShinzoEvent)
 
 	// Subscribe to Registered events
 	subscribeMsg := map[string]interface{}{
@@ -104,6 +108,11 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 
 	// Start goroutine for message processing
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("WebSocket goroutine recovered from panic: %v\n", r)
+			}
+		}()
 		defer conn.Close()
 		defer cancel()
 		defer close(eventChan)
@@ -114,10 +123,25 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				fmt.Printf("Context cancelled, stopping message loop\n")
 				return
 			default:
+				// Set a deadline for the next read
+				if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+					fmt.Printf("Failed to set read deadline: %v\n", err)
+					return
+				}
+
 				// Read raw message first to see what we're getting
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					fmt.Printf("Failed to read message: %v\n", err)
+					// Check if it's a timeout, which is expected - continue the loop
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						select {
+						case <-ctx.Done():
+							return
+						default:
+							continue
+						}
+					}
+					fmt.Printf("WebSocket error, stopping: %v\n", err)
 					return
 				}
 
@@ -148,6 +172,7 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 }
 
 // extractRegisteredEvents extracts Registered events from the RPC message
+// and processes them for view registration with block range monitoring
 func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 	var registeredEvents []ViewRegisteredEvent
 
@@ -171,12 +196,25 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 						continue
 					}
 					ExtractNameFromSDL(&view)
+
+					// Save WASM blob data to file system if lenses exist
+					if len(view.Transform.Lenses) > 0 {
+						fmt.Printf("📦 Saving WASM blob data for view %s with %d lenses\n", view.Name, len(view.Transform.Lenses))
+						if err := view.PostWasmToFile(context.Background(), "./.lens"); err != nil {
+							fmt.Printf("Failed to save WASM blob for view %s: %v\n", view.Name, err)
+						}
+					}
+
 					registeredEvent.View = view
 				}
 			}
 
 			// Only add if we have all required fields
 			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
+				// Analyze query to determine block range requirements
+				blockRangeInfo := analyzeViewQueryForBlockRange(registeredEvent.View)
+				fmt.Printf("🔍 View %s requires monitoring: %s\n", registeredEvent.View.Name, blockRangeInfo)
+
 				registeredEvents = append(registeredEvents, registeredEvent)
 			} else {
 				fmt.Printf("Incomplete Registered event: %+v\n", registeredEvent)
@@ -185,4 +223,95 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 	}
 
 	return registeredEvents
+}
+
+// BlockRangeRequirement describes what block ranges a view needs to monitor
+type BlockRangeRequirement struct {
+	Collections    []string // ["Log", "Transaction", "Block"]
+	RequiresBlocks bool     // true if view needs block number filtering
+	StartFromBlock uint64   // minimum block to start monitoring from
+	Description    string   // human-readable description
+}
+
+// analyzeViewQueryForBlockRange parses a view query to determine block monitoring requirements
+func analyzeViewQueryForBlockRange(viewDef view.View) string {
+	if viewDef.Query == nil {
+		return "No query specified"
+	}
+
+	query := *viewDef.Query
+	requirement := BlockRangeRequirement{
+		Collections:    []string{},
+		RequiresBlocks: false,
+		StartFromBlock: 0,
+	}
+
+	// Check for collection references
+	collections := constants.AllCollections
+	for _, collection := range collections {
+		if strings.Contains(query, collection) {
+			requirement.Collections = append(requirement.Collections, collection)
+			requirement.RequiresBlocks = true
+		}
+	}
+
+	// Check for block number references in query
+	blockNumberPatterns := []string{"blockNumber", "number", "block"}
+	for _, pattern := range blockNumberPatterns {
+		if strings.Contains(strings.ToLower(query), strings.ToLower(pattern)) {
+			requirement.RequiresBlocks = true
+			break
+		}
+	}
+
+	// Build description
+	if len(requirement.Collections) > 0 {
+		requirement.Description = fmt.Sprintf("Collections: %v, Requires block monitoring: %v",
+			requirement.Collections, requirement.RequiresBlocks)
+	} else {
+		requirement.Description = "No blockchain collections detected"
+	}
+
+	return requirement.Description
+}
+
+// ViewRegistrationHandler manages view registration from Shinzo Hub events
+type ViewRegistrationHandler struct {
+	viewManager ViewManagerInterface // Will be injected from host
+	startHeight uint64               // Starting block height for new views
+}
+
+// NewViewRegistrationHandler creates a new view registration handler
+func NewViewRegistrationHandler(startHeight uint64) *ViewRegistrationHandler {
+	return &ViewRegistrationHandler{
+		startHeight: startHeight,
+	}
+}
+
+// SetViewManager injects the ViewManager dependency
+func (vrh *ViewRegistrationHandler) SetViewManager(vm ViewManagerInterface) {
+	vrh.viewManager = vm
+}
+
+// ProcessRegisteredEvent handles a view registration event from Shinzo Hub
+func (vrh *ViewRegistrationHandler) ProcessRegisteredEvent(ctx context.Context, event ViewRegisteredEvent) error {
+	if vrh.viewManager == nil {
+		return fmt.Errorf("ViewManager not set - cannot process view registration")
+	}
+
+	fmt.Printf("🎯 Processing view registration: %s (creator: %s)\n", event.View.Name, event.Creator)
+
+	// Register view with ViewManager (which handles ViewMatcher and ViewRangeFinder)
+	err := vrh.viewManager.RegisterView(ctx, event.View)
+	if err != nil {
+		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
+	}
+
+	fmt.Printf("✅ Successfully registered view %s for block range monitoring\n", event.View.Name)
+	return nil
+}
+
+// ViewManagerInterface to avoid circular imports
+type ViewManagerInterface interface {
+	RegisterView(ctx context.Context, viewDef view.View) error
 }

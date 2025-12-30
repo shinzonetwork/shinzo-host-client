@@ -6,10 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shinzonetwork/app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
@@ -96,6 +97,62 @@ func (h *Host) PrepareView(ctx context.Context, v view.View) error {
 	}
 
 	return nil
+}
+
+// createViewConfig converts a view.View to a ViewConfig for the ViewRangeFinder
+func (h *Host) createViewConfig(v view.View) ViewConfig {
+	config := ViewConfig{
+		Name:           v.Name,
+		TrackedFields:  make(map[string]FieldConfig),
+		ProcessingMode: "incremental",
+	}
+
+	// Analyze the view query to determine which collections it tracks
+	if v.Query != nil {
+		queryStr := *v.Query
+
+		// Check for Log collection
+		if strings.Contains(queryStr, "Log") {
+			config.TrackedFields[constants.CollectionLog] = FieldConfig{
+				Collection:     constants.CollectionLog,
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"address", "transactionHash", "topics", "data"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for Transaction collection
+		if strings.Contains(queryStr, "Transaction") {
+			config.TrackedFields[constants.CollectionTransaction] = FieldConfig{
+				Collection:     constants.CollectionTransaction,
+				BlockField:     "blockNumber",
+				IndexFields:    []string{"hash", "from", "to", "value"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for Block collection
+		if strings.Contains(queryStr, "Block") {
+			config.TrackedFields[constants.CollectionBlock] = FieldConfig{
+				Collection:     constants.CollectionBlock,
+				BlockField:     "number",
+				IndexFields:    []string{"hash", "miner", "timestamp"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+
+		// Check for AccessListEntry collection
+		if strings.Contains(queryStr, "AccessListEntry") {
+			config.TrackedFields[constants.CollectionAccessListEntry] = FieldConfig{
+				Collection:     constants.CollectionAccessListEntry,
+				BlockField:     "transaction.blockNumber",
+				IndexFields:    []string{"address", "storageKeys"},
+				FilterCriteria: make(map[string]interface{}),
+			}
+		}
+	}
+
+	return config
 }
 
 // sortDescendingBlockNumber sorts documents by blockNumber in descending order
@@ -226,33 +283,54 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 	}
 
 	transformedDocuments := map[*attestationInfo][]map[string]any{} // mapping source doc attestation info to transformed docs ([]map[string]any)
-	for _, sourceDocument := range sourceDocuments {
-		sourceDocumentId, ok := sourceDocument["_docID"].(string)
-		if !ok {
-			return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
-		}
-		sourceVersion, err := extractVersionFromDocument(sourceDocument)
-		if err != nil {
-			return fmt.Errorf("Error retrieving _version from source document: %w", err)
-		}
-		sourceAttestationInfo := &attestationInfo{
-			SourceDocumentId: sourceDocumentId,
-			Version:          sourceVersion,
-		}
+	if v.HasLenses() {
+		for _, sourceDocument := range sourceDocuments {
+			sourceDocumentId, ok := sourceDocument["_docID"].(string)
+			if !ok {
+				return fmt.Errorf("Error retrieving _docID from source document: %+v", sourceDocument)
+			}
+			sourceVersion, err := extractVersionFromDocument(sourceDocument)
+			if err != nil {
+				return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			}
+			sourceAttestationInfo := &attestationInfo{
+				SourceDocumentId: sourceDocumentId,
+				Version:          sourceVersion,
+			}
 
-		if v.HasLenses() {
 			transformed, err := v.ApplyLensTransform(ctx, h.DefraNode, query)
 			if err != nil {
 				return fmt.Errorf("Error applying lens transforms from view %s: %w", v.Name, err)
 			}
-			if len(transformed) == 0 {
-				continue
+			if len(transformed) > 0 {
+				transformedDocuments[sourceAttestationInfo] = transformed
 			}
-			transformedDocuments[sourceAttestationInfo] = transformed
-		} else {
-			// For views without lenses, use the source collection directly
-			transformedDocuments[sourceAttestationInfo] = sourceDocuments
 		}
+	} else {
+		// For views without lenses, the source documents are the transformed documents.
+		// We can process them all at once.
+		// We just need to collect all the version information.
+		var allVersions []attestation.Version
+		var sourceDocIDs []string
+		for _, doc := range sourceDocuments {
+			version, err := extractVersionFromDocument(doc)
+			if err != nil {
+				return fmt.Errorf("Error retrieving _version from source document: %w", err)
+			}
+			allVersions = append(allVersions, version...)
+			if docID, ok := doc["_docID"].(string); ok {
+				sourceDocIDs = append(sourceDocIDs, docID)
+			}
+		}
+
+		// Create a single attestation info for the batch
+		// Note: This assumes that for non-lensed views, we can bundle attestations.
+		// This might need refinement if individual attestations are required per document.
+		sourceAttestationInfo := &attestationInfo{
+			SourceDocumentId: strings.Join(sourceDocIDs, ","), // Combine IDs
+			Version:          allVersions,
+		}
+		transformedDocuments[sourceAttestationInfo] = sourceDocuments
 	}
 
 	for sourceDocumentAttestationInfo, transformedDocs := range transformedDocuments {
@@ -263,12 +341,12 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 
 		for _, transformedDocId := range transformedDocIds {
 			verifier := hostAttestation.NewDefraSignatureVerifier(h.DefraNode)
-			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, sourceDocumentAttestationInfo.Version)
+			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, "View", sourceDocumentAttestationInfo.Version)
 			if err != nil {
 				return fmt.Errorf("Error creating attestation record: %w", err)
 			}
 
-			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode, v.Name)
+			err = attestationRecord.PostAttestationRecord(ctx, h.DefraNode)
 			if err != nil {
 				return fmt.Errorf("Error posting attestation record %+v: %w", attestationRecord, err)
 			}
@@ -277,3 +355,9 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 
 	return nil
 }
+
+// curl -k -X POST https://35.239.160.177:443/api/v0/graphql \
+//   -H "Content-Type: application/json" \
+//   -d '{
+//     "query": "query { Block(order: {number: DESC}) { number } }"
+//   }'

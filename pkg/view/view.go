@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/views"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/views"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/sourcenetwork/immutable"
@@ -56,8 +56,9 @@ func parseSDLFields(sdl string) (map[string]bool, error) {
 
 // getUniqueViewName generates a unique view name by appending "_view" to the base view name
 // This ensures that views don't conflict with collections that have the same name
+// However, DefraDB creates collections with just the view name, so we return the base name
 func (v *View) getUniqueViewName() string {
-	return fmt.Sprintf("%s_view", v.Name)
+	return v.Name // DefraDB creates collections with the view name directly
 }
 
 // filterDocumentFields filters a document to only include fields defined in the SDL schema
@@ -79,9 +80,16 @@ func (v *View) filterDocumentFields(document map[string]any) (map[string]any, er
 
 	// Filter the document to only include fields defined in the schema
 	filteredDocument := make(map[string]any)
+	// Create a case-insensitive map of schema fields for matching
+	schemaFieldsLower := make(map[string]string)
+	for field := range schemaFields {
+		schemaFieldsLower[strings.ToLower(field)] = field
+	}
+
+	// Filter the document, matching keys case-insensitively
 	for key, value := range document {
-		if schemaFields[key] {
-			filteredDocument[key] = value
+		if originalKey, ok := schemaFieldsLower[strings.ToLower(key)]; ok {
+			filteredDocument[originalKey] = value
 		}
 	}
 
@@ -257,14 +265,18 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node) error {
 			Arguments: lense.Arguments,
 		})
 	}
-	transform := immutable.Some(model.Lens{
+	lens := model.Lens{
 		Lenses: lenses,
-	})
+	}
+	lensCID, err := defraNode.DB.AddLens(ctx, lens)
+	if err != nil {
+		return fmt.Errorf("failed to register lens: %w", err)
+	}
 
-	// Create the view with AddView (includes the lens transform)
+	// Create the view with AddView using the lens CID
 	// If the view already exists from SubscribeTo, AddView will return an error
 	// We handle that gracefully since the view might have been created without the transform
-	_, err := defraNode.DB.AddView(ctx, *v.Query, sdl, transform)
+	_, err = defraNode.DB.AddView(ctx, *v.Query, sdl, immutable.Some(lensCID))
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "collection already exists") {
 			return nil
@@ -342,7 +354,7 @@ func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node
 			return nil, fmt.Errorf("failed to filter document fields: %w", err)
 		}
 
-		document, err := client.NewDocFromMap(filteredDocument, collection.Version())
+		document, err := client.NewDocFromMap(ctx, filteredDocument, collection.Version())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create document from map: %w", err)
 		}

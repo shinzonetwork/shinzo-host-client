@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // WithBlockNumberFilter adds a block number filter to a GraphQL query
@@ -55,14 +57,14 @@ func WithBlockNumberFilter(query string, startingBlockNumber uint64, endingBlock
 
 		// Add block number filter to existing filter
 		var newFilter string
-		if collectionName == "Block" {
+		if collectionName == constants.CollectionBlock {
 			// For Block queries, number is the correct field
 			if existingFilter == "" {
 				newFilter = fmt.Sprintf("_and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]", startingBlockNumber, endingBlockNumber)
 			} else {
 				newFilter = fmt.Sprintf("%s, _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]", existingFilter, startingBlockNumber, endingBlockNumber)
 			}
-		} else if collectionName == "AccessListEntry" {
+		} else if collectionName == constants.CollectionAccessListEntry {
 			// For AccessListEntry queries, block number is within transaction
 			if existingFilter == "" {
 				newFilter = fmt.Sprintf("_and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ]", startingBlockNumber, endingBlockNumber)
@@ -96,10 +98,10 @@ func WithBlockNumberFilter(query string, startingBlockNumber uint64, endingBlock
 
 		// Create filter based on collection type
 		var filter string
-		if collectionName == "Block" {
+		if collectionName == constants.CollectionBlock {
 			// For Block queries, number is a direct field
 			filter = fmt.Sprintf("(filter: { _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ] })", startingBlockNumber, endingBlockNumber)
-		} else if collectionName == "AccessListEntry" {
+		} else if collectionName == constants.CollectionAccessListEntry {
 			// For AccessListEntry queries, block number is within transaction
 			filter = fmt.Sprintf("(filter: { _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ] })", startingBlockNumber, endingBlockNumber)
 		} else {

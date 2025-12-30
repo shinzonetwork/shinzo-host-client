@@ -40,7 +40,7 @@ func main() {
 
 	defer myHost.Close(context.Background())
 
-	for true {
+	for {
 		time.Sleep(1 * time.Second) // Run forever unless stopped
 	}
 }
