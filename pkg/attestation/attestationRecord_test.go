@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shinzonetwork/app-sdk/pkg/attestation"
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
+	schema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,7 +50,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -100,7 +102,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -141,7 +143,7 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -157,7 +159,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 	sourceDocId := "source-doc-456"
 	versions := []attestation.Version{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -166,11 +168,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 }
 
 func TestPostAttestationRecord(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
-		type TestDoc {
-			name: String
-		}
-	`)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
 
 	type TestDoc struct {
 		Name    string                `json:"name"`
@@ -225,10 +223,10 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode, testViewName)
+	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	expectedAttestationCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
+	expectedAttestationCollectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", testViewName)
 	query := fmt.Sprintf(`
 		%s {
 			_docID
@@ -377,11 +375,7 @@ func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
 // ========================================
 
 func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
-		type TestDoc {
-			name: String
-		}
-	`)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
 
 	type TestDoc struct {
 		Name    string                `json:"name"`
@@ -465,11 +459,11 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
 	require.NoError(t, err)
 
-	err = merged.PostAttestationRecord(t.Context(), defraNode, testViewName)
+	err = merged.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	// Verify the merged record was stored correctly
-	expectedCollectionName := fmt.Sprintf("AttestationRecord_%s", testViewName)
+	expectedCollectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", testViewName)
 	query := fmt.Sprintf(`
 		%s {
 			_docID
@@ -545,4 +539,101 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 		require.False(t, cidSet[cid], "Duplicate CID found: %s", cid)
 		cidSet[cid] = true
 	}
+}
+
+func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
+
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
+	require.NoError(t, err)
+	defer defraNode.Close(t.Context())
+
+	viewName := "Document_Test"
+	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+
+	record := &AttestationRecord{
+		AttestedDocId: "doc-123",
+		SourceDocId:   "doc-123",
+		CIDs:          []string{"cid-1"},
+	}
+
+	err = record.PostAttestationRecord(t.Context(), defraNode)
+	require.NoError(t, err)
+
+	collection := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	query := fmt.Sprintf(`
+		query {
+			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+			}
+		}
+	`, collection)
+
+	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "doc-123", results[0].AttestedDocId)
+}
+
+func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T) {
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
+
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
+	require.NoError(t, err)
+	defer defraNode.Close(t.Context())
+
+	viewName := "Document_Test"
+	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, viewName)
+	require.NoError(t, err)
+
+	record := &AttestationRecord{
+		AttestedDocId: "doc-123",
+		SourceDocId:   "doc-123",
+		CIDs:          []string{"cid-1"},
+	}
+
+	err = record.PostAttestationRecord(t.Context(), defraNode)
+	require.NoError(t, err)
+	err = record.PostAttestationRecord(t.Context(), defraNode)
+	require.NoError(t, err)
+
+	collection := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	query := fmt.Sprintf(`
+		query {
+			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+			}
+		}
+	`, collection)
+
+	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(results), 1)
+}
+
+func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
+	records := []*AttestationRecord{
+		{AttestedDocId: "doc-123", SourceDocId: "source-1", CIDs: []string{"cid-1"}},
+		{AttestedDocId: "doc-123", SourceDocId: "source-2", CIDs: []string{"cid-2", "cid-3"}},
+		{AttestedDocId: "doc-123", SourceDocId: "source-3", CIDs: []string{"cid-3", "cid-4"}},
+	}
+
+	merged := records[0]
+	var err error
+	for i := 1; i < len(records); i++ {
+		merged, err = MergeAttestationRecords(merged, records[i])
+		require.NoError(t, err)
+	}
+
+	require.NotNil(t, merged)
+	require.Equal(t, "doc-123", merged.AttestedDocId)
+	require.Equal(t, "source-1", merged.SourceDocId)
+	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3", "cid-4"}, merged.CIDs)
 }

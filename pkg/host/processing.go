@@ -2,54 +2,233 @@ package host
 
 import (
 	"context"
+	"math/rand"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 )
 
-// ProcessingPipeline coordinates direct document processing (no cache needed)
-type ProcessingPipeline struct {
-	host   *Host
-	ctx    context.Context
-	cancel context.CancelFunc
+const (
+	attestationWriterCount = 500
+	maxRetries             = 10
+	baseDelay              = 10 * time.Millisecond
+	maxDelay               = 2 * time.Second
+)
+
+// DocumentJob represents a document to be processed.
+type DocumentJob struct {
+	docID       string
+	docType     string
+	blockNumber uint64
+	docData     map[string]interface{}
 }
 
-// NewProcessingPipeline creates a simplified processing pipeline
-func NewProcessingPipeline(ctx context.Context, cacheSize int, cacheMaxAge time.Duration, queueSize int, bufferTimeout time.Duration, host *Host) *ProcessingPipeline {
+// ProcessingPipeline coordinates document processing with bounded workers and queue.
+type ProcessingPipeline struct {
+	host        *Host
+	ctx         context.Context
+	cancel      context.CancelFunc
+	jobQueue    chan DocumentJob
+	workerCount int
+	wg          sync.WaitGroup
+
+	// Attestation writers pool
+	attestationQueue chan attestationJob
+
+	// Metrics for monitoring
+	queuedCount    int64
+	processedCount int64
+	droppedCount   int64
+	mu             sync.Mutex
+}
+
+// attestationJob represents a prepared attestation ready to be written.
+type attestationJob struct {
+	docID       string
+	docType     string
+	blockNumber uint64
+	docData     map[string]interface{}
+}
+
+// NewProcessingPipeline creates a processing pipeline with bounded workers and queue.
+func NewProcessingPipeline(
+	ctx context.Context,
+	host *Host,
+	bufferTimeout time.Duration,
+	cacheMaxAge time.Duration,
+	cacheSize, queueSize, workerCount int,
+) *ProcessingPipeline {
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
 	return &ProcessingPipeline{
-		host:   host,
-		ctx:    pipelineCtx,
-		cancel: cancel,
+		host:             host,
+		ctx:              pipelineCtx,
+		cancel:           cancel,
+		jobQueue:         make(chan DocumentJob, queueSize),
+		workerCount:      workerCount,
+		attestationQueue: make(chan attestationJob, queueSize),
 	}
 }
 
-// Start starts the simplified processing pipeline
+// Start starts the processing pipeline with worker pool.
 func (pp *ProcessingPipeline) Start() {
-	logger.Sugar.Info("🚀 Starting direct processing pipeline (no cache)")
-	// No background processes needed - direct processing from subscriptions
+	logger.Sugar.Infof("🚀 Starting processing pipeline with %d workers, %d attestation writers, queue size %d",
+		pp.workerCount, attestationWriterCount, cap(pp.jobQueue))
+
+	for i := 0; i < attestationWriterCount; i++ {
+		pp.wg.Add(1)
+		go pp.attestationWriter(i)
+	}
+
+	for i := 0; i < pp.workerCount; i++ {
+		pp.wg.Add(1)
+		go pp.worker(i)
+	}
+
 	logger.Sugar.Info("✅ Processing pipeline ready")
 }
 
-// Stop stops the processing pipeline
+// Stop stops the processing pipeline.
 func (pp *ProcessingPipeline) Stop() {
 	logger.Sugar.Info("🛑 Stopping processing pipeline")
 	pp.cancel()
 
-	logger.Sugar.Info("✅ Processing pipeline stopped")
+	close(pp.jobQueue)
+	close(pp.attestationQueue)
+
+	pp.wg.Wait()
+
+	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, dropped: %d)", pp.processedCount, pp.droppedCount)
 }
 
-// processDocumentDirect processes a document directly (simple approach)
-func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
-	workerID := int(blockNumber % 1000)
-	logger.Sugar.Infof("👷 Worker %d processing %s document %s", workerID, docType, docID)
+// worker processes jobs from the queue and enqueues attestation writes.
+func (pp *ProcessingPipeline) worker(workerID int) {
+	defer pp.wg.Done()
+	for {
+		select {
+		case <-pp.ctx.Done():
+			logger.Sugar.Debugf("Worker %d stopped (context cancelled)", workerID)
+			return
+		case job, ok := <-pp.jobQueue:
+			if !ok {
+				logger.Sugar.Debugf("Worker %d stopped (queue closed)", workerID)
+				return
+			}
+			select {
+			case pp.attestationQueue <- attestationJob{
+				docID:       job.docID,
+				docType:     job.docType,
+				blockNumber: job.blockNumber,
+				docData:     job.docData,
+			}:
+			case <-pp.ctx.Done():
+				return
+			}
+		}
+	}
+}
 
-	// Process directly
-	err := pp.host.processDocumentAttestation(pp.ctx, docID, docType, blockNumber, docData)
+// attestationWriter processes attestation jobs with retry logic for transaction conflicts.
+func (pp *ProcessingPipeline) attestationWriter(writerID int) {
+	defer pp.wg.Done()
+	for {
+		select {
+		case <-pp.ctx.Done():
+			return
+		case job, ok := <-pp.attestationQueue:
+			if !ok {
+				return
+			}
+			pp.processAttestation(writerID, job)
+		}
+	}
+}
+
+// processAttestation processes a single attestation job with retry logic for transaction conflicts.
+func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJob) {
+	if pp.host.metrics != nil {
+		pp.host.metrics.IncrementDocumentsReceived()
+		pp.host.metrics.IncrementDocumentByType(job.docType)
+		pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
+	}
+
+	var err error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err = pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
+		if err == nil {
+			break
+		}
+
+		if !isTransactionConflict(err) {
+			break
+		}
+
+		if pp.ctx.Err() != nil {
+			break
+		}
+
+		delay := baseDelay * time.Duration(1<<attempt)
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()))
+		if attempt < maxRetries-1 {
+			// logger.Sugar.Debugf("Writer %d: transaction conflict for %s %s, retrying in %v (attempt %d/%d)",
+			// 	writerID, job.docType, job.docID, jitter, attempt+1, maxRetries)
+			select {
+			case <-time.After(jitter):
+			case <-pp.ctx.Done():
+				return
+			}
+		}
+	}
+
+	if pp.host.metrics != nil {
+		if err != nil {
+			pp.host.metrics.IncrementAttestationErrors()
+		} else {
+			pp.host.metrics.IncrementAttestationsCreated()
+			pp.host.metrics.IncrementDocumentsProcessed()
+		}
+	}
+
 	if err != nil {
-		logger.Sugar.Errorf("❌ Worker %d failed: %v", workerID, err)
-	} else {
-		logger.Sugar.Debugf("✅ Worker %d completed %s document %s", workerID, docType, docID)
+		if logger.Sugar != nil {
+			logger.Sugar.Warnf("Attestation failed for %s %s: %v", job.docType, job.docID, err)
+		}
+	}
+
+	pp.mu.Lock()
+	pp.processedCount++
+	pp.mu.Unlock()
+}
+
+// isTransactionConflict checks if the error is a transaction conflict that should be retried.
+func isTransactionConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "transaction conflict") || strings.Contains(errStr, "Please retry")
+}
+
+// processDocumentDirect enqueues a document for processing (blocks when queue is full).
+func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
+	job := DocumentJob{
+		docID:       docID,
+		docType:     docType,
+		blockNumber: blockNumber,
+		docData:     docData,
+	}
+
+	select {
+	case pp.jobQueue <- job:
+		pp.mu.Lock()
+		pp.queuedCount++
+		pp.mu.Unlock()
+	case <-pp.ctx.Done():
+		return
 	}
 }

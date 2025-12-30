@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/shinzonetwork/app-sdk/pkg/defra"
-	"github.com/shinzonetwork/app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // Document represents a document from DefraDB
@@ -19,8 +20,6 @@ type Document struct {
 
 // processDocumentAttestation handles attestation processing for a single document
 func (h *Host) processDocumentAttestation(ctx context.Context, docID string, docType string, blockNumber uint64, docData map[string]interface{}) error {
-	logger.Sugar.Debugf("🔍 Processing %s document %s for attestation (block %d)", docType, docID, blockNumber)
-
 	// Create Document struct
 	document := Document{
 		ID:          docID,
@@ -29,15 +28,17 @@ func (h *Host) processDocumentAttestation(ctx context.Context, docID string, doc
 		Data:        docData,
 	}
 
+	// Process document for views (if ViewManager is available)
+	if h.viewManager != nil {
+		h.viewManager.ProcessDocument(ctx, document)
+	}
+
 	// Handle attestation
 	err := h.handleDocumentAttestation(ctx, document, blockNumber)
 	if err != nil {
 		return fmt.Errorf("failed to create attestation for %s document %s: %w", docType, docID, err)
 	}
 
-	// Mark block as processed
-	h.attestationRangeTracker.Add(blockNumber)
-	logger.Sugar.Debugf("✅ Attestation created for %s document %s", docType, docID)
 	return nil
 }
 
@@ -58,10 +59,10 @@ func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
 	logger.Sugar.Info("🚀 Starting simple DefraDB subscriptions")
 
 	// Start simple subscriptions (direct processing)
-	go h.subscribeToDocumentType(ctx, "Block")
-	go h.subscribeToDocumentType(ctx, "Transaction")
-	go h.subscribeToDocumentType(ctx, "Log")
-	go h.subscribeToDocumentType(ctx, "AccessListEntry")
+	go h.subscribeToDocumentType(ctx, constants.CollectionBlock)
+	go h.subscribeToDocumentType(ctx, constants.CollectionTransaction)
+	go h.subscribeToDocumentType(ctx, constants.CollectionLog)
+	go h.subscribeToDocumentType(ctx, constants.CollectionAccessListEntry)
 
 	logger.Sugar.Info("✅ All subscriptions started")
 
@@ -77,14 +78,14 @@ func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
 	// Create subscription query
 	var subscription string
 	switch docType {
-	case "Block":
-		subscription = `subscription { Block { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
-	case "Transaction":
-		subscription = `subscription { Transaction { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
-	case "Log":
-		subscription = `subscription { Log { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
-	case "AccessListEntry":
-		subscription = `subscription { AccessListEntry { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
+	case constants.CollectionBlock:
+		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
+	case constants.CollectionTransaction:
+		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+	case constants.CollectionLog:
+		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+	case constants.CollectionAccessListEntry:
+		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
 	default:
 		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } schemaVersionId } } }`, docType)
 	}
@@ -130,13 +131,13 @@ func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[strin
 					}
 
 					blockNumber := uint64(0)
-					if docType == "Block" {
+					if docType == constants.CollectionBlock {
 						if num, exists := docMap["number"]; exists {
 							if numFloat, ok := num.(float64); ok {
 								blockNumber = uint64(numFloat)
 							}
 						}
-					} else if docType == "Transaction" || docType == "Log" {
+					} else if docType == constants.CollectionTransaction || docType == constants.CollectionLog {
 						if num, exists := docMap["blockNumber"]; exists {
 							if numFloat, ok := num.(float64); ok {
 								blockNumber = uint64(numFloat)
@@ -145,8 +146,8 @@ func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[strin
 					}
 
 					if docID != "" {
-						// Process directly via pipeline
-						go h.processingPipeline.processDocumentDirect(docID, docType, blockNumber, docMap)
+						// Process via pipeline (enqueued to worker pool)
+						h.processingPipeline.processDocumentDirect(docID, docType, blockNumber, docMap)
 					}
 				}
 			}

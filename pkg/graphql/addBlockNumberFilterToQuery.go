@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // AddBlockNumberFilter adds a block number filter to a GraphQL query
@@ -56,8 +58,8 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockN
 		// Add block number filter to existing filter with order parameter
 		var newFilter string
 		var orderParam string
-		
-		if collectionName == "Block" {
+
+		if collectionName == constants.CollectionBlock {
 			// For Block queries, number is the correct field
 			orderParam = ", order: { number: DESC }"
 			if existingFilter == "" {
@@ -65,7 +67,7 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockN
 			} else {
 				newFilter = fmt.Sprintf("%s, _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ]%s", existingFilter, startingBlockNumber, endingBlockNumber, orderParam)
 			}
-		} else if collectionName == "AccessListEntry" {
+		} else if collectionName == constants.CollectionAccessListEntry {
 			// For AccessListEntry queries, block number is within transaction
 			orderParam = ", order: { transaction: { blockNumber: DESC } }"
 			if existingFilter == "" {
@@ -101,10 +103,10 @@ func AddBlockNumberFilter(query string, startingBlockNumber uint64, endingBlockN
 
 		// Create filter and order based on collection type
 		var filterAndOrder string
-		if collectionName == "Block" {
+		if collectionName == constants.CollectionBlock {
 			// For Block queries, number is a direct field
 			filterAndOrder = fmt.Sprintf("(filter: { _and: [ { number: { _ge: %d } }, { number: { _le: %d } } ] }, order: { number: DESC })", startingBlockNumber, endingBlockNumber)
-		} else if collectionName == "AccessListEntry" {
+		} else if collectionName == constants.CollectionAccessListEntry {
 			// For AccessListEntry queries, block number is within transaction
 			filterAndOrder = fmt.Sprintf("(filter: { _and: [ { transaction: { blockNumber: { _ge: %d } } }, { transaction: { blockNumber: { _le: %d } } } ] }, order: { transaction: { blockNumber: DESC } })", startingBlockNumber, endingBlockNumber)
 		} else {

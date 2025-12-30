@@ -1,5 +1,8 @@
 # Multi-stage build like indexer
-FROM ubuntu:24.04 AS builder
+FROM golang:1.25 AS builder
+
+# Build arguments
+ARG TAGS
 
 # Install build dependencies including WASM runtimes
 RUN apt-get update && apt-get install -y \
@@ -16,22 +19,8 @@ RUN apt-get update && apt-get install -y \
     coreutils \
     libgcc-s1 \
     libstdc++6 \
-    curl \
-    libssl-dev \
-    gzip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Go (detect architecture like indexer)
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        curl -L https://go.dev/dl/go1.25.4.linux-amd64.tar.gz | tar -xz -C /usr/local; \
-    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -L https://go.dev/dl/go1.25.4.linux-arm64.tar.gz | tar -xz -C /usr/local; \
-    else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
-    fi
-ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Set working directory
 WORKDIR /app
@@ -79,8 +68,17 @@ ENV CGO_LDFLAGS="-L/usr/local/lib"
 # Copy source code
 COPY . .
 
-# Build the application with WASM support and playground enabled
-RUN make build-with-playground
+# Build the application with conditional branchable tag and always playground
+RUN set -ex && \
+    echo "Building with TAGS=${TAGS}" && \
+    echo "Final build tags: ${TAGS}" && \
+    cd playground && go generate . && \
+    cd .. && \
+    go build \
+    ${TAGS:+-tags="${TAGS}"} \
+    -o bin/host \
+    cmd/main.go && \
+    echo "Build completed successfully"
 
 # Runtime stage
 FROM ubuntu:24.04
@@ -142,6 +140,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     
 # Default command
 CMD ["./host"]
+
+# docker run 6241328fc814  --name shinzo-host   -p 9182:9182   -p 6060:6060   -p 9171:9171   -v ./data/defradb:/app/.defra/data   -v ./data/lens:/app/.lens   -v ./config.yaml:/app/config.yaml:ro   -e DEFRA_URL=0.0.0.0:9181   -e LOG_LEVEL=error   -e LOG_SOURCE=false   -e LOG_STACKTRACE=false   --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:6060/metrics || exit 1"   --health-interval=30s   --health-timeout=10s   --health-retries=3   --health-start-period=40s   --restart unless-stopped 
 
 
 # Shinzo Host Run Command

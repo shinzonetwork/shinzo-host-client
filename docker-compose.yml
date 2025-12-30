@@ -1,32 +1,49 @@
 version: '3.8'
 
+networks:
+  shinzo-net:
+    driver: bridge
 services:
-  shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:latest
+  nginx:
+    image: nginx:alpine
     ports:
-      - "9181:9181"  # DefraDB API
-      - "9182:9182"  # GraphQL Playground
-      - "9171:9171"  # P2P networking
+      - "443:443"  # HTTPS
+      - "80:80"    # HTTP (redirects to HTTPS)
     volumes:
-      - defra_data:/app/.defra/data
-      - lens_data:/app/.lens
-      - ./config.yaml:/app/config.yaml:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - shinzo-host
+    networks:
+      - shinzo-net
+    restart: unless-stopped
+
+  shinzo-host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    container_name: shinzo-host
+    networks:
+      - shinzo-net
+    expose:
+      - "9181"  # DefraDB API (internal only)
+    ports:
+      - "444:9182"  # GraphQL Playground 
+      - "6060:6060"  # Metrics
+      - "9171:9171"  # P2P networking (still needs external access)
+    volumes:
+      - ~/data/defradb:/app/.defra/data
+      - ~/data/lens:/app/.lens
+      - ~/shinzo-host-client/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
+      - LOG_LEVEL=error
+      - LOG_SOURCE=false
+      - LOG_STACKTRACE=false
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9181/api/v0/graphql"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6060/metrics"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    restart: unless-stopped
-
-volumes:
-    defra_data:
-    lens_data:
-
-logging:
-  driver: "json-file"
-  options:
-    max-size: "100m"
-    max-file: "3"
