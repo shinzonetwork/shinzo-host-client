@@ -75,6 +75,7 @@ jobs:
             TAGS=hostplayground
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          no-cache-filters: build
 
 
   # Job 3: Build and push branchable image
@@ -115,6 +116,7 @@ jobs:
             TAGS=branchable,hostplayground
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          no-cache-filters: build
 
  # Job 4: Build summary
   build-summary:

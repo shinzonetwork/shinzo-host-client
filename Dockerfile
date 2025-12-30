@@ -74,7 +74,10 @@ RUN set -ex && \
     echo "Final build tags: ${TAGS}" && \
     cd playground && go generate . && \
     cd .. && \
-    go build -tags "${TAGS}" -o bin/host cmd/main.go && \
+    go build \
+    ${TAGS:+-tags="${TAGS}"} \
+    -o bin/host \
+    cmd/main.go && \
     echo "Build completed successfully"
 
 # Runtime stage
