@@ -37,7 +37,7 @@ jobs:
   #       env:
   #         DEFRA_KEYRING_SECRET: ${{ secrets.DEFRA_KEYRING_SECRET }}
 
-  # Job 2: Build and push image (non-branchable)
+  # Job 2: Build and push image (standard)
   build-and-push-standard:
     runs-on: ubuntu-latest
     permissions:
@@ -69,7 +69,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}-standard
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
           build-args: |
             TAGS=hostplayground
@@ -79,6 +79,7 @@ jobs:
 
   # Job 3: Build and push branchable image
   build-and-push-branchable:
+    needs: build-and-push-standard
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,7 +118,7 @@ jobs:
 
  # Job 4: Build summary
   build-summary:
-    needs: [build-and-push-standard, build-and-push-branchable]
+    needs: [build-and-push-standard, build-and-push-branchable] 
     runs-on: ubuntu-latest
     env:
       SHORT_SHA_STANDARD: ${{ needs.build-and-push-standard.outputs.short_sha }}
