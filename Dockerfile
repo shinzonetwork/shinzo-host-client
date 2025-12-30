@@ -2,7 +2,7 @@
 FROM golang:1.25 AS builder
 
 # Build arguments
-ARG BUILD_TAGS=playground
+ARG TAGS
 
 # Install build dependencies including WASM runtimes
 RUN apt-get update && apt-get install -y \
@@ -70,13 +70,7 @@ COPY . .
 
 # Build the application with conditional branchable tag and always playground
 RUN set -ex && \
-    echo "Building with BUILD_TAGS=${BUILD_TAGS}" && \
-    # Always include hostplayground, conditionally include branchable
-    if [ "${BUILD_TAGS}" = "branchable" ]; then \
-        TAGS="branchable,playground"; \
-    else \
-        TAGS="playground"; \
-    fi && \
+    echo "Building with TAGS=${TAGS}" && \
     echo "Final build tags: ${TAGS}" && \
     cd playground && go generate . && \
     cd .. && \
@@ -143,6 +137,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     
 # Default command
 CMD ["./host"]
+
+# docker run 6241328fc814  --name shinzo-host   -p 9182:9182   -p 6060:6060   -p 9171:9171   -v ./data/defradb:/app/.defra/data   -v ./data/lens:/app/.lens   -v ./config.yaml:/app/config.yaml:ro   -e DEFRA_URL=0.0.0.0:9181   -e LOG_LEVEL=error   -e LOG_SOURCE=false   -e LOG_STACKTRACE=false   --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:6060/metrics || exit 1"   --health-interval=30s   --health-timeout=10s   --health-retries=3   --health-start-period=40s   --restart unless-stopped 
 
 
 # Shinzo Host Run Command

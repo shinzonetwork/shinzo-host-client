@@ -72,7 +72,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}-standard
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
           build-args: |
-            BUILD_TAGS=playground
+            TAGS=hostplayground
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -111,7 +111,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:branchable
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}-branchable
           build-args: |
-            BUILD_TAGS=branchable
+            TAGS=branchable,hostplayground
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
