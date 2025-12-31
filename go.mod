@@ -2,8 +2,6 @@ module github.com/shinzonetwork/shinzo-host-client
 
 go 1.25.5
 
-// replace github.com/shinzonetwork/shinzo-app-sdk => ../../app-sdk-release
-
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251230220547-1a79a378768c
@@ -315,7 +313,6 @@ require (
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
-	// github.com/shinzonetwork/view-creator v0.0.0-20251113191457-a28acb09bf07 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/sourcenetwork/acp_core v0.4.1 // indirect

@@ -2264,6 +2264,8 @@ github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251230220547-1a79a378768c h1:jC
 github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251230220547-1a79a378768c/go.mod h1:0D6bgzjVdokagz0EIiycp+nRkDVCMP4SmHoTfbuHufc=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8 h1:g+7aGWLyrrFFHWq7mch0b0Af2YXCNKR2xOTQ/Ed/z70=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8/go.mod h1:IpuhmHiO6IYcutRGG+c1vvUvxYb2c8yqB1eyHOdXx3c=
+github.com/shinzonetwork/shinzo-view-creator v0.0.0-20251229155957-00c04c35e463 h1:QgEAlaB8v/16HqxXth6Zy8CRFUIFLC3IyAob7SmlDIM=
+github.com/shinzonetwork/shinzo-view-creator v0.0.0-20251229155957-00c04c35e463/go.mod h1:6u/HkS7lWo5qV7yDrTUTFDwrF3uVKHTIXPq7yrO0Rdc=
 github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094 h1:EzUKZsp+t5MKWZHI1KmrIa1hMGaXvp0xAMcdP1z7u+s=
 github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094/go.mod h1:eI0UAvfDc8bW8ZEGhXae8D/+e1Zrn/JFJR9RtDS6pTU=
 github.com/shirou/gopsutil/v3 v3.22.6/go.mod h1:EdIubSnZhbAvBS1yJ7Xi+AShB/hxwLHOMz4MCYz7yMs=
