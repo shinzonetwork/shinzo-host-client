@@ -1,7 +1,5 @@
 package attestation
 
-import "github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
-
 type Log struct {
 	Address          string      `json:"address"`
 	Topics           []string    `json:"topics"`
@@ -15,6 +13,6 @@ type Log struct {
 	Block            Block       `json:"block"`
 	Transaction      Transaction `json:"transaction"`
 
-	Version []attestation.Version `json:"_version"`
-	DocId   string                `json:"_docID"`
+	Version []Version `json:"_version"`
+	DocId   string    `json:"_docID"`
 }

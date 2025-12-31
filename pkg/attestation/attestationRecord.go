@@ -3,15 +3,35 @@ package attestation
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/node"
 )
 
+
+
+// ========================================
+// LOCAL ATTESTATION TYPES
+// ========================================
+
+// Version represents a version with signature information
+type Version struct {
+	CID            string    `json:"cid"`
+	Signature      Signature `json:"signature"`
+	SchemaVersionId string    `json:"schemaVersionId"`
+}
+
+// Signature represents a cryptographic signature
+type Signature struct {
+	Type     string `json:"type"`
+	Identity string `json:"identity"`
+	Value    string `json:"value"`
+}
+
+// AttestationRecord represents an attestation record in DefraDB
 type AttestationRecord struct {
 	AttestedDocId string   `json:"attested_doc"`
 	SourceDocId   string   `json:"source_doc"`
@@ -20,7 +40,7 @@ type AttestationRecord struct {
 	VoteCount     int      `json:"vote_count"`
 }
 
-func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocId string, docType string, versions []attestation.Version) (*AttestationRecord, error) {
+func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocId string, docType string, versions []Version) (*AttestationRecord, error) {
 	attestationRecord := &AttestationRecord{
 		AttestedDocId: docId,
 		SourceDocId:   sourceDocId,
@@ -32,9 +52,7 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 		// Validate the signature against the CID
 		if err := verifier.Verify(ctx, version.CID, version.Signature); err != nil {
 			// Todo here we might want to send a message to ShinzoHub (or similar) indicating that we received an invalid signature
-			if logger.Sugar != nil {
-				logger.Sugar.Errorf("Invalid signature for CID %s from identity %s: %w", version.CID, version.Signature.Identity, err)
-			}
+			fmt.Printf("Invalid signature for CID %s from identity %s: %v\n", version.CID, version.Signature.Identity, err)
 			continue
 		}
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
@@ -102,46 +120,73 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 	return nil
 }
 
-// Wrapper functions for app-sdk attestation functionality
-
-// AddAttestationRecordCollection wraps the app-sdk function
+// AddAttestationRecordCollection creates and subscribes to attestation record collection
 func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, associatedViewName string) error {
-	return attestation.AddAttestationRecordCollection(ctx, defraNode, associatedViewName)
+	collectionSDL := getAttestationRecordSDL(associatedViewName)
+	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(collectionSDL)
+	err := schemaApplier.ApplySchema(ctx, defraNode)
+	if err != nil {
+		return fmt.Errorf("Error adding attestation record schema %s: %w", collectionSDL, err)
+	}
+
+	attestationRecords := "AttestationRecord"
+	err = defraNode.DB.AddP2PCollections(ctx, attestationRecords)
+	if err != nil {
+		return fmt.Errorf("Error subscribing to collection %s: %v", attestationRecords, err)
+	}
+	return nil
 }
 
 // GetAttestationRecords queries attestation records by document type
 func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType string, viewDocIds []string) ([]AttestationRecord, error) {
-	query := fmt.Sprintf(`
-		query {
-			%s(filter: {doc_type: {_eq: "%s"}}) {
-				_docID
-				attested_doc
-				source_doc
-				CIDs
-				doc_type
-				vote_count
-			}
+	if len(viewDocIds) > 0 {
+		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
+		quoted := make([]string, 0, len(viewDocIds))
+		for _, id := range viewDocIds {
+			quoted = append(quoted, fmt.Sprintf("\"%s\"", id))
 		}
-	`, constants.CollectionAttestationRecord, docType)
+		inList := strings.Join(quoted, ", ")
 
-	return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+		query := fmt.Sprintf(`
+			query {
+				%s(filter: {doc_type: {_eq: "%s"}, attested_doc: {_in: [%s]}}) {
+					_docID
+					attested_doc
+					source_doc
+					CIDs
+					doc_type
+					vote_count
+				}
+			}
+		`, constants.CollectionAttestationRecord, docType, inList)
+
+		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	} else {
+		// Query all records for this doc type
+		query := fmt.Sprintf(`
+			query {
+				%s(filter: {doc_type: {_eq: "%s"}}) {
+					_docID
+					attested_doc
+					source_doc
+					CIDs
+					doc_type
+					vote_count
+				}
+			}
+		`, constants.CollectionAttestationRecord, docType)
+
+		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	}
 }
 
-// Document Handler Functions - The main attestation logic
-
 // HandleDocumentAttestation is the main handler for processing document attestations
-func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string, versions []attestation.Version) error {
-	// logger.Sugar.Debugf("🔐 Processing attestation for document %s (type: %s)", docID, docType)
+func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string, versions []Version) error {
 
 	if len(versions) == 0 {
-		// logger.Sugar.Debugf("📊 No signatures found for document %s, skipping attestation", docID)
+		fmt.Printf("📊 No signatures found for document %s, skipping attestation\n", docID)
 		return nil
 	}
-
-	// logger.Sugar.Debugf("📝 Found %d signatures for document %s:", len(versions), docID)
-	// for i, version := range versions {
-	// 	logger.Sugar.Debugf("  Signature %d: CID=%s, Identity=%s, Type=%s", i+1, version.CID, version.Signature.Identity, version.Signature.Type)
-	// }
 
 	// Create attestation record with signature verification
 	verifier := NewDefraSignatureVerifier(defraNode)
@@ -150,24 +195,11 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
 	}
 
-	// AttestationRecord schema is now defined in schema.graphql and loaded at startup
-
 	// Post the attestation record to DefraDB
-	// logger.Sugar.Debugf("💾 Posting attestation record to collection: AttestationRecord")
 	err = attestationRecord.PostAttestationRecord(ctx, defraNode)
 	if err != nil {
 		return fmt.Errorf("failed to post attestation record for document %s: %w", docID, err)
 	}
-
-	// logger.Sugar.Debugf("✅ Successfully created attestation record:")
-	// logger.Sugar.Debugf("   📄 Document ID: %s", docID)
-	// logger.Sugar.Debugf("   📂 Document Type: %s", docType)
-	// logger.Sugar.Debugf("   🗂️  Collection: AttestationRecord")
-	// logger.Sugar.Debugf("   🔗 Attested Doc: %s", attestationRecord.AttestedDocId)
-	// logger.Sugar.Debugf("   📋 Source Doc: %s", attestationRecord.SourceDocId)
-	// logger.Sugar.Debugf("   ✅ Verified CIDs: %v", attestationRecord.CIDs)
-	// logger.Sugar.Debugf("   🔢 Total Signatures: %d", len(attestationRecord.CIDs))
-	// logger.Sugar.Debugf("   �️  Vote Count: %d", attestationRecord.VoteCount)
 
 	return nil
 }
@@ -200,32 +232,27 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 }
 
 // ExtractVersionsFromDocument extracts version/signature information from a document based on its type
-func ExtractVersionsFromDocument(docData map[string]interface{}) ([]attestation.Version, error) {
+func ExtractVersionsFromDocument(docData map[string]interface{}) ([]Version, error) {
 	// Try to extract version information from the document data
 	// The document data should contain the version field with signatures
 
 	if versionData, exists := docData["_version"]; exists {
 		// Convert the version data to the expected format
 		if versionArray, ok := versionData.([]interface{}); ok {
-			versions := make([]attestation.Version, 0, len(versionArray))
+			versions := make([]Version, 0, len(versionArray))
 
 			for _, v := range versionArray {
 				if versionMap, ok := v.(map[string]interface{}); ok {
-					version := attestation.Version{}
+					version := Version{}
 
 					// Extract CID
 					if cid, ok := versionMap["cid"].(string); ok {
 						version.CID = cid
 					}
 
-					// Extract Height
-					if height, ok := versionMap["height"].(float64); ok {
-						version.Height = uint(height)
-					}
-
 					// Extract Signature
 					if sigData, ok := versionMap["signature"].(map[string]interface{}); ok {
-						signature := attestation.Signature{}
+						signature := Signature{}
 
 						if sigType, ok := sigData["type"].(string); ok {
 							signature.Type = sigType
@@ -240,6 +267,11 @@ func ExtractVersionsFromDocument(docData map[string]interface{}) ([]attestation.
 						version.Signature = signature
 					}
 
+					// Extract SchemaVersionId
+					if schemaVersionId, ok := versionMap["schemaVersionId"].(string); ok {
+						version.SchemaVersionId = schemaVersionId
+					}
+
 					versions = append(versions, version)
 				}
 			}
@@ -249,7 +281,7 @@ func ExtractVersionsFromDocument(docData map[string]interface{}) ([]attestation.
 	}
 
 	// If no version data found, return empty slice (not an error)
-	return []attestation.Version{}, nil
+	return []Version{}, nil
 }
 
 // ========================================
@@ -290,4 +322,92 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 	}
 
 	return merged, nil
+}
+
+
+func getAttestationRecordSDL(viewName string) string {
+	// Check if this is a primitive type (Block, Transaction, Log, AccessListEntry)
+	primitiveTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
+	for _, primitive := range primitiveTypes {
+		if viewName == primitive { // For our primitive attestation records, we use a condensed schema
+			return fmt.Sprintf(`type AttestationRecord { 
+				attested_doc: String
+				CIDs: [String]
+			}`)
+		}
+	}
+
+	// If either AttestationRecord does not have unique name, we will get an error when trying to the schema (collection already exists error)
+	// We want a separate collection of AttestationRecords for each View so that app clients don't receive all AttestationRecords, only those that are relevant to the collections/Views they care about - we can just append the View names as those must also be unique
+	return fmt.Sprintf(`type AttestationRecord {
+		attested_doc: String
+		source_doc: String
+		CIDs: [String]
+	}`)
+}
+
+// extractSchemaTypes extracts all type names from a GraphQL SDL schema
+func extractSchemaTypes(schema string) ([]string, error) {
+	// Find all type definitions: type TypeName { ... }
+	re := regexp.MustCompile(`type\s+(\w+)\s*@?[^{]*\{`)
+	matches := re.FindAllStringSubmatch(schema, -1)
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no type definitions found in schema")
+	}
+
+	types := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) > 1 {
+			typeName := strings.TrimSpace(match[1])
+			types = append(types, typeName)
+		}
+	}
+
+	return types, nil
+}
+
+// ========================================
+// UTILITY FUNCTIONS
+// ========================================
+
+// GetAttestationRecordsByViewName queries attestation records for a specific view
+func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIds []string) ([]AttestationRecord, error) {
+	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	
+	if len(viewDocIds) > 0 {
+		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
+		quoted := make([]string, 0, len(viewDocIds))
+		for _, id := range viewDocIds {
+			quoted = append(quoted, fmt.Sprintf("\"%s\"", id))
+		}
+		inList := strings.Join(quoted, ", ")
+
+		query := fmt.Sprintf(`
+			query {
+				%s(filter: {attested_doc: {_in: [%s]}}) {
+					_docID
+					attested_doc
+					source_doc
+					CIDs
+				}
+			}
+		`, collectionName, inList)
+
+		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	} else {
+		// Query all records for this view
+		query := fmt.Sprintf(`
+			query {
+				%s {
+					_docID
+					attested_doc
+					source_doc
+					CIDs
+				}
+			}
+		`, collectionName)
+
+		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	}
 }

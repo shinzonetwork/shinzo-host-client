@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -109,7 +110,7 @@ func testViewRegistrationLifecycle(t *testing.T, host *Host) {
 
 	createQuery := fmt.Sprintf(`
 		mutation {
-			create_Transaction(input: {
+			create_%s(input: {
 				hash: "%s"
 				blockNumber: %d
 				from: "%s"
@@ -119,7 +120,7 @@ func testViewRegistrationLifecycle(t *testing.T, host *Host) {
 				_docID
 			}
 		}
-	`, testDoc.Data["hash"], testDoc.BlockNumber, testDoc.Data["from"], testDoc.Data["to"], testDoc.Data["value"])
+	`, constants.CollectionTransaction, testDoc.Data["hash"], testDoc.BlockNumber, testDoc.Data["from"], testDoc.Data["to"], testDoc.Data["value"])
 
 	result, err := defra.QuerySingle[map[string]interface{}](ctx, host.DefraNode, createQuery)
 	require.NoError(t, err, "Should be able to create Transaction document in DefraDB")
@@ -281,14 +282,14 @@ func testDocumentProcessingLifecycle(t *testing.T, host *Host) {
 func createTestView() view.View {
 	// DefraDB AddView expects just the collection part, not a full GraphQL query
 	// Use proper DefraDB filter syntax - _ge instead of _gte
-	query := `Transaction {
-		_docID
-		hash
-		blockNumber
-		from
-		to
-		value
-	}`
+	query := constants.CollectionTransaction + " {" +
+		"_docID\n" +
+		"hash\n" +
+		"blockNumber\n" +
+		"from\n" +
+		"to\n" +
+		"value\n" +
+		"}"
 
 	sdl := `type TestTransactionView {
 		hash: String
@@ -326,14 +327,14 @@ func createTestView() view.View {
 
 // createTestViewWithDocID creates a test view with WASM lens that filters for a specific document ID
 func createTestViewWithDocID(docID string) view.View {
-	query := `Transaction {
-		_docID
-		hash
-		blockNumber
-		from
-		to
-		value
-	}`
+	query := constants.CollectionTransaction + " {" +
+		"_docID\n" +
+		"hash\n" +
+		"blockNumber\n" +
+		"from\n" +
+		"to\n" +
+		"value\n" +
+		"}"
 
 	sdl := `type TestTransactionView {
 		hash: String

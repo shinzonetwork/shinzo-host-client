@@ -6,10 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
-	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/graphql"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -340,8 +339,8 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		}
 
 		for _, transformedDocId := range transformedDocIds {
-			verifier := hostAttestation.NewDefraSignatureVerifier(h.DefraNode)
-			attestationRecord, err := hostAttestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, "View", sourceDocumentAttestationInfo.Version)
+			verifier := attestation.NewDefraSignatureVerifier(h.DefraNode)
+			attestationRecord, err := attestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, "View", sourceDocumentAttestationInfo.Version)
 			if err != nil {
 				return fmt.Errorf("Error creating attestation record: %w", err)
 			}

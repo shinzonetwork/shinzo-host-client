@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
@@ -62,9 +60,25 @@ type ShinzoEvent interface {
 	ToString() string
 }
 
-// EventSubscription defines the interface for event subscriptions
-type EventSubscription interface {
-	StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error)
+// EntityType represents the type of entity
+type EntityType string
+
+const (
+	EntityTypeIndexer EntityType = "Indexer"
+	EntityTypeHost    EntityType = "Host"
+	EntityTypeUnknown EntityType = "Unknown"
+)
+
+// GetEntityType determines the entity type from the entity field value
+func GetEntityType(entityValue string) EntityType {
+	switch entityValue {
+	case "\u0001":
+		return EntityTypeIndexer
+	case "\u0002":
+		return EntityTypeHost
+	default:
+		return EntityTypeUnknown
+	}
 }
 
 // StartEventSubscription starts the event subscription and returns a context for cancellation and event channel
@@ -80,13 +94,13 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
 
-	// Subscribe to Registered events
+	// Subscribe to Registered and EntityRegistered events
 	subscribeMsg := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "subscribe",
 		"id":      1,
 		"params": map[string]interface{}{
-			"query": "tm.event='Tx' AND Registered.key EXISTS",
+			"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
 		},
 	}
 
@@ -152,12 +166,12 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					continue
 				}
 
-				// Look for Registered events and send them to the channel
-				registeredEvents := extractRegisteredEvents(msg)
-				for _, event := range registeredEvents {
+				// Look for Registered and EntityRegistered events and send them to the channel
+				events := extractShinzoEvents(msg)
+				for _, event := range events {
 					// Send event to channel (this will block if channel is full)
 					select {
-					case eventChan <- &event:
+					case eventChan <- event:
 						// Event sent successfully
 					case <-ctx.Done():
 						// Context cancelled, stop sending
@@ -171,14 +185,22 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	return cancel, eventChan, nil
 }
 
-// extractRegisteredEvents extracts Registered events from the RPC message
-// and processes them for view registration with block range monitoring
-func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
-	var registeredEvents []ViewRegisteredEvent
+// extractShinzoEvents extracts both Registered and EntityRegistered events from the RPC message
+// and processes them for view registration and indexer/host registration
+func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
+	var events []ShinzoEvent
+
+	// Validate message structure
+	if msg.JsonRpcVersion != "2.0" ||
+		msg.Result.Data.Type != "tendermint.event" ||
+		msg.Result.Data.Value.TxResult.Result.Events == nil {
+		return events
+	}
 
 	// Navigate through the nested structure to find events
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
-		if event.Type == "Registered" {
+		switch event.Type {
+		case "Registered":
 			registeredEvent := ViewRegisteredEvent{}
 
 			// Extract attributes
@@ -197,121 +219,58 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 					}
 					ExtractNameFromSDL(&view)
 
-					// Save WASM blob data to file system if lenses exist
-					if len(view.Transform.Lenses) > 0 {
-						fmt.Printf("📦 Saving WASM blob data for view %s with %d lenses\n", view.Name, len(view.Transform.Lenses))
-						if err := view.PostWasmToFile(context.Background(), "./.lens"); err != nil {
-							fmt.Printf("Failed to save WASM blob for view %s: %v\n", view.Name, err)
-						}
-					}
-
 					registeredEvent.View = view
 				}
 			}
 
 			// Only add if we have all required fields
 			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
-				// Analyze query to determine block range requirements
-				blockRangeInfo := analyzeViewQueryForBlockRange(registeredEvent.View)
-				fmt.Printf("🔍 View %s requires monitoring: %s\n", registeredEvent.View.Name, blockRangeInfo)
+				fmt.Printf("🔍 View %s registered for monitoring\n", registeredEvent.View.Name)
 
-				registeredEvents = append(registeredEvents, registeredEvent)
+				events = append(events, &registeredEvent)
 			} else {
 				fmt.Printf("Incomplete Registered event: %+v\n", registeredEvent)
+			}
+
+		case "EntityRegistered":
+			entityRegisteredEvent := EntityRegisteredEvent{}
+
+			// Extract attributes
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case "key":
+					entityRegisteredEvent.Key = attr.Value
+				case "owner":
+					entityRegisteredEvent.Owner = attr.Value
+				case "did":
+					entityRegisteredEvent.DID = attr.Value
+				case "pid":
+					entityRegisteredEvent.Pid = attr.Value
+				case "entity":
+					entityRegisteredEvent.Entity = attr.Value
+				}
+			}
+
+			// Only add if we have all required fields
+			if entityRegisteredEvent.Key != "" && entityRegisteredEvent.Owner != "" && entityRegisteredEvent.DID != "" && entityRegisteredEvent.Pid != "" {
+				// Determine entity type
+				entityType := "Unknown"
+				switch entityRegisteredEvent.Entity {
+				case "\u0001":
+					entityType = "Indexer"
+				case "\u0002":
+					entityType = "Host"
+				}
+				
+				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s, owner=%s, did=%s, pid=%s\n", 
+					entityType, entityRegisteredEvent.Key, entityRegisteredEvent.Owner, entityRegisteredEvent.DID, entityRegisteredEvent.Pid)
+
+				events = append(events, &entityRegisteredEvent)
+			} else {
+				fmt.Printf("Incomplete EntityRegistered event: %+v\n", entityRegisteredEvent)
 			}
 		}
 	}
 
-	return registeredEvents
-}
-
-// BlockRangeRequirement describes what block ranges a view needs to monitor
-type BlockRangeRequirement struct {
-	Collections    []string // ["Log", "Transaction", "Block"]
-	RequiresBlocks bool     // true if view needs block number filtering
-	StartFromBlock uint64   // minimum block to start monitoring from
-	Description    string   // human-readable description
-}
-
-// analyzeViewQueryForBlockRange parses a view query to determine block monitoring requirements
-func analyzeViewQueryForBlockRange(viewDef view.View) string {
-	if viewDef.Query == nil {
-		return "No query specified"
-	}
-
-	query := *viewDef.Query
-	requirement := BlockRangeRequirement{
-		Collections:    []string{},
-		RequiresBlocks: false,
-		StartFromBlock: 0,
-	}
-
-	// Check for collection references
-	collections := constants.AllCollections
-	for _, collection := range collections {
-		if strings.Contains(query, collection) {
-			requirement.Collections = append(requirement.Collections, collection)
-			requirement.RequiresBlocks = true
-		}
-	}
-
-	// Check for block number references in query
-	blockNumberPatterns := []string{"blockNumber", "number", "block"}
-	for _, pattern := range blockNumberPatterns {
-		if strings.Contains(strings.ToLower(query), strings.ToLower(pattern)) {
-			requirement.RequiresBlocks = true
-			break
-		}
-	}
-
-	// Build description
-	if len(requirement.Collections) > 0 {
-		requirement.Description = fmt.Sprintf("Collections: %v, Requires block monitoring: %v",
-			requirement.Collections, requirement.RequiresBlocks)
-	} else {
-		requirement.Description = "No blockchain collections detected"
-	}
-
-	return requirement.Description
-}
-
-// ViewRegistrationHandler manages view registration from Shinzo Hub events
-type ViewRegistrationHandler struct {
-	viewManager ViewManagerInterface // Will be injected from host
-	startHeight uint64               // Starting block height for new views
-}
-
-// NewViewRegistrationHandler creates a new view registration handler
-func NewViewRegistrationHandler(startHeight uint64) *ViewRegistrationHandler {
-	return &ViewRegistrationHandler{
-		startHeight: startHeight,
-	}
-}
-
-// SetViewManager injects the ViewManager dependency
-func (vrh *ViewRegistrationHandler) SetViewManager(vm ViewManagerInterface) {
-	vrh.viewManager = vm
-}
-
-// ProcessRegisteredEvent handles a view registration event from Shinzo Hub
-func (vrh *ViewRegistrationHandler) ProcessRegisteredEvent(ctx context.Context, event ViewRegisteredEvent) error {
-	if vrh.viewManager == nil {
-		return fmt.Errorf("ViewManager not set - cannot process view registration")
-	}
-
-	fmt.Printf("🎯 Processing view registration: %s (creator: %s)\n", event.View.Name, event.Creator)
-
-	// Register view with ViewManager (which handles ViewMatcher and ViewRangeFinder)
-	err := vrh.viewManager.RegisterView(ctx, event.View)
-	if err != nil {
-		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
-	}
-
-	fmt.Printf("✅ Successfully registered view %s for block range monitoring\n", event.View.Name)
-	return nil
-}
-
-// ViewManagerInterface to avoid circular imports
-type ViewManagerInterface interface {
-	RegisterView(ctx context.Context, viewDef view.View) error
+	return events
 }

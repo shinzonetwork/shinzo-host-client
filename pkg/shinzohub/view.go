@@ -13,8 +13,20 @@ type ViewRegisteredEvent struct { // ViewRegisteredEvent implements ShinzoEvent 
 	View    view.View
 }
 
-func (event *ViewRegisteredEvent) ToString() string {
-	return fmt.Sprintf("(Key: %s, Creator: %s, View: %s)", event.Key, event.Creator, event.View.Name)
+type EntityRegisteredEvent struct { // Subscribe to Registered and EntityRegistered events
+	Key    string
+	Owner  string
+	DID    string
+	Pid    string
+	Entity string
+}
+
+func (vre *ViewRegisteredEvent) ToString() string {
+	return fmt.Sprintf("ViewRegistered: key=%s, creator=%s, view=%s", vre.Key, vre.Creator, vre.View.Name)
+}
+
+func (ere *EntityRegisteredEvent) ToString() string {
+	return fmt.Sprintf("EntityRegistered: key=%s, owner=%s, did=%s, pid=%s", ere.Key, ere.Owner, ere.DID, ere.Pid)
 }
 
 // ExtractNameFromSDL extracts the type name from the SDL string
