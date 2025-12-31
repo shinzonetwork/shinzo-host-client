@@ -139,7 +139,15 @@ func TestExtractEntityRegisteredEvents(t *testing.T) {
 	}
 
 	// Extract events
-	events := extractEntityRegisteredEvents(testMsg)
+	allEvents := extractShinzoEvents(testMsg)
+	
+	// Filter for EntityRegistered events only
+	var events []EntityRegisteredEvent
+	for _, event := range allEvents {
+		if entityEvent, ok := event.(*EntityRegisteredEvent); ok {
+			events = append(events, *entityEvent)
+		}
+	}
 
 	// Should only get the complete EntityRegistered event (the second one is incomplete)
 	require.Len(t, events, 1, "Should extract exactly 1 complete EntityRegistered event")
@@ -166,7 +174,7 @@ func TestMixedEventSubscription(t *testing.T) {
 	defer cancel()
 
 	// Test data
-	query := "Log {address topics data transactionHash blockNumber}"
+	query := "Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}"
 	expectedView := view.View{
 		Query: &query,
@@ -192,7 +200,7 @@ func TestMixedEventSubscription(t *testing.T) {
 									Attributes: []EventAttribute{
 										{Key: "key", Value: "0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85", Index: true},
 										{Key: "creator", Value: "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", Index: true},
-										{Key: "view", Value: `{"query":"Log {address topics data transactionHash blockNumber}","sdl":"type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}","transform":{"lenses":[]}}`, Index: true},
+										{Key: "view", Value: `{"query":"Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}","sdl":"type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}","transform":{"lenses":[]}}`, Index: true},
 									},
 								},
 								{

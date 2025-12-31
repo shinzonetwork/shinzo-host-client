@@ -2,9 +2,11 @@ module github.com/shinzonetwork/shinzo-host-client
 
 go 1.25.5
 
+// replace github.com/shinzonetwork/shinzo-app-sdk => ../../app-sdk-release
+
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251230181703-9279a9e7a8b6
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251230220547-1a79a378768c
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/sourcenetwork/corelog v0.0.8
 	github.com/sourcenetwork/defradb v0.20.1-0.20251230174655-5bffc6c5795f

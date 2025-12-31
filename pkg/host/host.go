@@ -89,7 +89,6 @@ type Host struct {
 	DefraNode              *node.Node
 	NetworkHandler         *defra.NetworkHandler // P2P network control
 	webhookCleanupFunction func()
-	eventSubscription      shinzohub.EventSubscription
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the event processing goroutine
 	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
@@ -100,7 +99,7 @@ type Host struct {
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager             *ViewManager                       // Manages view lifecycle and processing
-	viewRegistrationHandler *shinzohub.ViewRegistrationHandler // Handles Shinzo Hub view registration events
+	viewRegistrationHandler *ViewRegistrationHandler            // Handles Shinzo Hub view registration events
 	viewEndpointManager     *ViewEndpointManager               // Manages HTTP endpoints for views
 
 	healthServer *server.HealthServer
@@ -112,10 +111,10 @@ type Host struct {
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
-	return StartHostingWithEventSubscription(cfg, &shinzohub.RealEventSubscription{})
+	return StartHostingWithEventSubscription(cfg)
 }
 
-func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.EventSubscription) (*Host, error) {
+func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
@@ -152,11 +151,6 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
-	// Initialize attestation record schemas for all document types
-	// err = initializeAttestationSchemas(ctx, defraNode)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to initialize attestation schemas: %w", err)
-	// }
 
 	// Log API URL
 	if defraNode.APIURL != "" {
@@ -206,7 +200,6 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		// COMMENTED: View initialization - pure event-driven attestation focus
 		// HostedViews:             []view.View{},
 		webhookCleanupFunction: func() {},
-		eventSubscription:      eventSub,
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},
 		playgroundServer:       playgroundServer,
@@ -263,7 +256,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 		viewConfig.WorkerCount, viewConfig.QueueSize, viewConfig.InactivityTimeout)
 
 	// Initialize ViewRegistrationHandler for Shinzo Hub events
-	newHost.viewRegistrationHandler = shinzohub.NewViewRegistrationHandler(cfg.Shinzo.StartHeight)
+	newHost.viewRegistrationHandler = NewViewRegistrationHandler(cfg.Shinzo.StartHeight)
 	newHost.viewRegistrationHandler.SetViewManager(newHost.viewManager)
 
 	// Initialize ViewEndpointManager for HTTP endpoints
@@ -275,7 +268,7 @@ func StartHostingWithEventSubscription(cfg *config.Config, eventSub shinzohub.Ev
 	newHost.setupViewHTTPServer()
 
 	if len(cfg.Shinzo.WebSocketUrl) > 0 {
-		cancel, channel, err := eventSub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
+		cancel, channel, err := shinzohub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
 
 		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
 		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
@@ -565,19 +558,21 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					logger.Sugar.Warn("ViewRegistrationHandler not initialized - cannot process view registration")
 				}
 			} else if entityEvent, ok := event.(*shinzohub.EntityRegisteredEvent); ok {
-				// Process EntityRegistered events (Indexer/Host registration)
+				// Process EntityRegistered events - add as P2P peers
 				entityType := shinzohub.GetEntityType(entityEvent.Entity)
-				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s", entityType, entityEvent.Key, entityEvent.Owner)
-
-				// TODO: Add EntityRegistrationHandler for indexer/host management
-				// For now, just log the event - actual indexer/host management can be added later
-				switch entityType {
-				case shinzohub.EntityTypeIndexer:
-					logger.Sugar.Infof("🚀 Indexer registration detected: %s (pid: %s)", entityEvent.Key, entityEvent.Pid)
-				case shinzohub.EntityTypeHost:
-					logger.Sugar.Infof("🏠 Host registration detected: %s (pid: %s)", entityEvent.Key, entityEvent.Pid)
-				default:
-					logger.Sugar.Warnf("⚠️ Unknown entity type: %s", entityEvent.Entity)
+				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s, pid=%s", 
+					entityType, entityEvent.Key, entityEvent.Owner, entityEvent.Pid)
+				
+				// Add entity as P2P peer for communication
+				if h.NetworkHandler != nil {
+					err := h.NetworkHandler.AddPeer(entityEvent.Pid)
+					if err != nil {
+						logger.Sugar.Errorf("❌ Failed to add %s peer %s: %v", entityType, entityEvent.Pid, err)
+					} else {
+						logger.Sugar.Infof("✅ Successfully added %s as P2P peer: %s", entityType, entityEvent.Pid)
+					}
+				} else {
+					logger.Sugar.Warn("NetworkHandler not initialized - cannot add P2P peer")
 				}
 			} else {
 				logger.Sugar.Debugf("Received unknown event type: %+v", event)
