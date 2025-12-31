@@ -1,7 +1,5 @@
 package attestation
 
-import "github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
-
 type Block struct {
 	Hash             string        `json:"hash"`
 	Number           uint64        `json:"number"`
@@ -25,6 +23,6 @@ type Block struct {
 	Uncles           []string      `json:"uncles"`
 	Transactions     []Transaction `json:"transactions"`
 
-	Version []attestation.Version `json:"_version"`
-	DocId   string                `json:"_docID"`
+	Version []Version `json:"_version"`
+	DocId   string    `json:"_docID"`
 }

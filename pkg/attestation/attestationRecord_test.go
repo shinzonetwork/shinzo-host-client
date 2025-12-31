@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	schema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
-
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +13,7 @@ import (
 func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature attestation.Signature) error {
+		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
 			// All signatures are valid
 			return nil
 		},
@@ -23,10 +21,10 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 
 	docId := "doc-123"
 	sourceDocId := "source-doc-456"
-	versions := []attestation.Version{
+	versions := []Version{
 		{
 			CID: "cid-1",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-1",
 				Value:    "signature-1",
@@ -34,7 +32,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 		{
 			CID: "cid-2",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-2",
 				Value:    "signature-2",
@@ -42,7 +40,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 		{
 			CID: "cid-3",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-3",
 				Value:    "signature-3",
@@ -64,7 +62,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature attestation.Signature) error {
+		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
 			// Only cid-1 and cid-3 are valid
 			if cid == "cid-2" {
 				return fmt.Errorf("invalid signature")
@@ -75,10 +73,10 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 
 	docId := "doc-123"
 	sourceDocId := "source-doc-456"
-	versions := []attestation.Version{
+	versions := []Version{
 		{
 			CID: "cid-1",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-1",
 				Value:    "signature-1",
@@ -86,7 +84,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 		{
 			CID: "cid-2",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-2",
 				Value:    "signature-2",
@@ -94,7 +92,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 		{
 			CID: "cid-3",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-3",
 				Value:    "signature-3",
@@ -116,7 +114,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature attestation.Signature) error {
+		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
 			// All signatures are invalid
 			return fmt.Errorf("invalid signature")
 		},
@@ -124,10 +122,10 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 
 	docId := "doc-123"
 	sourceDocId := "source-doc-456"
-	versions := []attestation.Version{
+	versions := []Version{
 		{
 			CID: "cid-1",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-1",
 				Value:    "signature-1",
@@ -135,7 +133,7 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 		},
 		{
 			CID: "cid-2",
-			Signature: attestation.Signature{
+			Signature: Signature{
 				Type:     "es256k",
 				Identity: "identity-2",
 				Value:    "signature-2",
@@ -157,7 +155,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 
 	docId := "doc-123"
 	sourceDocId := "source-doc-456"
-	versions := []attestation.Version{}
+	versions := []Version{}
 
 	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
 	require.NoError(t, err)
@@ -168,17 +166,47 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 }
 
 func TestPostAttestationRecord(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
+	ctx := context.Background()
+	
+	// Define schema inline for this test
+	testSchema := `
+		type TestDoc {
+			name: String
+		}
+
+		type Ethereum__Mainnet__AttestationRecord {
+			attested_doc: String @index
+			source_doc: String
+			CIDs: [String]
+			doc_type: String @index
+			vote_count: Int @crdt(type: pcounter)
+		}
+	`
+	
+	// Create and start client using new API with test config
+	testConfig := defra.DefaultConfig
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
+	
+	client, err := defra.NewClient(testConfig)
+	require.NoError(t, err)
+	err = client.Start(t.Context())
+	require.NoError(t, err)
+	defer client.Stop(t.Context())
+	
+	// Apply schema using the new Client method
+	err = client.ApplySchema(ctx, testSchema)
+	require.NoError(t, err)
+
+	defraNode := client.GetNode()
 
 	type TestDoc struct {
-		Name    string                `json:"name"`
-		DocId   string                `json:"_docID"`
-		Version []attestation.Version `json:"_version"`
+		Name    string    `json:"name"`
+		DocId   string    `json:"_docID"`
+		Version []Version `json:"_version"`
 	}
-
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
-	require.NoError(t, err)
-	defer defraNode.Close(t.Context())
 
 	createTestDocMutation := `
 		mutation {
@@ -191,8 +219,8 @@ func TestPostAttestationRecord(t *testing.T) {
 						type
 						identity
 						value
-						__typename
 					}
+					schemaVersionId
 				}
 			}
 		}
@@ -206,8 +234,8 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	testVersions := testDocResult.Version
 
-	testViewName := "TestView"
-	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
+
+	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
 
 	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
@@ -226,7 +254,6 @@ func TestPostAttestationRecord(t *testing.T) {
 	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	expectedAttestationCollectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", testViewName)
 	query := fmt.Sprintf(`
 		%s {
 			_docID
@@ -234,7 +261,7 @@ func TestPostAttestationRecord(t *testing.T) {
 			source_doc
 			CIDs
 		}
-	`, expectedAttestationCollectionName)
+	`, constants.CollectionAttestationRecord)
 
 	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -375,17 +402,46 @@ func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
 // ========================================
 
 func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
+	ctx := context.Background()
+	
+	// Define schema inline for this test
+	testSchema := `
+		type TestDoc {
+			name: String
+		}
+		type Ethereum__Mainnet__AttestationRecord {
+			attested_doc: String @index
+			source_doc: String
+			CIDs: [String]
+			doc_type: String @index
+			vote_count: Int @crdt(type: pcounter)
+		}
+	`
+	
+	// Create and start client using new API with test config
+	testConfig := defra.DefaultConfig
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
+	
+	client, err := defra.NewClient(testConfig)
+	require.NoError(t, err)
+	err = client.Start(t.Context())
+	require.NoError(t, err)
+	defer client.Stop(t.Context())
+	
+	// Apply schema using the new Client method
+	err = client.ApplySchema(ctx, testSchema)
+	require.NoError(t, err)
+
+	defraNode := client.GetNode()
 
 	type TestDoc struct {
-		Name    string                `json:"name"`
-		DocId   string                `json:"_docID"`
-		Version []attestation.Version `json:"_version"`
+		Name    string    `json:"name"`
+		DocId   string    `json:"_docID"`
+		Version []Version `json:"_version"`
 	}
-
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
-	require.NoError(t, err)
-	defer defraNode.Close(t.Context())
 
 	// Create two test documents
 	createDoc1Mutation := `
@@ -455,15 +511,13 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	require.Contains(t, merged.CIDs, doc2Result.Version[0].CID)
 
 	// Post the merged record to DefraDB
-	testViewName := "TestView"
-	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, testViewName)
+	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
 
 	err = merged.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
 	// Verify the merged record was stored correctly
-	expectedCollectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", testViewName)
 	query := fmt.Sprintf(`
 		%s {
 			_docID
@@ -471,7 +525,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 			source_doc
 			CIDs
 		}
-	`, expectedCollectionName)
+	`, constants.CollectionAttestationRecord)
 
 	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -542,14 +596,44 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 }
 
 func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
+	ctx := context.Background()
+	
+	// Define schema inline for this test
+	testSchema := `
+		type TestDoc {
+			name: String
+		}
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
+		type Ethereum__Mainnet__AttestationRecord {
+			attested_doc: String @index
+			source_doc: String
+			CIDs: [String]
+			doc_type: String @index
+			vote_count: Int @crdt(type: pcounter)
+		}
+	`
+	
+	// Create and start client using new API with test config
+	testConfig := defra.DefaultConfig
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
+	
+	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
-	defer defraNode.Close(t.Context())
+	err = client.Start(t.Context())
+	require.NoError(t, err)
+	defer client.Stop(t.Context())
+	
+	// Apply schema using the new Client method
+	err = client.ApplySchema(ctx, testSchema)
+	require.NoError(t, err)
 
-	viewName := "Document_Test"
-	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, viewName)
+	defraNode := client.GetNode()
+
+
+	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
 
 	record := &AttestationRecord{
@@ -561,7 +645,6 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	collection := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
 	query := fmt.Sprintf(`
 		query {
 			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
@@ -571,7 +654,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 				CIDs
 			}
 		}
-	`, collection)
+	`, constants.CollectionAttestationRecord)
 
 	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -580,14 +663,43 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 }
 
 func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T) {
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(schema.GetSchema())
+	ctx := context.Background()
+	
+	// Define schema inline for this test
+	testSchema := `
+		type TestDoc {
+			name: String
+		}
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schemaApplier, "TestDoc")
+		type Ethereum__Mainnet__AttestationRecord {
+			attested_doc: String @index
+			source_doc: String
+			CIDs: [String]
+			doc_type: String @index
+			vote_count: Int @crdt(type: pcounter)
+		}
+	`
+	
+	// Create and start client using new API with test config
+	testConfig := defra.DefaultConfig
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
+	
+	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
-	defer defraNode.Close(t.Context())
+	err = client.Start(t.Context())
+	require.NoError(t, err)
+	defer client.Stop(t.Context())
+	
+	// Apply schema using the new Client method
+	err = client.ApplySchema(ctx, testSchema)
+	require.NoError(t, err)
 
-	viewName := "Document_Test"
-	err = attestation.AddAttestationRecordCollection(t.Context(), defraNode, viewName)
+	defraNode := client.GetNode()
+
+	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
 
 	record := &AttestationRecord{
@@ -601,7 +713,6 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	err = record.PostAttestationRecord(t.Context(), defraNode)
 	require.NoError(t, err)
 
-	collection := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
 	query := fmt.Sprintf(`
 		query {
 			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
@@ -611,7 +722,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 				CIDs
 			}
 		}
-	`, collection)
+	`, constants.CollectionAttestationRecord)
 
 	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)

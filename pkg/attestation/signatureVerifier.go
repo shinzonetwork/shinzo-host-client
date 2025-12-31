@@ -11,12 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/attestation"
 	"github.com/sourcenetwork/defradb/node"
 )
 
 type SignatureVerifier interface {
-	Verify(ctx context.Context, cid string, signature attestation.Signature) error
+	Verify(ctx context.Context, cid string, signature Signature) error
 }
 
 type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
@@ -46,7 +45,7 @@ func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
 }
 
 // Verify verifies that the signature is valid for the given CID using DefraDB's HTTP API
-func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature attestation.Signature) error {
+func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
 	// Validate required fields
 	if signature.Identity == "" {
 		return fmt.Errorf("empty identity in signature for CID %s", cid)
@@ -113,10 +112,10 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 }
 
 type MockSignatureVerifier struct { // Implements SignatureVerifier interface
-	verifyFunc func(ctx context.Context, cid string, signature attestation.Signature) error
+	verifyFunc func(ctx context.Context, cid string, signature Signature) error
 }
 
-func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature attestation.Signature) error {
+func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
 	if m.verifyFunc != nil {
 		return m.verifyFunc(ctx, cid, signature)
 	}
