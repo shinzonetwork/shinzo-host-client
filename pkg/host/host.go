@@ -564,8 +564,23 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				} else {
 					logger.Sugar.Warn("ViewRegistrationHandler not initialized - cannot process view registration")
 				}
+			} else if entityEvent, ok := event.(*shinzohub.EntityRegisteredEvent); ok {
+				// Process EntityRegistered events (Indexer/Host registration)
+				entityType := shinzohub.GetEntityType(entityEvent.Entity)
+				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s", entityType, entityEvent.Key, entityEvent.Owner)
+
+				// TODO: Add EntityRegistrationHandler for indexer/host management
+				// For now, just log the event - actual indexer/host management can be added later
+				switch entityType {
+				case shinzohub.EntityTypeIndexer:
+					logger.Sugar.Infof("🚀 Indexer registration detected: %s (pid: %s)", entityEvent.Key, entityEvent.Pid)
+				case shinzohub.EntityTypeHost:
+					logger.Sugar.Infof("🏠 Host registration detected: %s (pid: %s)", entityEvent.Key, entityEvent.Pid)
+				default:
+					logger.Sugar.Warnf("⚠️ Unknown entity type: %s", entityEvent.Entity)
+				}
 			} else {
-				logger.Sugar.Debugf("Received non-view event: %+v", event)
+				logger.Sugar.Debugf("Received unknown event type: %+v", event)
 			}
 		}
 	}

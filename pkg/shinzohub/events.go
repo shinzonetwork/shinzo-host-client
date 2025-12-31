@@ -80,13 +80,13 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
 
-	// Subscribe to Registered events
+	// Subscribe to Registered and EntityRegistered events
 	subscribeMsg := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "subscribe",
 		"id":      1,
 		"params": map[string]interface{}{
-			"query": "tm.event='Tx' AND Registered.key EXISTS",
+			"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
 		},
 	}
 
@@ -152,9 +152,21 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					continue
 				}
 
-				// Look for Registered events and send them to the channel
+				// Look for Registered and EntityRegistered events and send them to the channel
 				registeredEvents := extractRegisteredEvents(msg)
 				for _, event := range registeredEvents {
+					// Send event to channel (this will block if channel is full)
+					select {
+					case eventChan <- &event:
+						// Event sent successfully
+					case <-ctx.Done():
+						// Context cancelled, stop sending
+						return
+					}
+				}
+
+				entityRegisteredEvents := extractEntityRegisteredEvents(msg)
+				for _, event := range entityRegisteredEvents {
 					// Send event to channel (this will block if channel is full)
 					select {
 					case eventChan <- &event:
@@ -223,6 +235,56 @@ func extractRegisteredEvents(msg RPCResponse) []ViewRegisteredEvent {
 	}
 
 	return registeredEvents
+}
+
+// extractEntityRegisteredEvents extracts EntityRegistered events from the RPC message
+// and processes them for indexer/host registration
+func extractEntityRegisteredEvents(msg RPCResponse) []EntityRegisteredEvent {
+	var entityRegisteredEvents []EntityRegisteredEvent
+
+	// Navigate through the nested structure to find events
+	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
+		if event.Type == "EntityRegistered" {
+			entityRegisteredEvent := EntityRegisteredEvent{}
+
+			// Extract attributes
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case "key":
+					entityRegisteredEvent.Key = attr.Value
+				case "owner":
+					entityRegisteredEvent.Owner = attr.Value
+				case "did":
+					entityRegisteredEvent.DID = attr.Value
+				case "pid":
+					entityRegisteredEvent.Pid = attr.Value
+				case "entity":
+					entityRegisteredEvent.Entity = attr.Value
+				}
+			}
+
+			// Only add if we have all required fields
+			if entityRegisteredEvent.Key != "" && entityRegisteredEvent.Owner != "" && entityRegisteredEvent.DID != "" && entityRegisteredEvent.Pid != "" {
+				// Determine entity type
+				entityType := "Unknown"
+				switch entityRegisteredEvent.Entity {
+				case "\u0001":
+					entityType = "Indexer"
+				case "\u0002":
+					entityType = "Host"
+				}
+				
+				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s, owner=%s, did=%s, pid=%s\n", 
+					entityType, entityRegisteredEvent.Key, entityRegisteredEvent.Owner, entityRegisteredEvent.DID, entityRegisteredEvent.Pid)
+
+				entityRegisteredEvents = append(entityRegisteredEvents, entityRegisteredEvent)
+			} else {
+				fmt.Printf("Incomplete EntityRegistered event: %+v\n", entityRegisteredEvent)
+			}
+		}
+	}
+
+	return entityRegisteredEvents
 }
 
 // BlockRangeRequirement describes what block ranges a view needs to monitor
