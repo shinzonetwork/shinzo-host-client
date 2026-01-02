@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -153,17 +152,9 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				// Read raw message first to see what we're getting
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					// Check if it's a timeout, which is expected - continue the loop
-					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-						select {
-						case <-ctx.Done():
-							return
-						default:
-							continue
-						}
-					}
-					fmt.Printf("WebSocket error, stopping: %v\n", err)
-					return
+					fmt.Printf("WebSocket connection failed: %v\n", err)
+					return // This WILL close the goroutine via defers
+
 				}
 
 				// Now try to parse it
