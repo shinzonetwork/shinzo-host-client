@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -94,31 +93,38 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
 
-	// Subscribe to Registered and EntityRegistered events
-	subscribeMsg := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "subscribe",
-		"id":      1,
-		"params": map[string]interface{}{
-			"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
-		},
+	// Subscribe to Registered and EntityRegistered events separately because Tendermint doesn't support OR logic
+	queries := []string{
+		"tm.event='Tx' AND Registered.key EXISTS",
+		"tm.event='Tx' AND EntityRegistered.key EXISTS",
 	}
 
-	fmt.Printf("Sending subscription: %+v\n", subscribeMsg)
-	if err := conn.WriteJSON(subscribeMsg); err != nil {
-		conn.Close()
-		cancel()
-		return cancel, nil, fmt.Errorf("failed to send subscription message: %w", err)
-	}
+	for i, query := range queries {
+		subscribeMsg := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "subscribe",
+			"id":      i + 1,
+			"params": map[string]interface{}{
+				"query": query,
+			},
+		}
 
-	// Read the subscription response
-	_, response, err := conn.ReadMessage()
-	if err != nil {
-		conn.Close()
-		cancel()
-		return cancel, nil, fmt.Errorf("failed to read subscription response: %w", err)
+		fmt.Printf("Sending subscription: %+v\n", subscribeMsg)
+		if err := conn.WriteJSON(subscribeMsg); err != nil {
+			conn.Close()
+			cancel()
+			return cancel, nil, fmt.Errorf("failed to send subscription message: %w", err)
+		}
+
+		// Read the subscription response
+		_, response, err := conn.ReadMessage()
+		if err != nil {
+			conn.Close()
+			cancel()
+			return cancel, nil, fmt.Errorf("failed to read subscription response: %w", err)
+		}
+		fmt.Printf("Subscription response: %s\n", string(response))
 	}
-	fmt.Printf("Subscription response: %s\n", string(response))
 
 	// Start goroutine for message processing
 	go func() {
@@ -146,17 +152,9 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				// Read raw message first to see what we're getting
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					// Check if it's a timeout, which is expected - continue the loop
-					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-						select {
-						case <-ctx.Done():
-							return
-						default:
-							continue
-						}
-					}
-					fmt.Printf("WebSocket error, stopping: %v\n", err)
-					return
+					fmt.Printf("WebSocket connection failed: %v\n", err)
+					return // This WILL close the goroutine via defers
+
 				}
 
 				// Now try to parse it
@@ -261,8 +259,8 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				case "\u0002":
 					entityType = "Host"
 				}
-				
-				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s, owner=%s, did=%s, pid=%s\n", 
+
+				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s, owner=%s, did=%s, pid=%s\n",
 					entityType, entityRegisteredEvent.Key, entityRegisteredEvent.Owner, entityRegisteredEvent.DID, entityRegisteredEvent.Pid)
 
 				events = append(events, &entityRegisteredEvent)
