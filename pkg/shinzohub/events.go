@@ -94,31 +94,38 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
 
-	// Subscribe to Registered and EntityRegistered events
-	subscribeMsg := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "subscribe",
-		"id":      1,
-		"params": map[string]interface{}{
-			"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
-		},
+	// Tendermint doesn't support OR logic in queries. We send two separate subscriptions.
+	queries := []string{
+		"tm.event='Tx' AND Registered.key EXISTS",
+		"tm.event='Tx' AND EntityRegistered.key EXISTS",
 	}
 
-	fmt.Printf("Sending subscription: %+v\n", subscribeMsg)
-	if err := conn.WriteJSON(subscribeMsg); err != nil {
-		conn.Close()
-		cancel()
-		return cancel, nil, fmt.Errorf("failed to send subscription message: %w", err)
-	}
+	for i, q := range queries {
+		subscribeMsg := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "subscribe",
+			"id":      i + 1, // Unique ID for each subscription
+			"params": map[string]interface{}{
+				"query": q,
+			},
+		}
 
-	// Read the subscription response
-	_, response, err := conn.ReadMessage()
-	if err != nil {
-		conn.Close()
-		cancel()
-		return cancel, nil, fmt.Errorf("failed to read subscription response: %w", err)
+		fmt.Printf("Sending subscription %d: %s\n", i+1, q)
+		if err := conn.WriteJSON(subscribeMsg); err != nil {
+			conn.Close()
+			cancel()
+			return cancel, nil, fmt.Errorf("failed to send subscription message %d: %w", i+1, err)
+		}
+
+		// Read the subscription confirmation for each request
+		_, response, err := conn.ReadMessage()
+		if err != nil {
+			conn.Close()
+			cancel()
+			return cancel, nil, fmt.Errorf("failed to read subscription response %d: %w", i+1, err)
+		}
+		fmt.Printf("Subscription response %d: %s\n", i+1, string(response))
 	}
-	fmt.Printf("Subscription response: %s\n", string(response))
 
 	// Start goroutine for message processing
 	go func() {
@@ -143,10 +150,9 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					return
 				}
 
-				// Read raw message first to see what we're getting
+				// Read raw message
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					// Check if it's a timeout, which is expected - continue the loop
 					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 						select {
 						case <-ctx.Done():
@@ -159,22 +165,18 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					return
 				}
 
-				// Now try to parse it
 				var msg RPCResponse
 				if err := json.Unmarshal(message, &msg); err != nil {
 					fmt.Printf("Failed to parse JSON: %v\n", err)
 					continue
 				}
 
-				// Look for Registered and EntityRegistered events and send them to the channel
+				// Process events from either subscription
 				events := extractShinzoEvents(msg)
 				for _, event := range events {
-					// Send event to channel (this will block if channel is full)
 					select {
 					case eventChan <- event:
-						// Event sent successfully
 					case <-ctx.Done():
-						// Context cancelled, stop sending
 						return
 					}
 				}
@@ -186,24 +188,19 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 }
 
 // extractShinzoEvents extracts both Registered and EntityRegistered events from the RPC message
-// and processes them for view registration and indexer/host registration
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 
-	// Validate message structure
 	if msg.JsonRpcVersion != "2.0" ||
 		msg.Result.Data.Type != "tendermint.event" ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {
 		return events
 	}
 
-	// Navigate through the nested structure to find events
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
 		case "Registered":
 			registeredEvent := ViewRegisteredEvent{}
-
-			// Extract attributes
 			for _, attr := range event.Attributes {
 				switch attr.Key {
 				case "key":
@@ -211,31 +208,23 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				case "creator":
 					registeredEvent.Creator = attr.Value
 				case "view":
-					// Parse the view JSON string into View struct
 					var view view.View
 					if err := json.Unmarshal([]byte(attr.Value), &view); err != nil {
 						fmt.Printf("Failed to parse view JSON: %v, value: %s\n", err, attr.Value)
 						continue
 					}
 					ExtractNameFromSDL(&view)
-
 					registeredEvent.View = view
 				}
 			}
 
-			// Only add if we have all required fields
 			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
 				fmt.Printf("🔍 View %s registered for monitoring\n", registeredEvent.View.Name)
-
 				events = append(events, &registeredEvent)
-			} else {
-				fmt.Printf("Incomplete Registered event: %+v\n", registeredEvent)
 			}
 
 		case "EntityRegistered":
 			entityRegisteredEvent := EntityRegisteredEvent{}
-
-			// Extract attributes
 			for _, attr := range event.Attributes {
 				switch attr.Key {
 				case "key":
@@ -251,9 +240,7 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				}
 			}
 
-			// Only add if we have all required fields
 			if entityRegisteredEvent.Key != "" && entityRegisteredEvent.Owner != "" && entityRegisteredEvent.DID != "" && entityRegisteredEvent.Pid != "" {
-				// Determine entity type
 				entityType := "Unknown"
 				switch entityRegisteredEvent.Entity {
 				case "\u0001":
@@ -261,16 +248,10 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				case "\u0002":
 					entityType = "Host"
 				}
-				
-				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s, owner=%s, did=%s, pid=%s\n", 
-					entityType, entityRegisteredEvent.Key, entityRegisteredEvent.Owner, entityRegisteredEvent.DID, entityRegisteredEvent.Pid)
-
+				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s\n", entityType, entityRegisteredEvent.Key)
 				events = append(events, &entityRegisteredEvent)
-			} else {
-				fmt.Printf("Incomplete EntityRegistered event: %+v\n", entityRegisteredEvent)
 			}
 		}
 	}
-
 	return events
 }
