@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -153,16 +152,8 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				// Read raw message
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-						select {
-						case <-ctx.Done():
-							return
-						default:
-							continue
-						}
-					}
-					fmt.Printf("WebSocket error, stopping: %v\n", err)
-					return
+					fmt.Printf("WebSocket connection failed: %v\n", err)
+					return // This WILL close the goroutine via defers
 				}
 
 				var msg RPCResponse
