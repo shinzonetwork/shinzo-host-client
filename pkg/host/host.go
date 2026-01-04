@@ -16,6 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
@@ -86,8 +87,12 @@ var DefaultConfig *config.Config = func() *config.Config {
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
-	DefraNode              *node.Node
-	NetworkHandler         *defra.NetworkHandler // P2P network control
+	DefraNode      *node.Node
+	NetworkHandler *defra.NetworkHandler // P2P network control
+
+	// signature verifier as a service
+	signatureVerifier *attestation.CachedSignatureVerifier // Cached signature verifier for attestation processing
+
 	webhookCleanupFunction func()
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the event processing goroutine
@@ -98,9 +103,9 @@ type Host struct {
 	processingPipeline *ProcessingPipeline // Complete message processing pipeline
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
-	viewManager             *ViewManager                       // Manages view lifecycle and processing
-	viewRegistrationHandler *ViewRegistrationHandler            // Handles Shinzo Hub view registration events
-	viewEndpointManager     *ViewEndpointManager               // Manages HTTP endpoints for views
+	viewManager             *ViewManager             // Manages view lifecycle and processing
+	viewRegistrationHandler *ViewRegistrationHandler // Handles Shinzo Hub view registration events
+	viewEndpointManager     *ViewEndpointManager     // Manages HTTP endpoints for views
 
 	healthServer *server.HealthServer
 
@@ -150,7 +155,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
-
 
 	// Log API URL
 	if defraNode.APIURL != "" {
@@ -297,6 +301,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		healthDefraURL = cfg.DefraDB.Url
 	} else if defraNode != nil && defraNode.APIURL != "" {
 		healthDefraURL = defraNode.APIURL
+	}
+
+	if defraNode != nil {
+		newHost.signatureVerifier = attestation.NewSignatureVerifier(defraNode)
+		logger.Sugar.Info("🔐 Optimized signature verifier initialized")
 	}
 
 	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL, newHost.metrics)
@@ -560,9 +569,9 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 			} else if entityEvent, ok := event.(*shinzohub.EntityRegisteredEvent); ok {
 				// Process EntityRegistered events - add as P2P peers
 				entityType := shinzohub.GetEntityType(entityEvent.Entity)
-				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s, pid=%s", 
+				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s, pid=%s",
 					entityType, entityEvent.Key, entityEvent.Owner, entityEvent.Pid)
-				
+
 				// Add entity as P2P peer for communication
 				if h.NetworkHandler != nil {
 					err := h.NetworkHandler.AddPeer(entityEvent.Pid)
