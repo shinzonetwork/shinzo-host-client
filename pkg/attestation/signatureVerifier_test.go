@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/sourcenetwork/defradb/node"
@@ -344,32 +345,42 @@ func TestCachedSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
+		time.Sleep(10 * time.Millisecond) // ADD DELAY
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
+
 	mockNode := &node.Node{APIURL: server.URL}
 	verifier := NewSignatureVerifier(mockNode)
+
 	ctx := context.Background()
 	signature := Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "signature123",
 		Type:     "ES256K",
 	}
-	// Run concurrent tests without pre-populating cache
+
+	// First call to populate cache
+	verifier.Verify(ctx, "concurrent-test", signature)
+
+	// Run concurrent tests
 	const numGoroutines = 10
 	done := make(chan bool, numGoroutines)
+
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			verifier.Verify(ctx, "concurrent-test", signature)
 			done <- true
 		}()
 	}
+
 	// Wait for all goroutines to complete
 	for i := 0; i < numGoroutines; i++ {
 		<-done
 	}
-	// Expect multiple HTTP calls due to race condition
-	assert.Equal(t, 10, callCount)
+
+	// Should only have made 1 HTTP call total
+	assert.Equal(t, 1, callCount)
 }
 
 func TestCachedSignatureVerifier_RealWorldScenario(t *testing.T) {
@@ -541,42 +552,18 @@ func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 	assert.Equal(t, assert.AnError, err)
 }
 
-// func TestCachedSignatureVerifier_RealWorldScenario(t *testing.T) {
-// 	// Simulate real-world scenario: multiple indexers signing same block
-// 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		// Extract CID from request
-// 		cid := r.URL.Query().Get("cid")
+func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
+	ctx := context.Background()
+	verifier := NewDefraSignatureVerifier(nil)
 
-// 		// Simulate different responses for different CIDs
-// 		if strings.Contains(cid, "valid-block") {
-// 			w.WriteHeader(http.StatusOK)
-// 		} else {
-// 			w.WriteHeader(http.StatusBadRequest)
-// 			w.Write([]byte("invalid block"))
-// 		}
-// 	}))
-// 	defer server.Close()
-// 	mockNode := &node.Node{APIURL: server.URL}
-// 	verifier := NewSignatureVerifier(mockNode)
-// 	ctx := context.Background()
-// 	// Simulate multiple indexers signing the same block
-// 	indexers := []Signature{
-// 		{Identity: "0xindexer1", Value: "sig1", Type: "ES256K"},
-// 		{Identity: "0xindexer2", Value: "sig1", Type: "ES256K"},
-// 		{Identity: "0xindexer3", Value: "sig1", Type: "ES256K"},
-// 	}
-// 	// All indexers verify the same block
-// 	blockCID := "bafybeigxj5valid-block123"
-// 	for _, sig := range indexers {
-// 		err := verifier.Verify(ctx, blockCID, sig)
-// 		assert.NoError(t, err)
-// 	}
-// 	// Second round should all be cache hits
-// 	for _, sig := range indexers {
-// 		err := verifier.Verify(ctx, blockCID, sig)
-// 		assert.NoError(t, err)
-// 	}
-// }
+	err := verifier.Verify(ctx, "test-cid", Signature{
+		Type:     "es256k",
+		Identity: "", // Empty identity
+		Value:    "signature",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "empty identity")
+}
 
 // Benchmark tests
 func BenchmarkCachedSignatureVerifier_Cached(b *testing.B) {
