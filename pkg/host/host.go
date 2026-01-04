@@ -91,7 +91,7 @@ type Host struct {
 	NetworkHandler *defra.NetworkHandler // P2P network control
 
 	// signature verifier as a service
-	signatureVerifier *attestation.CachedSignatureVerifier // Cached signature verifier for attestation processing
+	signatureVerifier *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string

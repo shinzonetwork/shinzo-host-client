@@ -339,7 +339,7 @@ func (h *Host) ApplyView(ctx context.Context, v view.View, startingBlockNumber u
 		}
 
 		for _, transformedDocId := range transformedDocIds {
-			verifier := attestation.NewDefraSignatureVerifier(h.DefraNode)
+			verifier := attestation.NewSignatureVerifier(h.DefraNode)
 			attestationRecord, err := attestation.CreateAttestationRecord(ctx, verifier, transformedDocId, sourceDocumentAttestationInfo.SourceDocumentId, "View", sourceDocumentAttestationInfo.Version)
 			if err != nil {
 				return fmt.Errorf("Error creating attestation record: %w", err)
