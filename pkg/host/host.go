@@ -16,6 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
@@ -86,8 +87,12 @@ var DefaultConfig *config.Config = func() *config.Config {
 var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
 
 type Host struct {
-	DefraNode              *node.Node
-	NetworkHandler         *defra.NetworkHandler // P2P network control
+	DefraNode      *node.Node
+	NetworkHandler *defra.NetworkHandler // P2P network control
+
+	// signature verifier as a service
+	signatureVerifier *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
+
 	webhookCleanupFunction func()
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc // For canceling the event processing goroutine
@@ -296,6 +301,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		healthDefraURL = cfg.DefraDB.Url
 	} else if defraNode != nil && defraNode.APIURL != "" {
 		healthDefraURL = defraNode.APIURL
+	}
+
+	if defraNode != nil {
+		newHost.signatureVerifier = attestation.NewSignatureVerifier(defraNode)
+		logger.Sugar.Info("🔐 Optimized signature verifier initialized")
 	}
 
 	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL, newHost.metrics)

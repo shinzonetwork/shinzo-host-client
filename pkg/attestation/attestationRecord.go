@@ -158,7 +158,7 @@ func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType st
 }
 
 // HandleDocumentAttestation is the main handler for processing document attestations
-func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string, versions []Version) error {
+func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, defraNode *node.Node, docID string, docType string, versions []Version) error {
 
 	if len(versions) == 0 {
 		fmt.Printf("📊 No signatures found for document %s, skipping attestation\n", docID)
@@ -166,7 +166,6 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 	}
 
 	// Create attestation record with signature verification
-	verifier := NewDefraSignatureVerifier(defraNode)
 	attestationRecord, err := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions)
 	if err != nil {
 		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
