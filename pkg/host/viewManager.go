@@ -206,7 +206,20 @@ func (vm *ViewManager) processHistoricalDocumentsForView(ctx context.Context, vi
 	// Get all collections this view cares about
 	for _, collection := range collections {
 		// Query ALL documents in collection
-		query := fmt.Sprintf(`query { %s { _docID blockNumber number hash ... } }`, collection)
+		// Build query based on collection type
+		var query string
+		switch collection {
+		case "Ethereum__Mainnet__Transaction":
+			query = `query { Ethereum__Mainnet__Transaction { _docID hash blockNumber from to value gasPrice gasUsed } }`
+		case "Ethereum__Mainnet__Block":
+			query = `query { Ethereum__Mainnet__Block { _docID number hash miner timestamp } }`
+		case "Ethereum__Mainnet__Log":
+			query = `query { Ethereum__Mainnet__Log { _docID address blockNumber transactionHash topics data } }`
+		case "Ethereum__Mainnet__AccessListEntry":
+			query = `query { Ethereum__Mainnet__AccessListEntry { _docID address storageKeys } }`
+		default:
+			query = fmt.Sprintf(`query { %s { _docID } }`, collection)
+		}
 
 		docs, err := defra.QueryArray[map[string]interface{}](ctx, vm.defraNode, query)
 		if err != nil {
@@ -687,7 +700,20 @@ func (vm *ViewManager) UpdateView(ctx context.Context, viewName string, newDefin
 		collections := vm.extractCollectionsFromQuery(managedView.View.Query)
 
 		for _, collection := range collections {
-			query := fmt.Sprintf(`query { %s { _docID blockNumber number hash ... } }`, collection)
+			var query string
+			switch collection {
+			case "Ethereum__Mainnet__Transaction":
+				query = `query { Ethereum__Mainnet__Transaction { _docID hash blockNumber from to value gasPrice gasUsed } }`
+			case "Ethereum__Mainnet__Block":
+				query = `query { Ethereum__Mainnet__Block { _docID number hash miner timestamp } }`
+			case "Ethereum__Mainnet__Log":
+				query = `query { Ethereum__Mainnet__Log { _docID address blockNumber transactionHash topics data } }`
+			case "Ethereum__Mainnet__AccessListEntry":
+				query = `query { Ethereum__Mainnet__AccessListEntry { _docID address storageKeys } }`
+			default:
+				query = fmt.Sprintf(`query { %s { _docID } }`, collection)
+			}
+
 			docs, err := defra.QueryArray[map[string]interface{}](ctx, vm.defraNode, query)
 			if err != nil {
 				logger.Sugar.Errorf("Failed to query docs for %s: %v", collection, err)

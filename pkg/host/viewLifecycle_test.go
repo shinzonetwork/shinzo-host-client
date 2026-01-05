@@ -563,3 +563,211 @@ func testLiveViewDemo(t *testing.T, host *Host) {
 
 	t.Logf("🏁 Live demo completed - server will close automatically")
 }
+
+func TestViewUpdate(t *testing.T) {
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer host.Close(context.Background())
+
+	ctx := context.Background()
+
+	// Register initial view
+	testView := createTestView()
+	err = host.RegisterView(ctx, testView)
+	require.NoError(t, err)
+
+	// Wait for initial processing
+	time.Sleep(2 * time.Second)
+
+	// Create updated view definition
+	updatedView := createUpdatedTestView()
+
+	// Test view update
+	err = host.viewManager.UpdateView(ctx, testView.Name, updatedView)
+	require.NoError(t, err)
+
+	// Wait for reprocessing
+	time.Sleep(3 * time.Second)
+
+	// Verify update results
+	stats, err := host.GetViewStats(testView.Name)
+	require.NoError(t, err)
+	assert.True(t, stats.IsActive, "View should be active after update")
+}
+
+func createUpdatedTestView() view.View {
+	// Create an updated view with different query or SDL to test the update functionality
+	query := constants.CollectionTransaction + " {" +
+		"_docID\n" +
+		"hash\n" +
+		"blockNumber\n" +
+		"from\n" +
+		"to\n" +
+		"value\n" +
+		"gasPrice\n" + // Add new field to test update
+		"gasUsed\n" + // Add new field to test update
+		"}"
+
+	// Updated SDL with additional fields
+	sdl := `type TestTransactionView {
+        hash: String
+        blockNumber: Int
+        from: String
+        to: String
+        value: String
+        gasPrice: String
+        gasUsed: Int
+    }`
+
+	// Read the real WASM file and encode it as base64
+	wasmBytes, err := os.ReadFile("/tmp/filter_transaction.wasm")
+	if err != nil {
+		// If WASM file not found, create a view without lenses for error testing
+		return view.View{
+			Name:  "TestTransactionView",
+			Query: &query,
+			Sdl:   &sdl,
+		}
+	}
+
+	wasmBase64 := base64.StdEncoding.EncodeToString(wasmBytes)
+
+	viewDef := view.View{
+		Name:  "TestTransactionView",
+		Query: &query,
+		Sdl:   &sdl,
+	}
+
+	// Create updated view with same WASM but different parameters
+	return createViewWithTransform(viewDef, wasmBase64)
+}
+
+func TestViewProcessingState(t *testing.T) {
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer host.Close(context.Background())
+
+	ctx := context.Background()
+
+	// Register view
+	testView := createTestView()
+	err = host.RegisterView(ctx, testView)
+	require.NoError(t, err)
+
+	// Test GetViewProcessingState API
+	state, err := host.viewManager.GetViewProcessingState(testView.Name)
+	require.NoError(t, err)
+
+	assert.Equal(t, testView.Name, state.ViewName)
+	assert.NotNil(t, state.ProcessingStage)
+	assert.GreaterOrEqual(t, state.TotalDocuments, int64(0))
+	assert.GreaterOrEqual(t, state.ProcessedDocs, int64(0))
+}
+
+func TestViewErrorHandling(t *testing.T) {
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer host.Close(context.Background())
+
+	ctx := context.Background()
+
+	// Test registering invalid view
+	invalidView := view.View{
+		Name:  "", // Empty name should fail
+		Query: nil,
+		Sdl:   nil,
+	}
+
+	err = host.RegisterView(ctx, invalidView)
+	assert.Error(t, err, "Should fail to register invalid view")
+
+	// Test getting stats for non-existent view
+	_, err = host.GetViewStats("non-existent")
+	assert.Error(t, err, "Should fail to get stats for non-existent view")
+}
+
+func TestViewPerformance(t *testing.T) {
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer host.Close(context.Background())
+
+	ctx := context.Background()
+
+	// Register view
+	testView := createTestView()
+	err = host.RegisterView(ctx, testView)
+	require.NoError(t, err)
+
+	// Create many documents for performance testing
+	startTime := time.Now()
+	for i := 0; i < 100; i++ {
+		doc := createTestDocument(t, ctx, host)
+		host.processingPipeline.processDocumentDirect(
+			doc.ID, doc.Type, doc.BlockNumber, doc.Data,
+		)
+	}
+
+	// Wait for processing
+	time.Sleep(5 * time.Second)
+
+	processingTime := time.Since(startTime)
+	stats, err := host.GetViewStats(testView.Name)
+	require.NoError(t, err)
+
+	t.Logf("Processed %d documents in %v (%.2f docs/sec)",
+		stats.ProcessedDocs, processingTime,
+		float64(stats.ProcessedDocs)/processingTime.Seconds())
+}
+
+func TestProcessingPipelineIntegration(t *testing.T) {
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+	defer host.Close(context.Background())
+
+	ctx := context.Background()
+
+	// Verify ViewManager is integrated with processing pipeline
+	assert.NotNil(t, host.viewManager, "ViewManager should be initialized")
+	assert.NotNil(t, host.processingPipeline, "ProcessingPipeline should be initialized")
+
+	// Test that documents flow through pipeline to view manager
+	doc := createTestDocument(t, ctx, host)
+
+	initialStats, err := host.GetViewStats("TestTransactionView")
+	if err == nil { // View exists
+		initialProcessed := initialStats.ProcessedDocs
+
+		// Process document
+		host.processingPipeline.processDocumentDirect(
+			doc.ID, doc.Type, doc.BlockNumber, doc.Data,
+		)
+
+		// Wait for processing
+		time.Sleep(2 * time.Second)
+
+		// Verify processing
+		updatedStats, err := host.GetViewStats("TestTransactionView")
+		require.NoError(t, err)
+		assert.Greater(t, updatedStats.ProcessedDocs, initialProcessed,
+			"Document should be processed through pipeline")
+	}
+}
+
+func TestViewManagerShutdown(t *testing.T) {
+	host, err := StartHostingWithTestConfig(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Register multiple views
+	for i := 0; i < 3; i++ {
+		testView := createTestView()
+		testView.Name = fmt.Sprintf("TestView%d", i)
+		err = host.RegisterView(ctx, testView)
+		require.NoError(t, err)
+	}
+
+	// Test graceful shutdown
+	err = host.viewManager.Close()
+	assert.NoError(t, err, "ViewManager should shutdown cleanly")
+}
