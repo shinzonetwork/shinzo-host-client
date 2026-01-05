@@ -51,7 +51,7 @@ func (h *Host) handleDocumentAttestation(ctx context.Context, doc Document, bloc
 	}
 
 	// Use the attestation handler
-	return hostAttestation.HandleDocumentAttestation(ctx, h.DefraNode, doc.ID, doc.Type, versions)
+	return hostAttestation.HandleDocumentAttestation(ctx, h.signatureVerifier, h.DefraNode, doc.ID, doc.Type, versions)
 }
 
 // processAttestationEventsWithSubscription starts simple DefraDB subscriptions

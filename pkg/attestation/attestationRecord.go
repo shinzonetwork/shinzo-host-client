@@ -11,16 +11,14 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-
-
 // ========================================
 // LOCAL ATTESTATION TYPES
 // ========================================
 
 // Version represents a version with signature information
 type Version struct {
-	CID            string    `json:"cid"`
-	Signature      Signature `json:"signature"`
+	CID             string    `json:"cid"`
+	Signature       Signature `json:"signature"`
 	SchemaVersionId string    `json:"schemaVersionId"`
 }
 
@@ -181,7 +179,7 @@ func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType st
 }
 
 // HandleDocumentAttestation is the main handler for processing document attestations
-func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string, versions []Version) error {
+func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, defraNode *node.Node, docID string, docType string, versions []Version) error {
 
 	if len(versions) == 0 {
 		fmt.Printf("📊 No signatures found for document %s, skipping attestation\n", docID)
@@ -189,7 +187,6 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 	}
 
 	// Create attestation record with signature verification
-	verifier := NewDefraSignatureVerifier(defraNode)
 	attestationRecord, err := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions)
 	if err != nil {
 		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
@@ -324,7 +321,6 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 	return merged, nil
 }
 
-
 func getAttestationRecordSDL(viewName string) string {
 	// Check if this is a primitive type (Block, Transaction, Log, AccessListEntry)
 	primitiveTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
@@ -374,7 +370,7 @@ func extractSchemaTypes(schema string) ([]string, error) {
 // GetAttestationRecordsByViewName queries attestation records for a specific view
 func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIds []string) ([]AttestationRecord, error) {
 	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
-	
+
 	if len(viewDocIds) > 0 {
 		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
 		quoted := make([]string, 0, len(viewDocIds))
