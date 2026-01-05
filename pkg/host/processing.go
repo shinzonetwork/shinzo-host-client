@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	attestationWriterCount = 500
+	attestationWriterCount = 1000
 	maxRetries             = 10
 	baseDelay              = 10 * time.Millisecond
 	maxDelay               = 2 * time.Second

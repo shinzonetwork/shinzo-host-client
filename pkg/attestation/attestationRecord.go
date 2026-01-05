@@ -60,25 +60,9 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 }
 
 func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defraNode *node.Node) error {
-	// First, check if an attestation record already exists for this attested_doc
-	existing, err := CheckExistingAttestation(ctx, defraNode, record.AttestedDocId, record.DocType)
-	if err != nil {
-		return fmt.Errorf("failed to check existing attestation: %w", err)
-	}
-
-	var mergedCIDs []string
-	if len(existing) > 0 {
-		// Merge existing CIDs with new CIDs
-		existingRecord := existing[0]
-		mergedCIDs = append(existingRecord.CIDs, record.CIDs...)
-	} else {
-		// No existing record, use new CIDs
-		mergedCIDs = record.CIDs
-	}
-
 	// Format CIDs for GraphQL
-	cidsArray := make([]string, len(mergedCIDs))
-	for i, cid := range mergedCIDs {
+	cidsArray := make([]string, len(record.CIDs))
+	for i, cid := range record.CIDs {
 		cidsArray[i] = fmt.Sprintf(`"%s"`, cid)
 	}
 	cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
@@ -101,16 +85,11 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 				filter: {attested_doc: {_eq: "%s"}}
 			) {
 				_docID
-				attested_doc
-				source_doc
-				CIDs
-				doc_type
-				vote_count
 			}
 		}
 	`, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId)
 
-	_, err = defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
+	_, err := defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
 	if err != nil {
 		return fmt.Errorf("error posting attestation record mutation: %v", err)
 	}
