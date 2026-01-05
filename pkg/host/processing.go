@@ -142,6 +142,17 @@ func (pp *ProcessingPipeline) attestationWriter(writerID int) {
 				return
 			}
 			pp.processAttestation(writerID, job)
+
+			// NEW: Also process for views
+			if pp.host.viewManager != nil {
+				doc := Document{
+					ID:          job.docID,
+					Type:        job.docType,
+					BlockNumber: job.blockNumber,
+					Data:        job.docData,
+				}
+				pp.host.viewManager.ProcessDocument(pp.ctx, doc)
+			}
 		}
 	}
 }

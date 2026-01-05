@@ -3,9 +3,11 @@ package host
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -33,7 +35,11 @@ type ManagedView struct {
 	IsActive      bool
 	ProcessedDocs int64
 	CreatedAt     time.Time
-	mutex         sync.RWMutex
+
+	TotalDocuments     int64
+	ProcessingStage    string // "historical", "realtime", "completed"
+	LastBatchProcessed int
+	mutex              sync.RWMutex
 }
 
 // ViewProcessingJob represents work to be done for a view
@@ -68,6 +74,35 @@ type ViewManager struct {
 
 	// Endpoint management for view HTTP endpoints
 	endpointManager *ViewEndpointManager
+}
+
+func (vm *ViewManager) GetViewProcessingState(viewName string) (*ViewProcessingState, error) {
+	vm.mutex.RLock()
+	defer vm.mutex.RUnlock()
+
+	view, exists := vm.activeViews[viewName]
+	if !exists {
+		return nil, fmt.Errorf("view %s not found", viewName)
+	}
+
+	view.mutex.RLock()
+	defer view.mutex.RUnlock()
+
+	return &ViewProcessingState{
+		ViewName:         viewName,
+		TotalDocuments:   view.TotalDocuments,
+		ProcessedDocs:    view.ProcessedDocs,
+		LastProcessedDoc: fmt.Sprintf("block_%d", view.LastProcessed),
+		ProcessingStage:  view.ProcessingStage,
+	}, nil
+}
+
+type ViewProcessingState struct {
+	ViewName         string
+	TotalDocuments   int64
+	ProcessedDocs    int64
+	LastProcessedDoc string
+	ProcessingStage  string
 }
 
 // NewViewManager creates a new view manager
@@ -146,7 +181,145 @@ func (vm *ViewManager) RegisterView(ctx context.Context, viewDef view.View) erro
 	}
 
 	logger.Sugar.Infof("✅ View %s registered successfully with endpoint %s", viewDef.Name, endpoint.Path)
+
+	go vm.processHistoricalDocumentsForView(ctx, managedView)
+
 	return nil
+}
+
+func (vm *ViewManager) processHistoricalDocumentsForView(ctx context.Context, view *ManagedView) error {
+	logger.Sugar.Infof("🔄 Processing historical documents for view %s", view.View.Name)
+
+	view.mutex.Lock()
+	view.ProcessingStage = "historical"
+	view.mutex.Unlock()
+
+	var allDocs []Document
+
+	// Extract collections from the view's query
+	collections := vm.extractCollectionsFromQuery(view.View.Query)
+	if len(collections) == 0 {
+		logger.Sugar.Warnf("No collections found in view %s query", view.View.Name)
+		return nil
+	}
+
+	// Get all collections this view cares about
+	for _, collection := range collections {
+		// Query ALL documents in collection
+		query := fmt.Sprintf(`query { %s { _docID blockNumber number hash ... } }`, collection)
+
+		docs, err := defra.QueryArray[map[string]interface{}](ctx, vm.defraNode, query)
+		if err != nil {
+			logger.Sugar.Errorf("Failed to query historical docs for %s: %v", collection, err)
+			continue
+		}
+
+		// Convert to Document structs
+		for _, docData := range docs {
+			doc := vm.convertToDocument(docData, collection)
+			allDocs = append(allDocs, doc)
+		}
+	}
+
+	// Update total count
+	view.mutex.Lock()
+	view.TotalDocuments = int64(len(allDocs))
+	view.mutex.Unlock()
+
+	// Process using batch method
+	vm.processHistoricalBatch(ctx, view, allDocs)
+
+	view.mutex.Lock()
+	view.ProcessingStage = "realtime"
+	view.mutex.Unlock()
+
+	logger.Sugar.Infof("✅ Historical processing complete for view %s", view.View.Name)
+	return nil
+}
+
+func (vm *ViewManager) convertToDocument(docData map[string]interface{}, collection string) Document {
+	doc := Document{
+		Type: collection,
+		Data: docData,
+	}
+
+	// Extract document ID
+	if id, exists := docData["_docID"]; exists {
+		doc.ID = fmt.Sprintf("%v", id)
+	}
+
+	// Extract block number based on collection type
+	if collection == "Block" {
+		if num, exists := docData["number"]; exists {
+			if numFloat, ok := num.(float64); ok {
+				doc.BlockNumber = uint64(numFloat)
+			}
+		}
+	} else if collection == "Transaction" || collection == "Log" || collection == "AccessListEntry" {
+		if num, exists := docData["blockNumber"]; exists {
+			if numFloat, ok := num.(float64); ok {
+				doc.BlockNumber = uint64(numFloat)
+			}
+		}
+	}
+
+	return doc
+}
+
+// Add helper function to extract collections from query
+func (vm *ViewManager) extractCollectionsFromQuery(query *string) []string {
+	if query == nil || *query == "" {
+		return nil
+	}
+
+	// Simple regex to find collection names in GraphQL query
+	// Pattern: collectionName(filter: ...) or just collectionName
+	re := regexp.MustCompile(`^(\w+)\s*\(?\s*`)
+	matches := re.FindStringSubmatch(*query)
+	if len(matches) > 1 {
+		return []string{matches[1]}
+	}
+
+	return nil
+}
+
+func (vm *ViewManager) processHistoricalBatch(ctx context.Context, view *ManagedView, docs []Document) {
+	logger.Sugar.Infof("🔄 Processing batch of %d documents for view %s", len(docs), view.View.Name)
+
+	// Process 1000 documents at a time
+	batchSize := 1000
+	for i := 0; i < len(docs); i += batchSize {
+		end := min(i+batchSize, len(docs))
+		batch := docs[i:end]
+
+		logger.Sugar.Debugf("Processing batch %d-%d for view %s", i, end, view.View.Name)
+
+		// Process batch in parallel
+		vm.processBatchInParallel(ctx, view, batch)
+
+		// Small delay to prevent overwhelming DefraDB
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	logger.Sugar.Infof("✅ Batch processing complete for view %s", view.View.Name)
+}
+
+func (vm *ViewManager) processBatchInParallel(ctx context.Context, view *ManagedView, batch []Document) {
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 10) // Max 10 parallel workers
+
+	for _, doc := range batch {
+		wg.Add(1)
+		go func(d Document) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire
+			defer func() { <-semaphore }() // Release
+
+			vm.queueDocumentForProcessing(view, d)
+		}(doc)
+	}
+
+	wg.Wait()
 }
 
 // initializeView sets up the view in DefraDB
@@ -187,25 +360,64 @@ func (vm *ViewManager) ProcessDocument(ctx context.Context, doc Document) {
 			// TODO: Implement range checking once ViewRangeFinder is integrated
 		}
 
-		// Queue for processing
-		job := ViewProcessingJob{
-			View:     managedView,
-			Document: doc,
-			Priority: 1,
+		// NEW: Intelligent document filtering
+		if vm.shouldProcessDocumentForView(managedView, doc) {
+			vm.queueDocumentForProcessing(managedView, doc)
 		}
 
-		select {
-		case vm.processingQueue <- job:
-			// Queued successfully - track metrics if callback available
-			if vm.metricsCallback != nil {
-				if metrics := vm.metricsCallback(); metrics != nil {
-					metrics.IncrementViewProcessingJobs()
-				}
+		//track metrics if callback available
+		if vm.metricsCallback != nil {
+			if metrics := vm.metricsCallback(); metrics != nil {
+				metrics.IncrementViewProcessingJobs()
 			}
-		default:
-			logger.Sugar.Warnf("View processing queue full, dropping document for view %s", managedView.View.Name)
+		}
+
+	}
+}
+
+func (vm *ViewManager) queueDocumentForProcessing(view *ManagedView, doc Document) {
+	// Queue for processing
+	job := ViewProcessingJob{
+		View:     view,
+		Document: doc,
+		Priority: 1,
+	}
+
+	select {
+	case vm.processingQueue <- job:
+		// Queued successfully - track metrics if callback available
+		if vm.metricsCallback != nil {
+			if metrics := vm.metricsCallback(); metrics != nil {
+				metrics.IncrementViewProcessingJobs()
+			}
+		}
+	default:
+		logger.Sugar.Warnf("View processing queue full, dropping document for view %s", view.View.Name)
+	}
+}
+
+func (vm *ViewManager) shouldProcessDocumentForView(view *ManagedView, doc Document) bool {
+	// 1. Check if view handles this document type (based on query)
+	collections := vm.extractCollectionsFromQuery(view.View.Query)
+	handlesType := false
+	for _, collection := range collections {
+		if collection == doc.Type {
+			handlesType = true
+			break
 		}
 	}
+	if !handlesType {
+		return false
+	}
+
+	// 2. Check if view has lenses configured (only process views with transformations)
+	if !view.View.HasLenses() {
+		return false
+	}
+
+	// 3. For now, always process documents that pass the above checks
+	// TODO: Add deduplication later if needed
+	return true
 }
 
 // OnViewAccessed updates the last accessed time for a view
@@ -441,4 +653,73 @@ func (vm *ViewManager) Close() error {
 
 	logger.Sugar.Info("✅ ViewManager shutdown complete")
 	return nil
+}
+
+func (vm *ViewManager) UpdateView(ctx context.Context, viewName string, newDefinition view.View) error {
+	vm.mutex.Lock()
+	defer vm.mutex.Unlock()
+
+	managedView, exists := vm.activeViews[viewName]
+	if !exists {
+		return fmt.Errorf("view %s not found", viewName)
+	}
+
+	logger.Sugar.Infof("🔄 Updating view %s with new definition", viewName)
+
+	// Pause processing
+	vm.pauseViewProcessing(managedView)
+
+	// Update view definition
+	managedView.View = newDefinition
+
+	// Reset processing state
+	managedView.mutex.Lock()
+	managedView.ProcessedDocs = 0
+	managedView.LastProcessed = 0
+	managedView.ProcessingStage = "updating"
+	managedView.mutex.Unlock()
+
+	// Reprocess all documents with new view definition
+	go func() {
+		defer vm.resumeViewProcessing(managedView)
+		// Collect documents for batch processing
+		var allDocs []Document
+		collections := vm.extractCollectionsFromQuery(managedView.View.Query)
+
+		for _, collection := range collections {
+			query := fmt.Sprintf(`query { %s { _docID blockNumber number hash ... } }`, collection)
+			docs, err := defra.QueryArray[map[string]interface{}](ctx, vm.defraNode, query)
+			if err != nil {
+				logger.Sugar.Errorf("Failed to query docs for %s: %v", collection, err)
+				continue
+			}
+
+			for _, docData := range docs {
+				doc := vm.convertToDocument(docData, collection)
+				allDocs = append(allDocs, doc)
+			}
+		}
+
+		vm.processHistoricalBatch(ctx, managedView, allDocs)
+	}()
+
+	return nil
+}
+
+func (vm *ViewManager) pauseViewProcessing(view *ManagedView) {
+	view.mutex.Lock()
+	view.IsActive = false
+	view.ProcessingStage = "paused"
+	view.mutex.Unlock()
+
+	logger.Sugar.Infof("⏸️ Paused processing for view %s", view.View.Name)
+}
+
+func (vm *ViewManager) resumeViewProcessing(view *ManagedView) {
+	view.mutex.Lock()
+	view.IsActive = true
+	view.ProcessingStage = "realtime"
+	view.mutex.Unlock()
+
+	logger.Sugar.Infof("▶️ Resumed processing for view %s", view.View.Name)
 }
