@@ -11,16 +11,14 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-
-
 // ========================================
 // LOCAL ATTESTATION TYPES
 // ========================================
 
 // Version represents a version with signature information
 type Version struct {
-	CID            string    `json:"cid"`
-	Signature      Signature `json:"signature"`
+	CID             string    `json:"cid"`
+	Signature       Signature `json:"signature"`
 	SchemaVersionId string    `json:"schemaVersionId"`
 }
 
@@ -62,25 +60,9 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 }
 
 func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defraNode *node.Node) error {
-	// First, check if an attestation record already exists for this attested_doc
-	existing, err := CheckExistingAttestation(ctx, defraNode, record.AttestedDocId, record.DocType)
-	if err != nil {
-		return fmt.Errorf("failed to check existing attestation: %w", err)
-	}
-
-	var mergedCIDs []string
-	if len(existing) > 0 {
-		// Merge existing CIDs with new CIDs
-		existingRecord := existing[0]
-		mergedCIDs = append(existingRecord.CIDs, record.CIDs...)
-	} else {
-		// No existing record, use new CIDs
-		mergedCIDs = record.CIDs
-	}
-
 	// Format CIDs for GraphQL
-	cidsArray := make([]string, len(mergedCIDs))
-	for i, cid := range mergedCIDs {
+	cidsArray := make([]string, len(record.CIDs))
+	for i, cid := range record.CIDs {
 		cidsArray[i] = fmt.Sprintf(`"%s"`, cid)
 	}
 	cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
@@ -103,16 +85,11 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 				filter: {attested_doc: {_eq: "%s"}}
 			) {
 				_docID
-				attested_doc
-				source_doc
-				CIDs
-				doc_type
-				vote_count
 			}
 		}
 	`, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId)
 
-	_, err = defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
+	_, err := defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
 	if err != nil {
 		return fmt.Errorf("error posting attestation record mutation: %v", err)
 	}
@@ -324,7 +301,6 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 	return merged, nil
 }
 
-
 func getAttestationRecordSDL(viewName string) string {
 	// Check if this is a primitive type (Block, Transaction, Log, AccessListEntry)
 	primitiveTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
@@ -374,7 +350,7 @@ func extractSchemaTypes(schema string) ([]string, error) {
 // GetAttestationRecordsByViewName queries attestation records for a specific view
 func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIds []string) ([]AttestationRecord, error) {
 	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
-	
+
 	if len(viewDocIds) > 0 {
 		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
 		quoted := make([]string, 0, len(viewDocIds))
