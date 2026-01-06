@@ -24,9 +24,9 @@ import (
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 
-	// "github.com/shinzonetwork/shinzo-host-client/pkg/view" // COMMENTED: Focusing on event-driven attestations
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -597,6 +597,10 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig := DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.Url = "127.0.0.1:0"
+
+	// Set start height to 0 for tests to process all documents
+	testConfig.Shinzo.StartHeight = 0
+
 	return StartHosting(testConfig)
 }
 
@@ -638,4 +642,29 @@ func applySchema(ctx context.Context, defraNode *node.Node) error {
 		return nil
 	}
 	return err
+}
+
+// RegisterViewWithManager registers a view and manages its lifecycle
+func (h *Host) RegisterViewWithManager(ctx context.Context, v view.View) error {
+	if h.viewManager == nil {
+		return fmt.Errorf("ViewManager not initialized")
+	}
+	return h.viewManager.RegisterView(ctx, v)
+}
+
+// ProcessDocumentThroughViews processes a document through all matching views
+func (h *Host) ProcessDocumentThroughViews(ctx context.Context, doc Document) {
+	if h.viewManager == nil {
+		logger.Sugar.Warn("ViewManager not initialized - cannot process document")
+		return
+	}
+	h.viewManager.ProcessDocument(ctx, doc)
+}
+
+// GetActiveViews returns all active views
+func (h *Host) GetActiveViews() map[string]*ManagedView {
+	if h.viewManager == nil {
+		return make(map[string]*ManagedView)
+	}
+	return make(map[string]*ManagedView)
 }
