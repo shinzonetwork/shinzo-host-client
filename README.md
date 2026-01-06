@@ -6,6 +6,15 @@ The Shinzo Host Client facilitates the hosting of **Views**, which are structure
 
 The Host Client receives **primitive data** (blocks, transactions, logs, etc.) from Shinzo Indexers, applies Lens transforms, writes to Views, and serves requests from subscribers. Hosts also contribute to network security by producing Attestation Records.
 
+## Hardware Recommendations
+
+| Component | Minimum | Recommended |
+| --- | --- | --- |
+| CPU | 8 vCPUs | 16 vCPUs |
+| Memory (RAM) | 16 GB | 32–64 GB |
+| Storage | 3 TB NVMe | 4+ TB NVMe |
+| OS | Ubuntu 24.04 | Ubuntu 24.04 |
+
 ## Installation & Running
 
 Clone the repository:
