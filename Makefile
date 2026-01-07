@@ -7,7 +7,8 @@ build-branchable:
 	go build -tags branchable -o bin/host cmd/main.go
 
 build-playground: deps-playground
-	go build -tags hostplayground -o bin/host cmd/main.go
+	go generate -tags hostplayground ./playground
+	go build -tags hostplayground -o ./bin/host cmd/main.go
 
 start:
 	./bin/host
