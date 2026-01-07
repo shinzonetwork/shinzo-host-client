@@ -10,14 +10,41 @@ import (
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/views"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/sourcenetwork/immutable"
 	"github.com/sourcenetwork/lens/host-go/config/model"
 )
 
-type View views.View
+// Type aliases for view-creator models
+type Transform = models.Transform
+type Metadata = models.Metadata
+type Lens = models.Lens
+
+type View struct {
+	Name      string    `json:"name"`
+	Query     *string   `json:"query"`
+	Sdl       *string   `json:"sdl"`
+	Transform Transform `json:"transform"`
+	Metadata  Metadata  `json:"metadata"`
+}
+
+func (view *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
+	// Check if collection exists before subscribing
+	_, err := defraNode.DB.GetCollectionByName(ctx, view.Name)
+	if err != nil {
+		return fmt.Errorf("cannot subscribe to view %s: collection does not exist", view.Name)
+	}
+
+	err = defraNode.DB.AddP2PCollections(ctx, view.Name)
+	if err != nil {
+		return fmt.Errorf("error subscribing to collection %s: %v", view.Name, err)
+	}
+
+	return nil
+}
 
 // parseSDLFields extracts field names from a GraphQL SDL schema
 func parseSDLFields(sdl string) (map[string]bool, error) {
@@ -96,11 +123,6 @@ func (v *View) filterDocumentFields(document map[string]any) (map[string]any, er
 	return filteredDocument, nil
 }
 
-func (v *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
-	subscribeableView := views.View(*v)
-	return subscribeableView.SubscribeTo(ctx, defraNode)
-}
-
 // Modifies the view such that the path, which is originally parsed as the actual wasm, is replaced with a path to the wasm lens (in a newly created file)
 func (v *View) PostWasmToFile(ctx context.Context, lensRegistryPath string) error {
 	if len(v.Transform.Lenses) < 1 {
@@ -174,117 +196,91 @@ func (v *View) findOrCreateLensRegistryDir(registryPath string) (string, error) 
 // - A GQL query string (source query)
 // - A GQL SDL (output structure, should have @materialized(if: false) for non-materialized)
 // - Optionally, a lens configuration (transform)
-func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node) error {
+func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaService *SchemaService) error {
 	if len(v.Transform.Lenses) < 1 {
 		return fmt.Errorf("no lenses provided in view %+v", v)
 	}
-
 	if v.Query == nil || *v.Query == "" {
 		return fmt.Errorf("view query is required")
 	}
-
 	if v.Sdl == nil || *v.Sdl == "" {
 		return fmt.Errorf("view SDL is required")
 	}
 
-	// Ensure SDL has @materialized(if: false) for non-materialized views
-	// We always want non-materialized views so lens transforms are applied on query
-	// Also replace the type name with the unique view name to avoid conflicts
-	// Add blockNumber field to the SDL so we can query/filter by it
-	sdl := *v.Sdl
-	uniqueViewName := v.getUniqueViewName()
+	// Transform query to use proper collection names (e.g., "Log" -> "Ethereum__Mainnet__Log")
+	transformedQuery := transformQueryCollectionNames(*v.Query)
+	logger.Sugar.Debugf("🔧 View %s: transformed query: %s", v.Name, transformedQuery)
 
-	// Replace the type name in the SDL with the unique view name
-	// Pattern: type ViewName { ... } -> type ViewName_<address> { ... }
-	re := regexp.MustCompile(`type\s+(\w+)\s*`)
-	sdl = re.ReplaceAllString(sdl, fmt.Sprintf("type %s ", uniqueViewName))
+	// Normalize SDL using service
+	sdl := schemaService.NormalizeSDL(*v.Sdl, v.getUniqueViewName(), SDLOptions{
+		Materialized:   false,
+		RequiredFields: []FieldDef{{Name: "blockNumber", Type: "Int"}},
+	})
+	logger.Sugar.Debugf("🔧 View %s: normalized SDL: %s", v.Name, sdl)
 
-	if strings.Contains(sdl, "@materialized") {
-		// Replace any existing @materialized directive with @materialized(if: false)
-		// Handle various formats: @materialized, @materialized(if: true), @materialized(if: false), etc.
-		re := regexp.MustCompile(`@materialized\s*(\([^)]*\))?`)
-		sdl = re.ReplaceAllString(sdl, "@materialized(if: false)")
-	} else {
-		// Add @materialized(if: false) directive if not present
-		// Find the type definition and add the directive before the opening brace
-		re := regexp.MustCompile(`(type\s+\w+\s*)(\{)`)
-		if re.MatchString(sdl) {
-			sdl = re.ReplaceAllString(sdl, `${1}@materialized(if: false) $2`)
-		}
-	}
+	// Build lens modules
+	lens := v.buildLensModules()
+	logger.Sugar.Debugf("🔧 View %s: lens modules: %+v", v.Name, lens)
 
-	// Add blockNumber field to the SDL so we can query/filter by it in the view
-	// Insert it before the closing brace of the type definition
-	// Check if blockNumber already exists to avoid duplicates
-	if !strings.Contains(sdl, "blockNumber") {
-		// Find the closing brace of the type definition and insert blockNumber before it
-		// We'll find the last closing brace (which should be the type definition's closing brace)
-		// and insert blockNumber with proper formatting
-		idx := strings.LastIndex(sdl, "}")
-		if idx != -1 {
-			// Find the newline before the closing brace to maintain formatting
-			newlineIdx := strings.LastIndex(sdl[:idx], "\n")
-			if newlineIdx != -1 {
-				// Extract indentation from the line before the closing brace
-				// Look backwards from newlineIdx to find the start of indentation
-				lineStart := newlineIdx + 1
-				indent := ""
-				if lineStart < idx {
-					// Get the whitespace before the closing brace
-					beforeBrace := sdl[lineStart:idx]
-					// Extract leading whitespace as indent
-					for i, r := range beforeBrace {
-						if r != ' ' && r != '\t' {
-							indent = beforeBrace[:i]
-							break
-						}
-					}
-					if indent == "" {
-						indent = beforeBrace
-					}
-				}
-				// If we couldn't determine indent, use 2 spaces as default
-				if indent == "" {
-					indent = "  "
-				}
-				// Insert blockNumber before the closing brace with proper indentation
-				sdl = sdl[:idx] + indent + "blockNumber: Int\n" + sdl[idx:]
-			} else {
-				// No newline found, just add with space
-				sdl = sdl[:idx] + " blockNumber: Int" + sdl[idx:]
-			}
-		}
-	}
-
-	// Convert view's Transform to model.Lens
-	lenses := []model.LensModule{}
-	for _, lense := range v.Transform.Lenses {
-		lenses = append(lenses, model.LensModule{
-			Path:      lense.Path,
-			Inverse:   false, // Assume lenses can't be inversed as view creator does not specify
-			Arguments: lense.Arguments,
-		})
-	}
-	lens := model.Lens{
-		Lenses: lenses,
-	}
+	// Register lens and create view
 	lensCID, err := defraNode.DB.AddLens(ctx, lens)
 	if err != nil {
 		return fmt.Errorf("failed to register lens: %w", err)
 	}
+	logger.Sugar.Debugf("🔧 View %s: lens CID: %s", v.Name, lensCID)
 
-	// Create the view with AddView using the lens CID
-	// If the view already exists from SubscribeTo, AddView will return an error
-	// We handle that gracefully since the view might have been created without the transform
-	_, err = defraNode.DB.AddView(ctx, *v.Query, sdl, immutable.Some(lensCID))
+	_, err = defraNode.DB.AddView(ctx, transformedQuery, sdl, immutable.Some(lensCID))
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("failed to create view: %w", err)
+	}
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "collection already exists") {
-			return nil
-		}
-		return fmt.Errorf("failed to create view with lens transform: %w", err)
+		logger.Sugar.Debugf("🔧 View %s: view already exists", v.Name)
+	} else {
+		logger.Sugar.Infof("🔧 View %s: created successfully", v.Name)
 	}
 
 	return nil
+}
+
+// transformQueryCollectionNames transforms short collection names to full names
+// e.g., "Log { ... }" -> "Ethereum__Mainnet__Log { ... }"
+func transformQueryCollectionNames(query string) string {
+	// Map of short names to full collection names
+	collectionMap := map[string]string{
+		"Log":             "Ethereum__Mainnet__Log",
+		"Block":           "Ethereum__Mainnet__Block",
+		"Transaction":     "Ethereum__Mainnet__Transaction",
+		"AccessListEntry": "Ethereum__Mainnet__AccessListEntry",
+	}
+
+	if strings.Contains(query, "Ethereum__Mainnet__") {
+		return query
+	}
+
+	result := query
+	for shortName, fullName := range collectionMap {
+		// Match the short name at the start of the query or after whitespace
+		// but not if it's already prefixed with Ethereum__Mainnet__
+		pattern := regexp.MustCompile(`(?:^|\s)(` + shortName + `)(\s*\{)`)
+		result = pattern.ReplaceAllString(result, " "+fullName+"$2")
+	}
+
+	return strings.TrimSpace(result)
+}
+
+// Add to view.go
+func (v *View) buildLensModules() model.Lens {
+	lenses := make([]model.LensModule, 0, len(v.Transform.Lenses))
+	for _, lense := range v.Transform.Lenses {
+		lenses = append(lenses, model.LensModule{
+			Path:      lense.Path,
+			Inverse:   false,
+			Arguments: lense.Arguments,
+		})
+	}
+	return model.Lens{
+		Lenses: lenses,
+	}
 }
 
 // ApplyLensTransform queries the non-materialized view collection to get transformed results.
@@ -307,9 +303,9 @@ func (v *View) ApplyLensTransform(ctx context.Context, defraNode *node.Node, sou
 		}
 	}
 
-	// If we couldn't get fields from SDL, use a minimal query
+	// If we couldn't get fields from SDL, throw an error as requested
 	if fields == "" {
-		fields = "_docID"
+		return nil, fmt.Errorf("unable to extract fields from SDL - no fields available for query")
 	}
 
 	// Extract the filter part from the source query and apply it to the view query
@@ -373,4 +369,17 @@ func (v *View) WriteTransformedToCollection(ctx context.Context, defraNode *node
 
 func (v *View) HasLenses() bool {
 	return len(v.Transform.Lenses) > 0
+}
+
+// needsWasmConversion returns true if any lens path contains base64 data instead of a file path
+func (v *View) needsWasmConversion() bool {
+	for _, lens := range v.Transform.Lenses {
+		// If path doesn't start with file:// or http(s)://, it's likely base64 data
+		if !strings.HasPrefix(lens.Path, "file://") &&
+			!strings.HasPrefix(lens.Path, "http://") &&
+			!strings.HasPrefix(lens.Path, "https://") {
+			return true
+		}
+	}
+	return false
 }

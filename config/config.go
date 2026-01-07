@@ -48,8 +48,7 @@ type Config struct {
 
 type ShinzoConfig struct {
 	MinimumAttestations int    `yaml:"minimum_attestations"`
-	RPCUrl              string `yaml:"rpc_url"`
-	WebSocketUrl        string `yaml:"web_socket_url"`
+	HubBaseURL          string `yaml:"hub_base_url"`
 	StartHeight         uint64 `yaml:"start_height"`
 
 	// P2P Control Settings
@@ -89,6 +88,7 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 // ToAppConfig converts the host config to an app-sdk config
+// Note: BootstrapPeers is intentionally empty - peers are added after ViewManager initializes
 func (c *Config) ToAppConfig() *appConfig.Config {
 	if c == nil {
 		return nil
@@ -100,7 +100,7 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 			KeyringSecret: c.DefraDB.KeyringSecret,
 			P2P: appConfig.DefraP2PConfig{
 				Enabled:             c.DefraDB.P2P.Enabled,
-				BootstrapPeers:      c.DefraDB.P2P.BootstrapPeers,
+				BootstrapPeers:      []string{}, // Empty - peers added after ViewManager init
 				ListenAddr:          c.DefraDB.P2P.ListenAddr,
 				MaxRetries:          c.DefraDB.P2P.MaxRetries,
 				RetryBaseDelayMs:    c.DefraDB.P2P.RetryBaseDelayMs,

@@ -1,5 +1,6 @@
-package attestation
+package constants
 
+// Log represents a log from Ethereum
 type Log struct {
 	Address          string      `json:"address"`
 	Topics           []string    `json:"topics"`

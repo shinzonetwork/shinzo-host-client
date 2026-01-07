@@ -1,5 +1,6 @@
-package attestation
+package constants
 
+// Transaction represents a transaction from Ethereum
 type Transaction struct {
 	Hash                 string            `json:"hash"`
 	BlockHash            string            `json:"blockHash"`

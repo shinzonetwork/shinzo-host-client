@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,14 +18,14 @@ import (
 func TestSignatureVerifier_Validation(t *testing.T) {
 	tests := []struct {
 		name      string
-		signature Signature
+		signature constants.Signature
 		cid       string
 		wantErr   bool
 		errMsg    string
 	}{
 		{
 			name: "empty identity",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "",
 				Value:    "signature123",
 				Type:     "ES256K",
@@ -35,7 +36,7 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 		},
 		{
 			name: "empty CID",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
 				Value:    "signature123",
 				Type:     "ES256K",
@@ -46,7 +47,7 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 		},
 		{
 			name: "invalid signature type",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
 				Value:    "signature123",
 				Type:     "RSA256",
@@ -94,7 +95,7 @@ func TestCachedSignatureVerifier_CacheHit(t *testing.T) {
 	mockNode := &node.Node{APIURL: server.URL}
 	verifier := NewSignatureVerifier(mockNode)
 	ctx := context.Background()
-	signature := Signature{
+	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "signature123",
 		Type:     "ES256K",
@@ -118,7 +119,7 @@ func TestCachedSignatureVerifier_CacheError(t *testing.T) {
 	mockNode := &node.Node{APIURL: server.URL}
 	verifier := NewSignatureVerifier(mockNode)
 	ctx := context.Background()
-	signature := Signature{
+	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "invalid-signature",
 		Type:     "ES256K",
@@ -135,14 +136,14 @@ func TestCachedSignatureVerifier_CacheError(t *testing.T) {
 func TestCachedSignatureVerifier_Validation(t *testing.T) {
 	tests := []struct {
 		name      string
-		signature Signature
+		signature constants.Signature
 		cid       string
 		wantErr   bool
 		errMsg    string
 	}{
 		{
 			name: "valid signature",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
 				Value:    "signature123",
 				Type:     "ES256K",
@@ -152,7 +153,7 @@ func TestCachedSignatureVerifier_Validation(t *testing.T) {
 		},
 		{
 			name: "empty identity",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "",
 				Value:    "signature123",
 				Type:     "ES256K",
@@ -163,7 +164,7 @@ func TestCachedSignatureVerifier_Validation(t *testing.T) {
 		},
 		{
 			name: "empty CID",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
 				Value:    "signature123",
 				Type:     "ES256K",
@@ -174,7 +175,7 @@ func TestCachedSignatureVerifier_Validation(t *testing.T) {
 		},
 		{
 			name: "invalid signature type",
-			signature: Signature{
+			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
 				Value:    "signature123",
 				Type:     "RSA256",
@@ -215,7 +216,7 @@ func TestCachedSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	verifier := NewSignatureVerifier(mockNode)
 
 	ctx := context.Background()
-	signature := Signature{
+	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "signature123",
 		Type:     "ES256K",
@@ -268,7 +269,7 @@ func TestCachedSignatureVerifier_RealWorldScenario(t *testing.T) {
 	verifier := NewSignatureVerifier(mockNode)
 	ctx := context.Background()
 	// Real blockchain signatures from your data
-	blockSignatures := []Signature{
+	blockSignatures := []constants.Signature{
 		{
 			Identity: "026316ba94d1410b6c10832f12e0fab3a47602d8aac5b495b30cacb2ce50df5eac",
 			Value:    "MEUCIQDoU5jehMJ/20qTeuCPjRh600l8jtASMrCz/18jQILd9wIgJDChHU1uUkEfUlifJeTz4W6rJnOty1JvOLuVEZaGZOU=",
@@ -285,7 +286,7 @@ func TestCachedSignatureVerifier_RealWorldScenario(t *testing.T) {
 			Type:     "ES256K",
 		},
 	}
-	logSignatures := []Signature{
+	logSignatures := []constants.Signature{
 		{
 			Identity: "026316ba94d1410b6c10832f12e0fab3a47602d8aac5b495b30cacb2ce50df5eac",
 			Value:    "MEQCIGw6Irk5eg8YNoO8XrpmOQTO3AAYxaHM7ScyjRTjTjv1AiB83EGG7XH1JCNrxR8WUBgwBJDy9d0x4lr4pxKy10ZNIw==",
@@ -339,13 +340,13 @@ func TestCachedSignatureVerifier_RealWorldScenario(t *testing.T) {
 	t.Log("Testing multiple indexers scenario...")
 
 	// Simulate multiple indexers with different signatures but same CID
-	indexer1Sig := Signature{
+	indexer1Sig := constants.Signature{
 		Identity: "026316ba94d1410b6c10832f12e0fab3a47602d8aac5b495b30cacb2ce50df5eac",
 		Value:    "MEUCIQDoU5jehMJ/20qTeuCPjRh600l8jtASMrCz/18jQILd9wIgJDChHU1uUkEfUlifJeTz4W6rJnOty1JvOLuVEZaGZOU=",
 		Type:     "ES256K",
 	}
 
-	indexer2Sig := Signature{
+	indexer2Sig := constants.Signature{
 		Identity: "03a1b2c3d4e5f678901234567890123456789012345678901234567890123456789",
 		Value:    "MEQCIEY5lJ/mRDnlNa4wDNlgHhghc5DUDlFIknBv2QHD7kvVAiBPUJ4VlDj7PuxMGpZeLXY0ZzSBJ4fkSkSb8d6o0/5ALw==",
 		Type:     "ES256K",
@@ -378,7 +379,7 @@ func TestCachedSignatureVerifier_DifferentCIDs(t *testing.T) {
 	mockNode := &node.Node{APIURL: server.URL}
 	verifier := NewSignatureVerifier(mockNode)
 	ctx := context.Background()
-	signature := Signature{
+	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "signature123",
 		Type:     "ES256K",
@@ -395,7 +396,7 @@ func TestCachedSignatureVerifier_DifferentCIDs(t *testing.T) {
 func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 	// Test MockSignatureVerifier
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
 			if cid == "error-cid" {
 				return assert.AnError
 			}
@@ -403,7 +404,7 @@ func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	signature := Signature{Identity: "0x123", Value: "sig", Type: "ES256K"}
+	signature := constants.Signature{Identity: "0x123", Value: "sig", Type: "ES256K"}
 	// Test success case
 	err := mockVerifier.Verify(ctx, "success-cid", signature)
 	assert.NoError(t, err)
@@ -417,7 +418,7 @@ func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 	ctx := context.Background()
 	verifier := NewSignatureVerifier(nil)
 
-	err := verifier.Verify(ctx, "test-cid", Signature{
+	err := verifier.Verify(ctx, "test-cid", constants.Signature{
 		Type:     "es256k",
 		Identity: "", // Empty identity
 		Value:    "signature",
@@ -435,7 +436,7 @@ func BenchmarkCachedSignatureVerifier_Cached(b *testing.B) {
 	mockNode := &node.Node{APIURL: server.URL}
 	verifier := NewSignatureVerifier(mockNode)
 	ctx := context.Background()
-	signature := Signature{
+	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "signature123",
 		Type:     "ES256K",
@@ -455,7 +456,7 @@ func BenchmarkCachedSignatureVerifier_Uncached(b *testing.B) {
 	mockNode := &node.Node{APIURL: server.URL}
 	verifier := NewSignatureVerifier(mockNode)
 	ctx := context.Background()
-	signature := Signature{
+	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
 		Value:    "signature123",
 		Type:     "ES256K",

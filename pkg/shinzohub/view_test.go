@@ -130,7 +130,8 @@ func TestExtractNameFromSDL(t *testing.T) {
 	}
 }
 
-func TestSubscribeToView(t *testing.T) {
+func TestSubscribeToViewNoViewFailure(t *testing.T) {
+	ctx := context.Background()
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
 	testView := view.View{
@@ -142,8 +143,13 @@ func TestSubscribeToView(t *testing.T) {
 
 	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	err = testView.SubscribeTo(context.Background(), myDefra)
-	require.NoError(t, err)
+	defer myDefra.Close(ctx)
+
+	// SubscribeTo should fail because the collection doesn't exist yet
+	// (views must be created before they can be subscribed to)
+	err = testView.SubscribeTo(ctx, myDefra)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "collection does not exist")
 }
 
 func TestSubscribeToInvalidViewFails(t *testing.T) {

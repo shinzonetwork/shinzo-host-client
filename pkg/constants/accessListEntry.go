@@ -1,5 +1,6 @@
-package attestation
+package constants
 
+// AccessListEntry represents an access list entry from Ethereum
 type AccessListEntry struct {
 	Address     string      `json:"address"`
 	StorageKeys []string    `json:"storageKeys"`
