@@ -4,10 +4,9 @@ defradb:
   # P2P Configuration (controlled by NetworkHandler)
   p2p:
     enabled: true
-    bootstrap_peers: []
-      # Peers are added via NetworkHandler after ViewManager is initialized
+    bootstrap_peers:
       # Standard - http://34.28.227.17:8080/health
-      # - '/ip4/34.28.227.17/tcp/9171/p2p/12D3KooWCFHSuB5KjcLCrjBdn9p646PZKYhmXwj5CSdSZKwdWPjW'
+      - '/ip4/34.28.227.17/tcp/9171/p2p/12D3KooWCFHSuB5KjcLCrjBdn9p646PZKYhmXwj5CSdSZKwdWPjW'
       # Branchable - http://35.223.185.161:8080/health
       # - '/ip4/35.223.185.161/tcp/9171/p2p/12D3KooWEGCZQmx24Ah15as4FCoufbhxkLP2Lbr7VWmxty1Tsire'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"

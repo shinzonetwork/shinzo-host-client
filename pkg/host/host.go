@@ -245,13 +245,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	logger.Sugar.Info("🎯 ViewManager initialized")
 
 	// Add bootstrap peers and start P2P network now that ViewManager is ready
+	// Note: ToAppConfig() passes empty peers to StartDefraInstance, peers are added here after ViewManager init
 	if networkHandler != nil {
-		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
-
-		// Add the indexer peer(s) - these were removed from config to delay P2P until ViewManager is ready
-		bootstrapPeers := []string{
-			"/ip4/34.28.227.17/tcp/9171/p2p/12D3KooWCFHSuB5KjcLCrjBdn9p646PZKYhmXwj5CSdSZKwdWPjW", // Standard indexer
-		}
+		bootstrapPeers := cfg.DefraDB.P2P.BootstrapPeers
+		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
 
 		for _, peer := range bootstrapPeers {
 			if err := networkHandler.AddPeer(peer); err != nil {
