@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -247,6 +246,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	// Add bootstrap peers and start P2P network now that ViewManager is ready
 	// Note: ToAppConfig() passes empty peers to StartDefraInstance, peers are added here after ViewManager init
 	if networkHandler != nil {
+		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
+
+		// Add the indexer peer(s) - these were removed from config to delay P2P until ViewManager is ready
 		bootstrapPeers := cfg.DefraDB.P2P.BootstrapPeers
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
 
@@ -466,32 +468,6 @@ func (h *Host) GetNodePublicKey() (string, error) {
 
 func (h *Host) GetPeerPublicKey() (string, error) {
 	return signer.GetP2PPublicKey(h.DefraNode, h.config.ToAppConfig())
-}
-
-// setupViewHTTPServer creates an HTTP server that serves view endpoints alongside DefraDB API
-func (h *Host) setupViewHTTPServer() {
-	// Note: View endpoints will be registered dynamically as views are created
-	// The /api/v0/views listing endpoint is handled by RegisterViewEndpoints
-	logger.Sugar.Info("🌐 View HTTP endpoints configured and ready")
-}
-
-// handleViewList provides a list of all available view endpoints
-func (h *Host) handleViewList(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	viewNames := h.GetActiveViewNames()
-	response := map[string]interface{}{
-		"available_views": len(viewNames),
-		"views":           viewNames,
-	}
-
-	json.NewEncoder(w).Encode(response)
 }
 
 func incrementPort(apiURL string) (string, error) {
@@ -746,15 +722,6 @@ func (h *Host) RegisterViewWithManager(ctx context.Context, v view.View) error {
 	}
 	return h.viewManager.RegisterView(ctx, v)
 }
-
-// // ProcessDocumentThroughViews processes a document through all matching views
-// func (h *Host) ProcessDocumentThroughViews(ctx context.Context, doc Document) {
-// 	if h.viewManager == nil {
-// 		logger.Sugar.Warn("ViewManager not initialized - cannot process document")
-// 		return
-// 	}
-// 	h.viewManager.ProcessDocument(ctx, doc) // this function is not needed as views are managed within defra when a lens is applied (setMigration)
-// }
 
 // GetActiveViewNames returns names of all active views
 func (h *Host) GetActiveViewNames() []string {
