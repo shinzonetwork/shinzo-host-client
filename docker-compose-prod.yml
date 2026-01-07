@@ -1,0 +1,42 @@
+version: '3.8'
+
+networks:
+  shinzo-net:
+    driver: bridge
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"  # HTTPS
+      - "80:80"    # HTTP (redirects to HTTPS)
+      - "444:444"  # GraphQL Playground
+    volumes:
+      - ~/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - shinzo-host
+    networks:
+      - shinzo-net
+    restart: unless-stopped
+
+  shinzo-host:
+    image: ghcr.io/shinzonetwork/shinzo-host-client:latest
+    platform: linux/amd64
+    restart: unless-stopped
+    network_mode: host
+    container_name: shinzo-host
+    volumes:
+      - ~/data/defradb:/app/.defra/data
+      - ~/data/lens:/app/.lens
+      - ~/shinzo-host-client/config.yaml:/app/config.yaml:ro
+    environment:
+      - DEFRA_URL=0.0.0.0:9181  # Change port here if needed
+      - LOG_LEVEL=error
+      - LOG_SOURCE=false
+      - LOG_STACKTRACE=false
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6060/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
