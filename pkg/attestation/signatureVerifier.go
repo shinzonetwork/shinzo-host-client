@@ -11,11 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/node"
 )
 
 type SignatureVerifier interface {
-	Verify(ctx context.Context, cid string, signature Signature) error
+	Verify(ctx context.Context, cid string, signature constants.Signature) error
 }
 
 // In signatureVerifier.go - revert to original
@@ -47,7 +48,7 @@ func NewSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
 	}
 }
 
-func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
+func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
 	// Remove metrics calls
 	// Check cache first
 	if cached, exists := v.cache.Load(cid); exists {
@@ -77,7 +78,7 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	return err
 }
 
-func (v *DefraSignatureVerifier) verifyHTTP(ctx context.Context, cid string, signature Signature) error {
+func (v *DefraSignatureVerifier) verifyHTTP(ctx context.Context, cid string, signature constants.Signature) error {
 	baseURL, err := url.Parse(v.defraNode.APIURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse API URL: %w", err)
@@ -110,10 +111,10 @@ func (v *DefraSignatureVerifier) verifyHTTP(ctx context.Context, cid string, sig
 }
 
 type MockSignatureVerifier struct {
-	verifyFunc func(ctx context.Context, cid string, signature Signature) error
+	verifyFunc func(ctx context.Context, cid string, signature constants.Signature) error
 }
 
-func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
+func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
 	if m.verifyFunc != nil {
 		return m.verifyFunc(ctx, cid, signature)
 	}

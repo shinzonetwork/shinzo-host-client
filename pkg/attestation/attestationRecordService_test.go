@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -167,7 +167,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 
 func TestPostAttestationRecord(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Define schema inline for this test
 	testSchema := `
 		type TestDoc {
@@ -182,20 +182,20 @@ func TestPostAttestationRecord(t *testing.T) {
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	
+
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
-	
+	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
 	defer client.Stop(t.Context())
-	
+
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -234,7 +234,6 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	testVersions := testDocResult.Version
 
-
 	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
 
@@ -251,7 +250,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = attestationRecord.PostAttestationRecord(t.Context(), defraNode)
+	err = PostAttestationRecord(t.Context(), defraNode, attestationRecord)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -403,7 +402,7 @@ func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
 
 func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Define schema inline for this test
 	testSchema := `
 		type TestDoc {
@@ -417,20 +416,20 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	
+
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
-	
+	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
 	defer client.Stop(t.Context())
-	
+
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -514,7 +513,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
 
-	err = merged.PostAttestationRecord(t.Context(), defraNode)
+	err = PostAttestationRecord(t.Context(), defraNode, merged)
 	require.NoError(t, err)
 
 	// Verify the merged record was stored correctly
@@ -597,7 +596,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 
 func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Define schema inline for this test
 	testSchema := `
 		type TestDoc {
@@ -612,26 +611,25 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	
+
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
-	
+	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
 	defer client.Stop(t.Context())
-	
+
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
-
 
 	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
 	require.NoError(t, err)
@@ -642,7 +640,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		CIDs:          []string{"cid-1"},
 	}
 
-	err = record.PostAttestationRecord(t.Context(), defraNode)
+	err = PostAttestationRecord(t.Context(), defraNode, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -664,7 +662,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 
 func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Define schema inline for this test
 	testSchema := `
 		type TestDoc {
@@ -679,20 +677,20 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	
+
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.P2P.Enabled = false // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
-	
+	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
 	defer client.Stop(t.Context())
-	
+
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -708,9 +706,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		CIDs:          []string{"cid-1"},
 	}
 
-	err = record.PostAttestationRecord(t.Context(), defraNode)
+	err = PostAttestationRecord(t.Context(), defraNode, record)
 	require.NoError(t, err)
-	err = record.PostAttestationRecord(t.Context(), defraNode)
+	err = PostAttestationRecord(t.Context(), defraNode, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`

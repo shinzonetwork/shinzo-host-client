@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -34,6 +35,22 @@ type HostMetrics struct {
 	ViewsActive         int64 `json:"views_active"`
 	ViewProcessingJobs  int64 `json:"view_processing_jobs"`
 	ViewTransformations int64 `json:"view_transformations"`
+
+	// Batch Processing Metrics (NEW)
+	BatchJobsCreated       int64   `json:"batch_jobs_created"`
+	BatchJobsCompleted     int64   `json:"batch_jobs_completed"`
+	BatchViewsProcessed    int64   `json:"batch_views_processed"`
+	BatchDuplicateDocs     int64   `json:"batch_duplicate_documents"`
+	BatchQueueFullDrops    int64   `json:"batch_queue_full_drops"`
+	BatchProcessingErrors  int64   `json:"batch_processing_errors"`
+	BatchSuccessfulBatches int64   `json:"batch_successful_batches"`
+	BatchAvgViewsPerJob    float64 `json:"batch_avg_views_per_job"`
+	BatchSuccessRate       float64 `json:"batch_success_rate_percent"`
+
+	// Internal fields for atomic float64 operations
+	batchAvgViewsPerJobBits uint64 `json:"-"`
+	batchSuccessRateBits    uint64 `json:"-"`
+	avgProcessingTimeBits   uint64 `json:"-"`
 
 	// Performance metrics
 	ProcessingQueueSize   int64   `json:"processing_queue_size"`
@@ -137,14 +154,65 @@ func (m *HostMetrics) IncrementViewTransformations() {
 	atomic.AddInt64(&m.ViewTransformations, 1)
 }
 
+// Batch Processing Metrics Methods (NEW)
+
+// IncrementBatchJobsCreated atomically increments the batch jobs created counter
+func (m *HostMetrics) IncrementBatchJobsCreated() {
+	atomic.AddInt64(&m.BatchJobsCreated, 1)
+}
+
+// IncrementBatchJobsCompleted atomically increments the batch jobs completed counter
+func (m *HostMetrics) IncrementBatchJobsCompleted() {
+	atomic.AddInt64(&m.BatchJobsCompleted, 1)
+}
+
+// IncrementBatchViewsProcessed atomically increments the batch views processed counter
+func (m *HostMetrics) IncrementBatchViewsProcessed(count int64) {
+	atomic.AddInt64(&m.BatchViewsProcessed, count)
+}
+
+// IncrementBatchDuplicateDocs atomically increments the batch duplicate documents counter
+func (m *HostMetrics) IncrementBatchDuplicateDocs() {
+	atomic.AddInt64(&m.BatchDuplicateDocs, 1)
+}
+
+// IncrementBatchQueueFullDrops atomically increments the batch queue full drops counter
+func (m *HostMetrics) IncrementBatchQueueFullDrops() {
+	atomic.AddInt64(&m.BatchQueueFullDrops, 1)
+}
+
+// IncrementBatchProcessingErrors atomically increments the batch processing errors counter
+func (m *HostMetrics) IncrementBatchProcessingErrors() {
+	atomic.AddInt64(&m.BatchProcessingErrors, 1)
+}
+
+// IncrementBatchSuccessfulBatches atomically increments the batch successful batches counter
+func (m *HostMetrics) IncrementBatchSuccessfulBatches() {
+	atomic.AddInt64(&m.BatchSuccessfulBatches, 1)
+}
+
+// UpdateBatchAvgViewsPerJob updates the average views per batch job
+func (m *HostMetrics) UpdateBatchAvgViewsPerJob(avg float64) {
+	bits := *(*uint64)(unsafe.Pointer(&avg))
+	atomic.StoreUint64(&m.batchAvgViewsPerJobBits, bits)
+}
+
+// UpdateBatchSuccessRate updates the batch success rate percentage
+func (m *HostMetrics) UpdateBatchSuccessRate(rate float64) {
+	bits := *(*uint64)(unsafe.Pointer(&rate))
+	atomic.StoreUint64(&m.batchSuccessRateBits, bits)
+}
+
 // SetProcessingQueueSize sets the current processing queue size
 func (m *HostMetrics) SetProcessingQueueSize(size int64) {
 	atomic.StoreInt64(&m.ProcessingQueueSize, size)
 }
 
-// SetViewQueueSize sets the current view queue size
-func (m *HostMetrics) SetViewQueueSize(size int64) {
-	atomic.StoreInt64(&m.ViewQueueSize, size)
+// UpdateAverageProcessingTime updates the average processing time in milliseconds
+func (m *HostMetrics) UpdateAverageProcessingTime(avgMs float64) {
+	// For float64, we need to use atomic operations with bits
+	bits := *(*uint64)(unsafe.Pointer(&avgMs))
+	atomic.StoreUint64(&m.avgProcessingTimeBits, bits)
 }
 
 // UpdateMostRecentBlock updates the most recent block number
@@ -152,8 +220,16 @@ func (m *HostMetrics) UpdateMostRecentBlock(blockNumber uint64) {
 	atomic.StoreUint64(&m.MostRecentBlock, blockNumber)
 }
 
-// GetSnapshot returns a snapshot of current metrics
 func (m *HostMetrics) GetSnapshot() *HostMetrics {
+	// Load float64 values from atomic storage
+	avgViewsPerJobBits := atomic.LoadUint64(&m.batchAvgViewsPerJobBits)
+	successRateBits := atomic.LoadUint64(&m.batchSuccessRateBits)
+	avgProcessingTimeBits := atomic.LoadUint64(&m.avgProcessingTimeBits)
+
+	avgViewsPerJob := *(*float64)(unsafe.Pointer(&avgViewsPerJobBits))
+	successRate := *(*float64)(unsafe.Pointer(&successRateBits))
+	avgProcessingTime := *(*float64)(unsafe.Pointer(&avgProcessingTimeBits))
+
 	return &HostMetrics{
 		AttestationsCreated:    atomic.LoadInt64(&m.AttestationsCreated),
 		AttestationErrors:      atomic.LoadInt64(&m.AttestationErrors),
@@ -170,13 +246,25 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		ViewsActive:            atomic.LoadInt64(&m.ViewsActive),
 		ViewProcessingJobs:     atomic.LoadInt64(&m.ViewProcessingJobs),
 		ViewTransformations:    atomic.LoadInt64(&m.ViewTransformations),
-		ProcessingQueueSize:    atomic.LoadInt64(&m.ProcessingQueueSize),
-		ViewQueueSize:          atomic.LoadInt64(&m.ViewQueueSize),
-		StartTime:              m.StartTime,
-		LastDocumentTime:       m.LastDocumentTime,
-		MostRecentBlock:        atomic.LoadUint64(&m.MostRecentBlock),
-		BuildTags:              m.BuildTags,
-		SchemaType:             m.SchemaType,
+		// Batch Processing Metrics
+		BatchJobsCreated:       atomic.LoadInt64(&m.BatchJobsCreated),
+		BatchJobsCompleted:     atomic.LoadInt64(&m.BatchJobsCompleted),
+		BatchViewsProcessed:    atomic.LoadInt64(&m.BatchViewsProcessed),
+		BatchDuplicateDocs:     atomic.LoadInt64(&m.BatchDuplicateDocs),
+		BatchQueueFullDrops:    atomic.LoadInt64(&m.BatchQueueFullDrops),
+		BatchProcessingErrors:  atomic.LoadInt64(&m.BatchProcessingErrors),
+		BatchSuccessfulBatches: atomic.LoadInt64(&m.BatchSuccessfulBatches),
+		BatchAvgViewsPerJob:    avgViewsPerJob,
+		BatchSuccessRate:       successRate,
+		// Performance metrics
+		ProcessingQueueSize:   atomic.LoadInt64(&m.ProcessingQueueSize),
+		ViewQueueSize:         atomic.LoadInt64(&m.ViewQueueSize),
+		AverageProcessingTime: avgProcessingTime,
+		StartTime:             m.StartTime,
+		LastDocumentTime:      m.LastDocumentTime,
+		MostRecentBlock:       atomic.LoadUint64(&m.MostRecentBlock),
+		BuildTags:             m.BuildTags,
+		SchemaType:            m.SchemaType,
 	}
 }
 

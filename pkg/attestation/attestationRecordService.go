@@ -11,35 +11,18 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// ========================================
-// LOCAL ATTESTATION TYPES
-// ========================================
+// AttestationRecord represents an attestation record with verified signatures
+type AttestationRecord = constants.AttestationRecord
 
 // Version represents a version with signature information
-type Version struct {
-	CID             string    `json:"cid"`
-	Signature       Signature `json:"signature"`
-	SchemaVersionId string    `json:"schemaVersionId"`
-}
+type Version = constants.Version
 
 // Signature represents a cryptographic signature
-type Signature struct {
-	Type     string `json:"type"`
-	Identity string `json:"identity"`
-	Value    string `json:"value"`
-}
+type Signature = constants.Signature
 
-// AttestationRecord represents an attestation record in DefraDB
-type AttestationRecord struct {
-	AttestedDocId string   `json:"attested_doc"`
-	SourceDocId   string   `json:"source_doc"`
-	CIDs          []string `json:"CIDs"`
-	DocType       string   `json:"doc_type"`
-	VoteCount     int      `json:"vote_count"`
-}
-
+// CreateAttestationRecord creates an attestation record after verifying signatures
 func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocId string, docType string, versions []Version) (*AttestationRecord, error) {
-	attestationRecord := &AttestationRecord{
+	attestationRecord := &constants.AttestationRecord{
 		AttestedDocId: docId,
 		SourceDocId:   sourceDocId,
 		CIDs:          []string{},
@@ -59,7 +42,8 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 	return attestationRecord, nil
 }
 
-func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defraNode *node.Node) error {
+// PostAttestationRecord posts the attestation record to DefraDB
+func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *AttestationRecord) error {
 	// Format CIDs for GraphQL
 	cidsArray := make([]string, len(record.CIDs))
 	for i, cid := range record.CIDs {
@@ -89,7 +73,7 @@ func (record *AttestationRecord) PostAttestationRecord(ctx context.Context, defr
 		}
 	`, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId)
 
-	_, err := defra.PostMutation[AttestationRecord](ctx, defraNode, mutation)
+	_, err := defra.PostMutation[constants.AttestationRecord](ctx, defraNode, mutation)
 	if err != nil {
 		return fmt.Errorf("error posting attestation record mutation: %v", err)
 	}
@@ -172,7 +156,7 @@ func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, 
 	}
 
 	// Post the attestation record to DefraDB
-	err = attestationRecord.PostAttestationRecord(ctx, defraNode)
+	err = PostAttestationRecord(ctx, defraNode, attestationRecord)
 	if err != nil {
 		return fmt.Errorf("failed to post attestation record for document %s: %w", docID, err)
 	}

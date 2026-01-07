@@ -48,8 +48,7 @@ type Config struct {
 
 type ShinzoConfig struct {
 	MinimumAttestations int    `yaml:"minimum_attestations"`
-	RPCUrl              string `yaml:"rpc_url"`
-	WebSocketUrl        string `yaml:"web_socket_url"`
+	HubBaseURL          string `yaml:"hub_base_url"`
 	StartHeight         uint64 `yaml:"start_height"`
 
 	// P2P Control Settings

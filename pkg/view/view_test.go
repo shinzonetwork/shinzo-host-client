@@ -161,7 +161,8 @@ func TestView_ConfigureLens_NoLenses(t *testing.T) {
 	require.NoError(t, err)
 
 	// ConfigureLens should return an error when no lenses are provided
-	err = view.ConfigureLens(context.Background(), defraNode)
+	schemaService := NewSchemaService()
+	err = view.ConfigureLens(context.Background(), defraNode, schemaService)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no lenses provided")
 }

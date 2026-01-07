@@ -17,7 +17,6 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
-	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -26,7 +25,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
-
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -103,14 +101,11 @@ type Host struct {
 	processingPipeline *ProcessingPipeline // Complete message processing pipeline
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
-	viewManager             *ViewManager             // Manages view lifecycle and processing
-	viewRegistrationHandler *ViewRegistrationHandler // Handles Shinzo Hub view registration events
-	viewEndpointManager     *ViewEndpointManager     // Manages HTTP endpoints for views
-
-	healthServer *server.HealthServer
+	viewManager *view.ViewManager // Manages view lifecycle and processing
 
 	// METRICS SYSTEM: Track attestation and document processing metrics
-	metrics *server.HostMetrics // Comprehensive metrics tracking
+	healthServer *server.HealthServer
+	metrics      *server.HostMetrics // Comprehensive metrics tracking
 
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 }
@@ -140,8 +135,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		return nil, fmt.Errorf("error starting defra instance: %v", err)
 	}
 
-	// Store network handler for P2P control
-	// Note: P2P will be started after gap processing completes
+	// P2P peers will be added after ViewManager is initialized (see below)
 
 	ctx := context.Background()
 
@@ -211,6 +205,69 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		metrics:                server.NewHostMetrics(),
 	}
 
+	// Initialize ViewManager and load persisted views
+	// This handles: 1) Fetch views from ShinzoHub, 2) Load local views, 3) Download WASM files, 4) Register views
+	newHost.viewManager = view.NewViewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+
+	// Hook up metrics callback for view tracking
+	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
+		return newHost.metrics
+	})
+
+	// Build RPC and WebSocket URLs from base URL (e.g., "shinzohub-rpc.infra.source.network:26657")
+	var rpcURL, wsURL string
+	if cfg.Shinzo.HubBaseURL != "" {
+		rpcURL = "http://" + cfg.Shinzo.HubBaseURL
+		wsURL = "ws://" + cfg.Shinzo.HubBaseURL + "/websocket"
+	}
+
+	// Fetch views from ShinzoHub if RPC URL is configured
+	var hubViews []view.View
+	logger.Sugar.Infof("ShinzoHub base URL: %s", rpcURL)
+	if rpcURL != "" {
+		logger.Sugar.Infof("🔍 Querying ShinzoHub for registered views: %s", rpcURL)
+		rpcClient := shinzohub.NewRPCClient(rpcURL)
+		fetchedViews, err := rpcClient.FetchAllRegisteredViews(context.Background())
+		if err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to fetch views from ShinzoHub: %v", err)
+		} else {
+			logger.Sugar.Infof("📋 Found %d views from ShinzoHub", len(fetchedViews))
+			hubViews = fetchedViews
+		}
+	} else {
+		logger.Sugar.Info("📋 No ShinzoHub base URL configured - skipping remote view fetch")
+	}
+
+	if err := newHost.viewManager.LoadAndRegisterViews(context.Background(), hubViews); err != nil {
+		logger.Sugar.Warnf("Failed to load views on startup: %v", err)
+	}
+
+	logger.Sugar.Info("🎯 ViewManager initialized")
+
+	// Add bootstrap peers and start P2P network now that ViewManager is ready
+	if networkHandler != nil {
+		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
+
+		// Add the indexer peer(s) - these were removed from config to delay P2P until ViewManager is ready
+		bootstrapPeers := []string{
+			"/ip4/34.28.227.17/tcp/9171/p2p/12D3KooWCFHSuB5KjcLCrjBdn9p646PZKYhmXwj5CSdSZKwdWPjW", // Standard indexer
+		}
+
+		for _, peer := range bootstrapPeers {
+			if err := networkHandler.AddPeer(peer); err != nil {
+				logger.Sugar.Warnf("Failed to add peer %s: %v", peer, err)
+			} else {
+				logger.Sugar.Infof("✅ Added P2P peer: %s", peer)
+			}
+		}
+
+		if err := networkHandler.StartNetwork(); err != nil {
+			logger.Sugar.Warnf("Failed to start P2P network: %v", err)
+		} else {
+			logger.Sugar.Info("✅ P2P network started")
+		}
+	}
+
 	cacheSize := cfg.Shinzo.CacheSize
 	if cacheSize <= 0 {
 		cacheSize = 10000 // Default cache size
@@ -242,37 +299,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
 
-	// Initialize ViewManager for lens transformations and view lifecycle management
-	viewConfig := ViewManagerConfig{
-		InactivityTimeout: parseTimeoutOrDefault(cfg.Shinzo.ViewInactivityTimeout, 24*time.Hour),
-		CleanupInterval:   parseTimeoutOrDefault(cfg.Shinzo.ViewCleanupInterval, 1*time.Hour),
-		WorkerCount:       maxInt(cfg.Shinzo.ViewWorkerCount, 10), // Ensure at least 10 workers
-		QueueSize:         maxInt(cfg.Shinzo.ViewQueueSize, 1000), // Ensure at least 1000 queue size
-	}
-	newHost.viewManager = NewViewManager(defraNode, viewConfig)
-
-	// Set metrics callback for ViewManager
-	newHost.viewManager.metricsCallback = func() *server.HostMetrics {
-		return newHost.metrics
-	}
-
-	logger.Sugar.Infof("🎯 ViewManager initialized: workers=%d, queue=%d, timeout=%v",
-		viewConfig.WorkerCount, viewConfig.QueueSize, viewConfig.InactivityTimeout)
-
-	// Initialize ViewRegistrationHandler for Shinzo Hub events
-	newHost.viewRegistrationHandler = NewViewRegistrationHandler(cfg.Shinzo.StartHeight)
-	newHost.viewRegistrationHandler.SetViewManager(newHost.viewManager)
-
-	// Initialize ViewEndpointManager for HTTP endpoints
-	newHost.viewEndpointManager = NewViewEndpointManager(defraNode, newHost.viewManager)
-
-	logger.Sugar.Info("🌐 ViewEndpointManager initialized for dynamic route creation")
-
-	// Setup HTTP server with view endpoints
-	newHost.setupViewHTTPServer()
-
-	if len(cfg.Shinzo.WebSocketUrl) > 0 {
-		cancel, channel, err := shinzohub.StartEventSubscription(cfg.Shinzo.WebSocketUrl)
+	if wsURL != "" {
+		cancel, channel, err := shinzohub.StartEventSubscription(wsURL)
 
 		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
 		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
@@ -335,12 +363,39 @@ func (h *Host) GetCurrentBlock() int64 {
 	return 0
 }
 
-// ProcessViewRegistrationEvent processes a view registration event through the ViewRegistrationHandler
+// ProcessViewRegistrationEvent processes a view registration event
 func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub.ViewRegisteredEvent) error {
-	if h.viewRegistrationHandler == nil {
-		return fmt.Errorf("ViewRegistrationHandler not initialized")
+	if h.viewManager == nil {
+		return fmt.Errorf("ViewManager not initialized")
 	}
-	return h.viewRegistrationHandler.ProcessRegisteredEvent(ctx, event)
+
+	// Validate view has required fields
+	if event.View.Query == nil || *event.View.Query == "" {
+		return fmt.Errorf("view %s missing query", event.View.Name)
+	}
+	if event.View.Sdl == nil || *event.View.Sdl == "" {
+		return fmt.Errorf("view %s missing SDL", event.View.Name)
+	}
+	if !event.View.HasLenses() {
+		return fmt.Errorf("view %s has no lenses", event.View.Name)
+	}
+
+	// Write WASM to disk
+	if err := event.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
+		return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
+	}
+
+	// Register view
+	if err := h.viewManager.RegisterView(ctx, event.View); err != nil {
+		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
+	}
+
+	// Persist to registry
+	if err := view.SaveViewToRegistry(h.LensRegistryPath, event.View); err != nil {
+		logger.Sugar.Warnf("Failed to persist view %s: %v", event.View.Name, err)
+	}
+
+	return nil
 }
 
 func (h *Host) GetLastProcessedTime() time.Time {
@@ -433,18 +488,10 @@ func (h *Host) handleViewList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endpoints := h.GetViewEndpoints()
+	viewNames := h.GetActiveViewNames()
 	response := map[string]interface{}{
-		"available_views": len(endpoints),
-		"endpoints":       make([]map[string]string, 0, len(endpoints)),
-	}
-
-	for name, endpoint := range endpoints {
-		response["endpoints"] = append(response["endpoints"].([]map[string]string), map[string]string{
-			"view_name":    name,
-			"path":         endpoint.Path,
-			"last_updated": endpoint.LastUpdated,
-		})
+		"available_views": len(viewNames),
+		"views":           viewNames,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -485,11 +532,9 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
-	// Close the ViewManager
+	// ViewManager cleanup (no explicit close needed - just log)
 	if h.viewManager != nil {
-		if err := h.viewManager.Close(); err != nil {
-			fmt.Printf("Error shutting down ViewManager: %v\n", err)
-		}
+		logger.Sugar.Infof("🎯 ViewManager shutdown: %d active views", h.viewManager.GetViewCount())
 	}
 
 	// Close the processing pipeline
@@ -556,15 +601,44 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				logger.Sugar.Infof("📋 Received new view registration: %s (creator: %s)", registeredEvent.View.Name, registeredEvent.Creator)
 
 				// Process the event through the ViewRegistrationHandler
-				if h.viewRegistrationHandler != nil {
-					err := h.viewRegistrationHandler.ProcessRegisteredEvent(ctx, *registeredEvent)
-					if err != nil {
-						logger.Sugar.Errorf("❌ Failed to process view registration for %s: %v", registeredEvent.View.Name, err)
+				// check that request is complete : decodes and lens is not nil
+				// call ensure wasm
+				// call view.RegisterView
+
+				// Process the event through the ViewRegistrationHandler
+				// 1. Check that request is complete: Query, SDL, and Lenses are present
+				if registeredEvent.View.Query == nil || *registeredEvent.View.Query == "" {
+					logger.Sugar.Errorf("❌ View %s missing query - skipping registration", registeredEvent.View.Name)
+					continue
+				}
+				if registeredEvent.View.Sdl == nil || *registeredEvent.View.Sdl == "" {
+					logger.Sugar.Errorf("❌ View %s missing SDL - skipping registration", registeredEvent.View.Name)
+					continue
+				}
+				if !registeredEvent.View.HasLenses() {
+					logger.Sugar.Errorf("❌ View %s has no lenses configured - skipping registration", registeredEvent.View.Name)
+					continue
+				}
+
+				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
+				if err := registeredEvent.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
+					logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
+					continue
+				}
+
+				// 3. Register the view with ViewManager and persist to registry
+				if h.viewManager != nil {
+					if err := h.viewManager.RegisterView(ctx, registeredEvent.View); err != nil {
+						logger.Sugar.Errorf("❌ Failed to register view %s: %v", registeredEvent.View.Name, err)
 					} else {
-						logger.Sugar.Infof("✅ Successfully processed view registration for %s", registeredEvent.View.Name)
+						// 4. Persist view to registry for next startup
+						if err := view.SaveViewToRegistry(h.LensRegistryPath, registeredEvent.View); err != nil {
+							logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", registeredEvent.View.Name, err)
+						}
+						logger.Sugar.Infof("✅ Successfully registered view %s", registeredEvent.View.Name)
 					}
 				} else {
-					logger.Sugar.Warn("ViewRegistrationHandler not initialized - cannot process view registration")
+					logger.Sugar.Warn("ViewManager not initialized - cannot register view")
 				}
 			} else if entityEvent, ok := event.(*shinzohub.EntityRegisteredEvent); ok {
 				// Process EntityRegistered events - add as P2P peers
@@ -601,27 +675,45 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	// Set start height to 0 for tests to process all documents
 	testConfig.Shinzo.StartHeight = 0
 
-	return StartHosting(testConfig)
-}
-
-// Not used - attestation schemas are now created automatically during startup
-// initializeAttestationSchemas creates attestation record collections for all document types
-func initializeAttestationSchemas(ctx context.Context, defraNode *node.Node) error {
-	// Document types that need attestation record collections
-	documentTypes := constants.AllCollections
-
-	for _, docType := range documentTypes {
-		collectionName := docType
-
-		err := hostAttestation.AddAttestationRecordCollection(ctx, defraNode, collectionName)
-		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-			return fmt.Errorf("failed to create attestation collection for %s: %w", docType, err)
-		}
-
-		logger.Sugar.Infof("✅ Attestation collection %s initialized", collectionName)
+	// Create host with dynamic health server port
+	host, err := StartHosting(testConfig)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	// Override health server with dynamic port for tests
+	if host.healthServer != nil {
+		// Stop the hardcoded port 8080 server
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		host.healthServer.Stop(ctx)
+
+		// Find an available port
+		listener, err := net.Listen("tcp", ":0")
+		if err != nil {
+			return nil, fmt.Errorf("failed to find available port: %w", err)
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		listener.Close()
+
+		// Create new health server with dynamic port
+		healthDefraURL := ""
+		if testConfig.DefraDB.Url != "" {
+			healthDefraURL = "http://" + testConfig.DefraDB.Url
+		}
+		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics)
+
+		// Start the new health server
+		go func() {
+			if err := host.healthServer.Start(); err != nil && !strings.Contains(err.Error(), "Server closed") && !strings.Contains(err.Error(), "address already in use") {
+				logger.Sugar.Errorf("Health server failed: %v", err)
+			}
+		}()
+
+		logger.Sugar.Infof("🏥 Health server started on port %d", port)
+	}
+
+	return host, nil
 }
 
 // isPlaygroundEnabled checks if the playground is enabled at build time.
@@ -652,19 +744,19 @@ func (h *Host) RegisterViewWithManager(ctx context.Context, v view.View) error {
 	return h.viewManager.RegisterView(ctx, v)
 }
 
-// ProcessDocumentThroughViews processes a document through all matching views
-func (h *Host) ProcessDocumentThroughViews(ctx context.Context, doc Document) {
-	if h.viewManager == nil {
-		logger.Sugar.Warn("ViewManager not initialized - cannot process document")
-		return
-	}
-	h.viewManager.ProcessDocument(ctx, doc)
-}
+// // ProcessDocumentThroughViews processes a document through all matching views
+// func (h *Host) ProcessDocumentThroughViews(ctx context.Context, doc Document) {
+// 	if h.viewManager == nil {
+// 		logger.Sugar.Warn("ViewManager not initialized - cannot process document")
+// 		return
+// 	}
+// 	h.viewManager.ProcessDocument(ctx, doc) // this function is not needed as views are managed within defra when a lens is applied (setMigration)
+// }
 
-// GetActiveViews returns all active views
-func (h *Host) GetActiveViews() map[string]*ManagedView {
+// GetActiveViewNames returns names of all active views
+func (h *Host) GetActiveViewNames() []string {
 	if h.viewManager == nil {
-		return make(map[string]*ManagedView)
+		return []string{}
 	}
-	return make(map[string]*ManagedView)
+	return h.viewManager.GetActiveViewNames()
 }
