@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
@@ -32,6 +34,10 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("Unable to load config: %v", err))
 	}
+
+	go func() {
+		http.ListenAndServe(":6061", nil)
+	}()
 
 	myHost, err := host.StartHosting(cfg)
 	if err != nil {
