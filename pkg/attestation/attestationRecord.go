@@ -11,16 +11,14 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-
-
 // ========================================
 // LOCAL ATTESTATION TYPES
 // ========================================
 
 // Version represents a version with signature information
 type Version struct {
-	CID            string    `json:"cid"`
-	Signature      Signature `json:"signature"`
+	CID             string    `json:"cid"`
+	Signature       Signature `json:"signature"`
 	SchemaVersionId string    `json:"schemaVersionId"`
 }
 
@@ -51,8 +49,8 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 	for _, version := range versions {
 		// Validate the signature against the CID
 		if err := verifier.Verify(ctx, version.CID, version.Signature); err != nil {
-			// Todo here we might want to send a message to ShinzoHub (or similar) indicating that we received an invalid signature
-			fmt.Printf("Invalid signature for CID %s from identity %s: %v\n", version.CID, version.Signature.Identity, err)
+			// Signature verification failed - this is expected during P2P sync when
+			// blocks may not be fully synced yet. Silently skip failed verifications.
 			continue
 		}
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
@@ -184,7 +182,6 @@ func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType st
 func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string, versions []Version) error {
 
 	if len(versions) == 0 {
-		fmt.Printf("📊 No signatures found for document %s, skipping attestation\n", docID)
 		return nil
 	}
 
@@ -193,6 +190,10 @@ func HandleDocumentAttestation(ctx context.Context, defraNode *node.Node, docID 
 	attestationRecord, err := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions)
 	if err != nil {
 		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
+	}
+
+	if len(attestationRecord.CIDs) == 0 {
+		return nil
 	}
 
 	// Post the attestation record to DefraDB
@@ -324,7 +325,6 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 	return merged, nil
 }
 
-
 func getAttestationRecordSDL(viewName string) string {
 	// Check if this is a primitive type (Block, Transaction, Log, AccessListEntry)
 	primitiveTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
@@ -374,7 +374,7 @@ func extractSchemaTypes(schema string) ([]string, error) {
 // GetAttestationRecordsByViewName queries attestation records for a specific view
 func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIds []string) ([]AttestationRecord, error) {
 	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
-	
+
 	if len(viewDocIds) > 0 {
 		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
 		quoted := make([]string, 0, len(viewDocIds))

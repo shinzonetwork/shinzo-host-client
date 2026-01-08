@@ -15,6 +15,8 @@ const (
 	maxRetries             = 10
 	baseDelay              = 10 * time.Millisecond
 	maxDelay               = 2 * time.Second
+	dedupeExpiry           = 5 * time.Minute
+	dedupeCleanupInterval  = 1 * time.Minute
 )
 
 // DocumentJob represents a document to be processed.
@@ -37,10 +39,14 @@ type ProcessingPipeline struct {
 	// Attestation writers pool
 	attestationQueue chan attestationJob
 
+	seenDocs sync.Map
+	dedupeMu sync.Mutex
+
 	// Metrics for monitoring
 	queuedCount    int64
 	processedCount int64
 	droppedCount   int64
+	skippedCount   int64
 	mu             sync.Mutex
 }
 
@@ -87,7 +93,34 @@ func (pp *ProcessingPipeline) Start() {
 		go pp.worker(i)
 	}
 
+	go pp.cleanupDedupeCache()
+
 	logger.Sugar.Info("✅ Processing pipeline ready")
+}
+
+// cleanupDedupeCache periodically removes expired entries from the deduplication cache.
+func (pp *ProcessingPipeline) cleanupDedupeCache() {
+	ticker := time.NewTicker(dedupeCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pp.ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			expiredCount := 0
+			pp.seenDocs.Range(func(key, value interface{}) bool {
+				if expiry, ok := value.(time.Time); ok {
+					if now.After(expiry) {
+						pp.seenDocs.Delete(key)
+						expiredCount++
+					}
+				}
+				return true
+			})
+		}
+	}
 }
 
 // Stop stops the processing pipeline.
@@ -100,7 +133,8 @@ func (pp *ProcessingPipeline) Stop() {
 
 	pp.wg.Wait()
 
-	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, dropped: %d)", pp.processedCount, pp.droppedCount)
+	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, skipped: %d, dropped: %d)",
+		pp.processedCount, pp.skippedCount, pp.droppedCount)
 }
 
 // worker processes jobs from the queue and enqueues attestation writes.
@@ -150,8 +184,6 @@ func (pp *ProcessingPipeline) attestationWriter(writerID int) {
 func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJob) {
 	if pp.host.metrics != nil {
 		pp.host.metrics.IncrementDocumentsReceived()
-		pp.host.metrics.IncrementDocumentByType(job.docType)
-		pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
 	}
 
 	var err error
@@ -191,6 +223,8 @@ func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJo
 		} else {
 			pp.host.metrics.IncrementAttestationsCreated()
 			pp.host.metrics.IncrementDocumentsProcessed()
+			pp.host.metrics.IncrementDocumentByType(job.docType)
+			pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
 		}
 	}
 
@@ -216,6 +250,24 @@ func isTransactionConflict(err error) bool {
 
 // processDocumentDirect enqueues a document for processing (blocks when queue is full).
 func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
+	dedupeKey := docType + ":" + docID
+
+	if _, exists := pp.seenDocs.Load(dedupeKey); exists {
+		pp.mu.Lock()
+		pp.skippedCount++
+		pp.mu.Unlock()
+		if pp.host.metrics != nil {
+			pp.host.metrics.IncrementDocumentsSkipped()
+		}
+		return
+	}
+
+	pp.seenDocs.Store(dedupeKey, time.Now().Add(dedupeExpiry))
+
+	if pp.host.metrics != nil {
+		pp.host.metrics.IncrementUniqueDocumentByType(docType)
+	}
+
 	job := DocumentJob{
 		docID:       docID,
 		docType:     docType,
