@@ -98,9 +98,9 @@ type Host struct {
 	processingPipeline *ProcessingPipeline // Complete message processing pipeline
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
-	viewManager             *ViewManager                       // Manages view lifecycle and processing
-	viewRegistrationHandler *ViewRegistrationHandler            // Handles Shinzo Hub view registration events
-	viewEndpointManager     *ViewEndpointManager               // Manages HTTP endpoints for views
+	viewManager             *ViewManager             // Manages view lifecycle and processing
+	viewRegistrationHandler *ViewRegistrationHandler // Handles Shinzo Hub view registration events
+	viewEndpointManager     *ViewEndpointManager     // Manages HTTP endpoints for views
 
 	healthServer *server.HealthServer
 
@@ -150,7 +150,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
-
 
 	// Log API URL
 	if defraNode.APIURL != "" {
@@ -560,9 +559,9 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 			} else if entityEvent, ok := event.(*shinzohub.EntityRegisteredEvent); ok {
 				// Process EntityRegistered events - add as P2P peers
 				entityType := shinzohub.GetEntityType(entityEvent.Entity)
-				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s, pid=%s", 
+				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s, pid=%s",
 					entityType, entityEvent.Key, entityEvent.Owner, entityEvent.Pid)
-				
+
 				// Add entity as P2P peer for communication
 				if h.NetworkHandler != nil {
 					err := h.NetworkHandler.AddPeer(entityEvent.Pid)
