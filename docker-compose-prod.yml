@@ -23,7 +23,6 @@ services:
     image: ghcr.io/shinzonetwork/shinzo-host-client:latest
     platform: linux/amd64
     restart: unless-stopped
-    network_mode: host
     container_name: shinzo-host
     volumes:
       - ~/data/defradb:/app/.defra/data
