@@ -297,8 +297,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	} else if defraNode != nil && defraNode.APIURL != "" {
 		healthDefraURL = defraNode.APIURL
 	}
-
-	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL, newHost.metrics)
+	port := 8080
+	newHost.healthServer = server.NewHealthServer(port, newHost, healthDefraURL, newHost.metrics)
 
 	// Start health server in background
 	go func() {
@@ -307,7 +307,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 	}()
 
-	logger.Sugar.Info("🏥 Health server started on port 8080")
+	logger.Sugar.Infof("🏥 Health server started on port %d", port)
 
 	return newHost, nil
 }
