@@ -2254,8 +2254,8 @@ github.com/segmentio/asm v1.2.0/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260108201154-a5972c991976 h1:Hkyt3SUGbncNzBxGqsxij3K/laCDkCpxRCQ2yoZsXtQ=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260108201154-a5972c991976/go.mod h1:tll9ZZuV9NWaYVDAv8nKBKj23Vc+mqhlr2BQYluwUEg=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260112112211-6c4e1531d19e h1:gQFYU76LKNWo6fvVbRWhfaNudJgz4WH6iOvVY7aqBNM=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260112112211-6c4e1531d19e/go.mod h1:T+4QIckCmGyxApC9nJFn8gSnKDCP+RuxWY/2anTsjdE=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8 h1:g+7aGWLyrrFFHWq7mch0b0Af2YXCNKR2xOTQ/Ed/z70=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8/go.mod h1:IpuhmHiO6IYcutRGG+c1vvUvxYb2c8yqB1eyHOdXx3c=
 github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094 h1:EzUKZsp+t5MKWZHI1KmrIa1hMGaXvp0xAMcdP1z7u+s=
@@ -2325,8 +2325,8 @@ github.com/sourcenetwork/corekv/namespace v0.2.4 h1:hOQQwbupvy5QxR8J0m9VUWD+78p5
 github.com/sourcenetwork/corekv/namespace v0.2.4/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
 github.com/sourcenetwork/corelog v0.0.8 h1:jCo0mFBpWrfhUCGzzN3uUtPGyQv3jnITdPO1s2ME3RY=
 github.com/sourcenetwork/corelog v0.0.8/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
-github.com/sourcenetwork/defradb v0.20.1-0.20260108200843-4a604ad66588 h1:Nf7ul/Ln2mlO1KwzWc9+D+QL2aC7WHCqH2QyasMyZzk=
-github.com/sourcenetwork/defradb v0.20.1-0.20260108200843-4a604ad66588/go.mod h1:3eyPtVWFBV7l05aV8k3JW26RD0TgIO/m5VYPGeSjJeI=
+github.com/sourcenetwork/defradb v0.20.1-0.20260112112007-2071e018e1e2 h1:3gIONjS+L0IQox/4czSih60Kq8dbhVgY8mR29xv10FE=
+github.com/sourcenetwork/defradb v0.20.1-0.20260112112007-2071e018e1e2/go.mod h1:3eyPtVWFBV7l05aV8k3JW26RD0TgIO/m5VYPGeSjJeI=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14/go.mod h1:jUoQv592uUX1u7QBjAY4C+l24X9ArhPfifOqXpDHz4U=
 github.com/sourcenetwork/go-p2p v0.1.7 h1:eKNoFrgVaYFvgpKHRbjc9o5kODOkPehfTtcXVxkegSw=
