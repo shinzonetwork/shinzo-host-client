@@ -4,10 +4,11 @@ go 1.25.5
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20251231034216-636e9742bcc7
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260108201154-a5972c991976
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
+	github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20251231000233-25b4816f8470
+	github.com/sourcenetwork/defradb v0.20.1-0.20260108200843-4a604ad66588
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
@@ -402,5 +403,3 @@ require (
 	pgregory.net/rapid v1.1.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
-
-require github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094
