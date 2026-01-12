@@ -36,7 +36,7 @@ func main() {
 	}
 
 	go func() {
-		http.ListenAndServe(":6061", nil)
+		http.ListenAndServe(":6060", nil)
 	}()
 
 	myHost, err := host.StartHosting(cfg)

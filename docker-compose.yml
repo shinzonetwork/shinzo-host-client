@@ -29,8 +29,9 @@ services:
     expose:
       - "9181"  # DefraDB API (internal only)
     ports:
-      - "444:9182"  # GraphQL Playground 
-      - "6060:6060"  # Metrics
+      - "444:9182"   # GraphQL Playground 
+      - "8080:8080"  # Metrics
+      - "6060:6060"  # pprof
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
       - ~/data/defradb:/app/.defra/data
@@ -42,7 +43,7 @@ services:
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6060/metrics"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/metrics"]
       interval: 30s
       timeout: 10s
       retries: 3
