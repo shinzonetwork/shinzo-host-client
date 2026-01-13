@@ -27,6 +27,7 @@ go.work.sum
 .defra/
 
 .vscode
+.idea
 
 logs/*.txt
 logs/*.logs
