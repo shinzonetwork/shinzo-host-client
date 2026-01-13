@@ -3,20 +3,21 @@ version: '3.8'
 networks:
   shinzo-net:
     driver: bridge
+
 services:
   shinzo-host:
     image: ghcr.io/shinzonetwork/shinzo-host-client:latest
     platform: linux/amd64
+    mem_reservation: 30g
     restart: unless-stopped
     container_name: shinzo-host
     networks:
       - shinzo-net
-    expose:
-      - "9181"  # DefraDB API (internal only)
     ports:
-      - "9182:9182"  # GraphQL Playground 
+      - "9181:9181"  # DefraDB API (for internal network access)
+      - "444:9182"  # GraphQL Playground 
       - "8080:8080"  # Metrics
-      - "9171:9171"  # P2P networking (still needs external access)
+      - "9171:9171"  # P2P networking (needs external access)
     volumes:
       - ~/data/defradb:/app/.defra/data
       - ~/data/lens:/app/.lens

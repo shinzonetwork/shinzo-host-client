@@ -375,13 +375,12 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	if event.View.Sdl == nil || *event.View.Sdl == "" {
 		return fmt.Errorf("view %s missing SDL", event.View.Name)
 	}
-	if !event.View.HasLenses() {
-		return fmt.Errorf("view %s has no lenses", event.View.Name)
-	}
 
 	// Write WASM to disk
-	if err := event.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
-		return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
+	if event.View.Transform.Lenses != nil && len(event.View.Transform.Lenses) > 0 {
+		if err := event.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
+			return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
+		}
 	}
 
 	// Register view
@@ -588,15 +587,13 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					logger.Sugar.Errorf("❌ View %s missing SDL - skipping registration", registeredEvent.View.Name)
 					continue
 				}
-				if !registeredEvent.View.HasLenses() {
-					logger.Sugar.Errorf("❌ View %s has no lenses configured - skipping registration", registeredEvent.View.Name)
-					continue
-				}
 
 				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
-				if err := registeredEvent.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
-					logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
-					continue
+				if registeredEvent.View.Transform.Lenses != nil && len(registeredEvent.View.Transform.Lenses) > 0 {
+					if err := registeredEvent.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
+						logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
+						continue
+					}
 				}
 
 				// 3. Register the view with ViewManager and persist to registry

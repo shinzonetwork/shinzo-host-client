@@ -186,7 +186,6 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 	}
 
 	// Step 1: Set migration if view has lenses
-	// if v.HasLenses() {
 	lensConfig := v.BuildLensConfig()
 	logger.Sugar.Infof("Lens config: %v", lensConfig)
 	_, err := vm.lensService.SetMigration(ctx, vm.defraNode, lensConfig)
@@ -195,15 +194,12 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 		return fmt.Errorf("failed to set migration for view %s: %w", v.Name, err)
 	}
 	vm.activeViews[v.Name] = &lensConfig
-	// }
 
-	// // Step 2: Configure lens and create view (AddView is called inside ConfigureLens)
-	// if v.HasLenses() {
+	// Step 2: Configure lens and create view (AddView is called inside ConfigureLens)
 	err = v.ConfigureLens(ctx, vm.defraNode, vm.schemaService)
 	if err != nil {
 		return fmt.Errorf("failed to configure lens for view %s: %w", v.Name, err)
 	}
-	// }
 
 	// Step 3: Subscribe to the view collection (P2P replication)
 	err = v.SubscribeTo(ctx, vm.defraNode)
@@ -256,31 +252,20 @@ func extractCollectionFromQuery(query string) string {
 }
 
 func (v *View) BuildLensConfig() client.LensConfig {
-
 	// Build all lens modules from transform
 	lensModules := make([]model.LensModule, 0, len(v.Transform.Lenses))
-	if len(v.Transform.Lenses) == 0 {
-		return client.LensConfig{
-			SourceSchemaVersionID:      *v.Query,
-			DestinationSchemaVersionID: *v.Sdl,
-			Lens: model.Lens{
-				Lenses: nil,
-			},
-		}
-	} else {
-		for _, lens := range v.Transform.Lenses {
-			lensModules = append(lensModules, model.LensModule{
-				Path:      lens.Path,
-				Arguments: lens.Arguments,
-			})
-		}
+	for _, lens := range v.Transform.Lenses {
+		lensModules = append(lensModules, model.LensModule{
+			Path:      lens.Path,
+			Arguments: lens.Arguments,
+		})
+	}
 
-		return client.LensConfig{
-			SourceSchemaVersionID:      *v.Query,
-			DestinationSchemaVersionID: *v.Sdl,
-			Lens: model.Lens{
-				Lenses: lensModules,
-			},
-		}
+	return client.LensConfig{
+		SourceSchemaVersionID:      *v.Query,
+		DestinationSchemaVersionID: *v.Sdl,
+		Lens: model.Lens{
+			Lenses: lensModules,
+		},
 	}
 }
