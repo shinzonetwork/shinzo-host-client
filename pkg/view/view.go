@@ -24,11 +24,12 @@ type Metadata = models.Metadata
 type Lens = models.Lens
 
 type View struct {
-	Name      string    `json:"name"`
-	Query     *string   `json:"query"`
-	Sdl       *string   `json:"sdl"`
-	Transform Transform `json:"transform"`
-	Metadata  Metadata  `json:"metadata"`
+	Name         string    `json:"name"`
+	Query        *string   `json:"query"`
+	Sdl          *string   `json:"sdl"`
+	Materialized bool      `json:"materialized"`
+	Transform    Transform `json:"transform"`
+	Metadata     Metadata  `json:"metadata"`
 }
 
 func (view *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
@@ -197,9 +198,6 @@ func (v *View) findOrCreateLensRegistryDir(registryPath string) (string, error) 
 // - A GQL SDL (output structure, should have @materialized(if: false) for non-materialized)
 // - Optionally, a lens configuration (transform)
 func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaService *SchemaService) error {
-	if len(v.Transform.Lenses) < 1 {
-		return fmt.Errorf("no lenses provided in view %+v", v)
-	}
 	if v.Query == nil || *v.Query == "" {
 		return fmt.Errorf("view query is required")
 	}

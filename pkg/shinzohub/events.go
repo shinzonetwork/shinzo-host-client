@@ -99,6 +99,7 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		"tm.event='Tx' AND EntityRegistered.key EXISTS",
 	}
 
+	// Send all subscriptions first
 	for i, query := range queries {
 		subscribeMsg := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -126,6 +127,29 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		fmt.Printf("Subscription response: %s\n", string(response))
 	}
 
+	// Start ping goroutine to keep connection alive
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Send a JSON-RPC request that Tendermint will respond to
+				pingMsg := map[string]interface{}{
+					"jsonrpc": "2.0",
+					"method":  "status",
+					"id":      999,
+					"params":  map[string]interface{}{},
+				}
+				if err := conn.WriteJSON(pingMsg); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
 	// Start goroutine for message processing
 	go func() {
 		defer func() {
@@ -144,10 +168,10 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				return
 			default:
 				// Set a deadline for the next read
-				if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-					fmt.Printf("Failed to set read deadline: %v\n", err)
-					return
-				}
+				// if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+				// 	fmt.Printf("Failed to set read deadline: %v\n", err)
+				// 	return
+				// }
 
 				// Read raw message first to see what we're getting
 				_, message, err := conn.ReadMessage()

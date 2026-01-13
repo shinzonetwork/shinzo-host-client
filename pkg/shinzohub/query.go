@@ -205,7 +205,7 @@ func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage 
 	// Build the query URL
 	// Query: Registered.key EXISTS
 	query := url.QueryEscape(`Registered.key EXISTS`)
-	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"desc\"",
+	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"asc\"",
 		c.rpcURL, query, page, perPage)
 
 	var body []byte
@@ -268,12 +268,6 @@ func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage 
 				if err != nil {
 					skippedMalformed++
 					logger.Sugar.Debugf("📡 Skipping malformed event: %v", err)
-					continue
-				}
-				// Skip views without lenses - they can't be processed
-				if !v.HasLenses() {
-					skippedNoLenses++
-					logger.Sugar.Debugf("📡 Skipping view %s (no lenses)", v.Name)
 					continue
 				}
 				logger.Sugar.Debugf("📡 Found view with lenses: %s", v.Name)
