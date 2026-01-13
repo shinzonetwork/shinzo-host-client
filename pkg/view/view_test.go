@@ -236,13 +236,11 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	_, err = defraNode.DB.AddSchema(ctx, sdl)
 	require.NoError(t, err)
 
-	appView := views.View{
+	view := View{
 		Name:  viewName,
 		Sdl:   &sdl,
 		Query: &query,
 	}
-
-	view := View(appView)
 
 	// Now subscription should work since collection exists
 	err = view.SubscribeTo(ctx, defraNode)
