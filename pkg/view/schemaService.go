@@ -57,6 +57,16 @@ func (ss *SchemaService) ensureMaterializedDirective(sdl string, materialized bo
 	return sdl
 }
 
+// ParseMaterializedFromSDL extracts the materialized value from an SDL's @materialized directive.
+func (ss *SchemaService) ParseMaterializedFromSDL(sdl string) bool {
+	re := regexp.MustCompile(`@materialized\s*\(\s*if\s*:\s*(true|false)\s*\)`)
+	match := re.FindStringSubmatch(sdl)
+	if len(match) > 1 {
+		return match[1] == "true"
+	}
+	return false
+}
+
 func (ss *SchemaService) addFieldIfMissing(sdl, fieldName, fieldType string) string {
 	if strings.Contains(sdl, fieldName) {
 		return sdl

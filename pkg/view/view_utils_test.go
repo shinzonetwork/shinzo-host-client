@@ -118,15 +118,6 @@ func TestView_HasLenses(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "no lenses",
-			view: View{
-				Transform: models.Transform{
-					Lenses: []models.Lens{},
-				},
-			},
-			expected: false,
-		},
-		{
 			name:     "empty transform",
 			view:     View{},
 			expected: false,

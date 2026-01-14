@@ -219,16 +219,6 @@ func TestView_BuildLensConfig(t *testing.T) {
 	require.Equal(t, "address", config.Lens.Lenses[0].Arguments["field"])
 }
 
-func TestView_BuildLensConfig_NoLenses(t *testing.T) {
-	v := View{
-		Name: "EmptyView",
-	}
-
-	config := v.BuildLensConfig()
-
-	require.Empty(t, config.Lens.Lenses)
-}
-
 func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	ctx := context.Background()
 

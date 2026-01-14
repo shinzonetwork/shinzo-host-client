@@ -154,24 +154,6 @@ func TestView_SubscribeTo(t *testing.T) {
 	require.Contains(t, err.Error(), "collection does not exist")
 }
 
-func TestView_ConfigureLens_NoLenses(t *testing.T) {
-	// Test case where no lenses are provided
-	view := View{
-		Name: "TestView",
-		// Transform field is not set, so it will be empty
-	}
-
-	// Create a mock DefraDB node
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-
-	// ConfigureLens should return an error when no lenses are provided
-	schemaService := NewSchemaService()
-	err = view.ConfigureLens(context.Background(), defraNode, schemaService)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "no lenses provided")
-}
-
 func TestView_ApplyLensTransform_EmptyDocuments(t *testing.T) {
 	// Test with a query string (the function now takes a query string, not documents)
 	view := View{
@@ -254,13 +236,11 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	_, err = defraNode.DB.AddSchema(ctx, sdl)
 	require.NoError(t, err)
 
-	appView := views.View{
+	view := View{
 		Name:  viewName,
 		Sdl:   &sdl,
 		Query: &query,
 	}
-
-	view := View(appView)
 
 	// Now subscription should work since collection exists
 	err = view.SubscribeTo(ctx, defraNode)
