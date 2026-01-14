@@ -35,11 +35,11 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	if signature.Identity == "" || cid == "" {
 		return fmt.Errorf("empty identity or CID")
 	}
-	if v.defraNode == nil || v.defraNode.DB == nil {
-		return fmt.Errorf("defradb node or DB is not available for signature verification")
-	}
 	if strings.ToUpper(signature.Type) != "ES256K" {
 		return fmt.Errorf("invalid signature type %s", signature.Type)
+	}
+	if v.defraNode == nil || v.defraNode.DB == nil {
+		return fmt.Errorf("defradb node or DB is not available for signature verification")
 	}
 
 	// Parse the public key from the hex identity string

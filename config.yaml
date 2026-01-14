@@ -34,10 +34,10 @@ shinzo:
   max_gap_size: 1000          # Skip P2P if gap is larger than this
   
   # Message Cache & Worker Pool Settings - AGGRESSIVE MEMORY PROTECTION
-  cache_size: 50000              # CRITICAL: Small cache to prevent memory explosion
-  cache_queue_size: 50000         # CRITICAL: Small queue to prevent memory explosion  
-  cache_max_age_seconds: 10       # CRITICAL: Aggressive cleanup every 10 seconds
-  worker_count: 400               # CRITICAL: Fewer workers to prevent goroutine explosion
+  cache_size: 100000             # CRITICAL: Small cache to prevent memory explosion
+  cache_queue_size: 50000        # CRITICAL: Small queue to prevent memory explosion  
+  cache_max_age_seconds: 10      # CRITICAL: Aggressive cleanup every 10 seconds
+  worker_count: 500              # CRITICAL: Fewer workers to prevent goroutine explosion
 
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access

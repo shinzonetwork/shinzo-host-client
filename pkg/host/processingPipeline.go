@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	attestationWriterCount = 400
+	attestationWriterCount = 500
 	maxRetries             = 10
 	baseDelay              = 10 * time.Millisecond
 	maxDelay               = 2 * time.Second
@@ -248,7 +248,8 @@ func isTransactionConflict(err error) bool {
 	return strings.Contains(errStr, "transaction conflict") || strings.Contains(errStr, "Please retry")
 }
 
-// processDocumentDirect enqueues a document for processing (blocks when queue is full).
+// processDocumentDirect enqueues a document for processing (non-blocking, drops when queue is full).
+// This is critical for preventing backpressure from cascading to DefraDB's event system.
 func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
 	dedupeKey := docType + ":" + docID
 
@@ -275,12 +276,20 @@ func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, block
 		docData:     docData,
 	}
 
+	// Non-blocking enqueue - drop if queue is full to prevent backpressure cascade
+	// Documents will be re-synced from indexer if dropped
 	select {
 	case pp.jobQueue <- job:
 		pp.mu.Lock()
 		pp.queuedCount++
 		pp.mu.Unlock()
-	case <-pp.ctx.Done():
-		return
+	default:
+		// Queue is full - drop the document to prevent blocking
+		pp.mu.Lock()
+		pp.droppedCount++
+		pp.mu.Unlock()
+		if pp.host.metrics != nil {
+			pp.host.metrics.IncrementDocumentsDropped()
+		}
 	}
 }
