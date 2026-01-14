@@ -11,7 +11,7 @@ import (
 func GetLatestCommitsQuery(docId string) string {
 	return fmt.Sprintf(`query {
 	_commits(docID: "%s") {
-		schemaVersionId
+		collectionVersionId
 		heads {
 			cid
 			docID
@@ -51,7 +51,7 @@ type LatestCommits struct {
 }
 
 type Commit struct {
-	SchemaVersionId string       `json:"schemaVersionId"`
+	SchemaVersionId string       `json:"collectionVersionId"`
 	Heads           []CommitHead `json:"heads"`
 	Links           []CommitLink `json:"links"`
 }
@@ -67,7 +67,7 @@ func GetLatestCommit(ctx context.Context, defraNode *node.Node, docId string) (*
 	}
 
 	// Since there's no height field in the actual schema, just return the first commit
-	// In a real implementation, you might sort by schemaVersionId or another field
+	// In a real implementation, you might sort by collectionVersionId or another field
 	latest := resp.Commits[0]
 	return &latest, nil
 }

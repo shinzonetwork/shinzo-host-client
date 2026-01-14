@@ -220,7 +220,7 @@ func TestPostAttestationRecord(t *testing.T) {
 						identity
 						value
 					}
-					schemaVersionId
+					collectionVersionId
 				}
 			}
 		}

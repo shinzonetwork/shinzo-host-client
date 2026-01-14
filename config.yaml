@@ -5,10 +5,11 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Standard - http://34.9.209.81:8080/health
-      - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWNNqddML6jGgCpAyxJ2iaiHvQxyG5p5xUvcGQdCfX2NZd'
-      # Branchable - http://104.198.221.117:8080/health
-      # - '/ip4/104.198.221.117/tcp/9171/p2p/12D3KooWSdUvUX3TVtMBrSee17sJSqnmJrXPQrYRqQN38wvEJpdb'
+      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWKF7UUxWT5mBdNmH2xosnYgHp4SXZ1fzMFAuUCTjo8dFv'
+      # Standard - http://34.136.130.139:8080/health
+      - '/ip4/34.136.130.139/tcp/9171/p2p/12D3KooWFev5Zo5hQHJ9B2UDLPkTU2oGDK11iKML3tkiAEJw5oRj'
+      # Branchable - http://34.9.209.81:8080/health
+      # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -36,7 +37,7 @@ shinzo:
   cache_size: 50000              # CRITICAL: Small cache to prevent memory explosion
   cache_queue_size: 50000         # CRITICAL: Small queue to prevent memory explosion  
   cache_max_age_seconds: 10       # CRITICAL: Aggressive cleanup every 10 seconds
-  worker_count: 500               # CRITICAL: Fewer workers to prevent goroutine explosion
+  worker_count: 400               # CRITICAL: Fewer workers to prevent goroutine explosion
 
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access

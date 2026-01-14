@@ -79,15 +79,15 @@ func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
 	var subscription string
 	switch docType {
 	case constants.CollectionBlock:
-		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } collectionVersionId } } }`
 	case constants.CollectionTransaction:
-		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
 	case constants.CollectionLog:
-		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
 	case constants.CollectionAccessListEntry:
-		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } collectionVersionId } } }`
 	default:
-		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } schemaVersionId } } }`, docType)
+		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } collectionVersionId } } }`, docType)
 	}
 
 	// Create DefraDB subscription

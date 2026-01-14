@@ -17,9 +17,9 @@ import (
 
 // Version represents a version with signature information
 type Version struct {
-	CID             string    `json:"cid"`
-	Signature       Signature `json:"signature"`
-	SchemaVersionId string    `json:"schemaVersionId"`
+	CID                 string    `json:"cid"`
+	Signature           Signature `json:"signature"`
+	CollectionVersionId string    `json:"collectionVersionId"`
 }
 
 // Signature represents a cryptographic signature
@@ -268,9 +268,9 @@ func ExtractVersionsFromDocument(docData map[string]interface{}) ([]Version, err
 						version.Signature = signature
 					}
 
-					// Extract SchemaVersionId
-					if schemaVersionId, ok := versionMap["schemaVersionId"].(string); ok {
-						version.SchemaVersionId = schemaVersionId
+					// Extract CollectionVersionId
+					if collectionVersionId, ok := versionMap["collectionVersionId"].(string); ok {
+						version.CollectionVersionId = collectionVersionId
 					}
 
 					versions = append(versions, version)
