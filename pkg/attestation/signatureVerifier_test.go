@@ -61,7 +61,7 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNode := &node.Node{APIURL: "http://localhost:9181"}
-			verifier := NewSignatureVerifier(mockNode)
+			verifier := NewDefraSignatureVerifier(mockNode)
 
 			ctx := context.Background()
 			err := verifier.Verify(ctx, tt.cid, tt.signature)
@@ -93,7 +93,7 @@ func TestCachedSignatureVerifier_CacheHit(t *testing.T) {
 	defer server.Close()
 	// Create mock node
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
@@ -117,7 +117,7 @@ func TestCachedSignatureVerifier_CacheError(t *testing.T) {
 	}))
 	defer server.Close()
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
@@ -188,7 +188,7 @@ func TestCachedSignatureVerifier_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockNode := &node.Node{APIURL: "http://localhost:9181"}
-			verifier := NewSignatureVerifier(mockNode)
+			verifier := NewDefraSignatureVerifier(mockNode)
 			ctx := context.Background()
 			err := verifier.Verify(ctx, tt.cid, tt.signature)
 			if tt.wantErr {
@@ -213,7 +213,7 @@ func TestCachedSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	defer server.Close()
 
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 
 	ctx := context.Background()
 	signature := constants.Signature{
@@ -266,7 +266,7 @@ func TestCachedSignatureVerifier_RealWorldScenario(t *testing.T) {
 	}))
 	defer server.Close()
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 	ctx := context.Background()
 	// Real blockchain signatures from your data
 	blockSignatures := []constants.Signature{
@@ -377,7 +377,7 @@ func TestCachedSignatureVerifier_DifferentCIDs(t *testing.T) {
 	}))
 	defer server.Close()
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
@@ -416,7 +416,7 @@ func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 
 func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 	ctx := context.Background()
-	verifier := NewSignatureVerifier(nil)
+	verifier := NewDefraSignatureVerifier(nil)
 
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
 		Type:     "es256k",
@@ -434,7 +434,7 @@ func BenchmarkCachedSignatureVerifier_Cached(b *testing.B) {
 	}))
 	defer server.Close()
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
@@ -454,7 +454,7 @@ func BenchmarkCachedSignatureVerifier_Uncached(b *testing.B) {
 	}))
 	defer server.Close()
 	mockNode := &node.Node{APIURL: server.URL}
-	verifier := NewSignatureVerifier(mockNode)
+	verifier := NewDefraSignatureVerifier(mockNode)
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",

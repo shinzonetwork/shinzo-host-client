@@ -5,7 +5,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWKF7UUxWT5mBdNmH2xosnYgHp4SXZ1fzMFAuUCTjo8dFv'
+      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWRdBaBdEsXdxQw12GVvN5tRoxCuASJQrkWLCoTj6MJkkk'
       # Standard - http://136.116.120.118:8080/health
       - '/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm'
       # Branchable - http://34.9.209.81:8080/health
