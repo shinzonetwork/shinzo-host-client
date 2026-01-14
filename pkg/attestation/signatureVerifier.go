@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
 
 type SignatureVerifier interface {
-	Verify(ctx context.Context, cid string, signature Signature) error
+	Verify(ctx context.Context, cid string, signature constants.Signature) error
 }
 
 type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
@@ -29,16 +30,16 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	if signature.Identity == "" {
 		return fmt.Errorf("empty identity in signature for CID %s", cid)
 	}
-	if cid == "" {
-		return fmt.Errorf("empty CID provided for signature verification")
+
+	// Validate inputs
+	if signature.Identity == "" || cid == "" {
+		return fmt.Errorf("empty identity or CID")
 	}
 	if v.defraNode == nil || v.defraNode.DB == nil {
 		return fmt.Errorf("defradb node or DB is not available for signature verification")
 	}
-
-	// Validate signature type - only ES256K is expected from DefraDB
 	if strings.ToUpper(signature.Type) != "ES256K" {
-		return fmt.Errorf("invalid signature type %s, expected ES256K", signature.Type)
+		return fmt.Errorf("invalid signature type %s", signature.Type)
 	}
 
 	// Parse the public key from the hex identity string
@@ -56,11 +57,11 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	return nil
 }
 
-type MockSignatureVerifier struct { // Implements SignatureVerifier interface
-	verifyFunc func(ctx context.Context, cid string, signature Signature) error
+type MockSignatureVerifier struct {
+	verifyFunc func(ctx context.Context, cid string, signature constants.Signature) error
 }
 
-func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
+func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
 	if m.verifyFunc != nil {
 		return m.verifyFunc(ctx, cid, signature)
 	}

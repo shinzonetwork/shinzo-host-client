@@ -19,7 +19,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23' 
+        go-version: '1.25' 
 
     - name: Cache Go build
       uses: actions/cache@v4
@@ -30,6 +30,11 @@ jobs:
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
+
+    - name: Download test WASM file
+      run: |
+        curl -o /tmp/filter_transaction.wasm \
+          https://github.com/shinzonetwork/wasm-bucket/raw/refs/heads/main/bucket/filter_transaction/filter_transaction.wasm
 
     - name: Run tests
       env:

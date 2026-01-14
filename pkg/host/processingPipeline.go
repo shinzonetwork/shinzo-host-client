@@ -36,9 +36,6 @@ type ProcessingPipeline struct {
 	workerCount int
 	wg          sync.WaitGroup
 
-	// Attestation writers pool
-	attestationQueue chan attestationJob
-
 	seenDocs sync.Map
 	dedupeMu sync.Mutex
 
@@ -48,14 +45,6 @@ type ProcessingPipeline struct {
 	droppedCount   int64
 	skippedCount   int64
 	mu             sync.Mutex
-}
-
-// attestationJob represents a prepared attestation ready to be written.
-type attestationJob struct {
-	docID       string
-	docType     string
-	blockNumber uint64
-	docData     map[string]interface{}
 }
 
 // NewProcessingPipeline creates a processing pipeline with bounded workers and queue.
@@ -69,12 +58,11 @@ func NewProcessingPipeline(
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
 	return &ProcessingPipeline{
-		host:             host,
-		ctx:              pipelineCtx,
-		cancel:           cancel,
-		jobQueue:         make(chan DocumentJob, queueSize),
-		workerCount:      workerCount,
-		attestationQueue: make(chan attestationJob, queueSize),
+		host:        host,
+		ctx:         pipelineCtx,
+		cancel:      cancel,
+		jobQueue:    make(chan DocumentJob, queueSize),
+		workerCount: workerCount,
 	}
 }
 
@@ -85,7 +73,7 @@ func (pp *ProcessingPipeline) Start() {
 
 	for i := 0; i < attestationWriterCount; i++ {
 		pp.wg.Add(1)
-		go pp.attestationWriter(i)
+		go pp.jobWriter(i)
 	}
 
 	for i := 0; i < pp.workerCount; i++ {
@@ -129,7 +117,6 @@ func (pp *ProcessingPipeline) Stop() {
 	pp.cancel()
 
 	close(pp.jobQueue)
-	close(pp.attestationQueue)
 
 	pp.wg.Wait()
 
@@ -151,7 +138,7 @@ func (pp *ProcessingPipeline) worker(workerID int) {
 				return
 			}
 			select {
-			case pp.attestationQueue <- attestationJob{
+			case pp.jobQueue <- DocumentJob{
 				docID:       job.docID,
 				docType:     job.docType,
 				blockNumber: job.blockNumber,
@@ -165,23 +152,36 @@ func (pp *ProcessingPipeline) worker(workerID int) {
 }
 
 // attestationWriter processes attestation jobs with retry logic for transaction conflicts.
-func (pp *ProcessingPipeline) attestationWriter(writerID int) {
+func (pp *ProcessingPipeline) jobWriter(writerID int) {
 	defer pp.wg.Done()
 	for {
 		select {
-		case <-pp.ctx.Done():
-			return
-		case job, ok := <-pp.attestationQueue:
+		case job, ok := <-pp.jobQueue:
 			if !ok {
+				logger.Sugar.Debugf("Writer %d stopped (queue closed)", writerID)
 				return
 			}
+
+			// Track processing time
+			startTime := time.Now()
 			pp.processAttestation(writerID, job)
+			processingTime := time.Since(startTime)
+
+			// Update average processing time metrics
+			if pp.host.metrics != nil {
+				avgProcessingTimeMs := float64(processingTime.Nanoseconds()) / 1000000.0 // Convert to milliseconds
+				pp.host.metrics.UpdateAverageProcessingTime(avgProcessingTimeMs)
+			}
+
+		case <-pp.ctx.Done():
+			logger.Sugar.Debugf("Writer %d stopped (context cancelled)", writerID)
+			return
 		}
 	}
 }
 
 // processAttestation processes a single attestation job with retry logic for transaction conflicts.
-func (pp *ProcessingPipeline) processAttestation(writerID int, job attestationJob) {
+func (pp *ProcessingPipeline) processAttestation(writerID int, job DocumentJob) {
 	if pp.host.metrics != nil {
 		pp.host.metrics.IncrementDocumentsReceived()
 	}

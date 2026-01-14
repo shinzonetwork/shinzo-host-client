@@ -3,40 +3,26 @@ version: '3.8'
 networks:
   shinzo-net:
     driver: bridge
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "443:443"  # HTTPS
-      - "80:80"    # HTTP (redirects to HTTPS)
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - shinzo-host
-    networks:
-      - shinzo-net
-    restart: unless-stopped
 
+services:
   shinzo-host:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/shinzonetwork/shinzo-host-client:latest
+    platform: linux/amd64
+    mem_reservation: 30g
     restart: unless-stopped
     container_name: shinzo-host
     networks:
       - shinzo-net
-    expose:
-      - "9181"  # DefraDB API (internal only)
     ports:
-      - "444:9182"   # GraphQL Playground 
+      - "9181:9181"  # DefraDB API (for internal network access)
+      - "444:9182"  # GraphQL Playground 
       - "8080:8080"  # Metrics
       - "6060:6060"  # pprof
-      - "9171:9171"  # P2P networking (still needs external access)
+      - "9171:9171"  # P2P networking (needs external access)
     volumes:
       - ~/data/defradb:/app/.defra/data
       - ~/data/lens:/app/.lens
-      - ~/shinzo-host-client/config.yaml:/app/config.yaml:ro
+      - ${SHINZO_CONFIG_PATH:-./config.yaml}:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
       - LOG_LEVEL=error

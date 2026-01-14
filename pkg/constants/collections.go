@@ -7,6 +7,7 @@ const (
 	CollectionLog               = "Ethereum__Mainnet__Log"
 	CollectionAccessListEntry   = "Ethereum__Mainnet__AccessListEntry"
 	CollectionAttestationRecord = "Ethereum__Mainnet__AttestationRecord"
+	CollectionChain             = "Ethereum__Mainnet"
 )
 
 // Collection name slice for bulk operations

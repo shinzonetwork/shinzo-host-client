@@ -131,6 +131,8 @@ func StartHostingWithEventSubscription(t *testing.T, cfg *config.Config, eventSu
 }
 
 func TestView_SubscribeTo(t *testing.T) {
+	ctx := context.Background()
+
 	// Create a test view
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
@@ -143,27 +145,13 @@ func TestView_SubscribeTo(t *testing.T) {
 	// Create a mock DefraDB node
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
+	defer defraNode.Close(ctx)
 
-	// Test successful subscription
-	err = testView.SubscribeTo(context.Background(), defraNode)
-	require.NoError(t, err)
-}
-
-func TestView_ConfigureLens_NoLenses(t *testing.T) {
-	// Test case where no lenses are provided
-	view := View{
-		Name: "TestView",
-		// Transform field is not set, so it will be empty
-	}
-
-	// Create a mock DefraDB node
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-
-	// ConfigureLens should return an error when no lenses are provided
-	err = view.ConfigureLens(context.Background(), defraNode)
+	// SubscribeTo should fail because the collection doesn't exist yet
+	// (views must be created before they can be subscribed to)
+	err = testView.SubscribeTo(ctx, defraNode)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no lenses provided")
+	require.Contains(t, err.Error(), "collection does not exist")
 }
 
 func TestView_ApplyLensTransform_EmptyDocuments(t *testing.T) {
@@ -244,14 +232,17 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	sdl := "type FilteredTestView { name: String }" // Only name field
 	query := "User { name age }"
 
-	appView := views.View{
+	// First, add the view schema to DefraDB so the collection exists
+	_, err = defraNode.DB.AddSchema(ctx, sdl)
+	require.NoError(t, err)
+
+	view := View{
 		Name:  viewName,
 		Sdl:   &sdl,
 		Query: &query,
 	}
 
-	view := View(appView)
-
+	// Now subscription should work since collection exists
 	err = view.SubscribeTo(ctx, defraNode)
 	require.NoError(t, err)
 

@@ -27,7 +27,7 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
-  # web_socket_url: ""  # Commented out to test without shinzohub connection
+  hub_base_url: shinzohub-rpc.infra.source.network:26657
   
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
@@ -42,9 +42,13 @@ shinzo:
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
   view_cleanup_interval: "1h"     # Check for inactive views every hour
-  view_worker_count: 2            # Workers for lens transformations
-  view_queue_size: 1000           # Queue size for view processing jobs
-  web_socket_url: ws://shinzohub-rpc.infra.source.network:26657/websocket
+  view_worker_count: 20            # Workers for batch lens transformations (increased from 2)
+  view_queue_size: 5000           # Queue size for batch processing jobs (increased from 1000)
+  
+  # Batch Processing Settings
+  batch_processing_enabled: true     # Enable batch processing for efficiency
+  batch_max_views_per_job: 50         # Split large batches to prevent memory issues
+  batch_query_cache_size: 1000        # Cache query templates for reuse
 
 logger:
   development: true

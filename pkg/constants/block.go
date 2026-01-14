@@ -1,5 +1,6 @@
-package attestation
+package constants
 
+// Block represents a block from EVM or similar chain
 type Block struct {
 	Hash             string        `json:"hash"`
 	Number           uint64        `json:"number"`

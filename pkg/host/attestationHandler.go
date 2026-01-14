@@ -6,7 +6,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
-	hostAttestation "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
@@ -21,37 +21,22 @@ type Document struct {
 // processDocumentAttestation handles attestation processing for a single document
 func (h *Host) processDocumentAttestation(ctx context.Context, docID string, docType string, blockNumber uint64, docData map[string]interface{}) error {
 	// Create Document struct
-	document := Document{
+	doc := Document{
 		ID:          docID,
 		Type:        docType,
 		BlockNumber: blockNumber,
 		Data:        docData,
 	}
 
-	// Process document for views (if ViewManager is available)
-	if h.viewManager != nil {
-		h.viewManager.ProcessDocument(ctx, document)
-	}
-
-	// Handle attestation
-	err := h.handleDocumentAttestation(ctx, document, blockNumber)
-	if err != nil {
-		return fmt.Errorf("failed to create attestation for %s document %s: %w", docType, docID, err)
-	}
-
-	return nil
-}
-
-// handleDocumentAttestation manages attestations for a single document
-func (h *Host) handleDocumentAttestation(ctx context.Context, doc Document, blockNumber uint64) error {
 	// Extract version information (signatures) from the document
-	versions, err := hostAttestation.ExtractVersionsFromDocument(doc.Data)
+	versions, err := attestationService.ExtractVersionsFromDocument(doc.Data)
 	if err != nil {
 		return fmt.Errorf("failed to extract versions from document %s: %w", doc.ID, err)
 	}
 
 	// Use the attestation handler
-	return hostAttestation.HandleDocumentAttestation(ctx, h.DefraNode, doc.ID, doc.Type, versions)
+	return attestationService.HandleDocumentAttestation(ctx, h.signatureVerifier, h.DefraNode, doc.ID, doc.Type, versions)
+
 }
 
 // processAttestationEventsWithSubscription starts simple DefraDB subscriptions
