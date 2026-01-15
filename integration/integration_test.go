@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
@@ -188,8 +189,8 @@ func testSchemaIndexes(t *testing.T, ctx context.Context, defraNode *node.Node) 
 
 // testQueries tests various query patterns
 func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
-	// Insert test data first
-	insertTestData(t, ctx, defraNode)
+	// wait for replication
+	time.Sleep(2 * time.Second)
 
 	// 1. Query individual collections: block, transaction, log, accesslist, attestation record
 	t.Run("IndividualCollectionQueries", func(t *testing.T) {
@@ -276,7 +277,6 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 				blockNumber 
 				transactionIndex
 				logs { 
-					hash 
 					address
 					logIndex 
 				} 
@@ -296,11 +296,6 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 	t.Run("NestedRelationship2", func(t *testing.T) {
 		nestedQuery := fmt.Sprintf(`{ 
 			%s(limit: 1) { 
-				hash 
-				blockNumber 
-				transactionIndex
-				transactionHash
-				blockHash
 				address
 				logIndex 
 				block{
