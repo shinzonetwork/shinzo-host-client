@@ -291,19 +291,19 @@ func getAttestationRecordSDL(viewName string) string {
 	// Check if this is a primitive type (Block, Transaction, Log, AccessListEntry)
 	primitiveTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
 	if slices.Contains(primitiveTypes, viewName) { // For our primitive attestation records, we use a condensed schema
-		return `type AttestationRecord { 
+		return fmt.Sprintf(`type %s { 
 				attested_doc: String
 				CIDs: [String]
-			}`
+			}`, constants.CollectionAttestationRecord)
 	}
 
 	// If either AttestationRecord does not have unique name, we will get an error when trying to the schema (collection already exists error)
 	// We want a separate collection of AttestationRecords for each View so that app clients don't receive all AttestationRecords, only those that are relevant to the collections/Views they care about - we can just append the View names as those must also be unique
-	return `type AttestationRecord {
+	return fmt.Sprintf(`type %s {
 		attested_doc: String
 		source_doc: String
 		CIDs: [String]
-	}`
+	}`, constants.CollectionAttestationRecord)
 }
 
 // ========================================
