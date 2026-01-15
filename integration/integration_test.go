@@ -3,9 +3,11 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
@@ -17,22 +19,27 @@ import (
 )
 
 func init() {
+	// Set DefraDB log level to error via environment variable
+	os.Setenv("DEFRA_LOG_LEVEL", "error")
+	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 	logger.Init(true, "")
 }
 
 func TestIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test config with isolated storage
+	// Create test config with P2P enabled to replicate data from indexer
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
+	testConfig.DefraDB.P2P.Enabled = true
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{
+		"/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm",
+	}
 
 	// Start defra with real connection using schema applier
 	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild())
-	defraNode, _, err := defra.StartDefraInstance(defra.DefaultConfig, schemaApplier, constants.AllCollections...)
+	defraNode, _, err := defra.StartDefraInstance(testConfig, schemaApplier, constants.AllCollections...)
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -189,14 +196,18 @@ func testSchemaIndexes(t *testing.T, ctx context.Context, defraNode *node.Node) 
 
 // testQueries tests various query patterns
 func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
-	// wait for replication
-	time.Sleep(2 * time.Second)
+	// wait for P2P replication from indexer
+	t.Log("Waiting 10 seconds for P2P replication...")
+	time.Sleep(10 * time.Second)
 
 	// 1. Query individual collections: block, transaction, log, accesslist, attestation record
 	t.Run("IndividualCollectionQueries", func(t *testing.T) {
 		// Query Block
 		blockQuery := fmt.Sprintf(`{ %s(limit: 1) { hash number timestamp } }`, constants.CollectionBlock)
 		blocks, err := defra.QueryArray[map[string]any](ctx, defraNode, blockQuery)
+		if err != nil {
+			t.Logf("ERROR querying blocks: %v", err)
+		}
 		require.NoError(t, err, "Should query blocks")
 		require.NotEmpty(t, blocks, "Should have blocks")
 		t.Logf("Found %d blocks", len(blocks))
@@ -204,6 +215,9 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		// Query Transaction
 		txQuery := fmt.Sprintf(`{ %s(limit: 10) { hash blockNumber from to } }`, constants.CollectionTransaction)
 		txs, err := defra.QueryArray[map[string]any](ctx, defraNode, txQuery)
+		if err != nil {
+			t.Logf("ERROR querying transactions: %v", err)
+		}
 		require.NoError(t, err, "Should query transactions")
 		require.NotEmpty(t, txs, "Should have transactions")
 		t.Logf("Found %d transactions", len(txs))
@@ -211,6 +225,9 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		// Query Log
 		logQuery := fmt.Sprintf(`{ %s(limit: 10) { address blockNumber transactionHash logIndex } }`, constants.CollectionLog)
 		logs, err := defra.QueryArray[map[string]any](ctx, defraNode, logQuery)
+		if err != nil {
+			t.Logf("ERROR querying logs: %v", err)
+		}
 		require.NoError(t, err, "Should query logs")
 		require.NotEmpty(t, logs, "Should have logs")
 		t.Logf("Found %d logs", len(logs))
@@ -218,12 +235,18 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		// Query AccessListEntry
 		accessQuery := fmt.Sprintf(`{ %s(limit: 3) { address storageKeys } }`, constants.CollectionAccessListEntry)
 		accessList, err := defra.QueryArray[map[string]any](ctx, defraNode, accessQuery)
+		if err != nil {
+			t.Logf("ERROR querying access list entries: %v", err)
+		}
 		require.NoError(t, err, "Should query access list entries")
 		t.Logf("Found %d access list entries", len(accessList))
 
 		// Query AttestationRecord
 		attestQuery := fmt.Sprintf(`{ %s(limit: 10) { attested_doc source_doc doc_type vote_count CIDs } }`, constants.CollectionAttestationRecord)
 		attestations, err := defra.QueryArray[map[string]any](ctx, defraNode, attestQuery)
+		if err != nil {
+			t.Logf("ERROR querying attestation records: %v", err)
+		}
 		require.NoError(t, err, "Should query attestation records")
 		t.Logf("Found %d attestation records", len(attestations))
 	})
@@ -251,6 +274,9 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		}`, constants.CollectionBlock)
 
 		results, err := defra.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
+		if err != nil {
+			t.Logf("ERROR executing nested query: %v", err)
+		}
 		require.NoError(t, err, "Should execute nested query")
 		require.NotEmpty(t, results, "Should have results")
 
@@ -269,7 +295,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		}
 	})
 
-	// 3. Filter query by transactionHash and blockNumber
+	// 3. Nested query on Transaction
 	t.Run("NestedRelationship2", func(t *testing.T) {
 		nestedQuery := fmt.Sprintf(`{ 
 			%s(limit: 1) { 
@@ -288,12 +314,15 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		}`, constants.CollectionTransaction)
 
 		results, err := defra.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
+		if err != nil {
+			t.Logf("ERROR executing nested transaction query: %v", err)
+		}
 		require.NoError(t, err, "Should execute nested query")
-		t.Logf("Filter by blockNumber returned %d results", len(results))
+		t.Logf("Nested transaction query returned %d results", len(results))
 	})
 
-	// 3. Filter query by transactionHash and blockNumber
-	t.Run("NestedRelationship2", func(t *testing.T) {
+	// 4. Nested query on Log
+	t.Run("NestedRelationship3", func(t *testing.T) {
 		nestedQuery := fmt.Sprintf(`{ 
 			%s(limit: 1) { 
 				address
@@ -305,8 +334,11 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		}`, constants.CollectionLog)
 
 		results, err := defra.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
+		if err != nil {
+			t.Logf("ERROR executing nested log query: %v", err)
+		}
 		require.NoError(t, err, "Should execute nested query")
-		t.Logf("Filter by blockNumber returned %d results", len(results))
+		t.Logf("Nested log query returned %d results", len(results))
 	})
 
 	// 4. CID lookup (via _docID)
@@ -314,11 +346,23 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		// First get a document to get its _docID
 		getDocQuery := fmt.Sprintf(`{ %s(limit: 1) { _docID hash number } }`, constants.CollectionBlock)
 		docs, err := defra.QueryArray[map[string]any](ctx, defraNode, getDocQuery)
+		if err != nil {
+			t.Logf("ERROR getting document with _docID: %v", err)
+		}
 		require.NoError(t, err, "Should get document with _docID")
+		if len(docs) == 0 {
+			t.Logf("ERROR: no documents found")
+		}
 		require.NotEmpty(t, docs, "Should have at least one document")
 
 		docID, ok := docs[0]["_docID"].(string)
+		if !ok {
+			t.Logf("ERROR: _docID is not a string, got: %T = %v", docs[0]["_docID"], docs[0]["_docID"])
+		}
 		require.True(t, ok, "_docID should be a string")
+		if docID == "" {
+			t.Logf("ERROR: _docID is empty")
+		}
 		require.NotEmpty(t, docID, "_docID should not be empty")
 		t.Logf("Got document with _docID: %s", docID)
 
@@ -332,7 +376,13 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		}`, constants.CollectionBlock, docID)
 
 		result, err := defra.QuerySingle[map[string]any](ctx, defraNode, cidLookupQuery)
+		if err != nil {
+			t.Logf("ERROR looking up by _docID: %v", err)
+		}
 		require.NoError(t, err, "Should lookup by _docID")
+		if result["_docID"] != docID {
+			t.Logf("ERROR: returned document has different _docID")
+		}
 		require.Equal(t, docID, result["_docID"], "Should return same document")
 		t.Logf("CID lookup successful for docID: %s", docID)
 	})
