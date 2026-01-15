@@ -234,9 +234,6 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	testVersions := testDocResult.Version
 
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
-
 	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
 	sourceDocId := testDocResult.DocId
 
@@ -509,10 +506,6 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	require.Contains(t, merged.CIDs, doc1Result.Version[0].CID)
 	require.Contains(t, merged.CIDs, doc2Result.Version[0].CID)
 
-	// Post the merged record to DefraDB
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
-
 	err = PostAttestationRecord(t.Context(), defraNode, merged)
 	require.NoError(t, err)
 
@@ -631,9 +624,6 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 
 	defraNode := client.GetNode()
 
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
-
 	record := &AttestationRecord{
 		AttestedDocId: "doc-123",
 		SourceDocId:   "doc-123",
@@ -696,9 +686,6 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
-
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
 
 	record := &AttestationRecord{
 		AttestedDocId: "doc-123",

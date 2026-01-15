@@ -81,23 +81,6 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *At
 	return nil
 }
 
-// AddAttestationRecordCollection creates and subscribes to attestation record collection
-func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, associatedViewName string) error {
-	collectionSDL := getAttestationRecordSDL(associatedViewName)
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(collectionSDL)
-	err := schemaApplier.ApplySchema(ctx, defraNode)
-	if err != nil {
-		return fmt.Errorf("Error adding attestation record schema %s: %w", collectionSDL, err)
-	}
-
-	attestationRecords := "AttestationRecord"
-	err = defraNode.DB.AddP2PCollections(ctx, attestationRecords)
-	if err != nil {
-		return fmt.Errorf("Error subscribing to collection %s: %v", attestationRecords, err)
-	}
-	return nil
-}
-
 // GetAttestationRecords queries attestation records by document type
 func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType string, viewDocIds []string) ([]AttestationRecord, error) {
 	if len(viewDocIds) > 0 {
