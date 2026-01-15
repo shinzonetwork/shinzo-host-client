@@ -20,7 +20,7 @@ import (
 
 func init() {
 	// Set DefraDB log level to error via environment variable
-	os.Setenv("DEFRA_LOG_LEVEL", "error")
+	os.Setenv("LOG_LEVEL", "error")
 	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 	logger.Init(true, "")
 }
@@ -32,9 +32,10 @@ func TestIntegration(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0" // Use random available port
 	testConfig.DefraDB.P2P.Enabled = true
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{
-		"/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm",
+		"/ip4/35.192.219.55/tcp/9171/p2p/12D3KooWCfgCafjxcVzpJsP7DhmdKCb8dnmmfngUjywsxamzQtgB",
 	}
 
 	// Start defra with real connection using schema applier
