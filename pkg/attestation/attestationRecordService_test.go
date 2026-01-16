@@ -187,6 +187,8 @@ func TestPostAttestationRecord(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -418,6 +420,8 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -609,6 +613,8 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -672,6 +678,8 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
