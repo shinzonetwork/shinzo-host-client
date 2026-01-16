@@ -315,7 +315,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	}
 
 	if defraNode != nil {
-		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode)
+		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
 		logger.Sugar.Info("🔐 Optimized signature verifier initialized")
 	}
 
