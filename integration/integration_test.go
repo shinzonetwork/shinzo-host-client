@@ -32,17 +32,22 @@ func TestIntegration(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0" // Use random available port
 	testConfig.DefraDB.P2P.Enabled = true
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{
-		"/ip4/35.192.219.55/tcp/9171/p2p/12D3KooWCfgCafjxcVzpJsP7DhmdKCb8dnmmfngUjywsxamzQtgB",
+		"/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm",
 	}
 
 	// Start defra with real connection using schema applier
 	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild())
-	defraNode, _, err := defra.StartDefraInstance(testConfig, schemaApplier, constants.AllCollections...)
+	defraNode, networkHandler, err := defra.StartDefraInstance(testConfig, schemaApplier, constants.AllCollections...)
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
+
+	if networkHandler != nil {
+		err = networkHandler.StartNetwork()
+		require.NoError(t, err, "Should start P2P network")
+		t.Log("P2P network started")
+	}
 
 	// Run all integration tests
 	t.Run("ViewRegistration", func(t *testing.T) {
@@ -128,7 +133,7 @@ func testAttestationRecordRegistration(t *testing.T, ctx context.Context, defraN
 	sourceDocID := "source-doc-001"
 	docType := constants.CollectionBlock
 
-	record, err := attestation.CreateAttestationRecord(ctx, verifier, docID, sourceDocID, docType, versions)
+	record, err := attestation.CreateAttestationRecord(ctx, verifier, docID, sourceDocID, docType, versions, 50)
 	require.NoError(t, err, "Should create attestation record")
 	require.NotNil(t, record)
 	require.Equal(t, docID, record.AttestedDocId)
@@ -146,7 +151,7 @@ func testAttestationRecordRegistration(t *testing.T, ctx context.Context, defraN
 	require.Equal(t, docID, existing[0].AttestedDocId)
 
 	// Test P-counter increment by posting again
-	record2, err := attestation.CreateAttestationRecord(ctx, verifier, docID, sourceDocID, docType, versions)
+	record2, err := attestation.CreateAttestationRecord(ctx, verifier, docID, sourceDocID, docType, versions, 50)
 	require.NoError(t, err)
 	err = attestation.PostAttestationRecord(ctx, defraNode, record2)
 	require.NoError(t, err, "Should upsert attestation record")
@@ -287,8 +292,8 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		require.Contains(t, block, "number")
 		require.Contains(t, block, "transactions")
 
-		if txs, ok := block["transactions"].([]interface{}); ok && len(txs) > 0 {
-			tx := txs[0].(map[string]interface{})
+		if txs, ok := block["transactions"].([]any); ok && len(txs) > 0 {
+			tx := txs[0].(map[string]any)
 			require.Contains(t, tx, "hash")
 			require.Contains(t, tx, "logs")
 			require.Contains(t, tx, "accessList")
@@ -387,122 +392,6 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		require.Equal(t, docID, result["_docID"], "Should return same document")
 		t.Logf("CID lookup successful for docID: %s", docID)
 	})
-}
-
-// insertTestData inserts test data for query tests
-func insertTestData(t *testing.T, ctx context.Context, defraNode *node.Node) {
-	// Insert a test block
-	blockMutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
-			hash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-			number: 12345678
-			timestamp: "1234567890"
-			parentHash: "0x0000000000000000000000000000000000000000000000000000000000000000"
-			difficulty: "1000000"
-			totalDifficulty: "10000000000"
-			gasUsed: "21000"
-			gasLimit: "30000000"
-			baseFeePerGas: "1000000000"
-			nonce: "0x0000000000000000"
-			miner: "0x0000000000000000000000000000000000000001"
-			size: "1000"
-			stateRoot: "0x1111111111111111111111111111111111111111111111111111111111111111"
-			sha3Uncles: "0x2222222222222222222222222222222222222222222222222222222222222222"
-			transactionsRoot: "0x3333333333333333333333333333333333333333333333333333333333333333"
-			receiptsRoot: "0x4444444444444444444444444444444444444444444444444444444444444444"
-			logsBloom: "0x00000000000000000000000000000000"
-			extraData: "0x"
-			mixHash: "0x5555555555555555555555555555555555555555555555555555555555555555"
-		}) {
-			_docID
-			hash
-			number
-		}
-	}`, constants.CollectionBlock)
-
-	blockResult, err := defra.PostMutation[map[string]any](ctx, defraNode, blockMutation)
-	require.NoError(t, err, "Should create block")
-	require.NotNil(t, blockResult)
-	blockDocID := (*blockResult)["_docID"].(string)
-	t.Logf("Created block with _docID: %s", blockDocID)
-
-	// Insert a test transaction linked to the block
-	txMutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
-			hash: "0xabc123def456"
-			blockHash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-			blockNumber: 12345678
-			from: "0xsender123"
-			to: "0xreceiver456"
-			value: "1000000000000000000"
-			gas: "21000"
-			gasPrice: "20000000000"
-			input: "0x"
-			nonce: "1"
-			transactionIndex: 0
-			type: "0x2"
-			chainId: "1"
-			v: "0x1b"
-			r: "0xaaa"
-			s: "0xbbb"
-			status: true
-			cumulativeGasUsed: "21000"
-			effectiveGasPrice: "20000000000"
-			block_id: "%s"
-		}) {
-			_docID
-			hash
-			blockNumber
-		}
-	}`, constants.CollectionTransaction, blockDocID)
-
-	txResult, err := defra.PostMutation[map[string]any](ctx, defraNode, txMutation)
-	require.NoError(t, err, "Should create transaction")
-	require.NotNil(t, txResult)
-	txDocID := (*txResult)["_docID"].(string)
-	t.Logf("Created transaction with _docID: %s", txDocID)
-
-	// Insert a test log linked to the transaction
-	logMutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
-			address: "0xcontract789"
-			topics: ["0xtopic1", "0xtopic2"]
-			data: "0xlogdata"
-			transactionHash: "0xabc123def456"
-			blockHash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-			blockNumber: 12345678
-			transactionIndex: 0
-			logIndex: 0
-			removed: "false"
-			transaction_id: "%s"
-		}) {
-			_docID
-			address
-			logIndex
-		}
-	}`, constants.CollectionLog, txDocID)
-
-	logResult, err := defra.PostMutation[map[string]any](ctx, defraNode, logMutation)
-	require.NoError(t, err, "Should create log")
-	require.NotNil(t, logResult)
-	t.Logf("Created log with _docID: %s", (*logResult)["_docID"])
-
-	// Insert a test access list entry linked to the transaction
-	accessMutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
-			address: "0xaccessaddress"
-			storageKeys: ["0xkey1", "0xkey2"]
-			transaction_id: "%s"
-		}) {
-			_docID
-			address
-		}
-	}`, constants.CollectionAccessListEntry, txDocID)
-
-	accessResult, err := defra.PostMutation[map[string]any](ctx, defraNode, accessMutation)
-	require.NoError(t, err, "Should create access list entry")
-	require.NotNil(t, accessResult)
-	t.Logf("Created access list entry with _docID: %s", (*accessResult)["_docID"])
 }
 
 // mockSignatureVerifier is a mock implementation for testing
