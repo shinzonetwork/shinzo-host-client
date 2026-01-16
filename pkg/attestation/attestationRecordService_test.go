@@ -48,7 +48,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -100,7 +100,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -141,7 +141,7 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -157,7 +157,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 	sourceDocId := "source-doc-456"
 	versions := []Version{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
