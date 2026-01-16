@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
@@ -36,7 +35,8 @@ func TestIntegration(t *testing.T) {
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
 	testConfig.DefraDB.P2P.Enabled = true
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{
-		"/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm",
+		"/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWPtmWBwFZTi58bNdw6Vz5z4JCwbnu5rH1QLpa2MZKVmjE",
+		"/ip4/35.192.219.55/tcp/9171/p2p/12D3KooWCfgCafjxcVzpJsP7DhmdKCb8dnmmfngUjywsxamzQtgB",
 	}
 
 	// Start defra with real connection using schema applier
@@ -202,11 +202,41 @@ func testSchemaIndexes(t *testing.T, ctx context.Context, defraNode *node.Node) 
 	require.NotEmpty(t, attestIndexes, "AttestationRecord collection should have indexes")
 }
 
+// waitForBlockViaSubscription waits for a block to arrive via DefraDB subscription
+func waitForBlockViaSubscription(t *testing.T, ctx context.Context, defraNode *node.Node) error {
+	t.Log("Waiting for block via subscription...")
+
+	// Create subscription query for blocks
+	subscription := fmt.Sprintf(`subscription { %s { hash number } }`, constants.CollectionBlock)
+
+	blockChan, err := defra.Subscribe[map[string]any](ctx, defraNode, subscription)
+	if err != nil {
+		return fmt.Errorf("failed to create block subscription: %w", err)
+	}
+
+	// Wait for first block or timeout
+	select {
+	case block, ok := <-blockChan:
+		if !ok {
+			return fmt.Errorf("block subscription channel closed unexpectedly")
+		}
+		t.Logf("Received block via subscription: number=%v, hash=%v", block["number"], block["hash"])
+		return nil
+	// case <-subCtx.Done():
+	// 	return fmt.Errorf("timeout waiting for block: %w", subCtx.Err())
+	// }
+	case <-ctx.Done():
+		return fmt.Errorf("timeout waiting for block: %w", ctx.Err())
+	}
+}
+
 // testQueries tests various query patterns
 func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
-	// wait for P2P replication from indexer
-	t.Log("Waiting 10 seconds for P2P replication...")
-	time.Sleep(10 * time.Second)
+	// Wait for P2P replication from indexer via subscription
+	// Block is the least frequently written document type as there is 1 for every thousand(s) other docs
+	// Hence we need to create a event based trigger to wait for a block before continueing with tests
+	err := waitForBlockViaSubscription(t, ctx, defraNode)
+	require.NoError(t, err, "Should receive block via subscription")
 
 	// 1. Query individual collections: block, transaction, log, accesslist, attestation record
 	t.Run("IndividualCollectionQueries", func(t *testing.T) {
@@ -350,9 +380,9 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 	})
 
 	// 4. CID lookup (via _docID)
-	t.Run("CIDLookup", func(t *testing.T) {
+	t.Run("DocIDLookup", func(t *testing.T) {
 		// First get a document to get its _docID
-		getDocQuery := fmt.Sprintf(`{ %s(limit: 1) { _docID hash number } }`, constants.CollectionBlock)
+		getDocQuery := fmt.Sprintf(`{ %s(limit: 1) { _docID topics address } }`, constants.CollectionLog)
 		docs, err := defra.QueryArray[map[string]any](ctx, defraNode, getDocQuery)
 		if err != nil {
 			t.Logf("ERROR getting document with _docID: %v", err)
@@ -375,15 +405,15 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 		t.Logf("Got document with _docID: %s", docID)
 
 		// Now lookup by _docID
-		cidLookupQuery := fmt.Sprintf(`{ 
+		docIDLookupQuery := fmt.Sprintf(`{ 
 			%s(docID: "%s") { 
 				_docID 
-				hash 
-				number 
+				address 
+				topics 
 			} 
-		}`, constants.CollectionBlock, docID)
+		}`, constants.CollectionLog, docID)
 
-		result, err := defra.QuerySingle[map[string]any](ctx, defraNode, cidLookupQuery)
+		result, err := defra.QuerySingle[map[string]any](ctx, defraNode, docIDLookupQuery)
 		if err != nil {
 			t.Logf("ERROR looking up by _docID: %v", err)
 		}
@@ -392,7 +422,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 			t.Logf("ERROR: returned document has different _docID")
 		}
 		require.Equal(t, docID, result["_docID"], "Should return same document")
-		t.Logf("CID lookup successful for docID: %s", docID)
+		t.Logf("DocID lookup successful for docID: %s", docID)
 	})
 }
 
