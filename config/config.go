@@ -60,15 +60,20 @@ type ShinzoConfig struct {
 	ViewWorkerCount       int    `yaml:"view_worker_count"`       // Workers for lens transformations (default: 2)
 	ViewQueueSize         int    `yaml:"view_queue_size"`         // Queue size for view processing jobs (default: 1000)
 
-	// Message Cache Settings
-	CacheSize          int `yaml:"cache_size"`            // Maximum number of messages in cache
-	CacheQueueSize     int `yaml:"cache_queue_size"`      // Size of processing queue
-	CacheMaxAgeSeconds int `yaml:"cache_max_age_seconds"` // Maximum age of cached messages
-	WorkerCount        int `yaml:"worker_count"`          // Number of worker goroutines
+	// Queue Settings
+	CacheQueueSize int `yaml:"cache_queue_size"` // Size of job queue for document processing
+
+	// Batch Attestation Processing Settings
+	BatchWriterCount           int `yaml:"batch_writer_count"`           // Number of batch writers (default: 16)
+	BatchSize                  int `yaml:"batch_size"`                   // Max attestations per batch (default: 100)
+	BatchFlushInterval         int `yaml:"batch_flush_interval"`         // Flush interval in milliseconds (default: 50)
+	MaxConcurrentVerifications int `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications (default: 50)
 }
 
 type HostConfig struct {
 	LensRegistryPath string `yaml:"lens_registry_path"` // At this path, we will store the lens' wasm files
+	HealthServerPort int    `yaml:"health_server_port"` // Port for the health server (default: 8080)
+	PprofPort        int    `yaml:"pprof_port"`         // Port for pprof debugging server (default: 6060)
 }
 
 // LoadConfig loads configuration from a YAML file

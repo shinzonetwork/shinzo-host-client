@@ -5,9 +5,11 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWRdBaBdEsXdxQw12GVvN5tRoxCuASJQrkWLCoTj6MJkkk'
+      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWPUs4yfqJtg8PyxfFCjDp9jyqVKottSVLcA6PgpLJErX1'
+      # Standard new - http://34.132.179.9:8080/health
+      - '/ip4/34.132.179.9/tcp/9171/p2p/12D3KooWMymVTnizbJbgpb1455pmDyTvdbKkLxPVWqtqhXwQQP7b'
       # Standard - http://136.116.120.118:8080/health
-      - '/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm'
+      # - '/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm'
       # Branchable - http://34.9.209.81:8080/health
       # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
@@ -15,13 +17,6 @@ defradb:
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
-    # Filter P2P topics - only subscribe to document-related topics
-    topic_filter:
-      - "Block"
-      - "Transaction" 
-      - "Log"
-      - "AccessListEntry"
-      - "AttestationRecord"
   store:
     path: "./.defra/data"
 shinzo:
@@ -32,12 +27,9 @@ shinzo:
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
-  
-  # Message Cache & Worker Pool Settings - AGGRESSIVE MEMORY PROTECTION
-  cache_size: 100000             # CRITICAL: Small cache to prevent memory explosion
-  cache_queue_size: 50000        # CRITICAL: Small queue to prevent memory explosion  
-  cache_max_age_seconds: 10      # CRITICAL: Aggressive cleanup every 10 seconds
-  worker_count: 500              # CRITICAL: Fewer workers to prevent goroutine explosion
+
+  # Queue Settings
+  cache_queue_size: 50000        # Job queue size for document processing
 
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
@@ -45,10 +37,15 @@ shinzo:
   view_worker_count: 20            # Workers for batch lens transformations (increased from 2)
   view_queue_size: 5000           # Queue size for batch processing jobs (increased from 1000)
   
-  # Batch Processing Settings
+  # Batch Processing Settings (View Management)
   batch_processing_enabled: true     # Enable batch processing for efficiency
   batch_max_views_per_job: 50         # Split large batches to prevent memory issues
   batch_query_cache_size: 1000        # Cache query templates for reuse
+
+  # Batch Attestation Processing Settings
+  batch_writer_count: 24             # Number of batch writers (default: 16)
+  batch_size: 256                    # Max attestations per batch (default: 100)
+  batch_flush_interval: 50           # Flush interval in milliseconds (default: 50)
 
 logger:
   development: true
@@ -60,3 +57,5 @@ logger:
 
 host:
   lens_registry_path: "./.lens"
+  health_server_port: 8080
+  pprof_port: 6060

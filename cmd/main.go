@@ -36,7 +36,11 @@ func main() {
 	}
 
 	go func() {
-		http.ListenAndServe(":6060", nil)
+		pprofPort := cfg.HostConfig.PprofPort
+		if pprofPort == 0 {
+			pprofPort = 6060
+		}
+		http.ListenAndServe(fmt.Sprintf(":%d", pprofPort), nil)
 	}()
 
 	myHost, err := host.StartHosting(cfg)
