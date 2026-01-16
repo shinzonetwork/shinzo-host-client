@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	defaultBatchWriterCount     = 16
-	defaultBatchSize            = 100
-	defaultBatchFlushIntervalMs = 50
+	defaultBatchWriterCount          = 50
+	defaultBatchSize                 = 500
+	defaultBatchFlushIntervalMs      = 50
+	defaultMaxConcurrentAttestations = 200
 
 	maxRetries            = 10
 	baseDelay             = 10 * time.Millisecond
@@ -46,12 +47,17 @@ type ProcessingPipeline struct {
 	seenDocs sync.Map
 	dedupeMu sync.Mutex
 
+	// Async attestation control
+	attestationSem chan struct{}
+	attestationWg  sync.WaitGroup
+
 	// Metrics for monitoring
-	queuedCount    int64
-	processedCount int64
-	droppedCount   int64
-	skippedCount   int64
-	mu             sync.Mutex
+	queuedCount              int64
+	processedCount           int64
+	droppedCount             int64
+	skippedCount             int64
+	pendingAttestationsCount int64
+	mu                       sync.Mutex
 }
 
 // NewProcessingPipeline creates a processing pipeline with bounded workers and queue.
@@ -81,6 +87,7 @@ func NewProcessingPipeline(
 		batchWriterCount:   batchWriterCount,
 		batchSize:          batchSize,
 		batchFlushInterval: time.Duration(batchFlushIntervalMs) * time.Millisecond,
+		attestationSem:     make(chan struct{}, defaultMaxConcurrentAttestations),
 	}
 }
 
@@ -131,7 +138,17 @@ func (pp *ProcessingPipeline) Stop() {
 
 	close(pp.jobQueue)
 
+	// Wait for batch writers to finish
 	pp.wg.Wait()
+
+	// Wait for any in-flight attestation goroutines to complete
+	pp.mu.Lock()
+	pending := pp.pendingAttestationsCount
+	pp.mu.Unlock()
+	if pending > 0 {
+		logger.Sugar.Infof("⏳ Waiting for %d pending attestation goroutines to complete...", pending)
+	}
+	pp.attestationWg.Wait()
 
 	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, skipped: %d, dropped: %d)",
 		pp.processedCount, pp.skippedCount, pp.droppedCount)
@@ -190,18 +207,27 @@ func (pp *ProcessingPipeline) batchWriter(writerID int) {
 	}
 }
 
-// processBatch processes a batch of attestation jobs in a single operation.
+// processBatch processes a batch of documents andmarks them as received immediately.
+// Then it spawns async goroutine for attestation creation.
 func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 	if len(jobs) == 0 {
 		return
 	}
 
 	if pp.host.metrics != nil {
-		for range jobs {
+		for _, job := range jobs {
 			pp.host.metrics.IncrementDocumentsReceived()
+			pp.host.metrics.IncrementDocumentsProcessed()
+			pp.host.metrics.IncrementDocumentByType(job.docType)
+			pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
 		}
 	}
 
+	pp.mu.Lock()
+	pp.processedCount += int64(len(jobs))
+	pp.mu.Unlock()
+
+	// Prepare documents for attestation
 	docs := make([]Document, len(jobs))
 	for i, job := range jobs {
 		docs[i] = Document{
@@ -210,6 +236,30 @@ func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 			BlockNumber: job.blockNumber,
 			Data:        job.docData,
 		}
+	}
+
+	pp.attestationWg.Add(1)
+	pp.mu.Lock()
+	pp.pendingAttestationsCount++
+	pp.mu.Unlock()
+
+	go pp.processAttestationAsync(docs)
+}
+
+// processAttestationAsync handles attestation creation in the background.
+func (pp *ProcessingPipeline) processAttestationAsync(docs []Document) {
+	defer pp.attestationWg.Done()
+	defer func() {
+		pp.mu.Lock()
+		pp.pendingAttestationsCount--
+		pp.mu.Unlock()
+	}()
+
+	select {
+	case pp.attestationSem <- struct{}{}:
+		defer func() { <-pp.attestationSem }()
+	case <-pp.ctx.Done():
+		return
 	}
 
 	var err error
@@ -240,26 +290,19 @@ func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 
 	if pp.host.metrics != nil {
 		if err != nil {
-			for range jobs {
+			for range docs {
 				pp.host.metrics.IncrementAttestationErrors()
 			}
 		} else {
-			for _, job := range jobs {
+			for range docs {
 				pp.host.metrics.IncrementAttestationsCreated()
-				pp.host.metrics.IncrementDocumentsProcessed()
-				pp.host.metrics.IncrementDocumentByType(job.docType)
-				pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
 			}
 		}
 	}
 
 	if err != nil && logger.Sugar != nil {
-		logger.Sugar.Warnf("Batch attestation failed for %d documents: %v", len(jobs), err)
+		logger.Sugar.Warnf("Async attestation failed for %d documents: %v", len(docs), err)
 	}
-
-	pp.mu.Lock()
-	pp.processedCount += int64(len(jobs))
-	pp.mu.Unlock()
 }
 
 // isTransactionConflict checks if the error is a transaction conflict that should be retried.
@@ -306,4 +349,11 @@ func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, block
 	case <-pp.ctx.Done():
 		return
 	}
+}
+
+// GetPendingAttestationsCount returns the number of in-flight attestation goroutines.
+func (pp *ProcessingPipeline) GetPendingAttestationsCount() int64 {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	return pp.pendingAttestationsCount
 }
