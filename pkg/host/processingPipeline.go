@@ -11,10 +11,15 @@ import (
 )
 
 const (
-	attestationWriterCount = 1000
-	maxRetries             = 10
-	baseDelay              = 10 * time.Millisecond
-	maxDelay               = 2 * time.Second
+	defaultBatchWriterCount     = 16
+	defaultBatchSize            = 100
+	defaultBatchFlushIntervalMs = 50
+
+	maxRetries            = 10
+	baseDelay             = 10 * time.Millisecond
+	maxDelay              = 2 * time.Second
+	dedupeExpiry          = 5 * time.Minute
+	dedupeCleanupInterval = 1 * time.Minute
 )
 
 // DocumentJob represents a document to be processed.
@@ -22,22 +27,30 @@ type DocumentJob struct {
 	docID       string
 	docType     string
 	blockNumber uint64
-	docData     map[string]interface{}
+	docData     map[string]any
 }
 
 // ProcessingPipeline coordinates document processing with bounded workers and queue.
 type ProcessingPipeline struct {
-	host        *Host
-	ctx         context.Context
-	cancel      context.CancelFunc
-	jobQueue    chan DocumentJob
-	workerCount int
-	wg          sync.WaitGroup
+	host   *Host
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
+	jobQueue chan DocumentJob
+
+	batchWriterCount   int
+	batchSize          int
+	batchFlushInterval time.Duration
+
+	seenDocs sync.Map
+	dedupeMu sync.Mutex
 
 	// Metrics for monitoring
 	queuedCount    int64
 	processedCount int64
 	droppedCount   int64
+	skippedCount   int64
 	mu             sync.Mutex
 }
 
@@ -45,37 +58,70 @@ type ProcessingPipeline struct {
 func NewProcessingPipeline(
 	ctx context.Context,
 	host *Host,
-	bufferTimeout time.Duration,
-	cacheMaxAge time.Duration,
-	cacheSize, queueSize, workerCount int,
+	queueSize int,
+	batchWriterCount, batchSize, batchFlushIntervalMs int,
 ) *ProcessingPipeline {
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
+	if batchWriterCount <= 0 {
+		batchWriterCount = defaultBatchWriterCount
+	}
+	if batchSize <= 0 {
+		batchSize = defaultBatchSize
+	}
+	if batchFlushIntervalMs <= 0 {
+		batchFlushIntervalMs = defaultBatchFlushIntervalMs
+	}
+
 	return &ProcessingPipeline{
-		host:        host,
-		ctx:         pipelineCtx,
-		cancel:      cancel,
-		jobQueue:    make(chan DocumentJob, queueSize),
-		workerCount: workerCount,
+		host:               host,
+		ctx:                pipelineCtx,
+		cancel:             cancel,
+		jobQueue:           make(chan DocumentJob, queueSize),
+		batchWriterCount:   batchWriterCount,
+		batchSize:          batchSize,
+		batchFlushInterval: time.Duration(batchFlushIntervalMs) * time.Millisecond,
 	}
 }
 
 // Start starts the processing pipeline with worker pool.
 func (pp *ProcessingPipeline) Start() {
-	logger.Sugar.Infof("🚀 Starting processing pipeline with %d workers, %d attestation writers, queue size %d",
-		pp.workerCount, attestationWriterCount, cap(pp.jobQueue))
+	logger.Sugar.Infof("🚀 Starting processing pipeline with %d batch writers (batch size: %d, flush interval: %v), queue size %d",
+		pp.batchWriterCount, pp.batchSize, pp.batchFlushInterval, cap(pp.jobQueue))
 
-	for i := 0; i < attestationWriterCount; i++ {
+	for i := range pp.batchWriterCount {
 		pp.wg.Add(1)
-		go pp.jobWriter(i)
+		go pp.batchWriter(i)
 	}
 
-	for i := 0; i < pp.workerCount; i++ {
-		pp.wg.Add(1)
-		go pp.worker(i)
-	}
+	go pp.cleanupDedupeCache()
 
 	logger.Sugar.Info("✅ Processing pipeline ready")
+}
+
+// cleanupDedupeCache periodically removes expired entries from the deduplication cache.
+func (pp *ProcessingPipeline) cleanupDedupeCache() {
+	ticker := time.NewTicker(dedupeCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pp.ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			expiredCount := 0
+			pp.seenDocs.Range(func(key, value any) bool {
+				if expiry, ok := value.(time.Time); ok {
+					if now.After(expiry) {
+						pp.seenDocs.Delete(key)
+						expiredCount++
+					}
+				}
+				return true
+			})
+		}
+	}
 }
 
 // Stop stops the processing pipeline.
@@ -87,76 +133,88 @@ func (pp *ProcessingPipeline) Stop() {
 
 	pp.wg.Wait()
 
-	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, dropped: %d)", pp.processedCount, pp.droppedCount)
+	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, skipped: %d, dropped: %d)",
+		pp.processedCount, pp.skippedCount, pp.droppedCount)
 }
 
-// worker processes jobs from the queue and enqueues attestation writes.
-func (pp *ProcessingPipeline) worker(workerID int) {
+// batchWriter collects jobs into batches and processes them together to reduce DB transaction overhead.
+func (pp *ProcessingPipeline) batchWriter(writerID int) {
 	defer pp.wg.Done()
-	for {
-		select {
-		case <-pp.ctx.Done():
-			logger.Sugar.Debugf("Worker %d stopped (context cancelled)", workerID)
+
+	batch := make([]DocumentJob, 0, pp.batchSize)
+	flushTimer := time.NewTimer(pp.batchFlushInterval)
+	defer flushTimer.Stop()
+
+	flushBatch := func() {
+		if len(batch) == 0 {
 			return
-		case job, ok := <-pp.jobQueue:
-			if !ok {
-				logger.Sugar.Debugf("Worker %d stopped (queue closed)", workerID)
-				return
-			}
-			select {
-			case pp.jobQueue <- DocumentJob{
-				docID:       job.docID,
-				docType:     job.docType,
-				blockNumber: job.blockNumber,
-				docData:     job.docData,
-			}:
-			case <-pp.ctx.Done():
-				return
-			}
 		}
-	}
-}
 
-// attestationWriter processes attestation jobs with retry logic for transaction conflicts.
-func (pp *ProcessingPipeline) jobWriter(writerID int) {
-	defer pp.wg.Done()
+		startTime := time.Now()
+		pp.processBatch(writerID, batch)
+		processingTime := time.Since(startTime)
+
+		if pp.host.metrics != nil {
+			avgProcessingTimeMs := float64(processingTime.Nanoseconds()) / float64(len(batch)) / 1000000.0
+			pp.host.metrics.UpdateAverageProcessingTime(avgProcessingTimeMs)
+		}
+
+		batch = batch[:0]
+	}
+
 	for {
 		select {
 		case job, ok := <-pp.jobQueue:
 			if !ok {
-				logger.Sugar.Debugf("Writer %d stopped (queue closed)", writerID)
+				flushBatch()
+				logger.Sugar.Debugf("BatchWriter %d stopped (queue closed)", writerID)
 				return
 			}
 
-			// Track processing time
-			startTime := time.Now()
-			pp.processAttestation(writerID, job)
-			processingTime := time.Since(startTime)
+			batch = append(batch, job)
 
-			// Update average processing time metrics
-			if pp.host.metrics != nil {
-				avgProcessingTimeMs := float64(processingTime.Nanoseconds()) / 1000000.0 // Convert to milliseconds
-				pp.host.metrics.UpdateAverageProcessingTime(avgProcessingTimeMs)
+			if len(batch) >= pp.batchSize {
+				flushBatch()
+				flushTimer.Reset(pp.batchFlushInterval)
 			}
 
+		case <-flushTimer.C:
+			flushBatch()
+			flushTimer.Reset(pp.batchFlushInterval)
+
 		case <-pp.ctx.Done():
-			logger.Sugar.Debugf("Writer %d stopped (context cancelled)", writerID)
+			flushBatch()
+			logger.Sugar.Debugf("BatchWriter %d stopped (context cancelled)", writerID)
 			return
 		}
 	}
 }
 
-// processAttestation processes a single attestation job with retry logic for transaction conflicts.
-func (pp *ProcessingPipeline) processAttestation(writerID int, job DocumentJob) {
+// processBatch processes a batch of attestation jobs in a single operation.
+func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
+	if len(jobs) == 0 {
+		return
+	}
+
 	if pp.host.metrics != nil {
-		pp.host.metrics.IncrementDocumentsReceived()
-		pp.host.metrics.IncrementDocumentByType(job.docType)
-		pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
+		for range jobs {
+			pp.host.metrics.IncrementDocumentsReceived()
+		}
+	}
+
+	docs := make([]Document, len(jobs))
+	for i, job := range jobs {
+		docs[i] = Document{
+			ID:          job.docID,
+			Type:        job.docType,
+			BlockNumber: job.blockNumber,
+			Data:        job.docData,
+		}
 	}
 
 	var err error
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		err = pp.host.processDocumentAttestation(pp.ctx, job.docID, job.docType, job.blockNumber, job.docData)
+		err = pp.host.processDocumentAttestationBatch(pp.ctx, docs)
 		if err == nil {
 			break
 		}
@@ -175,8 +233,6 @@ func (pp *ProcessingPipeline) processAttestation(writerID int, job DocumentJob) 
 		}
 		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()))
 		if attempt < maxRetries-1 {
-			// logger.Sugar.Debugf("Writer %d: transaction conflict for %s %s, retrying in %v (attempt %d/%d)",
-			// 	writerID, job.docType, job.docID, jitter, attempt+1, maxRetries)
 			select {
 			case <-time.After(jitter):
 			case <-pp.ctx.Done():
@@ -187,21 +243,25 @@ func (pp *ProcessingPipeline) processAttestation(writerID int, job DocumentJob) 
 
 	if pp.host.metrics != nil {
 		if err != nil {
-			pp.host.metrics.IncrementAttestationErrors()
+			for range jobs {
+				pp.host.metrics.IncrementAttestationErrors()
+			}
 		} else {
-			pp.host.metrics.IncrementAttestationsCreated()
-			pp.host.metrics.IncrementDocumentsProcessed()
+			for _, job := range jobs {
+				pp.host.metrics.IncrementAttestationsCreated()
+				pp.host.metrics.IncrementDocumentsProcessed()
+				pp.host.metrics.IncrementDocumentByType(job.docType)
+				pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
+			}
 		}
 	}
 
-	if err != nil {
-		if logger.Sugar != nil {
-			logger.Sugar.Warnf("Attestation failed for %s %s: %v", job.docType, job.docID, err)
-		}
+	if err != nil && logger.Sugar != nil {
+		logger.Sugar.Warnf("Batch attestation failed for %d documents: %v", len(jobs), err)
 	}
 
 	pp.mu.Lock()
-	pp.processedCount++
+	pp.processedCount += int64(len(jobs))
 	pp.mu.Unlock()
 }
 
@@ -214,8 +274,26 @@ func isTransactionConflict(err error) bool {
 	return strings.Contains(errStr, "transaction conflict") || strings.Contains(errStr, "Please retry")
 }
 
-// processDocumentDirect enqueues a document for processing (blocks when queue is full).
-func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]interface{}) {
+// processDocumentDirect enqueues a document for processing.
+func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]any) {
+	dedupeKey := docType + ":" + docID
+
+	if _, exists := pp.seenDocs.Load(dedupeKey); exists {
+		pp.mu.Lock()
+		pp.skippedCount++
+		pp.mu.Unlock()
+		if pp.host.metrics != nil {
+			pp.host.metrics.IncrementDocumentsSkipped()
+		}
+		return
+	}
+
+	pp.seenDocs.Store(dedupeKey, time.Now().Add(dedupeExpiry))
+
+	if pp.host.metrics != nil {
+		pp.host.metrics.IncrementUniqueDocumentByType(docType)
+	}
+
 	job := DocumentJob{
 		docID:       docID,
 		docType:     docType,

@@ -17,6 +17,7 @@ services:
       - "9181:9181"  # DefraDB API (for internal network access)
       - "444:9182"  # GraphQL Playground 
       - "8080:8080"  # Metrics
+      - "6060:6060"  # pprof
       - "9171:9171"  # P2P networking (needs external access)
     volumes:
       - ~/data/defradb:/app/.defra/data

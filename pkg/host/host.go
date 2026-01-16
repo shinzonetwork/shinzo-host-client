@@ -81,8 +81,6 @@ var DefaultConfig *config.Config = func() *config.Config {
 	return cfg
 }()
 
-var requiredPeers []string = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process
-
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defra.NetworkHandler // P2P network control
@@ -267,33 +265,19 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 	}
 
-	cacheSize := cfg.Shinzo.CacheSize
-	if cacheSize <= 0 {
-		cacheSize = 10000 // Default cache size
-	}
-
 	queueSize := cfg.Shinzo.CacheQueueSize
 	if queueSize <= 0 {
-		queueSize = 1000 // Default queue size
+		queueSize = 50000
 	}
 
-	workerCount := cfg.Shinzo.WorkerCount
-	if workerCount <= 0 {
-		workerCount = 10 // Default worker count
-	}
-
-	cacheMaxAge := time.Duration(cfg.Shinzo.CacheMaxAgeSeconds) * time.Second
-	if cacheMaxAge <= 0 {
-		cacheMaxAge = 5 * time.Minute // Default 5 minutes
-	}
-
-	// Create simplified processing pipeline (no cache)
+	// Create processing pipeline with batch settings from config
 	newHost.processingPipeline = NewProcessingPipeline(
-		context.Background(), newHost, 0, cacheMaxAge, cacheSize, queueSize, workerCount,
+		context.Background(), newHost, queueSize,
+		cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval,
 	)
 
-	logger.Sugar.Infof("🔧 Processing pipeline initialized: cache=%d, queue=%d, workers=%d",
-		cacheSize, queueSize, workerCount)
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms",
+		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval)
 
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
@@ -331,11 +315,15 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	}
 
 	if defraNode != nil {
-		newHost.signatureVerifier = attestation.NewSignatureVerifier(defraNode)
+		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode)
 		logger.Sugar.Info("🔐 Optimized signature verifier initialized")
 	}
 
-	newHost.healthServer = server.NewHealthServer(8080, newHost, healthDefraURL, newHost.metrics)
+	port := cfg.HostConfig.HealthServerPort
+	if port == 0 {
+		port = 8080
+	}
+	newHost.healthServer = server.NewHealthServer(port, newHost, healthDefraURL, newHost.metrics)
 
 	// Start health server in background
 	go func() {
@@ -344,7 +332,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 	}()
 
-	logger.Sugar.Info("🏥 Health server started on port 8080")
+	logger.Sugar.Infof("🏥 Health server started on port %d", port)
 
 	return newHost, nil
 }
@@ -377,7 +365,7 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	}
 
 	// Write WASM to disk
-	if event.View.Transform.Lenses != nil && len(event.View.Transform.Lenses) > 0 {
+	if len(event.View.Transform.Lenses) > 0 {
 		if err := event.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
 			return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
 		}
@@ -589,7 +577,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				}
 
 				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
-				if registeredEvent.View.Transform.Lenses != nil && len(registeredEvent.View.Transform.Lenses) > 0 {
+				if len(registeredEvent.View.Transform.Lenses) > 0 {
 					if err := registeredEvent.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
 						logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
 						continue
@@ -653,7 +641,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 
 	// Override health server with dynamic port for tests
 	if host.healthServer != nil {
-		// Stop the hardcoded port 8080 server
+		// Stop the configured health server
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		host.healthServer.Stop(ctx)

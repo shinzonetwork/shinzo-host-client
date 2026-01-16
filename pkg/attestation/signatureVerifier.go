@@ -3,15 +3,10 @@ package attestation
 import (
 	"context"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -19,95 +14,47 @@ type SignatureVerifier interface {
 	Verify(ctx context.Context, cid string, signature constants.Signature) error
 }
 
-// In signatureVerifier.go - revert to original
-type DefraSignatureVerifier struct {
-	defraNode  *node.Node
-	httpClient *http.Client
-	cache      *sync.Map
+type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
+	defraNode *node.Node
 }
 
-func NewSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 10,
-			MaxConnsPerHost:     50,
-			IdleConnTimeout:     90 * time.Second,
-			DialContext: (&net.Dialer{
-				Timeout:   10 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-		},
-	}
-
+func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
 	return &DefraSignatureVerifier{
-		defraNode:  defraNode,
-		httpClient: httpClient,
-		cache:      &sync.Map{},
+		defraNode: defraNode,
 	}
 }
 
-func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
-	// Remove metrics calls
-	// Check cache first
-	if cached, exists := v.cache.Load(cid); exists {
-		if result, ok := cached.(error); ok {
-			return result
-		}
-		return nil
+// Verify verifies that the signature is valid for the given CID using DefraDB directly (no HTTP)
+func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
+	// Validate required fields
+	if signature.Identity == "" {
+		return fmt.Errorf("empty identity in signature for CID %s", cid)
 	}
 
 	// Validate inputs
 	if signature.Identity == "" || cid == "" {
 		return fmt.Errorf("empty identity or CID")
 	}
-	if v.defraNode == nil || v.defraNode.APIURL == "" {
-		return fmt.Errorf("defradb node or API URL not available")
-	}
 	if strings.ToUpper(signature.Type) != "ES256K" {
 		return fmt.Errorf("invalid signature type %s", signature.Type)
 	}
+	if v.defraNode == nil || v.defraNode.DB == nil {
+		return fmt.Errorf("defradb node or DB is not available for signature verification")
+	}
 
-	// Perform HTTP verification
-	err := v.verifyHTTP(ctx, cid, signature)
-
-	// Cache result
-	v.cache.Store(cid, err)
-
-	return err
-}
-
-func (v *DefraSignatureVerifier) verifyHTTP(ctx context.Context, cid string, signature constants.Signature) error {
-	baseURL, err := url.Parse(v.defraNode.APIURL)
+	// Parse the public key from the hex identity string
+	pubKey, err := crypto.PublicKeyFromString(crypto.KeyTypeSecp256k1, signature.Identity)
 	if err != nil {
-		return fmt.Errorf("failed to parse API URL: %w", err)
+		return fmt.Errorf("failed to parse public key from identity %s: %w", signature.Identity, err)
 	}
 
-	apiURL := baseURL.JoinPath("/api/v0/block/verify-signature")
-	params := url.Values{}
-	params.Set("cid", cid)
-	params.Set("public-key", signature.Identity)
-	params.Set("type", "secp256k1")
-	apiURL.RawQuery = params.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
+	// Verify signature directly using the DB - no HTTP calls needed
+	err = v.defraNode.DB.VerifySignature(ctx, cid, pubKey)
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
+		return fmt.Errorf("signature verification failed for CID %s: %w", cid, err)
 	}
 
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		return nil
-	}
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("verification failed: HTTP %d, %s", resp.StatusCode, string(bodyBytes))
+	return nil
 }
 
 type MockSignatureVerifier struct {

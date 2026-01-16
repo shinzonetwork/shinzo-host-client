@@ -48,7 +48,7 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -100,7 +100,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -141,7 +141,7 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -157,7 +157,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 	sourceDocId := "source-doc-456"
 	versions := []Version{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions)
+	record, err := CreateAttestationRecord(ctx, verifier, docId, sourceDocId, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docId, record.AttestedDocId)
@@ -187,6 +187,8 @@ func TestPostAttestationRecord(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -220,7 +222,7 @@ func TestPostAttestationRecord(t *testing.T) {
 						identity
 						value
 					}
-					schemaVersionId
+					collectionVersionId
 				}
 			}
 		}
@@ -233,9 +235,6 @@ func TestPostAttestationRecord(t *testing.T) {
 	require.Len(t, testDocResult.Version, 1)
 
 	testVersions := testDocResult.Version
-
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
 
 	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
 	sourceDocId := testDocResult.DocId
@@ -421,6 +420,8 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -508,10 +509,6 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	require.Len(t, merged.CIDs, 2)
 	require.Contains(t, merged.CIDs, doc1Result.Version[0].CID)
 	require.Contains(t, merged.CIDs, doc2Result.Version[0].CID)
-
-	// Post the merged record to DefraDB
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
 
 	err = PostAttestationRecord(t.Context(), defraNode, merged)
 	require.NoError(t, err)
@@ -616,6 +613,8 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -630,9 +629,6 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
-
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
 
 	record := &AttestationRecord{
 		AttestedDocId: "doc-123",
@@ -682,6 +678,8 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
+	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
@@ -696,9 +694,6 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
-
-	err = AddAttestationRecordCollection(t.Context(), defraNode, "")
-	require.NoError(t, err)
 
 	record := &AttestationRecord{
 		AttestedDocId: "doc-123",

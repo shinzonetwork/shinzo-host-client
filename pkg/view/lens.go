@@ -35,8 +35,8 @@ func (ls *lensService) SetMigration(ctx context.Context, defraNode *node.Node, c
 // lens: filteredBlock
 func BuildLensConfig(query, sdl string, wasmPath string, args map[string]any) client.LensConfig {
 	return client.LensConfig{
-		SourceSchemaVersionID:      query,
-		DestinationSchemaVersionID: sdl,
+		SourceCollectionVersionID:      query,
+		DestinationCollectionVersionID: sdl,
 		Lens: model.Lens{
 			Lenses: []model.LensModule{
 				{

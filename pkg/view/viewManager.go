@@ -262,8 +262,8 @@ func (v *View) BuildLensConfig() client.LensConfig {
 	}
 
 	return client.LensConfig{
-		SourceSchemaVersionID:      *v.Query,
-		DestinationSchemaVersionID: *v.Sdl,
+		SourceCollectionVersionID:      *v.Query,
+		DestinationCollectionVersionID: *v.Sdl,
 		Lens: model.Lens{
 			Lenses: lensModules,
 		},

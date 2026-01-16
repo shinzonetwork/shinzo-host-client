@@ -175,7 +175,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, e
 	// Fetch 1 transaction at a time until we hit an error or empty page
 	for page := startPage; ; page++ {
 		logger.Sugar.Debugf("📡 Fetching transaction page %d...", page)
-		views, total, err := c.fetchRegisteredViewsPage(ctx, page, 1) // per_page=1
+		views, total, err := c.fetchRegisteredViewsPage(ctx, page, 5) // per_page=5
 		if err != nil {
 			// Error likely means we've gone past the last page
 			logger.Sugar.Debugf("📡 Stopping at page %d: %v", page, err)

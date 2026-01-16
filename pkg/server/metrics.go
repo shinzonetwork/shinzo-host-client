@@ -23,12 +23,19 @@ type HostMetrics struct {
 	DocumentsReceived  int64 `json:"documents_received"`
 	DocumentsProcessed int64 `json:"documents_processed"`
 	DocumentsDropped   int64 `json:"documents_dropped"`
+	DocumentsSkipped   int64 `json:"documents_skipped"` // Skipped due to deduplication
 
-	// Document type breakdown
+	// Document type breakdown (counts attestation events, not unique documents)
 	BlocksProcessed       int64 `json:"blocks_processed"`
 	TransactionsProcessed int64 `json:"transactions_processed"`
 	LogsProcessed         int64 `json:"logs_processed"`
 	AccessListsProcessed  int64 `json:"access_lists_processed"`
+
+	// Unique document counters (tracks first-time attestations only)
+	UniqueBlocks       int64 `json:"unique_blocks"`
+	UniqueTransactions int64 `json:"unique_transactions"`
+	UniqueLogs         int64 `json:"unique_logs"`
+	UniqueAccessLists  int64 `json:"unique_access_lists"`
 
 	// View metrics
 	ViewsRegistered     int64 `json:"views_registered"`
@@ -120,6 +127,11 @@ func (m *HostMetrics) IncrementDocumentsDropped() {
 	atomic.AddInt64(&m.DocumentsDropped, 1)
 }
 
+// IncrementDocumentsSkipped atomically increments the documents skipped counter
+func (m *HostMetrics) IncrementDocumentsSkipped() {
+	atomic.AddInt64(&m.DocumentsSkipped, 1)
+}
+
 // IncrementDocumentByType atomically increments the counter for a specific document type
 func (m *HostMetrics) IncrementDocumentByType(docType string) {
 	switch docType {
@@ -131,6 +143,20 @@ func (m *HostMetrics) IncrementDocumentByType(docType string) {
 		atomic.AddInt64(&m.LogsProcessed, 1)
 	case constants.CollectionAccessListEntry:
 		atomic.AddInt64(&m.AccessListsProcessed, 1)
+	}
+}
+
+// IncrementUniqueDocumentByType atomically increments the unique counter for a specific document type
+func (m *HostMetrics) IncrementUniqueDocumentByType(docType string) {
+	switch docType {
+	case constants.CollectionBlock:
+		atomic.AddInt64(&m.UniqueBlocks, 1)
+	case constants.CollectionTransaction:
+		atomic.AddInt64(&m.UniqueTransactions, 1)
+	case constants.CollectionLog:
+		atomic.AddInt64(&m.UniqueLogs, 1)
+	case constants.CollectionAccessListEntry:
+		atomic.AddInt64(&m.UniqueAccessLists, 1)
 	}
 }
 
@@ -238,10 +264,15 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		DocumentsReceived:      atomic.LoadInt64(&m.DocumentsReceived),
 		DocumentsProcessed:     atomic.LoadInt64(&m.DocumentsProcessed),
 		DocumentsDropped:       atomic.LoadInt64(&m.DocumentsDropped),
+		DocumentsSkipped:       atomic.LoadInt64(&m.DocumentsSkipped),
 		BlocksProcessed:        atomic.LoadInt64(&m.BlocksProcessed),
 		TransactionsProcessed:  atomic.LoadInt64(&m.TransactionsProcessed),
 		LogsProcessed:          atomic.LoadInt64(&m.LogsProcessed),
 		AccessListsProcessed:   atomic.LoadInt64(&m.AccessListsProcessed),
+		UniqueBlocks:           atomic.LoadInt64(&m.UniqueBlocks),
+		UniqueTransactions:     atomic.LoadInt64(&m.UniqueTransactions),
+		UniqueLogs:             atomic.LoadInt64(&m.UniqueLogs),
+		UniqueAccessLists:      atomic.LoadInt64(&m.UniqueAccessLists),
 		ViewsRegistered:        atomic.LoadInt64(&m.ViewsRegistered),
 		ViewsActive:            atomic.LoadInt64(&m.ViewsActive),
 		ViewProcessingJobs:     atomic.LoadInt64(&m.ViewProcessingJobs),

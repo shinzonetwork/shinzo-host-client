@@ -3,8 +3,8 @@ package attestation
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
@@ -21,25 +21,54 @@ type Version = constants.Version
 type Signature = constants.Signature
 
 // CreateAttestationRecord creates an attestation record after verifying signatures
-func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocId string, docType string, versions []Version) (*AttestationRecord, error) {
-	attestationRecord := &constants.AttestationRecord{
-		AttestedDocId: docId,
-		SourceDocId:   sourceDocId,
-		CIDs:          []string{},
-		DocType:       docType,
-		VoteCount:     1,
-	}
-	for _, version := range versions {
-		// Validate the signature against the CID
-		if err := verifier.Verify(ctx, version.CID, version.Signature); err != nil {
-			// Todo here we might want to send a message to ShinzoHub (or similar) indicating that we received an invalid signature
-			fmt.Printf("Invalid signature for CID %s from identity %s: %v\n", version.CID, version.Signature.Identity, err)
-			continue
-		}
-		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
+func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocId string, docType string, versions []Version, maxConcurrentVerifications int) (*AttestationRecord, error) {
+	if len(versions) == 0 {
+		return &constants.AttestationRecord{
+			AttestedDocId: docId,
+			SourceDocId:   sourceDocId,
+			CIDs:          []string{},
+			DocType:       docType,
+			VoteCount:     1,
+		}, nil
 	}
 
-	return attestationRecord, nil
+	if maxConcurrentVerifications <= 0 {
+		maxConcurrentVerifications = 50
+	}
+	sem := make(chan struct{}, maxConcurrentVerifications)
+	verifiedCIDs := make(chan string, len(versions))
+	var wg sync.WaitGroup
+
+	for _, version := range versions {
+		wg.Add(1)
+		go func(v Version) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := verifier.Verify(ctx, v.CID, v.Signature); err != nil {
+				return
+			}
+			verifiedCIDs <- v.CID
+		}(version)
+	}
+
+	go func() {
+		wg.Wait()
+		close(verifiedCIDs)
+	}()
+
+	cids := make([]string, 0, len(versions))
+	for cid := range verifiedCIDs {
+		cids = append(cids, cid)
+	}
+
+	return &constants.AttestationRecord{
+		AttestedDocId: docId,
+		SourceDocId:   sourceDocId,
+		CIDs:          cids,
+		DocType:       docType,
+		VoteCount:     1,
+	}, nil
 }
 
 // PostAttestationRecord posts the attestation record to DefraDB
@@ -81,20 +110,50 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *At
 	return nil
 }
 
-// AddAttestationRecordCollection creates and subscribes to attestation record collection
-func AddAttestationRecordCollection(ctx context.Context, defraNode *node.Node, associatedViewName string) error {
-	collectionSDL := getAttestationRecordSDL(associatedViewName)
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(collectionSDL)
-	err := schemaApplier.ApplySchema(ctx, defraNode)
-	if err != nil {
-		return fmt.Errorf("Error adding attestation record schema %s: %w", collectionSDL, err)
+// PostAttestationRecordsBatch posts multiple attestation records in a single GraphQL mutation.
+func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, records []*AttestationRecord) error {
+	if len(records) == 0 {
+		return nil
 	}
 
-	attestationRecords := "AttestationRecord"
-	err = defraNode.DB.AddP2PCollections(ctx, attestationRecords)
-	if err != nil {
-		return fmt.Errorf("Error subscribing to collection %s: %v", attestationRecords, err)
+	var sb strings.Builder
+	sb.WriteString("mutation {\n")
+
+	for i, record := range records {
+		if record == nil || len(record.CIDs) == 0 {
+			continue
+		}
+
+		cidsArray := make([]string, len(record.CIDs))
+		for j, cid := range record.CIDs {
+			cidsArray[j] = fmt.Sprintf(`"%s"`, cid)
+		}
+		cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
+
+		sb.WriteString(fmt.Sprintf(`  a%d: upsert_%v(
+    create: {
+      attested_doc: "%s",
+      source_doc: "%s",
+      CIDs: %s,
+      doc_type: "%s",
+      vote_count: %d
+    },
+    update: {
+      CIDs: %s,
+      vote_count: %d
+    },
+    filter: {attested_doc: {_eq: "%s"}}
+  ) { _docID }
+`, i, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId))
 	}
+
+	sb.WriteString("}")
+
+	_, err := defra.PostMutation[map[string]any](ctx, defraNode, sb.String())
+	if err != nil {
+		return fmt.Errorf("error posting batched attestation records: %v", err)
+	}
+
 	return nil
 }
 
@@ -142,17 +201,20 @@ func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType st
 }
 
 // HandleDocumentAttestation is the main handler for processing document attestations
-func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, defraNode *node.Node, docID string, docType string, versions []Version) error {
+func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, defraNode *node.Node, docID string, docType string, versions []Version, maxConcurrentVerifications int) error {
 
 	if len(versions) == 0 {
-		fmt.Printf("📊 No signatures found for document %s, skipping attestation\n", docID)
 		return nil
 	}
 
 	// Create attestation record with signature verification
-	attestationRecord, err := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions)
+	attestationRecord, err := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions, maxConcurrentVerifications)
 	if err != nil {
 		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
+	}
+
+	if len(attestationRecord.CIDs) == 0 {
+		return nil
 	}
 
 	// Post the attestation record to DefraDB
@@ -162,6 +224,42 @@ func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, 
 	}
 
 	return nil
+}
+
+// DocumentAttestationInput represents input for batch attestation processing
+type DocumentAttestationInput struct {
+	DocID    string
+	DocType  string
+	Versions []Version
+}
+
+// HandleDocumentAttestationBatch processes multiple document attestations in a single batch.
+func HandleDocumentAttestationBatch(ctx context.Context, verifier SignatureVerifier, defraNode *node.Node, inputs []DocumentAttestationInput, maxConcurrentVerifications int) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+
+	records := make([]*AttestationRecord, 0, len(inputs))
+	for _, input := range inputs {
+		if len(input.Versions) == 0 {
+			continue
+		}
+
+		record, err := CreateAttestationRecord(ctx, verifier, input.DocID, input.DocID, input.DocType, input.Versions, maxConcurrentVerifications)
+		if err != nil {
+			continue
+		}
+
+		if len(record.CIDs) > 0 {
+			records = append(records, record)
+		}
+	}
+
+	if len(records) == 0 {
+		return nil
+	}
+
+	return PostAttestationRecordsBatch(ctx, defraNode, records)
 }
 
 // CheckExistingAttestation checks if an attestation already exists for a document
@@ -192,17 +290,17 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 }
 
 // ExtractVersionsFromDocument extracts version/signature information from a document based on its type
-func ExtractVersionsFromDocument(docData map[string]interface{}) ([]Version, error) {
+func ExtractVersionsFromDocument(docData map[string]any) ([]Version, error) {
 	// Try to extract version information from the document data
 	// The document data should contain the version field with signatures
 
 	if versionData, exists := docData["_version"]; exists {
 		// Convert the version data to the expected format
-		if versionArray, ok := versionData.([]interface{}); ok {
+		if versionArray, ok := versionData.([]any); ok {
 			versions := make([]Version, 0, len(versionArray))
 
 			for _, v := range versionArray {
-				if versionMap, ok := v.(map[string]interface{}); ok {
+				if versionMap, ok := v.(map[string]any); ok {
 					version := Version{}
 
 					// Extract CID
@@ -211,7 +309,7 @@ func ExtractVersionsFromDocument(docData map[string]interface{}) ([]Version, err
 					}
 
 					// Extract Signature
-					if sigData, ok := versionMap["signature"].(map[string]interface{}); ok {
+					if sigData, ok := versionMap["signature"].(map[string]any); ok {
 						signature := Signature{}
 
 						if sigType, ok := sigData["type"].(string); ok {
@@ -227,9 +325,9 @@ func ExtractVersionsFromDocument(docData map[string]interface{}) ([]Version, err
 						version.Signature = signature
 					}
 
-					// Extract SchemaVersionId
-					if schemaVersionId, ok := versionMap["schemaVersionId"].(string); ok {
-						version.SchemaVersionId = schemaVersionId
+					// Extract CollectionVersionId
+					if collectionVersionId, ok := versionMap["collectionVersionId"].(string); ok {
+						version.CollectionVersionId = collectionVersionId
 					}
 
 					versions = append(versions, version)
@@ -282,48 +380,6 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 	}
 
 	return merged, nil
-}
-
-func getAttestationRecordSDL(viewName string) string {
-	// Check if this is a primitive type (Block, Transaction, Log, AccessListEntry)
-	primitiveTypes := []string{"Block", "Transaction", "Log", "AccessListEntry"}
-	for _, primitive := range primitiveTypes {
-		if viewName == primitive { // For our primitive attestation records, we use a condensed schema
-			return fmt.Sprintf(`type AttestationRecord { 
-				attested_doc: String
-				CIDs: [String]
-			}`)
-		}
-	}
-
-	// If either AttestationRecord does not have unique name, we will get an error when trying to the schema (collection already exists error)
-	// We want a separate collection of AttestationRecords for each View so that app clients don't receive all AttestationRecords, only those that are relevant to the collections/Views they care about - we can just append the View names as those must also be unique
-	return fmt.Sprintf(`type AttestationRecord {
-		attested_doc: String
-		source_doc: String
-		CIDs: [String]
-	}`)
-}
-
-// extractSchemaTypes extracts all type names from a GraphQL SDL schema
-func extractSchemaTypes(schema string) ([]string, error) {
-	// Find all type definitions: type TypeName { ... }
-	re := regexp.MustCompile(`type\s+(\w+)\s*@?[^{]*\{`)
-	matches := re.FindAllStringSubmatch(schema, -1)
-
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no type definitions found in schema")
-	}
-
-	types := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) > 1 {
-			typeName := strings.TrimSpace(match[1])
-			types = append(types, typeName)
-		}
-	}
-
-	return types, nil
 }
 
 // ========================================
