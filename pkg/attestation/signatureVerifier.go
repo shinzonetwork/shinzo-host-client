@@ -14,18 +14,26 @@ type SignatureVerifier interface {
 	Verify(ctx context.Context, cid string, signature constants.Signature) error
 }
 
-type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
-	defraNode *node.Node
+// SignatureMetrics defines the metrics interface for signature verification
+type SignatureMetrics interface {
+	IncrementSignatureVerifications()
+	IncrementSignatureFailures()
 }
 
-func NewDefraSignatureVerifier(defraNode *node.Node) *DefraSignatureVerifier {
+type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
+	defraNode *node.Node
+	metrics   SignatureMetrics
+}
+
+func NewDefraSignatureVerifier(defraNode *node.Node, metrics SignatureMetrics) *DefraSignatureVerifier {
 	return &DefraSignatureVerifier{
 		defraNode: defraNode,
+		metrics:   metrics,
 	}
 }
 
 // Verify verifies that the signature is valid for the given CID using DefraDB directly (no HTTP)
-func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature Signature) error {
+func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
 	// Validate required fields
 	if signature.Identity == "" {
 		return fmt.Errorf("empty identity in signature for CID %s", cid)
@@ -51,9 +59,15 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	// Verify signature directly using the DB - no HTTP calls needed
 	err = v.defraNode.DB.VerifySignature(ctx, cid, pubKey)
 	if err != nil {
+		if v.metrics != nil {
+			v.metrics.IncrementSignatureFailures()
+		}
 		return fmt.Errorf("signature verification failed for CID %s: %w", cid, err)
 	}
 
+	if v.metrics != nil {
+		v.metrics.IncrementSignatureVerifications()
+	}
 	return nil
 }
 
