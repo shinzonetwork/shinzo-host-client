@@ -31,6 +31,7 @@ func TestIntegration(t *testing.T) {
 	// Create test config with P2P enabled to replicate data from indexer
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0" // Use random available port
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
 	testConfig.DefraDB.P2P.Enabled = true
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{
