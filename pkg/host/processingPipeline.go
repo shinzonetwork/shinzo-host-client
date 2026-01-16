@@ -213,7 +213,7 @@ func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 	}
 
 	var err error
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		err = pp.host.processDocumentAttestationBatch(pp.ctx, docs)
 		if err == nil {
 			break
@@ -227,10 +227,7 @@ func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 			break
 		}
 
-		delay := baseDelay * time.Duration(1<<attempt)
-		if delay > maxDelay {
-			delay = maxDelay
-		}
+		delay := min(baseDelay*time.Duration(1<<attempt), maxDelay)
 		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()))
 		if attempt < maxRetries-1 {
 			select {

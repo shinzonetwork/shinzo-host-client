@@ -5,9 +5,9 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWPUs4yfqJtg8PyxfFCjDp9jyqVKottSVLcA6PgpLJErX1'
-      # Standard new - http://34.132.179.9:8080/health
-      - '/ip4/34.132.179.9/tcp/9171/p2p/12D3KooWMymVTnizbJbgpb1455pmDyTvdbKkLxPVWqtqhXwQQP7b'
+      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWJEStcjAncPEdKicNPZ469VbK7CYo9EEUv5UBW9cVhKeB'
+      # Standard new - http://35.222.201.242:8080/health
+      - '/ip4/35.222.201.242/tcp/9171/p2p/12D3KooWQPYw3V9iPCttASkuQeNnh3Umor8VbUdapia5rC9XePq7'
       # Standard - http://136.116.120.118:8080/health
       # - '/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm'
       # Branchable - http://34.9.209.81:8080/health
@@ -43,17 +43,13 @@ shinzo:
   batch_query_cache_size: 1000        # Cache query templates for reuse
 
   # Batch Attestation Processing Settings
-  batch_writer_count: 24             # Number of batch writers (default: 16)
-  batch_size: 256                    # Max attestations per batch (default: 100)
-  batch_flush_interval: 50           # Flush interval in milliseconds (default: 50)
+  batch_writer_count: 50             # Number of batch writers (increased for throughput)
+  batch_size: 500                    # Max attestations per batch (larger batches = less overhead)
+  batch_flush_interval: 100          # Flush interval in milliseconds (slightly longer to fill batches)
 
 logger:
   development: true
-  level: "debug"  # Only show errors, suppress all P2P info/warn messages
-  # Alternative: Suppress specific P2P logging
-  # modules:
-  #   p2p: "error"     # Suppress P2P info messages
-  #   coreblock: "error" # Suppress DAG head messages
+  level: "debug"
 
 host:
   lens_registry_path: "./.lens"

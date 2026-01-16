@@ -399,14 +399,22 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 
 	// Get actual peer information using signer package methods
 	if h.DefraNode != nil && h.NetworkHandler != nil {
-		// Get peer ID and public key using the same approach as indexer
-		peerPubKey, err := h.GetPeerPublicKey()
-		if err == nil {
-			// Create peer info with actual data
+		peerInfoStrings, err := h.DefraNode.DB.PeerInfo()
+		if err != nil {
+			logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
+			return p2pInfo, nil
+		}
+
+		peers, errs := defra.BootstrapIntoPeers(peerInfoStrings)
+		if len(errs) > 0 {
+			logger.Sugar.Warnf("Errors parsing peer info: %v", errs)
+		}
+
+		for _, peer := range peers {
 			peerInfo := server.PeerInfo{
-				ID:        peerPubKey,                          // Use peer public key as ID for now
-				Addresses: []string{"/ip4/127.0.0.1/tcp/9171"}, // Default local address
-				PublicKey: peerPubKey,
+				ID:        peer.ID,
+				Addresses: peer.Addresses,
+				PublicKey: peer.ID,
 			}
 
 			p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, peerInfo)
