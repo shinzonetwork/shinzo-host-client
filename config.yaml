@@ -5,11 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWJEStcjAncPEdKicNPZ469VbK7CYo9EEUv5UBW9cVhKeB'
-      # Standard new - http://35.222.201.242:8080/health
-      - '/ip4/35.222.201.242/tcp/9171/p2p/12D3KooWQPYw3V9iPCttASkuQeNnh3Umor8VbUdapia5rC9XePq7'
-      # Standard - http://136.116.120.118:8080/health
-      # - '/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm'
+      # Standard - http://136.116.158.42:8080/health
+      - '/ip4/136.116.158.42/tcp/9171/p2p/12D3KooWR5i7Bvq1FEuri9ax3Kv9z1C1KqoxTGUvn1cHGMRkbbDD'
       # Branchable - http://34.9.209.81:8080/health
       # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
@@ -43,9 +40,9 @@ shinzo:
   batch_query_cache_size: 1000        # Cache query templates for reuse
 
   # Batch Attestation Processing Settings
-  batch_writer_count: 50             # Number of batch writers (increased for throughput)
-  batch_size: 500                    # Max attestations per batch (larger batches = less overhead)
-  batch_flush_interval: 100          # Flush interval in milliseconds (slightly longer to fill batches)
+  batch_writer_count: 64             # Number of batch writers
+  batch_size: 500                    # Max attestations per batch
+  batch_flush_interval: 100          # Flush interval in milliseconds
 
 logger:
   development: true
