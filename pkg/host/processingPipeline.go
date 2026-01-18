@@ -348,6 +348,13 @@ func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, block
 		pp.mu.Unlock()
 	case <-pp.ctx.Done():
 		return
+	default:
+		pp.mu.Lock()
+		pp.droppedCount++
+		pp.mu.Unlock()
+		if pp.host.metrics != nil {
+			pp.host.metrics.IncrementDocumentsDropped()
+		}
 	}
 }
 
