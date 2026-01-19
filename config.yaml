@@ -5,8 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Standard - http://136.116.158.42:8080/health
-      - '/ip4/136.116.158.42/tcp/9171/p2p/12D3KooWR5i7Bvq1FEuri9ax3Kv9z1C1KqoxTGUvn1cHGMRkbbDD'
+      # Standard - http://34.29.116.29:8080/health
+      - '/ip4/34.29.116.29/tcp/9171/p2p/12D3KooWMrEVar6kmqzzB2dcTzuhJb3XmMMvHwTmxLCZjSkR4by8'
       # Branchable - http://34.9.209.81:8080/health
       # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
@@ -41,7 +41,7 @@ shinzo:
 
   # Batch Attestation Processing Settings
   batch_writer_count: 64             # Number of batch writers
-  batch_size: 500                    # Max attestations per batch
+  batch_size: 1000                    # Max attestations per batch
   batch_flush_interval: 100          # Flush interval in milliseconds
 
 logger:
