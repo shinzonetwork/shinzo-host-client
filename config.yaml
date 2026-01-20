@@ -5,13 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/127.0.0.1/tcp/9171/p2p/12D3KooWPUs4yfqJtg8PyxfFCjDp9jyqVKottSVLcA6PgpLJErX1'
-      # Standard new - http://34.132.179.9:8080/health
-      - '/ip4/34.132.179.9/tcp/9171/p2p/12D3KooWMymVTnizbJbgpb1455pmDyTvdbKkLxPVWqtqhXwQQP7b'
-      # Standard - http://136.116.120.118:8080/health
-      # - '/ip4/136.116.120.118/tcp/9171/p2p/12D3KooWReTeHzv2qbVun7eAXGhhHcgUMn1mUU4Mjk7hvD4fTGWm'
-      # Branchable - http://34.9.209.81:8080/health
-      # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWPtmWBwFZTi58bNdw6Vz5z4JCwbnu5rH1QLpa2MZKVmjE'
+      - '/ip4/35.192.219.55/tcp/9171/p2p/12D3KooWCfgCafjxcVzpJsP7DhmdKCb8dnmmfngUjywsxamzQtgB'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -22,7 +17,7 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
-  hub_base_url: shinzohub-rpc.infra.source.network:26657
+  hub_base_url: rpc.devnet.shinzo.network:26657
   
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
