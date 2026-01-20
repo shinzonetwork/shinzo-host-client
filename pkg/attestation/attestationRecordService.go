@@ -7,8 +7,11 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/immutable"
 )
 
 // AttestationRecord represents an attestation record with verified signatures
@@ -110,94 +113,169 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *At
 	return nil
 }
 
-// PostAttestationRecordsBatch posts multiple attestation records in a single GraphQL mutation.
+// PostAttestationRecordsBatch posts multiple attestation records.
 func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, records []*AttestationRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 
-	var sb strings.Builder
-	sb.WriteString("mutation {\n")
+	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	if err != nil {
+		return fmt.Errorf("failed to get attestation collection: %w", err)
+	}
 
-	for i, record := range records {
+	attestedDocIDs := make([]string, 0, len(records))
+	for _, record := range records {
+		if record == nil || len(record.CIDs) == 0 {
+			continue
+		}
+		attestedDocIDs = append(attestedDocIDs, record.AttestedDocId)
+	}
+
+	if len(attestedDocIDs) == 0 {
+		return nil
+	}
+
+	existingByAttestedDoc := make(map[string]*client.Document)
+	for _, attestedDocID := range attestedDocIDs {
+		query := fmt.Sprintf(`query {
+			%s(filter: {attested_doc: {_eq: "%s"}}) {
+				_docID
+			}
+		}`, constants.CollectionAttestationRecord, attestedDocID)
+
+		result := defraNode.DB.ExecRequest(ctx, query)
+		if len(result.GQL.Errors) > 0 {
+			continue
+		}
+
+		dataMap, ok := result.GQL.Data.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		var docIDStr string
+		switch collectionData := dataMap[constants.CollectionAttestationRecord].(type) {
+		case []any:
+			if len(collectionData) == 0 {
+				continue
+			}
+			firstDoc, ok := collectionData[0].(map[string]any)
+			if !ok {
+				continue
+			}
+			docIDStr, ok = firstDoc["_docID"].(string)
+			if !ok {
+				continue
+			}
+		case []map[string]any:
+			if len(collectionData) == 0 {
+				continue
+			}
+			docIDStr, ok = collectionData[0]["_docID"].(string)
+			if !ok {
+				continue
+			}
+		default:
+			continue
+		}
+
+		if docIDStr == "" {
+			continue
+		}
+
+		docID, err := client.NewDocIDFromString(docIDStr)
+		if err != nil {
+			continue
+		}
+
+		existingDoc, err := col.Get(ctx, docID, false)
+		if err != nil {
+			continue
+		}
+		existingByAttestedDoc[attestedDocID] = existingDoc
+	}
+
+	docs := make([]*client.Document, 0, len(records))
+
+	for _, record := range records {
 		if record == nil || len(record.CIDs) == 0 {
 			continue
 		}
 
-		cidsArray := make([]string, len(record.CIDs))
-		for j, cid := range record.CIDs {
-			cidsArray[j] = fmt.Sprintf(`"%s"`, cid)
-		}
-		cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
+		existingDoc, exists := existingByAttestedDoc[record.AttestedDocId]
+		if exists {
+			cidSet := make(map[string]struct{})
+			existingCIDsVal, err := existingDoc.Get("CIDs")
+			if err == nil && existingCIDsVal != nil {
+				switch existingCIDs := existingCIDsVal.(type) {
+				case []immutable.Option[string]:
+					for _, opt := range existingCIDs {
+						if opt.HasValue() {
+							cidSet[opt.Value()] = struct{}{}
+						}
+					}
+				case []any:
+					for _, c := range existingCIDs {
+						if cidStr, ok := c.(string); ok {
+							cidSet[cidStr] = struct{}{}
+						}
+					}
+				case []string:
+					for _, cidStr := range existingCIDs {
+						cidSet[cidStr] = struct{}{}
+					}
+				}
+			}
+			for _, newCID := range record.CIDs {
+				cidSet[newCID] = struct{}{}
+			}
+			mergedCIDs := make([]any, 0, len(cidSet))
+			for cid := range cidSet {
+				mergedCIDs = append(mergedCIDs, cid)
+			}
 
-		sb.WriteString(fmt.Sprintf(`  a%d: upsert_%v(
-    create: {
-      attested_doc: "%s",
-      source_doc: "%s",
-      CIDs: %s,
-      doc_type: "%s",
-      vote_count: %d
-    },
-    update: {
-      CIDs: %s,
-      vote_count: %d
-    },
-    filter: {attested_doc: {_eq: "%s"}}
-  ) { _docID }
-`, i, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId))
+			if err := existingDoc.Set(ctx, "CIDs", mergedCIDs); err != nil {
+				logger.Sugar.Warnf("Failed to set CIDs for attestation %s: %v", record.AttestedDocId, err)
+				continue
+			}
+			if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
+				logger.Sugar.Warnf("Failed to set vote_count for attestation %s: %v", record.AttestedDocId, err)
+			}
+			docs = append(docs, existingDoc)
+		} else {
+			cidsAny := make([]any, len(record.CIDs))
+			for i, cid := range record.CIDs {
+				cidsAny[i] = cid
+			}
+
+			data := map[string]any{
+				"attested_doc": record.AttestedDocId,
+				"source_doc":   record.SourceDocId,
+				"CIDs":         cidsAny,
+				"doc_type":     record.DocType,
+				"vote_count":   record.VoteCount,
+			}
+
+			doc, err := client.NewDocFromMap(ctx, data, col.Version())
+			if err != nil {
+				logger.Sugar.Warnf("Failed to create document for attestation %s: %v", record.AttestedDocId, err)
+				continue
+			}
+			docs = append(docs, doc)
+		}
 	}
 
-	sb.WriteString("}")
+	if len(docs) == 0 {
+		return nil
+	}
 
-	_, err := defra.PostMutation[map[string]any](ctx, defraNode, sb.String())
+	err = col.SaveMany(ctx, docs)
 	if err != nil {
-		return fmt.Errorf("error posting batched attestation records: %v", err)
+		return fmt.Errorf("failed to save attestation records: %w", err)
 	}
 
 	return nil
-}
-
-// GetAttestationRecords queries attestation records by document type
-func GetAttestationRecords(ctx context.Context, defraNode *node.Node, docType string, viewDocIds []string) ([]AttestationRecord, error) {
-	if len(viewDocIds) > 0 {
-		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
-		quoted := make([]string, 0, len(viewDocIds))
-		for _, id := range viewDocIds {
-			quoted = append(quoted, fmt.Sprintf("\"%s\"", id))
-		}
-		inList := strings.Join(quoted, ", ")
-
-		query := fmt.Sprintf(`
-			query {
-				%s(filter: {doc_type: {_eq: "%s"}, attested_doc: {_in: [%s]}}) {
-					_docID
-					attested_doc
-					source_doc
-					CIDs
-					doc_type
-					vote_count
-				}
-			}
-		`, constants.CollectionAttestationRecord, docType, inList)
-
-		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
-	} else {
-		// Query all records for this doc type
-		query := fmt.Sprintf(`
-			query {
-				%s(filter: {doc_type: {_eq: "%s"}}) {
-					_docID
-					attested_doc
-					source_doc
-					CIDs
-					doc_type
-					vote_count
-				}
-			}
-		`, constants.CollectionAttestationRecord, docType)
-
-		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
-	}
 }
 
 // HandleDocumentAttestation is the main handler for processing document attestations
