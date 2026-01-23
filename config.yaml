@@ -5,8 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Standard - http://34.29.116.29:8080/health
-      - '/ip4/34.29.116.29/tcp/9171/p2p/12D3KooWMrEVar6kmqzzB2dcTzuhJb3XmMMvHwTmxLCZjSkR4by8'
+      # Standard - http://34.45.202.94:8080/health
+      - '/ip4/34.45.202.94/tcp/9171/p2p/12D3KooWRPTJRc71dHYQuVEuSoQTnPEgKNF9XWfyxrohW4JMdtye'
       # Branchable - http://34.9.209.81:8080/health
       # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
@@ -19,7 +19,7 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
-  hub_base_url: shinzohub-rpc.infra.source.network:26657
+  hub_base_url: rpc.devnet.shinzo.network:26657
   
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
@@ -41,8 +41,9 @@ shinzo:
 
   # Batch Attestation Processing Settings
   batch_writer_count: 64             # Number of batch writers
-  batch_size: 1000                    # Max attestations per batch
+  batch_size: 5000                    # Max attestations per batch
   batch_flush_interval: 100          # Flush interval in milliseconds
+  use_batch_signatures: true
 
 logger:
   development: true
