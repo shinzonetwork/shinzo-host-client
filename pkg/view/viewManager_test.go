@@ -212,21 +212,11 @@ func TestView_BuildLensConfig(t *testing.T) {
 
 	config := v.BuildLensConfig()
 
-	require.Equal(t, query, config.SourceSchemaVersionID)
-	require.Equal(t, sdl, config.DestinationSchemaVersionID)
+	require.Equal(t, query, config.SourceCollectionVersionID)
+	require.Equal(t, sdl, config.DestinationCollectionVersionID)
 	require.Len(t, config.Lens.Lenses, 1)
 	require.Equal(t, "file:///path/to/filter.wasm", config.Lens.Lenses[0].Path)
 	require.Equal(t, "address", config.Lens.Lenses[0].Arguments["field"])
-}
-
-func TestView_BuildLensConfig_NoLenses(t *testing.T) {
-	v := View{
-		Name: "EmptyView",
-	}
-
-	config := v.BuildLensConfig()
-
-	require.Empty(t, config.Lens.Lenses)
 }
 
 func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {

@@ -15,28 +15,40 @@ type Document struct {
 	ID          string
 	Type        string
 	BlockNumber uint64
-	Data        map[string]interface{}
+	Data        map[string]any
 }
 
-// processDocumentAttestation handles attestation processing for a single document
-func (h *Host) processDocumentAttestation(ctx context.Context, docID string, docType string, blockNumber uint64, docData map[string]interface{}) error {
-	// Create Document struct
-	doc := Document{
-		ID:          docID,
-		Type:        docType,
-		BlockNumber: blockNumber,
-		Data:        docData,
+// processDocumentAttestationBatch handles attestation processing for multiple documents in a single batch.
+func (h *Host) processDocumentAttestationBatch(ctx context.Context, docs []Document) error {
+	if len(docs) == 0 {
+		return nil
 	}
 
-	// Extract version information (signatures) from the document
-	versions, err := attestationService.ExtractVersionsFromDocument(doc.Data)
-	if err != nil {
-		return fmt.Errorf("failed to extract versions from document %s: %w", doc.ID, err)
+	inputs := make([]attestationService.DocumentAttestationInput, 0, len(docs))
+	for _, doc := range docs {
+		versions, err := attestationService.ExtractVersionsFromDocument(doc.Data)
+		if err != nil {
+			continue
+		}
+
+		if len(versions) > 0 {
+			inputs = append(inputs, attestationService.DocumentAttestationInput{
+				DocID:    doc.ID,
+				DocType:  doc.Type,
+				Versions: versions,
+			})
+		}
 	}
 
-	// Use the attestation handler
-	return attestationService.HandleDocumentAttestation(ctx, h.signatureVerifier, h.DefraNode, doc.ID, doc.Type, versions)
+	if len(inputs) == 0 {
+		return nil
+	}
 
+	maxConcurrentVerifications := h.config.Shinzo.MaxConcurrentVerifications
+	if maxConcurrentVerifications <= 0 {
+		maxConcurrentVerifications = 50
+	}
+	return attestationService.HandleDocumentAttestationBatch(ctx, h.signatureVerifier, h.DefraNode, inputs, maxConcurrentVerifications)
 }
 
 // processAttestationEventsWithSubscription starts simple DefraDB subscriptions
@@ -64,19 +76,19 @@ func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
 	var subscription string
 	switch docType {
 	case constants.CollectionBlock:
-		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } collectionVersionId } } }`
 	case constants.CollectionTransaction:
-		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
 	case constants.CollectionLog:
-		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
 	case constants.CollectionAccessListEntry:
-		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } schemaVersionId } } }`
+		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } collectionVersionId } } }`
 	default:
-		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } schemaVersionId } } }`, docType)
+		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } collectionVersionId } } }`, docType)
 	}
 
 	// Create DefraDB subscription
-	docChan, err := defra.Subscribe[map[string]interface{}](ctx, h.DefraNode, subscription)
+	docChan, err := defra.Subscribe[map[string]any](ctx, h.DefraNode, subscription)
 	if err != nil {
 		logger.Sugar.Errorf("❌ Failed to create %s subscription: %v", docType, err)
 		return
@@ -104,11 +116,11 @@ func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
 }
 
 // processSubscriptionResponse processes documents from subscription
-func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[string]interface{}) {
+func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[string]any) {
 	if docArray, exists := gqlResponse[docType]; exists {
-		if docs, ok := docArray.([]interface{}); ok {
+		if docs, ok := docArray.([]any); ok {
 			for _, docInterface := range docs {
-				if docMap, ok := docInterface.(map[string]interface{}); ok {
+				if docMap, ok := docInterface.(map[string]any); ok {
 					// Extract document info
 					docID := ""
 					if id, exists := docMap["_docID"]; exists {
@@ -116,13 +128,14 @@ func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[strin
 					}
 
 					blockNumber := uint64(0)
-					if docType == constants.CollectionBlock {
+					switch docType {
+					case constants.CollectionBlock:
 						if num, exists := docMap["number"]; exists {
 							if numFloat, ok := num.(float64); ok {
 								blockNumber = uint64(numFloat)
 							}
 						}
-					} else if docType == constants.CollectionTransaction || docType == constants.CollectionLog {
+					case constants.CollectionTransaction, constants.CollectionLog:
 						if num, exists := docMap["blockNumber"]; exists {
 							if numFloat, ok := num.(float64); ok {
 								blockNumber = uint64(numFloat)

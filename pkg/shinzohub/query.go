@@ -175,7 +175,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, e
 	// Fetch 1 transaction at a time until we hit an error or empty page
 	for page := startPage; ; page++ {
 		logger.Sugar.Debugf("📡 Fetching transaction page %d...", page)
-		views, total, err := c.fetchRegisteredViewsPage(ctx, page, 1) // per_page=1
+		views, total, err := c.fetchRegisteredViewsPage(ctx, page, 5) // per_page=5
 		if err != nil {
 			// Error likely means we've gone past the last page
 			logger.Sugar.Debugf("📡 Stopping at page %d: %v", page, err)
@@ -205,7 +205,7 @@ func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage 
 	// Build the query URL
 	// Query: Registered.key EXISTS
 	query := url.QueryEscape(`Registered.key EXISTS`)
-	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"desc\"",
+	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"asc\"",
 		c.rpcURL, query, page, perPage)
 
 	var body []byte
@@ -268,12 +268,6 @@ func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage 
 				if err != nil {
 					skippedMalformed++
 					logger.Sugar.Debugf("📡 Skipping malformed event: %v", err)
-					continue
-				}
-				// Skip views without lenses - they can't be processed
-				if !v.HasLenses() {
-					skippedNoLenses++
-					logger.Sugar.Debugf("📡 Skipping view %s (no lenses)", v.Name)
 					continue
 				}
 				logger.Sugar.Debugf("📡 Found view with lenses: %s", v.Name)

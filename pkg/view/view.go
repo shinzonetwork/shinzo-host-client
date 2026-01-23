@@ -24,11 +24,12 @@ type Metadata = models.Metadata
 type Lens = models.Lens
 
 type View struct {
-	Name      string    `json:"name"`
-	Query     *string   `json:"query"`
-	Sdl       *string   `json:"sdl"`
-	Transform Transform `json:"transform"`
-	Metadata  Metadata  `json:"metadata"`
+	Name         string    `json:"name"`
+	Query        *string   `json:"query"`
+	Sdl          *string   `json:"sdl"`
+	Materialized bool      `json:"materialized"`
+	Transform    Transform `json:"transform"`
+	Metadata     Metadata  `json:"metadata"`
 }
 
 func (view *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
@@ -125,10 +126,6 @@ func (v *View) filterDocumentFields(document map[string]any) (map[string]any, er
 
 // Modifies the view such that the path, which is originally parsed as the actual wasm, is replaced with a path to the wasm lens (in a newly created file)
 func (v *View) PostWasmToFile(ctx context.Context, lensRegistryPath string) error {
-	if len(v.Transform.Lenses) < 1 {
-		return fmt.Errorf("no lenses provided in view %+v", v)
-	}
-
 	// Find or create the lens registry directory
 	registryDir, err := v.findOrCreateLensRegistryDir(lensRegistryPath)
 	if err != nil {
@@ -197,9 +194,9 @@ func (v *View) findOrCreateLensRegistryDir(registryPath string) (string, error) 
 // - A GQL SDL (output structure, should have @materialized(if: false) for non-materialized)
 // - Optionally, a lens configuration (transform)
 func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaService *SchemaService) error {
-	if len(v.Transform.Lenses) < 1 {
-		return fmt.Errorf("no lenses provided in view %+v", v)
-	}
+	// if v.Transform.Lenses == nil || len(v.Transform.Lenses) < 1 {
+	// 	return fmt.Errorf("no lenses provided in view %+v", v)
+	// }
 	if v.Query == nil || *v.Query == "" {
 		return fmt.Errorf("view query is required")
 	}
@@ -211,9 +208,11 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	transformedQuery := transformQueryCollectionNames(*v.Query)
 	logger.Sugar.Debugf("🔧 View %s: transformed query: %s", v.Name, transformedQuery)
 
-	// Normalize SDL using service
+	// Parse materialized setting from SDL
+	materialized := schemaService.ParseMaterializedFromSDL(*v.Sdl)
+
 	sdl := schemaService.NormalizeSDL(*v.Sdl, v.getUniqueViewName(), SDLOptions{
-		Materialized:   false,
+		Materialized:   materialized,
 		RequiredFields: []FieldDef{{Name: "blockNumber", Type: "Int"}},
 	})
 	logger.Sugar.Debugf("🔧 View %s: normalized SDL: %s", v.Name, sdl)
@@ -223,13 +222,21 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	logger.Sugar.Debugf("🔧 View %s: lens modules: %+v", v.Name, lens)
 
 	// Register lens and create view
-	lensCID, err := defraNode.DB.AddLens(ctx, lens)
-	if err != nil {
-		return fmt.Errorf("failed to register lens: %w", err)
+	var lensOpt immutable.Option[string]
+	if len(v.Transform.Lenses) > 0 {
+		lensCID, err := defraNode.DB.AddLens(ctx, lens)
+		if err != nil {
+			return fmt.Errorf("failed to register lens: %w", err)
+		}
+		logger.Sugar.Debugf("🔧 View %s: lens CID: %s", v.Name, lensCID)
+		lensOpt = immutable.Some(lensCID)
+	} else {
+		logger.Sugar.Debugf("🔧 View %s: no lenses, creating view without lens transform", v.Name)
+		lensOpt = immutable.None[string]()
 	}
-	logger.Sugar.Debugf("🔧 View %s: lens CID: %s", v.Name, lensCID)
 
-	_, err = defraNode.DB.AddView(ctx, transformedQuery, sdl, immutable.Some(lensCID))
+	_, err := defraNode.DB.AddView(ctx, transformedQuery, sdl, lensOpt)
+
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return fmt.Errorf("failed to create view: %w", err)
 	}

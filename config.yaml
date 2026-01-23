@@ -5,38 +5,26 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Standard - http://34.72.60.210:8080/health
-      - '/ip4/34.72.60.210/tcp/9171/p2p/12D3KooWPujtYnx2aRHbTTRphjn6Jad4ajpVvJujTfkbmvPBT5P7'
-      # Branchable - http://35.223.185.161:8080/health
-      # - '/ip4/35.223.185.161/tcp/9171/p2p/12D3KooWEGCZQmx24Ah15as4FCoufbhxkLP2Lbr7VWmxty1Tsire'
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWPtmWBwFZTi58bNdw6Vz5z4JCwbnu5rH1QLpa2MZKVmjE'
+      - '/ip4/35.192.219.55/tcp/9171/p2p/12D3KooWCfgCafjxcVzpJsP7DhmdKCb8dnmmfngUjywsxamzQtgB'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
-    # Filter P2P topics - only subscribe to document-related topics
-    topic_filter:
-      - "Block"
-      - "Transaction" 
-      - "Log"
-      - "AccessListEntry"
-      - "AttestationRecord"
   store:
     path: "./.defra/data"
 shinzo:
   minimum_attestations: 1
   start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
-  hub_base_url: shinzohub-rpc.infra.source.network:26657
+  hub_base_url: rpc.devnet.shinzo.network:26657
   
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
-  
-  # Message Cache & Worker Pool Settings - AGGRESSIVE MEMORY PROTECTION
-  cache_size: 50000              # CRITICAL: Small cache to prevent memory explosion
-  cache_queue_size: 50000         # CRITICAL: Small queue to prevent memory explosion  
-  cache_max_age_seconds: 10       # CRITICAL: Aggressive cleanup every 10 seconds
-  worker_count: 1000               # CRITICAL: Fewer workers to prevent goroutine explosion
+
+  # Queue Settings
+  cache_queue_size: 50000        # Job queue size for document processing
 
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
@@ -44,10 +32,15 @@ shinzo:
   view_worker_count: 20            # Workers for batch lens transformations (increased from 2)
   view_queue_size: 5000           # Queue size for batch processing jobs (increased from 1000)
   
-  # Batch Processing Settings
+  # Batch Processing Settings (View Management)
   batch_processing_enabled: true     # Enable batch processing for efficiency
   batch_max_views_per_job: 50         # Split large batches to prevent memory issues
   batch_query_cache_size: 1000        # Cache query templates for reuse
+
+  # Batch Attestation Processing Settings
+  batch_writer_count: 24             # Number of batch writers (default: 16)
+  batch_size: 256                    # Max attestations per batch (default: 100)
+  batch_flush_interval: 50           # Flush interval in milliseconds (default: 50)
 
 logger:
   development: true
@@ -59,3 +52,5 @@ logger:
 
 host:
   lens_registry_path: "./.lens"
+  health_server_port: 8080
+  pprof_port: 6060
