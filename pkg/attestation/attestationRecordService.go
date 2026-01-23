@@ -461,6 +461,81 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 }
 
 // ========================================
+// BLOCK ATTESTATION VERIFICATION
+// ========================================
+
+// IsDocumentAttestedViaBlock checks if a document's CID is attested via a block-level attestation.
+// This is used when batch signatures are enabled - individual documents inherit attestation
+// from the block they belong to. Returns true if the CID is found in any block attestation.
+func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, blockNumber int64, documentCID string) (bool, error) {
+	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
+
+	query := fmt.Sprintf(`
+		query {
+			%s(filter: {attested_doc: {_eq: "%s"}, doc_type: {_eq: "Block"}}) {
+				_docID
+				attested_doc
+				CIDs
+			}
+		}
+	`, constants.CollectionAttestationRecord, blockAttestedID)
+
+	records, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	if err != nil {
+		if strings.Contains(err.Error(), "No attestation records found") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to query block attestation for block %d: %w", blockNumber, err)
+	}
+
+	if len(records) == 0 {
+		return false, nil
+	}
+
+	for _, record := range records {
+		for _, cid := range record.CIDs {
+			if cid == documentCID {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// GetBlockAttestation retrieves the attestation record for a specific block.
+func GetBlockAttestation(ctx context.Context, defraNode *node.Node, blockNumber int64) (*AttestationRecord, error) {
+	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
+
+	query := fmt.Sprintf(`
+		query {
+			%s(filter: {attested_doc: {_eq: "%s"}, doc_type: {_eq: "Block"}}) {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+				doc_type
+				vote_count
+			}
+		}
+	`, constants.CollectionAttestationRecord, blockAttestedID)
+
+	records, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	if err != nil {
+		if strings.Contains(err.Error(), "No attestation records found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query block attestation for block %d: %w", blockNumber, err)
+	}
+
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	return &records[0], nil
+}
+
+// ========================================
 // UTILITY FUNCTIONS
 // ========================================
 

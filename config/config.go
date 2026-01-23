@@ -64,10 +64,11 @@ type ShinzoConfig struct {
 	CacheQueueSize int `yaml:"cache_queue_size"` // Size of job queue for document processing
 
 	// Batch Attestation Processing Settings
-	BatchWriterCount           int `yaml:"batch_writer_count"`           // Number of batch writers (default: 16)
-	BatchSize                  int `yaml:"batch_size"`                   // Max attestations per batch (default: 100)
-	BatchFlushInterval         int `yaml:"batch_flush_interval"`         // Flush interval in milliseconds (default: 50)
-	MaxConcurrentVerifications int `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications (default: 50)
+	BatchWriterCount           int  `yaml:"batch_writer_count"`           // Number of batch writers (default: 16)
+	BatchSize                  int  `yaml:"batch_size"`                   // Max attestations per batch (default: 100)
+	BatchFlushInterval         int  `yaml:"batch_flush_interval"`         // Flush interval in milliseconds (default: 50)
+	MaxConcurrentVerifications int  `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications (default: 50)
+	UseBatchSignatures         bool `yaml:"use_batch_signatures"`         // Use batch signatures for attestations (default: false)
 }
 
 type HostConfig struct {

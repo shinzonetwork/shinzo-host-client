@@ -12,8 +12,8 @@ import (
 
 const (
 	defaultBatchWriterCount          = 50
-	defaultBatchSize                 = 500
-	defaultBatchFlushIntervalMs      = 50
+	defaultBatchSize                 = 1000
+	defaultBatchFlushIntervalMs      = 100
 	defaultMaxConcurrentAttestations = 200
 
 	maxRetries            = 10
@@ -51,6 +51,9 @@ type ProcessingPipeline struct {
 	attestationSem chan struct{}
 	attestationWg  sync.WaitGroup
 
+	// Batch signature mode - skip per-document attestation
+	useBatchSignatures bool
+
 	// Metrics for monitoring
 	queuedCount              int64
 	processedCount           int64
@@ -66,6 +69,7 @@ func NewProcessingPipeline(
 	host *Host,
 	queueSize int,
 	batchWriterCount, batchSize, batchFlushIntervalMs int,
+	useBatchSignatures bool,
 ) *ProcessingPipeline {
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
@@ -88,6 +92,7 @@ func NewProcessingPipeline(
 		batchSize:          batchSize,
 		batchFlushInterval: time.Duration(batchFlushIntervalMs) * time.Millisecond,
 		attestationSem:     make(chan struct{}, defaultMaxConcurrentAttestations),
+		useBatchSignatures: useBatchSignatures,
 	}
 }
 
@@ -207,10 +212,29 @@ func (pp *ProcessingPipeline) batchWriter(writerID int) {
 	}
 }
 
-// processBatch processes a batch of documents andmarks them as received immediately.
-// Then it spawns async goroutine for attestation creation.
+// processBatch processes a batch of documents and marks them as received immediately.
+// When useBatchSignatures is false, it spawns async goroutine for per-document attestation creation.
+// When useBatchSignatures is true, attestations are created via batch signature flow instead.
 func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 	if len(jobs) == 0 {
+		return
+	}
+
+	// Skip per-document attestation when using batch signatures
+	// Attestations are created via the batch signature flow instead (one per block)
+	// Individual documents can be verified against the block attestation
+	if pp.useBatchSignatures {
+		if pp.host.metrics != nil {
+			for _, job := range jobs {
+				pp.host.metrics.IncrementDocumentsReceived()
+				pp.host.metrics.IncrementDocumentsProcessed()
+				pp.host.metrics.IncrementDocumentByType(job.docType)
+				pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
+			}
+		}
+		pp.mu.Lock()
+		pp.processedCount += int64(len(jobs))
+		pp.mu.Unlock()
 		return
 	}
 

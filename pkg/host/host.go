@@ -86,7 +86,9 @@ type Host struct {
 	NetworkHandler *defra.NetworkHandler // P2P network control
 
 	// signature verifier as a service
-	signatureVerifier *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
+	signatureVerifier      *attestation.DefraSignatureVerifier  // Cached signature verifier for attestation processing
+	batchSignatureVerifier *attestation.BatchSignatureVerifier  // Batch signature verifier for batch-signed documents
+	blockCIDCollector      *attestation.BlockCIDCollector       // Collects CIDs per block for batch verification
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
@@ -274,10 +276,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	newHost.processingPipeline = NewProcessingPipeline(
 		context.Background(), newHost, queueSize,
 		cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval,
+		cfg.Shinzo.UseBatchSignatures,
 	)
 
-	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms",
-		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval)
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBatchSignatures=%v",
+		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBatchSignatures)
 
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
@@ -316,7 +319,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	if defraNode != nil {
 		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode)
-		logger.Sugar.Info("🔐 Optimized signature verifier initialized")
+		newHost.batchSignatureVerifier = attestation.NewBatchSignatureVerifier(10000) // Cache last 10000 blocks
+		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
+		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with batch signature support)")
 	}
 
 	port := cfg.HostConfig.HealthServerPort
