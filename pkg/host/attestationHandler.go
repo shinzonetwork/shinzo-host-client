@@ -3,11 +3,15 @@ package host
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/event"
 )
 
 // Document represents a document from DefraDB
@@ -51,122 +55,260 @@ func (h *Host) processDocumentAttestationBatch(ctx context.Context, docs []Docum
 	return attestationService.HandleDocumentAttestationBatch(ctx, h.signatureVerifier, h.DefraNode, inputs, maxConcurrentVerifications)
 }
 
-// processAttestationEventsWithSubscription starts simple DefraDB subscriptions
+// processAttestationEventsWithSubscription starts DefraDB event listeners
 func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
-	logger.Sugar.Info("🚀 Starting simple DefraDB subscriptions")
+	logger.Sugar.Info("🚀 Starting DefraDB event listener")
 
-	// Start simple subscriptions (direct processing)
-	go h.subscribeToDocumentType(ctx, constants.CollectionBlock)
-	go h.subscribeToDocumentType(ctx, constants.CollectionTransaction)
-	go h.subscribeToDocumentType(ctx, constants.CollectionLog)
-	go h.subscribeToDocumentType(ctx, constants.CollectionAccessListEntry)
+	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
+	go h.startEventBusListener(ctx)
 
-	// Start batch signature subscription for batch-signed documents
-	go h.subscribeToBatchSignatures(ctx)
-
-	logger.Sugar.Info("✅ All subscriptions started (including batch signatures)")
+	logger.Sugar.Info("✅ Event bus listener started (metrics + attestations via event bus)")
 
 	// Wait for context cancellation
 	<-ctx.Done()
-	logger.Sugar.Info("🛑 Subscriptions stopped")
+	logger.Sugar.Info("🛑 Event listeners stopped")
 }
 
-// subscribeToBatchSignatures creates a subscription for batch signatures
-func (h *Host) subscribeToBatchSignatures(ctx context.Context) {
-	logger.Sugar.Info("📡 Starting Ethereum__Mainnet__BatchSignature subscription")
+// initCollectionIDMap builds a lookup map from DefraDB's CID-based CollectionID to collection names.
+func (h *Host) initCollectionIDMap(ctx context.Context) error {
+	if h.DefraNode == nil || h.DefraNode.DB == nil {
+		return fmt.Errorf("DefraNode not available")
+	}
 
-	subscription := `subscription { ` + constants.CollectionBatchSignature + ` {
-		_docID
-		blockNumber
-		blockHash
-		merkleRoot
-		cidCount
-		signatureType
-		signatureIdentity
-		signatureValue
-		createdAt
-	} }`
-
-	sigChan, err := defra.Subscribe[map[string]any](ctx, h.DefraNode, subscription)
+	collections, err := h.DefraNode.DB.GetCollections(ctx, client.CollectionFetchOptions{})
 	if err != nil {
-		logger.Sugar.Errorf("❌ Failed to create Ethereum__Mainnet__BatchSignature subscription: %v", err)
+		return fmt.Errorf("failed to get collections: %w", err)
+	}
+
+	h.collectionIDMap = make(map[string]string)
+	for _, col := range collections {
+		collectionID := col.CollectionID()
+		collectionName := col.Name()
+		h.collectionIDMap[collectionID] = collectionName
+	}
+
+	logger.Sugar.Infof("Initialized collection ID map with %d collections", len(h.collectionIDMap))
+	return nil
+}
+
+// startEventBusListener subscribes to DefraDB's event bus to track document metrics
+// This is more efficient than GraphQL subscriptions and tracks P2P-received docs directly
+func (h *Host) startEventBusListener(ctx context.Context) {
+	if h.DefraNode == nil || h.DefraNode.DB == nil {
+		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
 		return
 	}
 
-	logger.Sugar.Info("✅ Ethereum__Mainnet__BatchSignature subscription created")
+	// Initialize collection ID mapping at startup
+	if err := h.initCollectionIDMap(ctx); err != nil {
+		logger.Sugar.Errorf("Failed to initialize collection ID map: %v", err)
+		// Continue anyway - metrics will show as "unmapped" but event bus will still work
+	}
+
+	// Subscribe to document update events
+	updateSub, err := h.DefraNode.DB.Events().Subscribe(event.UpdateName)
+	if err != nil {
+		logger.Sugar.Errorf("Failed to subscribe to DefraDB events: %v", err)
+		return
+	}
+
+	logger.Sugar.Info("📡 DefraDB event bus listener started (tracking P2P document metrics)")
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Sugar.Info("🛑 Ethereum__Mainnet__BatchSignature subscription stopped")
+			logger.Sugar.Info("🛑 Event bus listener stopped")
 			return
 
-		case gqlResponse, ok := <-sigChan:
+		case msg, ok := <-updateSub.Message():
 			if !ok {
-				logger.Sugar.Warn("⚠️ Ethereum__Mainnet__BatchSignature subscription channel closed")
+				logger.Sugar.Warn("Event bus channel closed")
 				return
 			}
 
-			h.processBatchSignatureResponse(ctx, gqlResponse)
+			update, ok := msg.Data.(event.Update)
+			if !ok {
+				continue
+			}
+
+			// Only count documents that came from P2P (relay)
+			if !update.IsRelay {
+				continue
+			}
+
+			// Map collection ID to our collection constants
+			collectionName := h.mapCollectionID(update.CollectionID)
+
+			// Track metrics by collection type
+			if h.metrics != nil {
+				h.metrics.IncrementDocumentsReceived()
+
+				// For Block and BatchSignature documents, we increment after attestation creation
+				// to keep blocks_processed and attestations_created aligned
+				// For other documents, increment by type immediately
+				if collectionName != "" && collectionName != constants.CollectionBatchSignature && collectionName != constants.CollectionBlock {
+					h.metrics.IncrementDocumentByType(collectionName)
+				} else if collectionName == "" {
+					logger.Sugar.Debugf("Unmapped CollectionID: %s (DocID: %s)", update.CollectionID, update.DocID)
+				}
+			}
+
+			// For BatchSignature documents, fetch and process for attestation
+			if collectionName == constants.CollectionBatchSignature {
+				go h.processBatchSignatureFromEventBus(ctx, update.DocID)
+			}
 		}
 	}
 }
 
-// processBatchSignatureResponse processes batch signatures from subscription
-func (h *Host) processBatchSignatureResponse(ctx context.Context, gqlResponse map[string]any) {
-	if sigArray, exists := gqlResponse[constants.CollectionBatchSignature]; exists {
-		if sigs, ok := sigArray.([]any); ok {
-			for _, sigInterface := range sigs {
-				if sigMap, ok := sigInterface.(map[string]any); ok {
-					batchSig := &attestationService.BatchSignature{}
+// mapCollectionID maps DefraDB's CID-based CollectionID to our collection name
+// using the pre-built lookup map initialized at startup
+func (h *Host) mapCollectionID(collectionID string) string {
+	if h.collectionIDMap == nil {
+		return ""
+	}
+	return h.collectionIDMap[collectionID]
+}
 
-					if blockNum, ok := sigMap["blockNumber"].(float64); ok {
-						batchSig.BlockNumber = int64(blockNum)
-					}
-					if blockHash, ok := sigMap["blockHash"].(string); ok {
-						batchSig.BlockHash = blockHash
-					}
-					if merkleRoot, ok := sigMap["merkleRoot"].(string); ok {
-						batchSig.MerkleRoot = merkleRoot
-					}
-					if cidCount, ok := sigMap["cidCount"].(float64); ok {
-						batchSig.CIDCount = int(cidCount)
-					}
-					if sigType, ok := sigMap["signatureType"].(string); ok {
-						batchSig.SignatureType = sigType
-					}
-					if sigIdentity, ok := sigMap["signatureIdentity"].(string); ok {
-						batchSig.SignatureIdentity = sigIdentity
-					}
-					if sigValue, ok := sigMap["signatureValue"].(string); ok {
-						batchSig.SignatureValue = sigValue
-					}
-					if createdAt, ok := sigMap["createdAt"].(string); ok {
-						batchSig.CreatedAt = createdAt
-					}
+// processedBatchSigDocIDs tracks batch signatures we've already processed
+// to avoid duplicate attestations from multiple P2P events.
+// The map is bounded to prevent unbounded memory growth (~80 bytes per entry).
+// At 1M entries = ~80MB, at 5M entries = ~400MB.
+// When the limit is reached, the map is cleared - this is safe because P2P duplicates
+// typically arrive within seconds, not after processing millions of blocks.
+const maxProcessedBatchSigDocIDs = 1000000
 
-					if h.batchSignatureVerifier != nil {
-						if err := h.batchSignatureVerifier.VerifyBatchSignature(ctx, batchSig); err != nil {
-							logger.Sugar.Warnf("❌ Invalid batch signature for block %d: %v", batchSig.BlockNumber, err)
-							continue
-						}
+var (
+	processedBatchSigDocIDs   = make(map[string]bool)
+	processedBatchSigDocIDsMu sync.Mutex
+)
 
-						h.batchSignatureVerifier.AddBatchSignature(batchSig)
-						logger.Sugar.Debugf("✅ Verified and cached batch signature for block %d (%d CIDs)",
-							batchSig.BlockNumber, batchSig.CIDCount)
+// processBatchSignatureFromEventBus fetches a BatchSignature document by DocID and processes it
+func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID string) {
+	if h.DefraNode == nil || h.DefraNode.DB == nil {
+		return
+	}
 
-						h.processAttestationsFromBatchSignature(ctx, batchSig)
-					}
-				}
+	// Skip if we've already processed this batch signature
+	processedBatchSigDocIDsMu.Lock()
+	if processedBatchSigDocIDs[docID] {
+		processedBatchSigDocIDsMu.Unlock()
+		return
+	}
+	processedBatchSigDocIDsMu.Unlock()
+
+	// Small delay to let P2P merge transaction complete before querying
+	// This prevents transaction conflicts during concurrent merge operations
+	time.Sleep(50 * time.Millisecond)
+
+	// Query the batch signature document by _docID with retry logic
+	query := fmt.Sprintf(`query {
+		%s(filter: {_docID: {_eq: "%s"}}) {
+			_docID
+			blockNumber
+			blockHash
+			merkleRoot
+			cidCount
+			signatureType
+			signatureIdentity
+			signatureValue
+			createdAt
+		}
+	}`, constants.CollectionBatchSignature, docID)
+
+	var results []map[string]any
+	var err error
+	maxRetries := 3
+
+	for attempt := range maxRetries {
+		results, err = defra.QueryArray[map[string]any](ctx, h.DefraNode, query)
+		if err == nil && len(results) > 0 {
+			break
+		}
+		if attempt < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
 			}
 		}
+	}
+
+	if err != nil {
+		logger.Sugar.Debugf("Failed to fetch batch signature %s after %d retries: %v", docID, maxRetries, err)
+		return
+	}
+
+	if len(results) == 0 {
+		logger.Sugar.Debugf("BatchSignature %s not found after %d retries", docID, maxRetries)
+		return
+	}
+
+	// Mark as processed before creating attestation to prevent duplicates
+	processedBatchSigDocIDsMu.Lock()
+	if len(processedBatchSigDocIDs) >= maxProcessedBatchSigDocIDs {
+		logger.Sugar.Infof("Clearing processedBatchSigDocIDs map (reached %d entries)", len(processedBatchSigDocIDs))
+		processedBatchSigDocIDs = make(map[string]bool)
+	}
+	processedBatchSigDocIDs[docID] = true
+	processedBatchSigDocIDsMu.Unlock()
+
+	sigDoc := results[0]
+	h.processBatchSignatureDocument(ctx, sigDoc)
+}
+
+// processBatchSignatureDocument extracts fields from a BatchSignature document
+// and processes them.
+func (h *Host) processBatchSignatureDocument(ctx context.Context, sigDoc map[string]any) {
+	blockNumber := int64(0)
+	if num, ok := sigDoc["blockNumber"].(float64); ok {
+		blockNumber = int64(num)
+	}
+
+	merkleRoot, ok := sigDoc["merkleRoot"].(string)
+	if !ok || merkleRoot == "" {
+		logger.Sugar.Debugf("BatchSignature for block %d has no merkle root, skipping", blockNumber)
+		return
+	}
+
+	batchSig := &attestationService.BatchSignature{
+		BlockNumber: blockNumber,
+		MerkleRoot:  merkleRoot,
+	}
+
+	if blockHash, ok := sigDoc["blockHash"].(string); ok {
+		batchSig.BlockHash = blockHash
+	}
+	if cidCount, ok := sigDoc["cidCount"].(float64); ok {
+		batchSig.CIDCount = int(cidCount)
+	}
+	if sigType, ok := sigDoc["signatureType"].(string); ok {
+		batchSig.SignatureType = sigType
+	}
+	if sigIdentity, ok := sigDoc["signatureIdentity"].(string); ok {
+		batchSig.SignatureIdentity = sigIdentity
+	}
+	if sigValue, ok := sigDoc["signatureValue"].(string); ok {
+		batchSig.SignatureValue = sigValue
+	}
+	if createdAt, ok := sigDoc["createdAt"].(string); ok {
+		batchSig.CreatedAt = createdAt
+	}
+
+	if h.batchSignatureVerifier != nil {
+		if err := h.batchSignatureVerifier.VerifyBatchSignature(ctx, batchSig); err != nil {
+			logger.Sugar.Warnf("Invalid batch signature for block %d: %v", batchSig.BlockNumber, err)
+			return
+		}
+
+		h.batchSignatureVerifier.AddBatchSignature(batchSig)
+
+		h.processAttestationsFromBatchSignature(ctx, batchSig)
 	}
 }
 
 // processAttestationsFromBatchSignature creates a single attestation record for the entire block
-// that was covered by a verified batch signature. Since the batch signature already proves
-// all documents in the block are valid (via merkle root), we only need one attestation per block.
-// The attestation record stores all CIDs from the block, allowing individual document verification.
+// that was covered by a verified batch signature.
 func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchSig *attestationService.BatchSignature) {
 	if h.DefraNode == nil {
 		return
@@ -174,42 +316,13 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 
 	blockNumber := batchSig.BlockNumber
 
-	var blockCIDs []string
-	if h.blockCIDCollector != nil {
-		blockCIDs = h.blockCIDCollector.GetBlockCIDs(blockNumber)
-
-		if len(blockCIDs) > 0 && h.batchSignatureVerifier != nil {
-			valid, err := h.batchSignatureVerifier.VerifyCIDsAgainstBatchSignature(blockCIDs, batchSig)
-			if err != nil {
-				logger.Sugar.Warnf("Failed to verify CIDs against batch signature for block %d: %v", blockNumber, err)
-			} else if !valid {
-				logger.Sugar.Warnf("CIDs do not match merkle root for block %d (collected %d CIDs, expected %d)",
-					blockNumber, len(blockCIDs), batchSig.CIDCount)
-			} else {
-				logger.Sugar.Debugf("Verified %d CIDs match merkle root for block %d", len(blockCIDs), blockNumber)
-			}
-		}
-
-		defer h.blockCIDCollector.ClearBlock(blockNumber)
-	}
-
-	// Create a single attestation record for this block
-	// The batch signature proves all documents in this block are valid
-	// AttestedDocId uses a block-level identifier format: "block:{blockNumber}"
 	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
-
-	// Store all document CIDs in the attestation record
-	// This allows verifying individual documents against the block attestation
-	attestedCIDs := blockCIDs
-	if len(attestedCIDs) == 0 {
-		attestedCIDs = []string{batchSig.MerkleRoot}
-	}
 
 	record := &constants.AttestationRecord{
 		AttestedDocId: blockAttestedID,
-		SourceDocId:   batchSig.MerkleRoot,
-		CIDs:          attestedCIDs,
-		DocType:       "Block", // Indicates this is a block-level attestation
+		SourceDocId:   batchSig.SignatureIdentity,
+		CIDs:          []string{batchSig.MerkleRoot},
+		DocType:       "Block",
 		VoteCount:     1,
 	}
 
@@ -222,11 +335,12 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 	}
 
 	if h.metrics != nil {
+		h.metrics.IncrementDocumentByType(constants.CollectionBlock)
 		h.metrics.IncrementAttestationsCreated()
 	}
 
-	logger.Sugar.Infof("✅ Created block attestation for block %d (%d CIDs, merkle root: %s)",
-		blockNumber, len(attestedCIDs), truncateString(batchSig.MerkleRoot, 16))
+	logger.Sugar.Infof("✅ Created block attestation for block %d (indexer: %s, merkle: %s)",
+		blockNumber, truncateString(batchSig.SignatureIdentity, 16), truncateString(batchSig.MerkleRoot, 16))
 }
 
 // truncateString truncates a string to maxLen and adds "..." if truncated
@@ -235,109 +349,4 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
-}
-
-// subscribeToDocumentType creates a simple subscription for a document type
-func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
-	logger.Sugar.Infof("📡 Starting %s subscription", docType)
-
-	// Create subscription query
-	var subscription string
-	switch docType {
-	case constants.CollectionBlock:
-		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } collectionVersionId } } }`
-	case constants.CollectionTransaction:
-		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
-	case constants.CollectionLog:
-		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
-	case constants.CollectionAccessListEntry:
-		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
-	default:
-		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } collectionVersionId } } }`, docType)
-	}
-
-	// Create DefraDB subscription
-	docChan, err := defra.Subscribe[map[string]any](ctx, h.DefraNode, subscription)
-	if err != nil {
-		logger.Sugar.Errorf("❌ Failed to create %s subscription: %v", docType, err)
-		return
-	}
-
-	logger.Sugar.Infof("✅ %s subscription created", docType)
-
-	// Process events
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Sugar.Infof("🛑 %s subscription stopped", docType)
-			return
-
-		case gqlResponse, ok := <-docChan:
-			if !ok {
-				logger.Sugar.Warnf("⚠️ %s subscription channel closed", docType)
-				return
-			}
-
-			// Process documents directly
-			h.processSubscriptionResponse(docType, gqlResponse)
-		}
-	}
-}
-
-// processSubscriptionResponse processes documents from subscription
-func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[string]any) {
-	if docArray, exists := gqlResponse[docType]; exists {
-		if docs, ok := docArray.([]any); ok {
-			for _, docInterface := range docs {
-				if docMap, ok := docInterface.(map[string]any); ok {
-					// Extract document info
-					docID := ""
-					if id, exists := docMap["_docID"]; exists {
-						docID = fmt.Sprintf("%v", id)
-					}
-
-					blockNumber := uint64(0)
-					switch docType {
-					case constants.CollectionBlock:
-						if num, exists := docMap["number"]; exists {
-							if numFloat, ok := num.(float64); ok {
-								blockNumber = uint64(numFloat)
-							}
-						}
-					case constants.CollectionTransaction, constants.CollectionLog, constants.CollectionAccessListEntry:
-						if num, exists := docMap["blockNumber"]; exists {
-							if numFloat, ok := num.(float64); ok {
-								blockNumber = uint64(numFloat)
-							}
-						}
-					}
-
-					if h.blockCIDCollector != nil && blockNumber > 0 {
-						if versionData, exists := docMap["_version"]; exists {
-							if versionArray, ok := versionData.([]any); ok && len(versionArray) > 0 {
-								if firstVersion, ok := versionArray[0].(map[string]any); ok {
-									if cid, ok := firstVersion["cid"].(string); ok && cid != "" {
-										h.blockCIDCollector.AddDocumentCID(int64(blockNumber), docID, docType, cid)
-									} else {
-										logger.Sugar.Debugf("No CID in _version for %s doc %s (block %d)", docType, docID, blockNumber)
-									}
-								}
-							} else {
-								logger.Sugar.Debugf("_version not array or empty for %s doc %s", docType, docID)
-							}
-						} else {
-							logger.Sugar.Debugf("No _version field for %s doc %s (block %d)", docType, docID, blockNumber)
-						}
-					} else if h.blockCIDCollector != nil && blockNumber == 0 {
-						logger.Sugar.Debugf("blockNumber is 0 for %s doc %s, skipping CID collection", docType, docID)
-					}
-
-					if docID != "" {
-						// Process via pipeline (enqueued to worker pool)
-						h.processingPipeline.processDocumentDirect(docID, docType, blockNumber, docMap)
-					}
-				}
-			}
-		}
-	}
 }

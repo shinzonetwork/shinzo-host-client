@@ -107,6 +107,9 @@ type Host struct {
 	metrics      *server.HostMetrics // Comprehensive metrics tracking
 
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+
+	// Collection ID mapping: maps DefraDB's CID-based CollectionID to collection names
+	collectionIDMap map[string]string
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
