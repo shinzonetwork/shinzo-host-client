@@ -4,12 +4,13 @@ go 1.25.5
 
 require (
 	github.com/gorilla/websocket v1.5.3
+	github.com/ipfs/go-cid v0.6.0
 	github.com/rs/zerolog v1.33.0
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260120213015-32800f451a9f
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260122005622-76f77bbf4d31
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20260120212054-28ae22b21cf0
+	github.com/sourcenetwork/defradb v0.20.1-0.20260122005451-e4c49329a41e
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
@@ -189,7 +190,6 @@ require (
 	github.com/ipfs/bbloom v0.0.4 // indirect
 	github.com/ipfs/boxo v0.35.2 // indirect
 	github.com/ipfs/go-block-format v0.2.3 // indirect
-	github.com/ipfs/go-cid v0.6.0 // indirect
 	github.com/ipfs/go-cidutil v0.1.0 // indirect
 	github.com/ipfs/go-datastore v0.9.0 // indirect
 	github.com/ipfs/go-dsqueue v0.1.1 // indirect
