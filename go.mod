@@ -6,11 +6,11 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/ipfs/go-cid v0.6.0
 	github.com/rs/zerolog v1.33.0
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260122005622-76f77bbf4d31
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260123235431-425f6ca6adc9
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20260122005451-e4c49329a41e
+	github.com/sourcenetwork/defradb v0.20.1-0.20260123235322-86316e902537
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.9.4
 	github.com/stretchr/testify v1.11.1
