@@ -24,6 +24,10 @@ type DefraDBP2PConfig struct {
 // DefraDBStoreConfig represents store configuration for DefraDB
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
+	// Badger memory configuration
+	BlockCacheMB int64 `yaml:"block_cache_mb"`
+	MemTableMB   int64 `yaml:"memtable_mb"`
+	IndexCacheMB int64 `yaml:"index_cache_mb"`
 }
 
 // DefraDBConfig represents DefraDB configuration
@@ -114,7 +118,10 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 				EnableAutoReconnect: c.DefraDB.P2P.EnableAutoReconnect,
 			},
 			Store: appConfig.DefraStoreConfig{
-				Path: c.DefraDB.Store.Path,
+				Path:         c.DefraDB.Store.Path,
+				BlockCacheMB: c.DefraDB.Store.BlockCacheMB,
+				MemTableMB:   c.DefraDB.Store.MemTableMB,
+				IndexCacheMB: c.DefraDB.Store.IndexCacheMB,
 			},
 		},
 		Logger: appConfig.LoggerConfig{

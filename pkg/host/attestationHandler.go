@@ -126,36 +126,31 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 				return
 			}
 
-			update, ok := msg.Data.(event.Update)
-			if !ok {
-				continue
-			}
-
-			// Only count documents that came from P2P (relay)
-			if !update.IsRelay {
-				continue
-			}
-
-			// Map collection ID to our collection constants
-			collectionName := h.mapCollectionID(update.CollectionID)
-
-			// Track metrics by collection type
-			if h.metrics != nil {
-				h.metrics.IncrementDocumentsReceived()
-
-				// For Block and BatchSignature documents, we increment after attestation creation
-				// to keep blocks_processed and attestations_created aligned
-				// For other documents, increment by type immediately
-				if collectionName != "" && collectionName != constants.CollectionBatchSignature && collectionName != constants.CollectionBlock {
-					h.metrics.IncrementDocumentByType(collectionName)
-				} else if collectionName == "" {
-					logger.Sugar.Debugf("Unmapped CollectionID: %s (DocID: %s)", update.CollectionID, update.DocID)
+			switch msg.Name {
+			case event.UpdateName:
+				update, ok := msg.Data.(event.Update)
+				if !ok {
+					continue
 				}
-			}
 
-			// For BatchSignature documents, fetch and process for attestation
-			if collectionName == constants.CollectionBatchSignature {
-				go h.processBatchSignatureFromEventBus(ctx, update.DocID)
+				if !update.IsRelay {
+					continue
+				}
+
+				collectionName := h.mapCollectionID(update.CollectionID)
+
+				if h.metrics != nil {
+					h.metrics.IncrementDocumentsReceived()
+					if collectionName != "" && collectionName != constants.CollectionBatchSignature && collectionName != constants.CollectionBlock {
+						h.metrics.IncrementDocumentByType(collectionName)
+					} else if collectionName == "" {
+						logger.Sugar.Debugf("Unmapped CollectionID: %s (DocID: %s)", update.CollectionID, update.DocID)
+					}
+				}
+
+				if collectionName == constants.CollectionBatchSignature {
+					go h.processBatchSignatureFromEventBus(ctx, update.DocID)
+				}
 			}
 		}
 	}

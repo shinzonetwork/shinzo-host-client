@@ -5,8 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # Standard - http://130.211.217.1:8080/health
-      - '/ip4/130.211.217.1/tcp/9171/p2p/12D3KooWNFEqDoSjvwCT6W3XYLHXSRh35CtPNpqswvByq87cPHtQ'
+      # Standard - http://34.10.216.73:8080/health
+      - '/ip4/34.10.216.73/tcp/9171/p2p/12D3KooWEBx9Apd2Vph5XjELZLJ1iSAVDGQXLUM6aQR1nMx54tpr'
       # Branchable - http://34.9.209.81:8080/health
       # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
@@ -16,6 +16,9 @@ defradb:
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
     path: "./.defra/data"
+    block_cache_mb: 1024   # Block cache size
+    memtable_mb: 128      # Memtable size
+    index_cache_mb: 256   # Index cache size
 shinzo:
   minimum_attestations: 1
   start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
