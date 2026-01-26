@@ -1,14 +1,26 @@
 package server
 
 import (
+	_ "embed"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+)
+
+//go:embed metrics_client_page.html
+var embeddedMetricsClientPageHTML string
+
+var (
+	metricsClientPagePath = filepath.Join("pkg", "server", "metrics_client_page.html")
 )
 
 // HostMetrics tracks various metrics for the host
@@ -205,6 +217,22 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 
 // ServeHTTP implements http.Handler for the metrics endpoint
 func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
+	accept := r.Header.Get("Accept")
+	acceptLower := strings.ToLower(accept)
+
+	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html)
+	// Otherwise, default to HTML for browser requests
+	if strings.Contains(acceptLower, "text/html") && !strings.Contains(acceptLower, "application/json") {
+		// Default to HTML (browser request or Accept header includes text/html)
+		htmlContent := m.getMetricsClientPageHTML()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(htmlContent))
+		return
+	}
+
+	// Serve JSON response
 	w.Header().Set("Content-Type", "application/json")
 
 	snapshot := m.GetSnapshot()
@@ -223,4 +251,26 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to encode metrics", http.StatusInternalServerError)
 		return
 	}
+}
+
+// getMetricsClientPageHTML reads the HTML file from disk at runtime, falling back to embedded version
+// This allows hot-reloading during development without rebuilding
+func (ms *HostMetrics) getMetricsClientPageHTML() []byte {
+	// Try to read from disk first (for development hot-reload)
+	// Check multiple possible paths relative to where the binary might be running
+	possiblePaths := []string{
+		metricsClientPagePath,                          // pkg/server/metrics_client_page.html
+		filepath.Join(".", "metrics_client_page.html"), // ./metrics_client_pages.html (if running from pkg/server)
+	}
+
+	for _, path := range possiblePaths {
+		if data, err := os.ReadFile(path); err == nil {
+			logger.Sugar.Debugf("Loaded metrics client page from: %s", path)
+			return data
+		}
+	}
+
+	// Fallback to embedded version (for production or if file not found)
+	logger.Sugar.Debug("Using embedded metrics client page")
+	return []byte(embeddedMetricsClientPageHTML)
 }
