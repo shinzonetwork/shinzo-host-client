@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -333,6 +335,26 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	}()
 
 	logger.Sugar.Infof("🏥 Health server started on port %d", port)
+
+	// Automatically open metrics page in browser
+	go func() {
+		// Wait a moment for server to be ready
+		time.Sleep(2 * time.Second)
+		metricsURL := fmt.Sprintf("http://localhost:%d/metrics", port)
+		if err := openBrowser(metricsURL); err != nil {
+			logger.Sugar.Debugf("Could not open browser automatically: %v", err)
+			logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
+		} else {
+			logger.Sugar.Infof("🌐 Opened metrics page in browser: %s", metricsURL)
+		}
+		healthURL := fmt.Sprintf("http://localhost:%d/health", port)
+		if err := openBrowser(healthURL); err != nil {
+			logger.Sugar.Debugf("Could not open browser automatically: %v", err)
+			logger.Sugar.Infof("📊 Metrics available at: %s", healthURL)
+		} else {
+			logger.Sugar.Infof("🌐 Opened metrics page in browser: %s", healthURL)
+		}
+	}()
 
 	return newHost, nil
 }
@@ -714,4 +736,21 @@ func (h *Host) GetActiveViewNames() []string {
 		return []string{}
 	}
 	return h.viewManager.GetActiveViewNames()
+}
+
+// openBrowser opens the specified URL in the default browser
+// Works on macOS, Linux, and Windows
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+	return cmd.Start()
 }
