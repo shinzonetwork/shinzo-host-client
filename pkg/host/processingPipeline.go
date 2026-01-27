@@ -139,7 +139,7 @@ func (pp *ProcessingPipeline) batchWriter(writerID int) {
 
 		if pp.host.metrics != nil {
 			avgProcessingTimeMs := float64(processingTime.Nanoseconds()) / float64(len(batch)) / 1000000.0
-			pp.host.metrics.UpdateAverageProcessingTime(avgProcessingTimeMs)
+			pp.host.metrics.UpdateLastProcessingTime(avgProcessingTimeMs)
 		}
 
 		batch = batch[:0]

@@ -55,7 +55,7 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use nil node - validation should fail before reaching DB check
-			verifier := NewDefraSignatureVerifier(nil)
+			verifier := NewDefraSignatureVerifier(nil, nil)
 
 			ctx := context.Background()
 			err := verifier.Verify(ctx, tt.cid, tt.signature)
@@ -96,7 +96,7 @@ func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 
 func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 	ctx := context.Background()
-	verifier := NewDefraSignatureVerifier(nil)
+	verifier := NewDefraSignatureVerifier(nil, nil)
 
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
 		Type:     "es256k",
@@ -110,7 +110,7 @@ func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 // TestDefraSignatureVerifier_NilDB tests that verification fails gracefully when DB is nil
 func TestDefraSignatureVerifier_NilDB(t *testing.T) {
 	ctx := context.Background()
-	verifier := NewDefraSignatureVerifier(nil)
+	verifier := NewDefraSignatureVerifier(nil, nil)
 
 	// Valid inputs but nil DB
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
