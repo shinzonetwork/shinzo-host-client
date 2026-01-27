@@ -80,9 +80,10 @@ type ShinzoConfig struct {
 }
 
 type HostConfig struct {
-	LensRegistryPath string `yaml:"lens_registry_path"` // At this path, we will store the lens' wasm files
-	HealthServerPort int    `yaml:"health_server_port"` // Port for the health server (default: 8080)
-	PprofPort        int    `yaml:"pprof_port"`         // Port for pprof debugging server (default: 6060)
+	LensRegistryPath   string `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
+	HealthServerPort   int    `yaml:"health_server_port"`    // Port for the health server (default: 8080)
+	PprofPort          int    `yaml:"pprof_port"`            // Port for pprof debugging server (default: 6060)
+	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"` // Auto-open metrics page in browser on startup (default: false)
 }
 
 // LoadConfig loads configuration from a YAML file

@@ -290,7 +290,14 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, sigDoc map[str
 	if h.batchSignatureVerifier != nil {
 		if err := h.batchSignatureVerifier.VerifyBatchSignature(ctx, batchSig); err != nil {
 			logger.Sugar.Warnf("Invalid batch signature for block %d: %v", batchSig.BlockNumber, err)
+			if h.metrics != nil {
+				h.metrics.IncrementSignatureFailures()
+			}
 			return
+		}
+
+		if h.metrics != nil {
+			h.metrics.IncrementSignatureVerifications()
 		}
 
 		h.batchSignatureVerifier.AddBatchSignature(batchSig)

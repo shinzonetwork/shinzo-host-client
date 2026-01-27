@@ -343,27 +343,21 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 	}()
 
-	logger.Sugar.Infof("🏥 Health server started on port %d", port)
+	metricsURL := fmt.Sprintf("http://localhost:%d/metrics", port)
+	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
+	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
+	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
 
-	// Automatically open metrics page in browser
-	go func() {
-		// Wait a moment for server to be ready
-		time.Sleep(2 * time.Second)
-		metricsURL := fmt.Sprintf("http://localhost:%d/metrics", port)
-		if err := openBrowser(metricsURL); err != nil {
-			logger.Sugar.Debugf("Could not open browser automatically: %v", err)
-			logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
-		} else {
-			logger.Sugar.Infof("🌐 Opened metrics page in browser: %s", metricsURL)
-		}
-		healthURL := fmt.Sprintf("http://localhost:%d/health", port)
-		if err := openBrowser(healthURL); err != nil {
-			logger.Sugar.Debugf("Could not open browser automatically: %v", err)
-			logger.Sugar.Infof("📊 Metrics available at: %s", healthURL)
-		} else {
-			logger.Sugar.Infof("🌐 Opened metrics page in browser: %s", healthURL)
-		}
-	}()
+	if cfg.HostConfig.OpenBrowserOnStart {
+		go func() {
+			time.Sleep(2 * time.Second)
+			if err := openBrowser(metricsURL); err != nil {
+				logger.Sugar.Debugf("Could not open browser automatically: %v", err)
+			} else {
+				logger.Sugar.Infof("🌐 Opened metrics page in browser")
+			}
+		}()
+	}
 
 	return newHost, nil
 }
