@@ -1,58 +1,50 @@
 defradb:
   url: "localhost:9181"
   keyring_secret: "pingpong"
-  # P2P Configuration (controlled by NetworkHandler)
   p2p:
     enabled: true
     bootstrap_peers:
-      # Standard - http://136.111.144.233:8080/health
-      - '/ip4/136.111.144.233/tcp/9171/p2p/12D3KooWSLwZJkoABdJwcgCDqdYDB9tzPFbJD7pLQhirwcER4vST'
-      # Branchable - http://34.9.209.81:8080/health
-      # - '/ip4/34.9.209.81/tcp/9171/p2p/12D3KooWHWaUbxKCq91mLPAQQzC283fqnYfAG4WkDGtmX6mRp3ia'
+      - '/ip4/136.111.154.45/tcp/9171/p2p/12D3KooWLtv546FgVwNphXrBPur3UioFoPhThsDjHmP6QRP5UUAp'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
-    path: "./.defra/data"
+    path: "./.defra"
+    # Badger configuration
     block_cache_mb: 1024   # Block cache size
-    memtable_mb: 128      # Memtable size
-    index_cache_mb: 256   # Index cache size
+    memtable_mb: 512      # Memtable size
+    index_cache_mb: 512   # Index cache size
+    num_compactors: 4              # Number of compaction workers
+    num_level_zero_tables: 30      # L0 tables before compaction starts
+    num_level_zero_tables_stall: 60  # L0 tables that trigger write stalls
 shinzo:
   minimum_attestations: 1
-  start_height: 23700000  # Start closer to latest block for testing (was 23500000) branchable - 23603421 non-branchable - 23700000
+  start_height: 23700000
   hub_base_url: rpc.devnet.shinzo.network:26657
-  
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
-
   # Queue Settings
   cache_queue_size: 50000        # Job queue size for document processing
-
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
   view_cleanup_interval: "1h"     # Check for inactive views every hour
-  view_worker_count: 20            # Workers for batch lens transformations (increased from 2)
-  view_queue_size: 5000           # Queue size for batch processing jobs (increased from 1000)
-  
-  # Batch Processing Settings (View Management)
+  view_worker_count: 20            # Workers for batch lens transformations
+  view_queue_size: 5000           # Queue size for batch processing jobs
   batch_processing_enabled: true     # Enable batch processing for efficiency
   batch_max_views_per_job: 50         # Split large batches to prevent memory issues
   batch_query_cache_size: 1000        # Cache query templates for reuse
-
-  # Batch Attestation Processing Settings
-  batch_writer_count: 64             # Number of batch writers
+  # Attestation Processing Settings
+  batch_writer_count: 8             # Number of batch writers
   batch_size: 5000                    # Max attestations per batch
   batch_flush_interval: 100          # Flush interval in milliseconds
   use_batch_signatures: true
-
 logger:
-  development: true
-  level: "debug"
-
+  development: false
+  level: "error"
 host:
-  lens_registry_path: "./.lens"
+  lens_registry_path: "./.defra/lens"
   health_server_port: 8080
   pprof_port: 6060

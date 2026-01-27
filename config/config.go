@@ -28,6 +28,10 @@ type DefraDBStoreConfig struct {
 	BlockCacheMB int64 `yaml:"block_cache_mb"`
 	MemTableMB   int64 `yaml:"memtable_mb"`
 	IndexCacheMB int64 `yaml:"index_cache_mb"`
+	// Badger compaction configuration
+	NumCompactors           int `yaml:"num_compactors"`
+	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
+	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
 }
 
 // DefraDBConfig represents DefraDB configuration
@@ -118,10 +122,13 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 				EnableAutoReconnect: c.DefraDB.P2P.EnableAutoReconnect,
 			},
 			Store: appConfig.DefraStoreConfig{
-				Path:         c.DefraDB.Store.Path,
-				BlockCacheMB: c.DefraDB.Store.BlockCacheMB,
-				MemTableMB:   c.DefraDB.Store.MemTableMB,
-				IndexCacheMB: c.DefraDB.Store.IndexCacheMB,
+				Path:                    c.DefraDB.Store.Path,
+				BlockCacheMB:            c.DefraDB.Store.BlockCacheMB,
+				MemTableMB:              c.DefraDB.Store.MemTableMB,
+				IndexCacheMB:            c.DefraDB.Store.IndexCacheMB,
+				NumCompactors:           c.DefraDB.Store.NumCompactors,
+				NumLevelZeroTables:      c.DefraDB.Store.NumLevelZeroTables,
+				NumLevelZeroTablesStall: c.DefraDB.Store.NumLevelZeroTablesStall,
 			},
 		},
 		Logger: appConfig.LoggerConfig{
