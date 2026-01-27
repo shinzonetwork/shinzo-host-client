@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,7 +76,7 @@ var DefaultConfig *config.Config = func() *config.Config {
 			Development: true,
 		},
 		HostConfig: config.HostConfig{
-			LensRegistryPath: "./.lens",
+			LensRegistryPath: "./.defra/lens",
 		},
 	}
 	return cfg
@@ -86,9 +87,9 @@ type Host struct {
 	NetworkHandler *defra.NetworkHandler // P2P network control
 
 	// signature verifier as a service
-	signatureVerifier      *attestation.DefraSignatureVerifier  // Cached signature verifier for attestation processing
-	batchSignatureVerifier *attestation.BatchSignatureVerifier  // Batch signature verifier for batch-signed documents
-	blockCIDCollector      *attestation.BlockCIDCollector       // Collects CIDs per block for batch verification
+	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
+	batchSignatureVerifier *attestation.BatchSignatureVerifier // Batch signature verifier for batch-signed documents
+	blockCIDCollector      *attestation.BlockCIDCollector      // Collects CIDs per block for batch verification
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
@@ -121,7 +122,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		cfg = DefaultConfig
 	}
 
-	logger.Init(true, "./logs")
+	logger.Init(cfg.Logger.Development, "./logs")
 
 	// Configure DefraDB logging - set to error level to hide INFO logs from HTTP requests
 	corelog.SetConfigOverride("http", corelog.Config{
@@ -353,7 +354,7 @@ func (h *Host) IsHealthy() bool {
 
 func (h *Host) GetCurrentBlock() int64 {
 	if h.metrics != nil {
-		return int64(h.metrics.MostRecentBlock)
+		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock))
 	}
 	return 0
 }

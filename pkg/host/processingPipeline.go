@@ -16,11 +16,9 @@ const (
 	defaultBatchFlushIntervalMs      = 100
 	defaultMaxConcurrentAttestations = 200
 
-	maxRetries            = 10
-	baseDelay             = 10 * time.Millisecond
-	maxDelay              = 2 * time.Second
-	dedupeExpiry          = 5 * time.Minute
-	dedupeCleanupInterval = 1 * time.Minute
+	maxRetries = 10
+	baseDelay  = 10 * time.Millisecond
+	maxDelay   = 2 * time.Second
 )
 
 // DocumentJob represents a document to be processed.
@@ -44,21 +42,17 @@ type ProcessingPipeline struct {
 	batchSize          int
 	batchFlushInterval time.Duration
 
-	seenDocs sync.Map
-	dedupeMu sync.Mutex
-
 	// Async attestation control
 	attestationSem chan struct{}
 	attestationWg  sync.WaitGroup
 
-	// Batch signature mode - skip per-document attestation
+	// Batch signature mode
 	useBatchSignatures bool
 
 	// Metrics for monitoring
 	queuedCount              int64
 	processedCount           int64
 	droppedCount             int64
-	skippedCount             int64
 	pendingAttestationsCount int64
 	mu                       sync.Mutex
 }
@@ -100,52 +94,20 @@ func NewProcessingPipeline(
 func (pp *ProcessingPipeline) Start() {
 	logger.Sugar.Infof("🚀 Starting processing pipeline with %d batch writers (batch size: %d, flush interval: %v), queue size %d",
 		pp.batchWriterCount, pp.batchSize, pp.batchFlushInterval, cap(pp.jobQueue))
-
 	for i := range pp.batchWriterCount {
 		pp.wg.Add(1)
 		go pp.batchWriter(i)
 	}
-
-	go pp.cleanupDedupeCache()
-
 	logger.Sugar.Info("✅ Processing pipeline ready")
-}
-
-// cleanupDedupeCache periodically removes expired entries from the deduplication cache.
-func (pp *ProcessingPipeline) cleanupDedupeCache() {
-	ticker := time.NewTicker(dedupeCleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-pp.ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now()
-			expiredCount := 0
-			pp.seenDocs.Range(func(key, value any) bool {
-				if expiry, ok := value.(time.Time); ok {
-					if now.After(expiry) {
-						pp.seenDocs.Delete(key)
-						expiredCount++
-					}
-				}
-				return true
-			})
-		}
-	}
 }
 
 // Stop stops the processing pipeline.
 func (pp *ProcessingPipeline) Stop() {
 	logger.Sugar.Info("🛑 Stopping processing pipeline")
 	pp.cancel()
-
 	close(pp.jobQueue)
-
 	// Wait for batch writers to finish
 	pp.wg.Wait()
-
 	// Wait for any in-flight attestation goroutines to complete
 	pp.mu.Lock()
 	pending := pp.pendingAttestationsCount
@@ -154,9 +116,8 @@ func (pp *ProcessingPipeline) Stop() {
 		logger.Sugar.Infof("⏳ Waiting for %d pending attestation goroutines to complete...", pending)
 	}
 	pp.attestationWg.Wait()
-
-	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, skipped: %d, dropped: %d)",
-		pp.processedCount, pp.skippedCount, pp.droppedCount)
+	logger.Sugar.Infof("✅ Processing pipeline stopped (processed: %d, dropped: %d)",
+		pp.processedCount, pp.droppedCount)
 }
 
 // batchWriter collects jobs into batches and processes them together to reduce DB transaction overhead.
@@ -227,7 +188,6 @@ func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 		if pp.host.metrics != nil {
 			for _, job := range jobs {
 				pp.host.metrics.IncrementDocumentsReceived()
-				pp.host.metrics.IncrementDocumentsProcessed()
 				pp.host.metrics.IncrementDocumentByType(job.docType)
 				pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
 			}
@@ -241,7 +201,6 @@ func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 	if pp.host.metrics != nil {
 		for _, job := range jobs {
 			pp.host.metrics.IncrementDocumentsReceived()
-			pp.host.metrics.IncrementDocumentsProcessed()
 			pp.host.metrics.IncrementDocumentByType(job.docType)
 			pp.host.metrics.UpdateMostRecentBlock(job.blockNumber)
 		}
@@ -336,50 +295,6 @@ func isTransactionConflict(err error) bool {
 	}
 	errStr := err.Error()
 	return strings.Contains(errStr, "transaction conflict") || strings.Contains(errStr, "Please retry")
-}
-
-// processDocumentDirect enqueues a document for processing.
-func (pp *ProcessingPipeline) processDocumentDirect(docID, docType string, blockNumber uint64, docData map[string]any) {
-	dedupeKey := docType + ":" + docID
-
-	if _, exists := pp.seenDocs.Load(dedupeKey); exists {
-		pp.mu.Lock()
-		pp.skippedCount++
-		pp.mu.Unlock()
-		if pp.host.metrics != nil {
-			pp.host.metrics.IncrementDocumentsSkipped()
-		}
-		return
-	}
-
-	pp.seenDocs.Store(dedupeKey, time.Now().Add(dedupeExpiry))
-
-	if pp.host.metrics != nil {
-		pp.host.metrics.IncrementUniqueDocumentByType(docType)
-	}
-
-	job := DocumentJob{
-		docID:       docID,
-		docType:     docType,
-		blockNumber: blockNumber,
-		docData:     docData,
-	}
-
-	select {
-	case pp.jobQueue <- job:
-		pp.mu.Lock()
-		pp.queuedCount++
-		pp.mu.Unlock()
-	case <-pp.ctx.Done():
-		return
-	default:
-		pp.mu.Lock()
-		pp.droppedCount++
-		pp.mu.Unlock()
-		if pp.host.metrics != nil {
-			pp.host.metrics.IncrementDocumentsDropped()
-		}
-	}
 }
 
 // GetPendingAttestationsCount returns the number of in-flight attestation goroutines.

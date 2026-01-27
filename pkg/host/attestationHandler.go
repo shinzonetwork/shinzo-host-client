@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
@@ -165,18 +166,13 @@ func (h *Host) mapCollectionID(collectionID string) string {
 	return h.collectionIDMap[collectionID]
 }
 
-// processedBatchSigDocIDs tracks batch signatures we've already processed
-// to avoid duplicate attestations from multiple P2P events.
-// The map is bounded to prevent unbounded memory growth (~80 bytes per entry).
-// At 1M entries = ~80MB, at 5M entries = ~400MB.
-// When the limit is reached, the map is cleared - this is safe because P2P duplicates
-// typically arrive within seconds, not after processing millions of blocks.
-const maxProcessedBatchSigDocIDs = 1000000
+// processedBatchSigDocIDs tracks batch signatures we've already processed.
+const maxProcessedBatchSigDocIDs = 100000
+const maxConcurrentBatchSigProcessing = 8
 
-var (
-	processedBatchSigDocIDs   = make(map[string]bool)
-	processedBatchSigDocIDsMu sync.Mutex
-)
+var processedBatchSigDocIDs sync.Map
+var processedBatchSigCount int64
+var batchSigProcessingSem = make(chan struct{}, maxConcurrentBatchSigProcessing)
 
 // processBatchSignatureFromEventBus fetches a BatchSignature document by DocID and processes it
 func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID string) {
@@ -184,17 +180,27 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 		return
 	}
 
-	// Skip if we've already processed this batch signature
-	processedBatchSigDocIDsMu.Lock()
-	if processedBatchSigDocIDs[docID] {
-		processedBatchSigDocIDsMu.Unlock()
+	if _, alreadyProcessing := processedBatchSigDocIDs.LoadOrStore(docID, struct{}{}); alreadyProcessing {
 		return
 	}
-	processedBatchSigDocIDsMu.Unlock()
 
-	// Small delay to let P2P merge transaction complete before querying
-	// This prevents transaction conflicts during concurrent merge operations
-	time.Sleep(50 * time.Millisecond)
+	count := atomic.AddInt64(&processedBatchSigCount, 1)
+	if count >= maxProcessedBatchSigDocIDs {
+		processedBatchSigDocIDs = sync.Map{}
+		atomic.StoreInt64(&processedBatchSigCount, 0)
+		logger.Sugar.Infof("Cleared processedBatchSigDocIDs (reached %d entries)", count)
+	}
+
+	select {
+	case batchSigProcessingSem <- struct{}{}:
+		defer func() { <-batchSigProcessingSem }()
+	case <-time.After(5 * time.Second):
+		processedBatchSigDocIDs.Delete(docID)
+		return
+	case <-ctx.Done():
+		processedBatchSigDocIDs.Delete(docID)
+		return
+	}
 
 	// Query the batch signature document by _docID with retry logic
 	query := fmt.Sprintf(`query {
@@ -238,15 +244,6 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 		logger.Sugar.Debugf("BatchSignature %s not found after %d retries", docID, maxRetries)
 		return
 	}
-
-	// Mark as processed before creating attestation to prevent duplicates
-	processedBatchSigDocIDsMu.Lock()
-	if len(processedBatchSigDocIDs) >= maxProcessedBatchSigDocIDs {
-		logger.Sugar.Infof("Clearing processedBatchSigDocIDs map (reached %d entries)", len(processedBatchSigDocIDs))
-		processedBatchSigDocIDs = make(map[string]bool)
-	}
-	processedBatchSigDocIDs[docID] = true
-	processedBatchSigDocIDsMu.Unlock()
 
 	sigDoc := results[0]
 	h.processBatchSignatureDocument(ctx, sigDoc)
@@ -332,6 +329,7 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 	if h.metrics != nil {
 		h.metrics.IncrementDocumentByType(constants.CollectionBlock)
 		h.metrics.IncrementAttestationsCreated()
+		h.metrics.UpdateMostRecentBlock(uint64(blockNumber))
 	}
 
 	logger.Sugar.Infof("✅ Created block attestation for block %d (indexer: %s, merkle: %s)",

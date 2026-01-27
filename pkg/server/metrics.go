@@ -20,12 +20,7 @@ type HostMetrics struct {
 	SignatureFailures      int64 `json:"signature_failures"`
 
 	// Document processing metrics
-	DocumentsReceived  int64 `json:"documents_received"`
-	DocumentsProcessed int64 `json:"documents_processed"`
-	DocumentsDropped   int64 `json:"documents_dropped"`
-	DocumentsSkipped   int64 `json:"documents_skipped"` // Skipped due to deduplication
-
-	// Document type breakdown (counts attestation events, not unique documents)
+	DocumentsReceived     int64 `json:"documents_received"`
 	BlocksProcessed       int64 `json:"blocks_processed"`
 	TransactionsProcessed int64 `json:"transactions_processed"`
 	LogsProcessed         int64 `json:"logs_processed"`
@@ -115,21 +110,6 @@ func (m *HostMetrics) IncrementSignatureFailures() {
 func (m *HostMetrics) IncrementDocumentsReceived() {
 	atomic.AddInt64(&m.DocumentsReceived, 1)
 	m.LastDocumentTime = time.Now()
-}
-
-// IncrementDocumentsProcessed atomically increments the documents processed counter
-func (m *HostMetrics) IncrementDocumentsProcessed() {
-	atomic.AddInt64(&m.DocumentsProcessed, 1)
-}
-
-// IncrementDocumentsDropped atomically increments the documents dropped counter
-func (m *HostMetrics) IncrementDocumentsDropped() {
-	atomic.AddInt64(&m.DocumentsDropped, 1)
-}
-
-// IncrementDocumentsSkipped atomically increments the documents skipped counter
-func (m *HostMetrics) IncrementDocumentsSkipped() {
-	atomic.AddInt64(&m.DocumentsSkipped, 1)
 }
 
 // IncrementDocumentByType atomically increments the counter for a specific document type
@@ -243,7 +223,15 @@ func (m *HostMetrics) UpdateAverageProcessingTime(avgMs float64) {
 
 // UpdateMostRecentBlock updates the most recent block number
 func (m *HostMetrics) UpdateMostRecentBlock(blockNumber uint64) {
-	atomic.StoreUint64(&m.MostRecentBlock, blockNumber)
+	for {
+		current := atomic.LoadUint64(&m.MostRecentBlock)
+		if blockNumber <= current {
+			return
+		}
+		if atomic.CompareAndSwapUint64(&m.MostRecentBlock, current, blockNumber) {
+			return
+		}
+	}
 }
 
 func (m *HostMetrics) GetSnapshot() *HostMetrics {
@@ -262,9 +250,6 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		SignatureVerifications: atomic.LoadInt64(&m.SignatureVerifications),
 		SignatureFailures:      atomic.LoadInt64(&m.SignatureFailures),
 		DocumentsReceived:      atomic.LoadInt64(&m.DocumentsReceived),
-		DocumentsProcessed:     atomic.LoadInt64(&m.DocumentsProcessed),
-		DocumentsDropped:       atomic.LoadInt64(&m.DocumentsDropped),
-		DocumentsSkipped:       atomic.LoadInt64(&m.DocumentsSkipped),
 		BlocksProcessed:        atomic.LoadInt64(&m.BlocksProcessed),
 		TransactionsProcessed:  atomic.LoadInt64(&m.TransactionsProcessed),
 		LogsProcessed:          atomic.LoadInt64(&m.LogsProcessed),
@@ -310,9 +295,10 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]interface{}{
 		"metrics":        snapshot,
-		"uptime_seconds": uptime.Seconds(),
-		"uptime_human":   uptime.String(),
+		"current_block":  snapshot.MostRecentBlock,
 		"timestamp":      time.Now().Unix(),
+		"uptime_human":   uptime.String(),
+		"uptime_seconds": uptime.Seconds(),
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
