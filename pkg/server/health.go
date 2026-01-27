@@ -254,7 +254,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		}
 
 		registration, _ := hs.getRegistrationData()
-  	response.Registration = registration
+		response.Registration = registration
 	}
 
 	if !ready {
