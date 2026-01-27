@@ -324,7 +324,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	}
 
 	if defraNode != nil {
-		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode)
+		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
 		newHost.batchSignatureVerifier = attestation.NewBatchSignatureVerifier(10000) // Cache last 10000 blocks
 		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
 		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with batch signature support)")
