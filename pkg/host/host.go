@@ -423,10 +423,21 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 	if h.DefraNode != nil && h.NetworkHandler != nil {
 		// Get peer ID and public key using the same approach as indexer
 		peerPubKey, err := h.GetPeerPublicKey()
-		if err == nil {
+		if err != nil {
+			return nil, fmt.Errorf("failed to get peer public key: %w", err)
+		}
+		peerIDString, err := h.DefraNode.DB.PeerInfo()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get peer ID: %w", err)
+		}
+		peerInfo, errors := defra.BootstrapIntoPeers(peerIDString)
+		if len(errors) > 0 {
+			return nil, fmt.Errorf("error turning bootstrap peer strings into peer info objects: %v", errors)
+		}
+		if len(peerInfo) > 0 {
 			// Create peer info with actual data
 			peerInfo := server.PeerInfo{
-				ID:        peerPubKey,                          // Use peer public key as ID for now
+				ID:        peerInfo[0].ID,                      // Use peer public key as ID for now
 				Addresses: []string{"/ip4/127.0.0.1/tcp/9171"}, // Default local address
 				PublicKey: peerPubKey,
 			}
