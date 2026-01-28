@@ -314,6 +314,10 @@
                             <p class="metric-label">Access Lists</p>
                             <p class="metric-value" id="access-lists">-</p>
                         </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Batch Sigs</p>
+                            <p class="metric-value" id="batch-sigs">-</p>
+                        </div>
                     </div>
                 </div>
 
@@ -476,6 +480,7 @@
             document.getElementById('logs').textContent = formatNumber(data.metrics.logs_processed);
             document.getElementById('access-lists').textContent = formatNumber(data.metrics.access_lists_processed);
             document.getElementById('blocks').textContent = formatNumber(data.metrics.blocks_processed);
+            document.getElementById('batch-sigs').textContent = formatNumber(data.metrics.batch_signatures_processed);
 
             //update verification & errors data
             document.getElementById('att-created').textContent = formatNumber(data.metrics.attestations_created);
