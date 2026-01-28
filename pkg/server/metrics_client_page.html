@@ -404,13 +404,12 @@
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            console.log(data);
-
+            
             //header data
             document.getElementById('start-time').textContent = formatTime(data.metrics.start_time);
             document.getElementById('build-schema').textContent = `${data.metrics.build_tags} | ${data.metrics.schema_type}`;
             //update system summary data
-            const attestationMatch = data.metrics.attestations_created === data.metrics.blocks_processed;
+            const attestationMatch = Number(data.metrics.attestations_created)===Number(data.metrics.documents_processed);
             const attestationMatchIconElement = document.getElementById('attestation_match_icon');
             if (attestationMatch) {
                 attestationMatchIconElement.classList.add('check-circle');
@@ -421,7 +420,36 @@
                 attestationMatchIconElement.classList.add('alert-circle');
                 attestationMatchIconElement.classList.remove('check-circle');
                 attestationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(data.metrics.attestations_created - data.metrics.blocks_processed)}`;
+                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(Number(data.metrics.attestations_created) - Number(data.metrics.documents_processed))}`;
+            }
+
+            const recievedProcessedDiff = Math.abs(Number(data.metrics.documents_received)-Number(data.metrics.documents_processed));
+            document.getElementById('recieved_processed_diff').textContent = `Δ ${Math.abs(Number(data.metrics.documents_received)-Number(data.metrics.documents_processed))}`;
+            const recievedProcessedDiffIconElement = document.getElementById('recieved_processed_diff_icon');
+            if (recievedProcessedDiff <= 10) {
+                recievedProcessedDiffIconElement.classList.add('check-circle');
+                recievedProcessedDiffIconElement.classList.add('check-circle-bordered');
+                recievedProcessedDiffIconElement.classList.remove('alert-circle');
+            } else {
+                recievedProcessedDiffIconElement.classList.add('alert-circle');
+                recievedProcessedDiffIconElement.classList.remove('check-circle');
+                recievedProcessedDiffIconElement.classList.remove('check-circle-bordered');
+            }
+
+            const droppedDocs = data.metrics.documents_dropped;
+            const droppedDocsMatchIconElement = document.getElementById('dropped_docs_summary_icon');
+            if (droppedDocs === 0) {
+                droppedDocsMatchIconElement.classList.add('check-circle');
+                droppedDocsMatchIconElement.classList.add('check-circle-bordered');
+                droppedDocsMatchIconElement.classList.remove('alert-circle');
+                droppedDocsMatchIconElement.classList.remove('alert-circle-bordered');
+                document.getElementById('dropped_docs_summary').textContent = 'None'
+            } else {
+                droppedDocsMatchIconElement.classList.add('alert-circle');
+                droppedDocsMatchIconElement.classList.add('alert-circle-bordered');
+                droppedDocsMatchIconElement.classList.remove('check-circle');
+                droppedDocsMatchIconElement.classList.remove('check-circle-bordered');
+                document.getElementById('dropped_docs_summary').textContent = `${droppedDocs}`;
             }
 
             const attestationErrors = data.metrics.attestation_errors;
@@ -440,7 +468,7 @@
                 document.getElementById('attestation_errors_summary').textContent = `${attestationErrors}`;
             }
 
-            const sigVerificationMatch = data.metrics.signature_verifications === data.metrics.attestations_created;
+            const sigVerificationMatch = Number(data.metrics.signature_verifications)===Number(data.metrics.attestations_created);
             const sigVerificationMatchIconElement = document.getElementById('sig_verification_match_icon');
             if (sigVerificationMatch) {
                 sigVerificationMatchIconElement.classList.add('check-circle');
@@ -451,7 +479,7 @@
                 sigVerificationMatchIconElement.classList.add('alert-circle');
                 sigVerificationMatchIconElement.classList.remove('check-circle');
                 sigVerificationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('sig_verification_match').textContent = `Δ ${Math.abs(data.metrics.signature_verifications - data.metrics.attestations_created)}`;
+                document.getElementById('sig_verification_match').textContent = `Δ ${Math.abs(Number(data.metrics.signature_verifications) - Number(data.metrics.attestations_created))}`;
             }
 
             const sigFailures = data.metrics.signature_failures;
@@ -487,7 +515,8 @@
             document.getElementById('att-errors').textContent = formatNumber(data.metrics.attestation_errors);
             document.getElementById('sig-verifications').textContent = formatNumber(data.metrics.signature_verifications);
             document.getElementById('sig-failures').textContent = formatNumber(data.metrics.signature_failures);
-            //update performance indicators data
+            
+            //update views data
             document.getElementById('views-reg').textContent = formatNumber(data.metrics.views_registered);
             document.getElementById('views-active').textContent = formatNumber(data.metrics.views_active);
         }
