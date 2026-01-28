@@ -24,6 +24,14 @@ type DefraDBP2PConfig struct {
 // DefraDBStoreConfig represents store configuration for DefraDB
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
+	// Badger memory configuration
+	BlockCacheMB int64 `yaml:"block_cache_mb"`
+	MemTableMB   int64 `yaml:"memtable_mb"`
+	IndexCacheMB int64 `yaml:"index_cache_mb"`
+	// Badger compaction configuration
+	NumCompactors           int `yaml:"num_compactors"`
+	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
+	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
 }
 
 // DefraDBConfig represents DefraDB configuration
@@ -64,16 +72,20 @@ type ShinzoConfig struct {
 	CacheQueueSize int `yaml:"cache_queue_size"` // Size of job queue for document processing
 
 	// Batch Attestation Processing Settings
-	BatchWriterCount           int `yaml:"batch_writer_count"`           // Number of batch writers (default: 16)
-	BatchSize                  int `yaml:"batch_size"`                   // Max attestations per batch (default: 100)
-	BatchFlushInterval         int `yaml:"batch_flush_interval"`         // Flush interval in milliseconds (default: 50)
-	MaxConcurrentVerifications int `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications (default: 50)
+	BatchWriterCount           int  `yaml:"batch_writer_count"`           // Number of batch writers
+	BatchSize                  int  `yaml:"batch_size"`                   // Max attestations per batch
+	BatchFlushInterval         int  `yaml:"batch_flush_interval"`         // Flush interval in milliseconds
+	MaxConcurrentVerifications int  `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications
+	UseBatchSignatures         bool `yaml:"use_batch_signatures"`         // Use batch signatures for attestations
+	DocWorkerCount             int  `yaml:"doc_worker_count"`             // Number of document processing workers
+	DocQueueSize               int  `yaml:"doc_queue_size"`               // Queue size for document event notifications
 }
 
 type HostConfig struct {
-	LensRegistryPath string `yaml:"lens_registry_path"` // At this path, we will store the lens' wasm files
-	HealthServerPort int    `yaml:"health_server_port"` // Port for the health server (default: 8080)
-	PprofPort        int    `yaml:"pprof_port"`         // Port for pprof debugging server (default: 6060)
+	LensRegistryPath   string `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
+	HealthServerPort   int    `yaml:"health_server_port"`    // Port for the health server (default: 8080)
+	PprofPort          int    `yaml:"pprof_port"`            // Port for pprof debugging server (default: 6060)
+	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"` // Auto-open metrics page in browser on startup (default: false)
 }
 
 // LoadConfig loads configuration from a YAML file
@@ -113,7 +125,13 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 				EnableAutoReconnect: c.DefraDB.P2P.EnableAutoReconnect,
 			},
 			Store: appConfig.DefraStoreConfig{
-				Path: c.DefraDB.Store.Path,
+				Path:                    c.DefraDB.Store.Path,
+				BlockCacheMB:            c.DefraDB.Store.BlockCacheMB,
+				MemTableMB:              c.DefraDB.Store.MemTableMB,
+				IndexCacheMB:            c.DefraDB.Store.IndexCacheMB,
+				NumCompactors:           c.DefraDB.Store.NumCompactors,
+				NumLevelZeroTables:      c.DefraDB.Store.NumLevelZeroTables,
+				NumLevelZeroTablesStall: c.DefraDB.Store.NumLevelZeroTablesStall,
 			},
 		},
 		Logger: appConfig.LoggerConfig{

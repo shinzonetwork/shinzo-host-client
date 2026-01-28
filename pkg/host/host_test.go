@@ -134,7 +134,7 @@ func TestDefaultConfig(t *testing.T) {
 	require.True(t, DefaultConfig.DefraDB.P2P.Enabled)
 	require.Equal(t, 1, DefaultConfig.Shinzo.MinimumAttestations)
 	require.True(t, DefaultConfig.Logger.Development)
-	require.Equal(t, "./.lens", DefaultConfig.HostConfig.LensRegistryPath)
+	require.Equal(t, "./.defra/lens", DefaultConfig.HostConfig.LensRegistryPath)
 }
 
 func TestHost_IsHealthy(t *testing.T) {

@@ -72,7 +72,7 @@ func TestEntityRegisteredEventSubscription(t *testing.T) {
 				require.Equal(t, "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", entityEvent.DID)
 				require.Equal(t, "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", entityEvent.Pid)
 				require.Equal(t, "\u0002", entityEvent.Entity)
-				
+
 				t.Logf("✅ Successfully received EntityRegistered event: %s", entityEvent.ToString())
 				return
 			}
@@ -140,7 +140,7 @@ func TestExtractEntityRegisteredEvents(t *testing.T) {
 
 	// Extract events
 	allEvents := extractShinzoEvents(testMsg)
-	
+
 	// Filter for EntityRegistered events only
 	var events []EntityRegisteredEvent
 	for _, event := range allEvents {
@@ -175,11 +175,8 @@ func TestMixedEventSubscription(t *testing.T) {
 
 	// Test data
 	query := "Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}"
-	sdl := "type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}"
 	expectedView := view.View{
 		Query: &query,
-		Sdl:   &sdl,
-		Name:  "FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85",
 	}
 
 	// Send a mixed event with both ViewRegistered and EntityRegistered

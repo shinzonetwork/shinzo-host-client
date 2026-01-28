@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,7 +78,7 @@ var DefaultConfig *config.Config = func() *config.Config {
 			Development: true,
 		},
 		HostConfig: config.HostConfig{
-			LensRegistryPath: "./.lens",
+			LensRegistryPath: "./.defra/lens",
 		},
 	}
 	return cfg
@@ -88,7 +89,9 @@ type Host struct {
 	NetworkHandler *defra.NetworkHandler // P2P network control
 
 	// signature verifier as a service
-	signatureVerifier *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
+	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
+	batchSignatureVerifier *attestation.BatchSignatureVerifier // Batch signature verifier for batch-signed documents
+	blockCIDCollector      *attestation.BlockCIDCollector      // Collects CIDs per block for batch verification
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
@@ -118,7 +121,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		cfg = DefaultConfig
 	}
 
-	logger.Init(true, "./logs")
+	logger.Init(cfg.Logger.Development, "./logs")
 
 	// Configure DefraDB logging - set to error level to hide INFO logs from HTTP requests
 	corelog.SetConfigOverride("http", corelog.Config{
@@ -276,10 +279,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	newHost.processingPipeline = NewProcessingPipeline(
 		context.Background(), newHost, queueSize,
 		cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval,
+		cfg.Shinzo.UseBatchSignatures,
 	)
 
-	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms",
-		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval)
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBatchSignatures=%v",
+		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBatchSignatures)
 
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
@@ -318,7 +322,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	if defraNode != nil {
 		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
-		logger.Sugar.Info("🔐 Optimized signature verifier initialized")
+		newHost.batchSignatureVerifier = attestation.NewBatchSignatureVerifier(10000) // Cache last 10000 blocks
+		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
+		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with batch signature support)")
 	}
 
 	port := cfg.HostConfig.HealthServerPort
@@ -334,27 +340,21 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 	}()
 
-	logger.Sugar.Infof("🏥 Health server started on port %d", port)
+	metricsURL := fmt.Sprintf("http://localhost:%d/metrics", port)
+	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
+	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
+	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
 
-	// Automatically open metrics page in browser
-	go func() {
-		// Wait a moment for server to be ready
-		time.Sleep(2 * time.Second)
-		metricsURL := fmt.Sprintf("http://localhost:%d/metrics", port)
-		if err := openBrowser(metricsURL); err != nil {
-			logger.Sugar.Debugf("Could not open browser automatically: %v", err)
-			logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
-		} else {
-			logger.Sugar.Infof("🌐 Opened metrics page in browser: %s", metricsURL)
-		}
-		healthURL := fmt.Sprintf("http://localhost:%d/health", port)
-		if err := openBrowser(healthURL); err != nil {
-			logger.Sugar.Debugf("Could not open browser automatically: %v", err)
-			logger.Sugar.Infof("📊 Metrics available at: %s", healthURL)
-		} else {
-			logger.Sugar.Infof("🌐 Opened metrics page in browser: %s", healthURL)
-		}
-	}()
+	if cfg.HostConfig.OpenBrowserOnStart {
+		go func() {
+			time.Sleep(2 * time.Second)
+			if err := openBrowser(metricsURL); err != nil {
+				logger.Sugar.Debugf("Could not open browser automatically: %v", err)
+			} else {
+				logger.Sugar.Infof("🌐 Opened metrics page in browser")
+			}
+		}()
+	}
 
 	return newHost, nil
 }
@@ -367,7 +367,7 @@ func (h *Host) IsHealthy() bool {
 
 func (h *Host) GetCurrentBlock() int64 {
 	if h.metrics != nil {
-		return int64(h.metrics.MostRecentBlock)
+		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock))
 	}
 	return 0
 }
@@ -421,14 +421,22 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 
 	// Get actual peer information using signer package methods
 	if h.DefraNode != nil && h.NetworkHandler != nil {
-		// Get peer ID and public key using the same approach as indexer
-		peerPubKey, err := h.GetPeerPublicKey()
-		if err == nil {
-			// Create peer info with actual data
+		peerInfoStrings, err := h.DefraNode.DB.PeerInfo()
+		if err != nil {
+			logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
+			return p2pInfo, nil
+		}
+
+		peers, errs := defra.BootstrapIntoPeers(peerInfoStrings)
+		if len(errs) > 0 {
+			logger.Sugar.Warnf("Errors parsing peer info: %v", errs)
+		}
+
+		for _, peer := range peers {
 			peerInfo := server.PeerInfo{
-				ID:        peerPubKey,                          // Use peer public key as ID for now
-				Addresses: []string{"/ip4/127.0.0.1/tcp/9171"}, // Default local address
-				PublicKey: peerPubKey,
+				ID:        peer.ID,
+				Addresses: peer.Addresses,
+				PublicKey: peer.ID,
 			}
 
 			p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, peerInfo)

@@ -3,11 +3,13 @@ package host
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/event"
 )
 
 // Document represents a document from DefraDB
@@ -51,104 +53,350 @@ func (h *Host) processDocumentAttestationBatch(ctx context.Context, docs []Docum
 	return attestationService.HandleDocumentAttestationBatch(ctx, h.signatureVerifier, h.DefraNode, inputs, maxConcurrentVerifications)
 }
 
-// processAttestationEventsWithSubscription starts simple DefraDB subscriptions
+// processAttestationEventsWithSubscription starts DefraDB event listeners
 func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
-	logger.Sugar.Info("🚀 Starting simple DefraDB subscriptions")
-
-	// Start simple subscriptions (direct processing)
-	go h.subscribeToDocumentType(ctx, constants.CollectionBlock)
-	go h.subscribeToDocumentType(ctx, constants.CollectionTransaction)
-	go h.subscribeToDocumentType(ctx, constants.CollectionLog)
-	go h.subscribeToDocumentType(ctx, constants.CollectionAccessListEntry)
-
-	logger.Sugar.Info("✅ All subscriptions started")
-
+	logger.Sugar.Info("Starting DefraDB event listener")
+	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
+	go h.startEventBusListener(ctx)
+	logger.Sugar.Info("Event bus listener started")
 	// Wait for context cancellation
 	<-ctx.Done()
-	logger.Sugar.Info("🛑 Subscriptions stopped")
+	logger.Sugar.Info("Event listeners stopped")
 }
 
-// subscribeToDocumentType creates a simple subscription for a document type
-func (h *Host) subscribeToDocumentType(ctx context.Context, docType string) {
-	logger.Sugar.Infof("📡 Starting %s subscription", docType)
+// Known collection IDs - stored at startup for direct comparison
+var (
+	batchSigCollectionID    string
+	blockCollectionID       string
+	transactionCollectionID string
+	logCollectionID         string
+	accessListCollectionID  string
+)
 
-	// Create subscription query
-	var subscription string
-	switch docType {
-	case constants.CollectionBlock:
-		subscription = `subscription { ` + constants.CollectionBlock + ` { _docID number hash _version { cid signature { value identity type } collectionVersionId } } }`
-	case constants.CollectionTransaction:
-		subscription = `subscription { ` + constants.CollectionTransaction + ` { _docID hash blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
-	case constants.CollectionLog:
-		subscription = `subscription { ` + constants.CollectionLog + ` { _docID address blockNumber _version { cid signature { value identity type } collectionVersionId } } }`
-	case constants.CollectionAccessListEntry:
-		subscription = `subscription { ` + constants.CollectionAccessListEntry + ` { _docID address _version { cid signature { value identity type } collectionVersionId } } }`
-	default:
-		subscription = fmt.Sprintf(`subscription { %s { _docID __typename _version { cid signature { value identity type } collectionVersionId } } }`, docType)
+// initKnownCollectionIDs fetches the CollectionIDs for collections we care about at startup.
+func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
+	if h.DefraNode == nil || h.DefraNode.DB == nil {
+		return fmt.Errorf("DefraNode not available")
 	}
 
-	// Create DefraDB subscription
-	docChan, err := defra.Subscribe[map[string]any](ctx, h.DefraNode, subscription)
+	// Get BatchSignature collection ID
+	cols, err := h.DefraNode.DB.GetCollections(ctx, client.CollectionFetchOptions{})
 	if err != nil {
-		logger.Sugar.Errorf("❌ Failed to create %s subscription: %v", docType, err)
-		return
+		return fmt.Errorf("failed to get collections: %w", err)
 	}
 
-	logger.Sugar.Infof("✅ %s subscription created", docType)
+	for _, col := range cols {
+		switch col.Name() {
+		case constants.CollectionBatchSignature:
+			batchSigCollectionID = col.CollectionID()
+		case constants.CollectionBlock:
+			blockCollectionID = col.CollectionID()
+		case constants.CollectionTransaction:
+			transactionCollectionID = col.CollectionID()
+		case constants.CollectionLog:
+			logCollectionID = col.CollectionID()
+		case constants.CollectionAccessListEntry:
+			accessListCollectionID = col.CollectionID()
+		}
+	}
 
-	// Process events
+	logger.Sugar.Infof("Initialized %d known collection IDs", 5)
+	return nil
+}
+
+// docEvent represents a document event to be processed
+type docEvent struct {
+	docID          string
+	collectionName string
+}
+
+// docQueue is the unified queue for all document processing with drop-oldest backpressure
+var docQueue chan docEvent
+
+// initDocQueue initializes the document queue with config values
+func (h *Host) initDocQueue() (workerCount, queueSize int) {
+	queueSize = h.config.Shinzo.DocQueueSize
+	if queueSize <= 0 {
+		queueSize = 1000
+	}
+	workerCount = h.config.Shinzo.DocWorkerCount
+	if workerCount <= 0 {
+		workerCount = 4
+	}
+	docQueue = make(chan docEvent, queueSize)
+	return workerCount, queueSize
+}
+
+// enqueueDoc adds a document to the processing queue with drop-oldest backpressure
+func enqueueDoc(evt docEvent) {
 	for {
 		select {
-		case <-ctx.Done():
-			logger.Sugar.Infof("🛑 %s subscription stopped", docType)
+		case docQueue <- evt:
 			return
-
-		case gqlResponse, ok := <-docChan:
-			if !ok {
-				logger.Sugar.Warnf("⚠️ %s subscription channel closed", docType)
-				return
+		default:
+			select {
+			case <-docQueue:
+			default:
 			}
-
-			// Process documents directly
-			h.processSubscriptionResponse(docType, gqlResponse)
 		}
 	}
 }
 
-// processSubscriptionResponse processes documents from subscription
-func (h *Host) processSubscriptionResponse(docType string, gqlResponse map[string]any) {
-	if docArray, exists := gqlResponse[docType]; exists {
-		if docs, ok := docArray.([]any); ok {
-			for _, docInterface := range docs {
-				if docMap, ok := docInterface.(map[string]any); ok {
-					// Extract document info
-					docID := ""
-					if id, exists := docMap["_docID"]; exists {
-						docID = fmt.Sprintf("%v", id)
-					}
+// docWorker processes documents from the unified queue
+func (h *Host) docWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case evt := <-docQueue:
+			switch evt.collectionName {
+			case constants.CollectionBatchSignature:
+				h.processBatchSignatureFromEventBus(ctx, evt.docID)
+			}
+		}
+	}
+}
 
-					blockNumber := uint64(0)
-					switch docType {
-					case constants.CollectionBlock:
-						if num, exists := docMap["number"]; exists {
-							if numFloat, ok := num.(float64); ok {
-								blockNumber = uint64(numFloat)
-							}
-						}
-					case constants.CollectionTransaction, constants.CollectionLog:
-						if num, exists := docMap["blockNumber"]; exists {
-							if numFloat, ok := num.(float64); ok {
-								blockNumber = uint64(numFloat)
-							}
-						}
-					}
+// startEventBusListener subscribes to DefraDB's event bus to track document metrics
+func (h *Host) startEventBusListener(ctx context.Context) {
+	if h.DefraNode == nil || h.DefraNode.DB == nil {
+		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
+		return
+	}
 
-					if docID != "" {
-						// Process via pipeline (enqueued to worker pool)
-						h.processingPipeline.processDocumentDirect(docID, docType, blockNumber, docMap)
+	if err := h.initKnownCollectionIDs(ctx); err != nil {
+		logger.Sugar.Errorf("Failed to initialize known collection IDs: %v", err)
+	}
+
+	workerCount, queueSize := h.initDocQueue()
+	for range workerCount {
+		go h.docWorker(ctx)
+	}
+	logger.Sugar.Infof("Started %d document workers (queue: %d)", workerCount, queueSize)
+
+	// Subscribe to document update events
+	updateSub, err := h.DefraNode.DB.Events().Subscribe(event.UpdateName)
+	if err != nil {
+		logger.Sugar.Errorf("Failed to subscribe to DefraDB events: %v", err)
+		return
+	}
+
+	logger.Sugar.Info("DefraDB event bus listener started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Sugar.Info("Event bus listener stopped")
+			return
+
+		case msg, ok := <-updateSub.Message():
+			if !ok {
+				logger.Sugar.Warn("Event bus channel closed")
+				return
+			}
+
+			switch msg.Name {
+			case event.UpdateName:
+				update, ok := msg.Data.(event.Update)
+				if !ok {
+					continue
+				}
+
+				if !update.IsRelay {
+					continue
+				}
+
+				if h.metrics != nil {
+					h.metrics.IncrementDocumentsReceived()
+				}
+
+				switch update.CollectionID {
+				case batchSigCollectionID:
+					if h.metrics != nil {
+						h.metrics.IncrementBatchSigEventsReceived()
+					}
+					enqueueDoc(docEvent{docID: update.DocID, collectionName: constants.CollectionBatchSignature})
+				case blockCollectionID:
+					if h.metrics != nil {
+						h.metrics.IncrementBlocksReceived()
+					}
+				case transactionCollectionID:
+					if h.metrics != nil {
+						h.metrics.IncrementDocumentByType(constants.CollectionTransaction)
+					}
+				case logCollectionID:
+					if h.metrics != nil {
+						h.metrics.IncrementDocumentByType(constants.CollectionLog)
+					}
+				case accessListCollectionID:
+					if h.metrics != nil {
+						h.metrics.IncrementDocumentByType(constants.CollectionAccessListEntry)
 					}
 				}
 			}
 		}
 	}
+}
+
+// processBatchSignatureFromEventBus fetches a BatchSignature document by DocID and processes it.
+func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID string) {
+	if h.DefraNode == nil || h.DefraNode.DB == nil {
+		return
+	}
+
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBatchSignature)
+	if err != nil {
+		logger.Sugar.Warnf("Failed to get BatchSignature collection: %v", err)
+		return
+	}
+
+	docIDTyped, err := client.NewDocIDFromString(docID)
+	if err != nil {
+		return
+	}
+
+	var doc *client.Document
+	maxRetries := 3
+
+	for attempt := range maxRetries {
+		doc, err = col.Get(ctx, docIDTyped, false)
+		if err == nil && doc != nil {
+			break
+		}
+		if attempt < maxRetries-1 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+
+	if err != nil || doc == nil {
+		return
+	}
+
+	h.processBatchSignatureDocument(ctx, doc)
+}
+
+// processBatchSignatureDocument extracts fields from a client.Document and processes them.
+func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Document) {
+	blockNumberVal, err := doc.Get("blockNumber")
+	if err != nil {
+		return
+	}
+	blockNumber, ok := blockNumberVal.(int64)
+	if !ok {
+		if f, ok := blockNumberVal.(float64); ok {
+			blockNumber = int64(f)
+		}
+	}
+
+	merkleRootVal, err := doc.Get("merkleRoot")
+	if err != nil {
+		return
+	}
+	merkleRoot, ok := merkleRootVal.(string)
+	if !ok || merkleRoot == "" {
+		return
+	}
+
+	batchSig := &attestationService.BatchSignature{
+		BlockNumber: blockNumber,
+		MerkleRoot:  merkleRoot,
+	}
+
+	if val, err := doc.Get("blockHash"); err == nil {
+		if s, ok := val.(string); ok {
+			batchSig.BlockHash = s
+		}
+	}
+	if val, err := doc.Get("cidCount"); err == nil {
+		switch v := val.(type) {
+		case int64:
+			batchSig.CIDCount = int(v)
+		case float64:
+			batchSig.CIDCount = int(v)
+		}
+	}
+	if val, err := doc.Get("signatureType"); err == nil {
+		if s, ok := val.(string); ok {
+			batchSig.SignatureType = s
+		}
+	}
+	if val, err := doc.Get("signatureIdentity"); err == nil {
+		if s, ok := val.(string); ok {
+			batchSig.SignatureIdentity = s
+		}
+	}
+	if val, err := doc.Get("signatureValue"); err == nil {
+		if s, ok := val.(string); ok {
+			batchSig.SignatureValue = s
+		}
+	}
+	if val, err := doc.Get("createdAt"); err == nil {
+		if s, ok := val.(string); ok {
+			batchSig.CreatedAt = s
+		}
+	}
+
+	if h.batchSignatureVerifier != nil {
+		if err := h.batchSignatureVerifier.VerifyBatchSignature(ctx, batchSig); err != nil {
+			logger.Sugar.Warnf("Invalid batch signature for block %d: %v", batchSig.BlockNumber, err)
+			if h.metrics != nil {
+				h.metrics.IncrementSignatureFailures()
+			}
+			return
+		}
+
+		if h.metrics != nil {
+			h.metrics.IncrementSignatureVerifications()
+		}
+
+		h.batchSignatureVerifier.AddBatchSignature(batchSig)
+
+		h.processAttestationsFromBatchSignature(ctx, batchSig)
+	}
+}
+
+// processAttestationsFromBatchSignature creates a single attestation record for the entire block
+func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchSig *attestationService.BatchSignature) {
+	if h.DefraNode == nil {
+		return
+	}
+
+	blockNumber := batchSig.BlockNumber
+	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
+
+	record := &constants.AttestationRecord{
+		AttestedDocId: blockAttestedID,
+		SourceDocId:   batchSig.SignatureIdentity,
+		CIDs:          []string{batchSig.MerkleRoot},
+		DocType:       "Block",
+		VoteCount:     1,
+	}
+
+	if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+		logger.Sugar.Warnf("Failed to post block attestation for block %d: %v", blockNumber, err)
+		if h.metrics != nil {
+			h.metrics.IncrementAttestationErrors()
+		}
+		return
+	}
+
+	if h.metrics != nil {
+		h.metrics.IncrementAttestationsCreated()
+		h.metrics.IncrementDocumentByType(constants.CollectionBlock)
+		h.metrics.IncrementDocumentByType(constants.CollectionBatchSignature)
+		h.metrics.UpdateMostRecentBlock(uint64(blockNumber))
+	}
+
+	logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(batchSig.SignatureIdentity, 16))
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

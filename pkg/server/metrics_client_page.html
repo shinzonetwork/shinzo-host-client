@@ -1,31 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document Processing Metrics</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
-        
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: #fff;
             color: #000;
             line-height: 1.6;
         }
-        
+
         .content-wrapper {
             max-width: 1280px;
             margin: 0 auto;
             padding: 0 2rem;
         }
-        
+
         header {
             position: sticky;
             top: 0;
@@ -33,7 +34,7 @@
             background: #fff;
             border-bottom: 1px solid #e5e5e5;
         }
-        
+
         .header-content {
             display: flex;
             align-items: center;
@@ -41,30 +42,30 @@
             justify-content: space-between;
             padding: 1.25rem 0rem 1.25rem 0rem;
         }
-        
+
         .header-content-left {
             display: flex;
             flex-direction: column;
             align-items: left;
         }
-        
+
         .header-content-right {
             display: flex;
             flex-direction: column;
             align-items: right;
             color: #666;
-            font-family: monospace; 
+            font-family: monospace;
             font-size: 0.875rem;
         }
-        
+
         .accent {
             color: #D01F27;
         }
-        
+
         .section {
             padding: 2rem 0 0 0;
         }
-        
+
         .section-header {
             display: flex;
             align-items: center;
@@ -74,34 +75,35 @@
             font-size: 0.75rem;
             letter-spacing: 0.05em;
         }
-        
+
         .section-header .accent {
             margin-right: 0.75rem;
         }
-        
+
         .spacer {
             flex-grow: 1;
             height: 1px;
             background: #e5e5e5;
             margin-left: 0.5rem;
         }
-        
+
         h3 {
             font-size: 1.5rem;
             font-weight: 700;
             margin-bottom: 0.5rem;
         }
-        
+
         .highlight {
             color: #D01F27;
         }
-        
+
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 2rem;
             margin: 2rem 0;
         }
+
         .summary-item {
             display: flex;
             align-items: center;
@@ -114,6 +116,7 @@
             padding: 0.5rem;
             margin-bottom: 0.5rem;
         }
+
         .metric-card {
             font-family: monospace;
             font-weight: 500;
@@ -122,11 +125,11 @@
             border: 1px solid #e5e5e5;
             transition: all 0.3s ease;
         }
-        
+
         .metric-card:hover {
             border-color: #D01F27;
         }
-        
+
         .metric-label {
             font-size: 0.875rem;
             color: #666;
@@ -134,23 +137,23 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-        
+
         .metric-value {
-            font-size: 1.5rem; 
+            font-size: 1.5rem;
         }
-        
+
         .metric-description {
             font-size: 1.05rem;
             padding-top: 0.5rem;
         }
-        
+
         .chart-container {
             background: #fafafa;
             padding: 2rem;
             border: 1px solid #e5e5e5;
             margin: 2rem 0;
         }
-        
+
         .check-circle {
             display: inline-flex;
             align-items: center;
@@ -199,24 +202,26 @@
             color: #f59e0b;
         }
 
-        @media (max-width: 768px) {           
+        @media (max-width: 768px) {
             .grid {
                 grid-template-columns: 1fr;
             }
-            
+
             .section {
                 padding: 2rem 0;
             }
         }
     </style>
 </head>
+
 <body>
     <header>
         <div class="content-wrapper">
             <div class="header-content">
                 <div class="header-content-left">
                     <h3>Document Processing <span class="highlight">[</span>Metrics<span class="highlight">]</span></h3>
-                    <p style="display: flex; flex-direction: row; gap: 1rem; max-width: 600px; font-family: monospace; font-size: 0.875rem; color: #666;">
+                    <p
+                        style="display: flex; flex-direction: row; gap: 1rem; max-width: 600px; font-family: monospace; font-size: 0.875rem; color: #666;">
                         <span id="start-time">-</span>
                         <span class="accent">/</span>
                         <span id="build-schema">-</span>
@@ -238,26 +243,19 @@
                     <span class="accent">/</span>System Summary
                     <div class="spacer"></div>
                 </div>
-                <div class="chart-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: #525f7f;">
+                <div class="chart-container"
+                    style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: #525f7f;">
                     <div class="summary-item">
-                        <span> <span id="attestation_match_icon"></span> Attestation = Documents Processed</span>
+                        <span> <span id="attestation_match_icon"></span> Attestations = Blocks Processed</span>
                         <span><span id="attestation_match">-</span></span>
                     </div>
                     <div class="summary-item">
-                        <span> <span id="recieved_processed_diff_icon"></span> Documents Received ≈ Processed (within 10)</span>
-                        <span><span id="recieved_processed_diff">-</span></span>
-                    </div>
-                    <div class="summary-item">
-                        <span> <span id="dropped_docs_summary_icon"></span> Documents Dropped</span>
-                        <span><span id="dropped_docs_summary">-</span></span>
+                        <span> <span id="sig_verification_match_icon"></span> Sig Verifications = Attestations</span>
+                        <span><span id="sig_verification_match">-</span></span>
                     </div>
                     <div class="summary-item">
                         <span> <span id="attestation_errors_summary_icon"></span> Attestation Errors</span>
                         <span><span id="attestation_errors_summary">-</span></span>
-                    </div>
-                    <div class="summary-item">
-                        <span> <span id="sig_verification_match_icon"></span> Signature Verifications = Attestations</span>
-                        <span><span id="sig_verification_match">-</span></span>
                     </div>
                     <div class="summary-item">
                         <span> <span id="sig_failures_summary_icon"></span> Signature Failures</span>
@@ -273,24 +271,20 @@
                     <span class="accent">/</span>Performance Summary
                     <div class="spacer"></div>
                 </div>
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 2rem 0;">
-                        <div class="metric-card" style="background: #fafafa;">
-                            <p class="metric-label">Avg Processing Time</p>
-                            <p class="metric-value" id="avg-processing-time">-</p>
-                        </div>
-                        <div class="metric-card" style="background: #fafafa;">
-                            <p class="metric-label">Last document</p>
-                            <p class="metric-description" id="last-document-time">-</p>
-                        </div>
-                        <div class="metric-card" style="background: #fafafa;">
-                            <p class="metric-label">Uptime</p>
-                            <p class="metric-value" id="uptimeValue">-</p>
-                        </div>
-                        <div class="metric-card" style="background: #fafafa;">
-                            <p class="metric-label">Most Recent Block</p>
-                            <p class="metric-value" id="most-recent-block">-</p>
-                        </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 2rem 0;">
+                    <div class="metric-card" style="background: #fafafa;">
+                        <p class="metric-label">Most Recent Block</p>
+                        <p class="metric-value" id="most-recent-block">-</p>
                     </div>
+                    <div class="metric-card" style="background: #fafafa;">
+                        <p class="metric-label">Uptime</p>
+                        <p class="metric-value" id="uptimeValue">-</p>
+                    </div>
+                    <div class="metric-card" style="background: #fafafa;">
+                        <p class="metric-label">Last document</p>
+                        <p class="metric-description" id="last-document-time">-</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -300,29 +294,7 @@
                     <span class="accent">/</span>Runtime Statistics
                     <div class="spacer"></div>
                 </div>
-                
-                <div class="chart-container">
-                    <h3>Document Processing</h3>
-                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
-                        <div class="metric-card">
-                            <p class="metric-label">Documents Received</p>
-                            <p class="metric-value" id="docs-received">-</p>
-                        </div>
-                        <div class="metric-card">
-                            <p class="metric-label">Documents Processed</p>
-                            <p class="metric-value" id="docs-proc-detail">-</p>
-                        </div>
-                        <div class="metric-card">
-                            <p class="metric-label">Documents Dropped</p>
-                            <p class="metric-value" id="docs-dropped">-</p>
-                        </div>
-                        <div class="metric-card">
-                            <p class="metric-label">Documents Skipped</p>
-                            <p class="metric-value" id="docs-skipped">-</p>
-                        </div>
-                    </div>
-                </div>
-                
+
                 <div class="chart-container">
                     <h3>Blockchain Data Processed</h3>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
@@ -342,9 +314,13 @@
                             <p class="metric-label">Access Lists</p>
                             <p class="metric-value" id="access-lists">-</p>
                         </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Batch Sigs</p>
+                            <p class="metric-value" id="batch-sigs">-</p>
+                        </div>
                     </div>
                 </div>
-                
+
                 <div class="chart-container">
                     <h3>Verification & Errors</h3>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
@@ -425,16 +401,16 @@
             });
 
             if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                } 
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             const data = await response.json();
             console.log(data);
-            
+
             //header data
             document.getElementById('start-time').textContent = formatTime(data.metrics.start_time);
             document.getElementById('build-schema').textContent = `${data.metrics.build_tags} | ${data.metrics.schema_type}`;
             //update system summary data
-            const attestationMatch = formatNumber(data.metrics.attestations_created)===formatNumber(data.metrics.documents_processed);
+            const attestationMatch = data.metrics.attestations_created === data.metrics.blocks_processed;
             const attestationMatchIconElement = document.getElementById('attestation_match_icon');
             if (attestationMatch) {
                 attestationMatchIconElement.classList.add('check-circle');
@@ -445,36 +421,7 @@
                 attestationMatchIconElement.classList.add('alert-circle');
                 attestationMatchIconElement.classList.remove('check-circle');
                 attestationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(metrics.attestations_created - metrics.documents_processed)}`;
-            }
-
-            const recievedProcessedDiff = Math.abs(formatNumber(data.metrics.documents_received)-formatNumber(data.metrics.documents_processed));
-            document.getElementById('recieved_processed_diff').textContent = `Δ ${recievedProcessedDiff}`;
-            const recievedProcessedDiffIconElement = document.getElementById('recieved_processed_diff_icon');
-            if (recievedProcessedDiff <= 10) {
-                recievedProcessedDiffIconElement.classList.add('check-circle');
-                recievedProcessedDiffIconElement.classList.add('check-circle-bordered');
-                recievedProcessedDiffIconElement.classList.remove('alert-circle');
-            } else {
-                recievedProcessedDiffIconElement.classList.add('alert-circle');
-                recievedProcessedDiffIconElement.classList.remove('check-circle');
-                recievedProcessedDiffIconElement.classList.remove('check-circle-bordered');
-            }
-
-            const droppedDocs = data.metrics.documents_dropped;
-            const droppedDocsMatchIconElement = document.getElementById('dropped_docs_summary_icon');
-            if (droppedDocs === 0) {
-                droppedDocsMatchIconElement.classList.add('check-circle');
-                droppedDocsMatchIconElement.classList.add('check-circle-bordered');
-                droppedDocsMatchIconElement.classList.remove('alert-circle');
-                droppedDocsMatchIconElement.classList.remove('alert-circle-bordered');
-                document.getElementById('dropped_docs_summary').textContent = 'None'
-            } else {
-                droppedDocsMatchIconElement.classList.add('alert-circle');
-                droppedDocsMatchIconElement.classList.add('alert-circle-bordered');
-                droppedDocsMatchIconElement.classList.remove('check-circle');
-                droppedDocsMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('dropped_docs_summary').textContent = `${droppedDocs}`;
+                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(data.metrics.attestations_created - data.metrics.blocks_processed)}`;
             }
 
             const attestationErrors = data.metrics.attestation_errors;
@@ -493,7 +440,7 @@
                 document.getElementById('attestation_errors_summary').textContent = `${attestationErrors}`;
             }
 
-            const sigVerificationMatch = formatNumber(data.metrics.signature_verifications)===formatNumber(data.metrics.attestations_created);
+            const sigVerificationMatch = data.metrics.signature_verifications === data.metrics.attestations_created;
             const sigVerificationMatchIconElement = document.getElementById('sig_verification_match_icon');
             if (sigVerificationMatch) {
                 sigVerificationMatchIconElement.classList.add('check-circle');
@@ -524,23 +471,17 @@
             }
 
             //update system overview data
-            document.getElementById('avg-processing-time').textContent = data.metrics.last_processing_time_ms + ' ms';
             document.getElementById('most-recent-block').textContent = formatNumber(data.metrics.most_recent_block);
             document.getElementById('uptimeValue').textContent = formatDurationHHMMSS(data.uptime_seconds);
             document.getElementById('last-document-time').textContent = formatTime(data.metrics.last_document_time);
 
-            //update runtime statistics data
-            document.getElementById('docs-received').textContent = formatNumber(data.metrics.documents_received);
-            document.getElementById('docs-proc-detail').textContent = formatNumber(data.metrics.documents_processed);
-            document.getElementById('docs-dropped').textContent = formatNumber(data.metrics.documents_dropped);
-            document.getElementById('docs-skipped').textContent = formatNumber(data.metrics.documents_skipped);
-            
             //update blockchain data processed data
             document.getElementById('transactions').textContent = formatNumber(data.metrics.transactions_processed);
             document.getElementById('logs').textContent = formatNumber(data.metrics.logs_processed);
             document.getElementById('access-lists').textContent = formatNumber(data.metrics.access_lists_processed);
             document.getElementById('blocks').textContent = formatNumber(data.metrics.blocks_processed);
-            
+            document.getElementById('batch-sigs').textContent = formatNumber(data.metrics.batch_signatures_processed);
+
             //update verification & errors data
             document.getElementById('att-created').textContent = formatNumber(data.metrics.attestations_created);
             document.getElementById('att-errors').textContent = formatNumber(data.metrics.attestation_errors);
@@ -549,13 +490,21 @@
             //update performance indicators data
             document.getElementById('views-reg').textContent = formatNumber(data.metrics.views_registered);
             document.getElementById('views-active').textContent = formatNumber(data.metrics.views_active);
-            document.getElementById('schema').textContent = data.metrics.schema_type;
-            document.getElementById('build').textContent = data.metrics.build_tags;
-            document.getElementById('start-time').textContent = data.metrics.start_time;
-            // document.getElementById('last-document').textContent = data.metrics.last_document_time;
         }
 
+        // Initial load
         loadMetricsData();
+
+        // Auto-refresh every 10 seconds
+        refreshInterval = setInterval(loadMetricsData, 10000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
     </script>
 </body>
+
 </html>
