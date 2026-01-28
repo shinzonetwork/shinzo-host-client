@@ -1,14 +1,26 @@
 package server
 
 import (
+	_ "embed"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+)
+
+//go:embed metrics_client_page.html
+var embeddedMetricsClientPageHTML string
+
+var (
+	metricsClientPagePath = filepath.Join("pkg", "server", "metrics_client_page.html")
 )
 
 // HostMetrics tracks various metrics for the host
@@ -19,17 +31,16 @@ type HostMetrics struct {
 	SignatureVerifications int64 `json:"signature_verifications"`
 	SignatureFailures      int64 `json:"signature_failures"`
 
-	// Document processing metrics
-	DocumentsReceived  int64 `json:"documents_received"`
-	DocumentsProcessed int64 `json:"documents_processed"`
-	DocumentsDropped   int64 `json:"documents_dropped"`
-	DocumentsSkipped   int64 `json:"documents_skipped"` // Skipped due to deduplication
+	BatchSigEventsReceived int64 `json:"batch_sig_events_received"`
+	BlocksReceived         int64 `json:"blocks_received"`
 
-	// Document type breakdown (counts attestation events, not unique documents)
-	BlocksProcessed       int64 `json:"blocks_processed"`
-	TransactionsProcessed int64 `json:"transactions_processed"`
-	LogsProcessed         int64 `json:"logs_processed"`
-	AccessListsProcessed  int64 `json:"access_lists_processed"`
+	// Document processing metrics
+	DocumentsReceived        int64 `json:"documents_received"`
+	BlocksProcessed          int64 `json:"blocks_processed"`
+	TransactionsProcessed    int64 `json:"transactions_processed"`
+	LogsProcessed            int64 `json:"logs_processed"`
+	AccessListsProcessed     int64 `json:"access_lists_processed"`
+	BatchSignaturesProcessed int64 `json:"batch_signatures_processed"`
 
 	// Unique document counters (tracks first-time attestations only)
 	UniqueBlocks       int64 `json:"unique_blocks"`
@@ -96,25 +107,20 @@ func (m *HostMetrics) IncrementSignatureFailures() {
 	atomic.AddInt64(&m.SignatureFailures, 1)
 }
 
+// IncrementBatchSigEventsReceived atomically increments the batch sig events received counter
+func (m *HostMetrics) IncrementBatchSigEventsReceived() {
+	atomic.AddInt64(&m.BatchSigEventsReceived, 1)
+}
+
+// IncrementBlocksReceived atomically increments the blocks received counter
+func (m *HostMetrics) IncrementBlocksReceived() {
+	atomic.AddInt64(&m.BlocksReceived, 1)
+}
+
 // IncrementDocumentsReceived atomically increments the documents received counter
 func (m *HostMetrics) IncrementDocumentsReceived() {
 	atomic.AddInt64(&m.DocumentsReceived, 1)
 	m.LastDocumentTime = time.Now()
-}
-
-// IncrementDocumentsProcessed atomically increments the documents processed counter
-func (m *HostMetrics) IncrementDocumentsProcessed() {
-	atomic.AddInt64(&m.DocumentsProcessed, 1)
-}
-
-// IncrementDocumentsDropped atomically increments the documents dropped counter
-func (m *HostMetrics) IncrementDocumentsDropped() {
-	atomic.AddInt64(&m.DocumentsDropped, 1)
-}
-
-// IncrementDocumentsSkipped atomically increments the documents skipped counter
-func (m *HostMetrics) IncrementDocumentsSkipped() {
-	atomic.AddInt64(&m.DocumentsSkipped, 1)
 }
 
 // IncrementDocumentByType atomically increments the counter for a specific document type
@@ -128,6 +134,8 @@ func (m *HostMetrics) IncrementDocumentByType(docType string) {
 		atomic.AddInt64(&m.LogsProcessed, 1)
 	case constants.CollectionAccessListEntry:
 		atomic.AddInt64(&m.AccessListsProcessed, 1)
+	case constants.CollectionBatchSignature:
+		atomic.AddInt64(&m.BatchSignaturesProcessed, 1)
 	}
 }
 
@@ -164,7 +172,15 @@ func (m *HostMetrics) UpdateLastProcessingTime(avgMs float64) {
 
 // UpdateMostRecentBlock updates the most recent block number
 func (m *HostMetrics) UpdateMostRecentBlock(blockNumber uint64) {
-	atomic.StoreUint64(&m.MostRecentBlock, blockNumber)
+	for {
+		current := atomic.LoadUint64(&m.MostRecentBlock)
+		if blockNumber <= current {
+			return
+		}
+		if atomic.CompareAndSwapUint64(&m.MostRecentBlock, current, blockNumber) {
+			return
+		}
+	}
 }
 
 func (m *HostMetrics) GetSnapshot() *HostMetrics {
@@ -173,24 +189,24 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 	lastProcessingTime := *(*float64)(unsafe.Pointer(&lastProcessingTimeBits))
 
 	return &HostMetrics{
-		AttestationsCreated:    atomic.LoadInt64(&m.AttestationsCreated),
-		AttestationErrors:      atomic.LoadInt64(&m.AttestationErrors),
-		SignatureVerifications: atomic.LoadInt64(&m.SignatureVerifications),
-		SignatureFailures:      atomic.LoadInt64(&m.SignatureFailures),
-		DocumentsReceived:      atomic.LoadInt64(&m.DocumentsReceived),
-		DocumentsProcessed:     atomic.LoadInt64(&m.DocumentsProcessed),
-		DocumentsDropped:       atomic.LoadInt64(&m.DocumentsDropped),
-		DocumentsSkipped:       atomic.LoadInt64(&m.DocumentsSkipped),
-		BlocksProcessed:        atomic.LoadInt64(&m.BlocksProcessed),
-		TransactionsProcessed:  atomic.LoadInt64(&m.TransactionsProcessed),
-		LogsProcessed:          atomic.LoadInt64(&m.LogsProcessed),
-		AccessListsProcessed:   atomic.LoadInt64(&m.AccessListsProcessed),
-		UniqueBlocks:           atomic.LoadInt64(&m.UniqueBlocks),
-		UniqueTransactions:     atomic.LoadInt64(&m.UniqueTransactions),
-		UniqueLogs:             atomic.LoadInt64(&m.UniqueLogs),
-		UniqueAccessLists:      atomic.LoadInt64(&m.UniqueAccessLists),
-		ViewsRegistered:        atomic.LoadInt64(&m.ViewsRegistered),
-		ViewsActive:            atomic.LoadInt64(&m.ViewsActive),
+		AttestationsCreated:      atomic.LoadInt64(&m.AttestationsCreated),
+		AttestationErrors:        atomic.LoadInt64(&m.AttestationErrors),
+		SignatureVerifications:   atomic.LoadInt64(&m.SignatureVerifications),
+		SignatureFailures:        atomic.LoadInt64(&m.SignatureFailures),
+		BatchSigEventsReceived:   atomic.LoadInt64(&m.BatchSigEventsReceived),
+		BlocksReceived:           atomic.LoadInt64(&m.BlocksReceived),
+		DocumentsReceived:        atomic.LoadInt64(&m.DocumentsReceived),
+		BlocksProcessed:          atomic.LoadInt64(&m.BlocksProcessed),
+		TransactionsProcessed:    atomic.LoadInt64(&m.TransactionsProcessed),
+		LogsProcessed:            atomic.LoadInt64(&m.LogsProcessed),
+		AccessListsProcessed:     atomic.LoadInt64(&m.AccessListsProcessed),
+		BatchSignaturesProcessed: atomic.LoadInt64(&m.BatchSignaturesProcessed),
+		UniqueBlocks:             atomic.LoadInt64(&m.UniqueBlocks),
+		UniqueTransactions:       atomic.LoadInt64(&m.UniqueTransactions),
+		UniqueLogs:               atomic.LoadInt64(&m.UniqueLogs),
+		UniqueAccessLists:        atomic.LoadInt64(&m.UniqueAccessLists),
+		ViewsRegistered:          atomic.LoadInt64(&m.ViewsRegistered),
+		ViewsActive:              atomic.LoadInt64(&m.ViewsActive),
 		// Performance metrics
 		ProcessingQueueSize: atomic.LoadInt64(&m.ProcessingQueueSize),
 		ViewQueueSize:       atomic.LoadInt64(&m.ViewQueueSize),
@@ -205,6 +221,22 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 
 // ServeHTTP implements http.Handler for the metrics endpoint
 func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
+	accept := r.Header.Get("Accept")
+	acceptLower := strings.ToLower(accept)
+
+	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html)
+	// Otherwise, default to HTML for browser requests
+	if strings.Contains(acceptLower, "text/html") && !strings.Contains(acceptLower, "application/json") {
+		// Default to HTML (browser request or Accept header includes text/html)
+		htmlContent := m.getMetricsClientPageHTML()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(htmlContent))
+		return
+	}
+
+	// Serve JSON response
 	w.Header().Set("Content-Type", "application/json")
 
 	snapshot := m.GetSnapshot()
@@ -214,13 +246,36 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]interface{}{
 		"metrics":        snapshot,
-		"uptime_seconds": uptime.Seconds(),
-		"uptime_human":   uptime.String(),
+		"current_block":  snapshot.MostRecentBlock,
 		"timestamp":      time.Now().Unix(),
+		"uptime_human":   uptime.String(),
+		"uptime_seconds": uptime.Seconds(),
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "Failed to encode metrics", http.StatusInternalServerError)
 		return
 	}
+}
+
+// getMetricsClientPageHTML reads the HTML file from disk at runtime, falling back to embedded version
+// This allows hot-reloading during development without rebuilding
+func (ms *HostMetrics) getMetricsClientPageHTML() []byte {
+	// Try to read from disk first (for development hot-reload)
+	// Check multiple possible paths relative to where the binary might be running
+	possiblePaths := []string{
+		metricsClientPagePath,                          // pkg/server/metrics_client_page.html
+		filepath.Join(".", "metrics_client_page.html"), // ./metrics_client_pages.html (if running from pkg/server)
+	}
+
+	for _, path := range possiblePaths {
+		if data, err := os.ReadFile(path); err == nil {
+			logger.Sugar.Debugf("Loaded metrics client page from: %s", path)
+			return data
+		}
+	}
+
+	// Fallback to embedded version (for production or if file not found)
+	logger.Sugar.Debug("Using embedded metrics client page")
+	return []byte(embeddedMetricsClientPageHTML)
 }

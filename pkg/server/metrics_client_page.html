@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Processing Metrics</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #fff;
+            color: #000;
+            line-height: 1.6;
+        }
+
+        .content-wrapper {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: #fff;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            min-height: 80px;
+            justify-content: space-between;
+            padding: 1.25rem 0rem 1.25rem 0rem;
+        }
+
+        .header-content-left {
+            display: flex;
+            flex-direction: column;
+            align-items: left;
+        }
+
+        .header-content-right {
+            display: flex;
+            flex-direction: column;
+            align-items: right;
+            color: #666;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .accent {
+            color: #D01F27;
+        }
+
+        .section {
+            padding: 2rem 0 0 0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            text-transform: uppercase;
+            font-family: monospace;
+            margin-bottom: 2.5rem;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        .section-header .accent {
+            margin-right: 0.75rem;
+        }
+
+        .spacer {
+            flex-grow: 1;
+            height: 1px;
+            background: #e5e5e5;
+            margin-left: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .highlight {
+            color: #D01F27;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .summary-item {
+            display: flex;
+            align-items: center;
+            flex-direction: row;
+            justify-content: space-between;
+            max-width: 600px;
+            font-family: monospace;
+            font-size: 0.75rem;
+            background-color: #fff;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card {
+            font-family: monospace;
+            font-weight: 500;
+            background: #fff;
+            padding: 2rem;
+            border: 1px solid #e5e5e5;
+            transition: all 0.3s ease;
+        }
+
+        .metric-card:hover {
+            border-color: #D01F27;
+        }
+
+        .metric-label {
+            font-size: 0.875rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+        }
+
+        .metric-description {
+            font-size: 1.05rem;
+            padding-top: 0.5rem;
+        }
+
+        .chart-container {
+            background: #fafafa;
+            padding: 2rem;
+            border: 1px solid #e5e5e5;
+            margin: 2rem 0;
+        }
+
+        .check-circle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #10b981;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        .check-circle::before {
+            content: '✓';
+        }
+
+        .check-circle-bordered {
+            background: white;
+            border: 2px solid #10b981;
+            color: #10b981;
+        }
+
+        .alert-circle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #f59e0b;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        .alert-circle::before {
+            content: '!';
+        }
+
+        .alert-circle-bordered {
+            background: white;
+            border: 2px solid #f59e0b;
+            color: #f59e0b;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section {
+                padding: 2rem 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="content-wrapper">
+            <div class="header-content">
+                <div class="header-content-left">
+                    <h3>Document Processing <span class="highlight">[</span>Metrics<span class="highlight">]</span></h3>
+                    <p
+                        style="display: flex; flex-direction: row; gap: 1rem; max-width: 600px; font-family: monospace; font-size: 0.875rem; color: #666;">
+                        <span id="start-time">-</span>
+                        <span class="accent">/</span>
+                        <span id="build-schema">-</span>
+                    </p>
+                </div>
+                <!-- <div class="header-content-right">
+                    <div style="font-family: monospace; font-size: 0.875rem;">
+                        <span class="accent">/</span> Live Dashboard
+                    </div>
+                </div> -->
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="section">
+            <div class="content-wrapper">
+                <div class="section-header">
+                    <span class="accent">/</span>System Summary
+                    <div class="spacer"></div>
+                </div>
+                <div class="chart-container"
+                    style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: #525f7f;">
+                    <div class="summary-item">
+                        <span> <span id="attestation_match_icon"></span> Attestations = Blocks Processed</span>
+                        <span><span id="attestation_match">-</span></span>
+                    </div>
+                    <div class="summary-item">
+                        <span> <span id="sig_verification_match_icon"></span> Sig Verifications = Attestations</span>
+                        <span><span id="sig_verification_match">-</span></span>
+                    </div>
+                    <div class="summary-item">
+                        <span> <span id="attestation_errors_summary_icon"></span> Attestation Errors</span>
+                        <span><span id="attestation_errors_summary">-</span></span>
+                    </div>
+                    <div class="summary-item">
+                        <span> <span id="sig_failures_summary_icon"></span> Signature Failures</span>
+                        <span><span id="sig_failures_summary">-</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="content-wrapper">
+                <div class="section-header">
+                    <span class="accent">/</span>Performance Summary
+                    <div class="spacer"></div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 2rem 0;">
+                    <div class="metric-card" style="background: #fafafa;">
+                        <p class="metric-label">Most Recent Block</p>
+                        <p class="metric-value" id="most-recent-block">-</p>
+                    </div>
+                    <div class="metric-card" style="background: #fafafa;">
+                        <p class="metric-label">Uptime</p>
+                        <p class="metric-value" id="uptimeValue">-</p>
+                    </div>
+                    <div class="metric-card" style="background: #fafafa;">
+                        <p class="metric-label">Last document</p>
+                        <p class="metric-description" id="last-document-time">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="content-wrapper">
+                <div class="section-header">
+                    <span class="accent">/</span>Runtime Statistics
+                    <div class="spacer"></div>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Blockchain Data Processed</h3>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
+                        <div class="metric-card">
+                            <p class="metric-label">Blocks</p>
+                            <p class="metric-value" id="blocks">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Transactions</p>
+                            <p class="metric-value" id="transactions">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Logs</p>
+                            <p class="metric-value" id="logs">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Access Lists</p>
+                            <p class="metric-value" id="access-lists">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Batch Sigs</p>
+                            <p class="metric-value" id="batch-sigs">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Verification & Errors</h3>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
+                        <div class="metric-card">
+                            <p class="metric-label">Attestation Created</p>
+                            <span class="metric-value" id="att-created">-</span>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Attestation Errors</p>
+                            <p class="metric-value" id="att-errors">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Signature Verifications</p>
+                            <p class="metric-value" id="sig-verifications">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Signature Failures</p>
+                            <p class="metric-value" id="sig-failures">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Views</h3>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
+                        <div class="metric-card">
+                            <p class="metric-label">Registered</p>
+                            <p class="metric-value" id="views-reg">-</p>
+                        </div>
+                        <div class="metric-card">
+                            <p class="metric-label">Active</p>
+                            <p class="metric-value" id="views-active">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer style="background: #fafafa; color: #666; padding: 2rem 0;">
+        <div class="content-wrapper">
+            <p style="font-family: monospace; font-size: 0.75rem;">
+                Document Processing Metrics © 2026
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        //formatting functions
+        function formatNumber(num) {
+            if (num === null || num === undefined) return '0';
+            return new Intl.NumberFormat('en-US').format(num);
+        }
+
+        function formatTime(dateString) {
+            if (!dateString) return 'Never';
+            const date = new Date(dateString);
+            return date.toLocaleString('en-US', { timeZone: 'UTC', timeZoneName: 'short' });
+        }
+
+        function formatDurationHHMMSS(totalSeconds) {
+            const seconds = Math.max(0, Math.floor(totalSeconds));
+
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+
+        //load metrics data
+        async function loadMetricsData() {
+            const response = await fetch('/metrics', {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            console.log(data);
+
+            //header data
+            document.getElementById('start-time').textContent = formatTime(data.metrics.start_time);
+            document.getElementById('build-schema').textContent = `${data.metrics.build_tags} | ${data.metrics.schema_type}`;
+            //update system summary data
+            const attestationMatch = data.metrics.attestations_created === data.metrics.blocks_processed;
+            const attestationMatchIconElement = document.getElementById('attestation_match_icon');
+            if (attestationMatch) {
+                attestationMatchIconElement.classList.add('check-circle');
+                attestationMatchIconElement.classList.add('check-circle-bordered');
+                attestationMatchIconElement.classList.remove('alert-circle');
+                document.getElementById('attestation_match').textContent = '✓ Match'
+            } else {
+                attestationMatchIconElement.classList.add('alert-circle');
+                attestationMatchIconElement.classList.remove('check-circle');
+                attestationMatchIconElement.classList.remove('check-circle-bordered');
+                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(data.metrics.attestations_created - data.metrics.blocks_processed)}`;
+            }
+
+            const attestationErrors = data.metrics.attestation_errors;
+            const attestationErrorsMatchIconElement = document.getElementById('attestation_errors_summary_icon');
+            if (attestationErrors === 0) {
+                attestationErrorsMatchIconElement.classList.add('check-circle');
+                attestationErrorsMatchIconElement.classList.add('check-circle-bordered');
+                attestationErrorsMatchIconElement.classList.remove('alert-circle');
+                attestationErrorsMatchIconElement.classList.remove('alert-circle-bordered');
+                document.getElementById('attestation_errors_summary').textContent = 'None'
+            } else {
+                attestationErrorsMatchIconElement.classList.add('alert-circle');
+                attestationErrorsMatchIconElement.classList.add('alert-circle-bordered');
+                attestationErrorsMatchIconElement.classList.remove('check-circle');
+                attestationErrorsMatchIconElement.classList.remove('check-circle-bordered');
+                document.getElementById('attestation_errors_summary').textContent = `${attestationErrors}`;
+            }
+
+            const sigVerificationMatch = data.metrics.signature_verifications === data.metrics.attestations_created;
+            const sigVerificationMatchIconElement = document.getElementById('sig_verification_match_icon');
+            if (sigVerificationMatch) {
+                sigVerificationMatchIconElement.classList.add('check-circle');
+                sigVerificationMatchIconElement.classList.add('check-circle-bordered');
+                sigVerificationMatchIconElement.classList.remove('alert-circle');
+                document.getElementById('sig_verification_match').textContent = '✓ Match'
+            } else {
+                sigVerificationMatchIconElement.classList.add('alert-circle');
+                sigVerificationMatchIconElement.classList.remove('check-circle');
+                sigVerificationMatchIconElement.classList.remove('check-circle-bordered');
+                document.getElementById('sig_verification_match').textContent = `Δ ${Math.abs(data.metrics.signature_verifications - data.metrics.attestations_created)}`;
+            }
+
+            const sigFailures = data.metrics.signature_failures;
+            const sigFailuresMatchIconElement = document.getElementById('sig_failures_summary_icon');
+            if (sigFailures === 0) {
+                sigFailuresMatchIconElement.classList.add('check-circle');
+                sigFailuresMatchIconElement.classList.add('check-circle-bordered');
+                sigFailuresMatchIconElement.classList.remove('alert-circle');
+                sigFailuresMatchIconElement.classList.remove('alert-circle-bordered');
+                document.getElementById('sig_failures_summary').textContent = 'None'
+            } else {
+                sigFailuresMatchIconElement.classList.add('alert-circle');
+                sigFailuresMatchIconElement.classList.add('alert-circle-bordered');
+                sigFailuresMatchIconElement.classList.remove('check-circle');
+                sigFailuresMatchIconElement.classList.remove('check-circle-bordered');
+                document.getElementById('sig_failures_summary').textContent = `${sigFailures}`;
+            }
+
+            //update system overview data
+            document.getElementById('most-recent-block').textContent = formatNumber(data.metrics.most_recent_block);
+            document.getElementById('uptimeValue').textContent = formatDurationHHMMSS(data.uptime_seconds);
+            document.getElementById('last-document-time').textContent = formatTime(data.metrics.last_document_time);
+
+            //update blockchain data processed data
+            document.getElementById('transactions').textContent = formatNumber(data.metrics.transactions_processed);
+            document.getElementById('logs').textContent = formatNumber(data.metrics.logs_processed);
+            document.getElementById('access-lists').textContent = formatNumber(data.metrics.access_lists_processed);
+            document.getElementById('blocks').textContent = formatNumber(data.metrics.blocks_processed);
+            document.getElementById('batch-sigs').textContent = formatNumber(data.metrics.batch_signatures_processed);
+
+            //update verification & errors data
+            document.getElementById('att-created').textContent = formatNumber(data.metrics.attestations_created);
+            document.getElementById('att-errors').textContent = formatNumber(data.metrics.attestation_errors);
+            document.getElementById('sig-verifications').textContent = formatNumber(data.metrics.signature_verifications);
+            document.getElementById('sig-failures').textContent = formatNumber(data.metrics.signature_failures);
+            //update performance indicators data
+            document.getElementById('views-reg').textContent = formatNumber(data.metrics.views_registered);
+            document.getElementById('views-active').textContent = formatNumber(data.metrics.views_active);
+        }
+
+        // Initial load
+        loadMetricsData();
+
+        // Auto-refresh every 10 seconds
+        refreshInterval = setInterval(loadMetricsData, 10000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+
+</html>

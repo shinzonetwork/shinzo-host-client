@@ -85,7 +85,7 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 	// Check if _docID and _version are already present
 	hasDocID := strings.Contains(content, "_docID")
 	hasVersion := strings.Contains(content, "_version")
-	
+
 	// Check if _version is complete (has the full nested structure)
 	completeVersionPattern := "_version { cid signature { type identity value } }"
 	hasCompleteVersion := strings.Contains(content, completeVersionPattern)
@@ -101,9 +101,9 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 
 	// Build new content: always put _docID first, then _version, then everything else
 	trimmedContent := strings.TrimSpace(content)
-	
+
 	var newContentBuilder strings.Builder
-	
+
 	// Start with _docID if needed
 	if needDocID {
 		newContentBuilder.WriteString("_docID")
@@ -112,23 +112,23 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 		// We'll handle it in the right position
 		newContentBuilder.WriteString("_docID")
 	}
-	
+
 	// Always add a space after _docID if we have it
 	if needDocID || hasDocID {
 		newContentBuilder.WriteString(" ")
 	}
-	
+
 	// Add _version if needed
 	if needVersion {
 		newContentBuilder.WriteString("_version { cid signature { type identity value } }")
 	}
-	
+
 	// Add the rest of the content (excluding _docID and _version from the main selection set if they were already there)
 	remainingContent := ""
 	hasRemainingContent := false
 	if trimmedContent != "" {
 		remainingContent = trimmedContent
-		
+
 		// If _docID already existed in the top-level, remove it from remainingContent
 		// Only remove from the beginning (top-level), not nested selection sets
 		if hasDocID && !needDocID {
@@ -142,12 +142,12 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 				remainingContent = strings.TrimSpace(remainingContent[len("_docID"):])
 			}
 		}
-		
+
 		// If _version already existed in the top-level, remove it (complete or incomplete) if we need to add/complete it
 		// This handles both complete and incomplete _version fields
 		if hasVersion && needVersion {
 			remainingContent = strings.TrimSpace(remainingContent)
-			
+
 			// Try to remove complete version first
 			completePattern := "_version { cid signature { type identity value } }"
 			if strings.HasPrefix(remainingContent, completePattern+" ") {
@@ -164,12 +164,12 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 				if versionStart != -1 {
 					// Find the end of the _version field (could be just "_version", "_version { ... }", etc.)
 					afterVersion := versionStart + len("_version")
-					
+
 					// Skip whitespace
 					for afterVersion < len(remainingContent) && (remainingContent[afterVersion] == ' ' || remainingContent[afterVersion] == '\n' || remainingContent[afterVersion] == '\t') {
 						afterVersion++
 					}
-					
+
 					if afterVersion < len(remainingContent) && remainingContent[afterVersion] == '{' {
 						// Find the matching closing brace
 						openBrace := afterVersion
@@ -206,7 +206,7 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 						versionRemoved = true
 					}
 				}
-				
+
 				// Fallback: try simple pattern matching
 				if !versionRemoved {
 					// Try to find complete version with space before it
@@ -220,20 +220,20 @@ func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 				}
 			}
 		}
-		
+
 		hasRemainingContent = (remainingContent != "")
 	}
-	
+
 	// Add space after _version if it was added and there's remaining content, or if _version exists and we're adding _docID
 	if (needVersion && hasRemainingContent) || (hasVersion && needDocID) {
 		newContentBuilder.WriteString(" ")
 	}
-	
+
 	// Add remaining content if any
 	if hasRemainingContent {
 		newContentBuilder.WriteString(remainingContent)
 	}
-	
+
 	newContent := newContentBuilder.String()
 
 	// Replace the selection set content
@@ -250,9 +250,10 @@ func findMatchingCloseBrace(query string, openBracePos int) int {
 
 	braceCount := 1
 	for i := openBracePos + 1; i < len(query); i++ {
-		if query[i] == '{' {
+		switch query[i] {
+		case '{':
 			braceCount++
-		} else if query[i] == '}' {
+		case '}':
 			braceCount--
 			if braceCount == 0 {
 				return i

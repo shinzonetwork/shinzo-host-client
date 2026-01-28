@@ -117,7 +117,7 @@ func TestViewFilterByStatus(t *testing.T) {
 }
 
 // startTestDefraNode creates a test DefraDB node
-func startTestDefraNode(t *testing.T, ctx context.Context) *node.Node {
+func startTestDefraNode(t *testing.T, _ context.Context) *node.Node {
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err, "Should create DefraDB node")
 	require.NotNil(t, defraNode)

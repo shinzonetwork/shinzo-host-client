@@ -7,6 +7,7 @@ const (
 	CollectionLog               = "Ethereum__Mainnet__Log"
 	CollectionAccessListEntry   = "Ethereum__Mainnet__AccessListEntry"
 	CollectionAttestationRecord = "Ethereum__Mainnet__AttestationRecord"
+	CollectionBatchSignature    = "Ethereum__Mainnet__BatchSignature"
 	CollectionChain             = "Ethereum__Mainnet"
 )
 
@@ -17,4 +18,5 @@ var AllCollections = []string{
 	CollectionAccessListEntry,
 	CollectionLog,
 	CollectionAttestationRecord,
+	CollectionBatchSignature,
 }
