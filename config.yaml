@@ -4,7 +4,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.44.56.9/tcp/9171/p2p/12D3KooWQmcqPRH1XL6Sma6ZYdQw3RmPie5aRSQspL922LMUn7K1'
+      - '/ip4/35.226.30.178/tcp/9171/p2p/12D3KooWNLiUwk4AyqQwxyzhNEZPa9KGjo962ut6YgXv3Ap1DEfq'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -16,9 +16,9 @@ defradb:
     block_cache_mb: 2048   # Block cache size
     memtable_mb: 1024      # Memtable size
     index_cache_mb: 2048   # Index cache size
-    num_compactors: 4              # Number of compaction workers
-    num_level_zero_tables: 40      # L0 tables before compaction starts
-    num_level_zero_tables_stall: 80  # L0 tables that trigger write stalls
+    num_compactors: 8              # Number of compaction workers
+    num_level_zero_tables: 16      # L0 tables before compaction starts
+    num_level_zero_tables_stall: 32  # L0 tables that trigger write stalls
 shinzo:
   minimum_attestations: 1
   start_height: 23700000
