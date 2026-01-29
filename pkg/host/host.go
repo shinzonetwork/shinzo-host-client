@@ -353,6 +353,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 			} else {
 				logger.Sugar.Infof("🌐 Opened metrics page in browser")
 			}
+			if err := openBrowser(healthURL); err != nil {
+				logger.Sugar.Debugf("Could not open browser automatically: %v", err)
+				logger.Sugar.Infof("📊 Health available at: %s", healthURL)
+			} else {
+				logger.Sugar.Infof("🌐 Opened health page in browser: %s", healthURL)
+			}
 		}()
 	}
 
