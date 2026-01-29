@@ -409,7 +409,7 @@
             document.getElementById('start-time').textContent = formatTime(data.metrics.start_time);
             document.getElementById('build-schema').textContent = `${data.metrics.build_tags} | ${data.metrics.schema_type}`;
             //update system summary data
-            const attestationMatch = Number(data.metrics.attestations_created)===Number(data.metrics.documents_processed);
+            const attestationMatch = Number(data.metrics.attestations_created)===Number(data.metrics.blocks_processed);
             const attestationMatchIconElement = document.getElementById('attestation_match_icon');
             if (attestationMatch) {
                 attestationMatchIconElement.classList.add('check-circle');
@@ -434,22 +434,6 @@
                 recievedProcessedDiffIconElement.classList.add('alert-circle');
                 recievedProcessedDiffIconElement.classList.remove('check-circle');
                 recievedProcessedDiffIconElement.classList.remove('check-circle-bordered');
-            }
-
-            const droppedDocs = data.metrics.documents_dropped;
-            const droppedDocsMatchIconElement = document.getElementById('dropped_docs_summary_icon');
-            if (droppedDocs === 0) {
-                droppedDocsMatchIconElement.classList.add('check-circle');
-                droppedDocsMatchIconElement.classList.add('check-circle-bordered');
-                droppedDocsMatchIconElement.classList.remove('alert-circle');
-                droppedDocsMatchIconElement.classList.remove('alert-circle-bordered');
-                document.getElementById('dropped_docs_summary').textContent = 'None'
-            } else {
-                droppedDocsMatchIconElement.classList.add('alert-circle');
-                droppedDocsMatchIconElement.classList.add('alert-circle-bordered');
-                droppedDocsMatchIconElement.classList.remove('check-circle');
-                droppedDocsMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('dropped_docs_summary').textContent = `${droppedDocs}`;
             }
 
             const attestationErrors = data.metrics.attestation_errors;
