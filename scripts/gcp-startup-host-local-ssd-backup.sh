@@ -1,11 +1,8 @@
 #!/bin/bash
-
-# NOTE: Put config.yaml into the VM before running this script
-
 set -euxo pipefail
 
 apt-get update
-apt-get install -y docker.io mdadm
+apt-get install -y docker.io mdadm rsync
 
 # GCP Local SSDs have model "nvme_card" and can appear as multiple namespaces on one controller (nvme0n1, nvme0n2)
 # or as separate controllers (nvme0n1, nvme1n1)
@@ -47,18 +44,42 @@ if ! blkid $TARGET_DEV; then
 fi
 
 MNT=/mnt/localssd
+BACKUP_MNT=/mnt/persistent
 mkdir -p $MNT
 mountpoint -q $MNT || mount -o noatime,discard $TARGET_DEV $MNT
 chmod 777 $MNT
 mkdir -p \
   $MNT/defradb \
   $MNT/logs
-chown -R 1003:1006 $MNT/defradb
+mkdir -p \
+  $BACKUP_MNT/backup/defradb
+chown -R 1001:1001 \
+  $MNT/defradb \
+  $BACKUP_MNT/backup
+
+if [ -z "$(ls -A $MNT/defradb 2>/dev/null)" ] && [ -n "$(ls -A $BACKUP_MNT/backup/defradb 2>/dev/null)" ]; then
+  echo "Restoring data from persistent backup to NVMe..."
+  rsync -a --delete $BACKUP_MNT/backup/defradb/ $MNT/defradb/
+  chown -R 1003:1006 $MNT/defradb
+  echo "Restore complete."
+fi
+
+cat > /usr/local/bin/backup-defra.sh << 'BACKUP_SCRIPT'
+#!/bin/bash
+while true; do
+  sleep 300  # 5 minutes
+  rsync -a --delete /mnt/localssd/defradb/ /mnt/persistent/backup/defradb/ 2>/dev/null || true
+  echo "$(date): Backup sync completed" >> /mnt/localssd/logs/backup.log
+done
+BACKUP_SCRIPT
+chmod +x /usr/local/bin/backup-defra.sh
+nohup /usr/local/bin/backup-defra.sh &
 
 docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.8
 docker rm -f shinzo-host || true
 docker run -d \
   --name shinzo-host \
+  --restart unless-stopped \
   --network host \
   -u 1003:1006 \
   -v $MNT/defradb:/app/.defra \
@@ -72,5 +93,4 @@ docker run -d \
   --health-timeout=10s \
   --health-retries=3 \
   --health-start-period=40s \
-  --restart unless-stopped \
   ghcr.io/shinzonetwork/shinzo-host-client:v0.4.8
