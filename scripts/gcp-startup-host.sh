@@ -10,7 +10,7 @@ apt-get install -y docker.io
 mkdir -p ~/data/defradb
 chown -R 1003:1006 ~/data/defradb
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.6
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.7
 docker run -d \
   --name shinzo-host \
   --network host \
@@ -21,9 +21,9 @@ docker run -d \
   -e DEFRADB_BLOCK_CACHE_MB=2048 \
   -e DEFRADB_MEMTABLE_MB=1024 \
   -e DEFRADB_INDEX_CACHE_MB=2048 \
-  -e DEFRADB_NUM_COMPACTORS=4 \
-  -e DEFRADB_NUM_LEVEL_ZERO_TABLES=20 \
-  -e DEFRADB_NUM_LEVEL_ZERO_TABLES_STALL=40 \
+  -e DEFRADB_NUM_COMPACTORS=8 \
+  -e DEFRADB_NUM_LEVEL_ZERO_TABLES=16 \
+  -e DEFRADB_NUM_LEVEL_ZERO_TABLES_STALL=32 \
   -e LOG_LEVEL=error \
   -e LOG_SOURCE=false \
   -e LOG_STACKTRACE=false \
@@ -33,4 +33,4 @@ docker run -d \
   --health-retries=3 \
   --health-start-period=40s \
   --restart unless-stopped \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.6
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.7
