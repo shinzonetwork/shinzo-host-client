@@ -55,7 +55,7 @@ mkdir -p \
   $MNT/logs
 chown -R 1003:1006 $MNT/defradb
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.6
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.7
 docker rm -f shinzo-host || true
 docker run -d \
   --name shinzo-host \
@@ -79,4 +79,4 @@ docker run -d \
   --health-retries=3 \
   --health-start-period=40s \
   --restart unless-stopped \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.6
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.7
