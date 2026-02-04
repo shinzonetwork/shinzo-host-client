@@ -10,7 +10,7 @@ apt-get install -y docker.io
 mkdir -p ~/data/defradb
 chown -R 1003:1006 ~/data/defradb
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.8
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
 docker run -d \
   --name shinzo-host \
   --network host \
@@ -27,4 +27,4 @@ docker run -d \
   --health-retries=3 \
   --health-start-period=40s \
   --restart unless-stopped \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.8
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
