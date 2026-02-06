@@ -314,10 +314,6 @@
                             <p class="metric-label">Access Lists</p>
                             <p class="metric-value" id="access-lists">-</p>
                         </div>
-                        <div class="metric-card">
-                            <p class="metric-label">Batch Sigs</p>
-                            <p class="metric-value" id="batch-sigs">-</p>
-                        </div>
                     </div>
                 </div>
 
@@ -420,20 +416,7 @@
                 attestationMatchIconElement.classList.add('alert-circle');
                 attestationMatchIconElement.classList.remove('check-circle');
                 attestationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(Number(data.metrics.attestations_created) - Number(data.metrics.documents_processed))}`;
-            }
-
-            const recievedProcessedDiff = Math.abs(Number(data.metrics.documents_received)-Number(data.metrics.documents_processed));
-            document.getElementById('recieved_processed_diff').textContent = `Δ ${Math.abs(Number(data.metrics.documents_received)-Number(data.metrics.documents_processed))}`;
-            const recievedProcessedDiffIconElement = document.getElementById('recieved_processed_diff_icon');
-            if (recievedProcessedDiff <= 10) {
-                recievedProcessedDiffIconElement.classList.add('check-circle');
-                recievedProcessedDiffIconElement.classList.add('check-circle-bordered');
-                recievedProcessedDiffIconElement.classList.remove('alert-circle');
-            } else {
-                recievedProcessedDiffIconElement.classList.add('alert-circle');
-                recievedProcessedDiffIconElement.classList.remove('check-circle');
-                recievedProcessedDiffIconElement.classList.remove('check-circle-bordered');
+                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(Number(data.metrics.attestations_created) - Number(data.metrics.blocks_processed))}`;
             }
 
             const attestationErrors = data.metrics.attestation_errors;
@@ -492,7 +475,6 @@
             document.getElementById('logs').textContent = formatNumber(data.metrics.logs_processed);
             document.getElementById('access-lists').textContent = formatNumber(data.metrics.access_lists_processed);
             document.getElementById('blocks').textContent = formatNumber(data.metrics.blocks_processed);
-            document.getElementById('batch-sigs').textContent = formatNumber(data.metrics.batch_signatures_processed);
 
             //update verification & errors data
             document.getElementById('att-created').textContent = formatNumber(data.metrics.attestations_created);
