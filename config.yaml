@@ -4,7 +4,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.69.234.144/tcp/9171/p2p/12D3KooWPFobDE9why2CHjZ6JgxKHsbNJudNaf1hW49rQww3drpD'
+      - '/ip4/34.123.94.22/tcp/9171/p2p/12D3KooWPRU9D7GV9Vm7CjXrmnjktQ5qXpz3iREyo77pDtGHSLBk'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -13,11 +13,11 @@ defradb:
   store:
     path: "./.defra"
     # Badger memory configuration
-    # block_cache_mb: 4096  # Block cache size
-    # memtable_mb: 1024      # Memtable size
-    # index_cache_mb: 2048   # Index cache size
+    block_cache_mb: 1024  # Block cache size
+    memtable_mb: 128      # Memtable size
+    index_cache_mb: 512   # Index cache size
     # Badger compaction configuration
-    num_compactors: 8              # Number of compaction workers
+    num_compactors: 4              # Number of compaction workers
     # num_level_zero_tables: 20      # L0 tables before compaction starts
     # num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
 shinzo:
@@ -42,8 +42,35 @@ shinzo:
   batch_size: 1000                  # Max attestations per batch
   batch_flush_interval: 100          # Flush interval in milliseconds
   use_batch_signatures: true
-  doc_worker_count: 8
-  doc_queue_size: 1000
+  doc_worker_count: 32
+  doc_queue_size: 50000
+  # Event Filtering — filter P2P events by contract address, topics, or block range.
+  # When enabled, only events matching the filter criteria are processed and stored.
+  # event_filter:
+  #   enabled: true
+  #   mode: "allowlist"           # "allowlist" = only matching events, "blocklist" = exclude matching events
+  #   cascade_filters: true       # Filtering a tx also filters its related logs/ALEs
+  #   block_range:
+  #     min_block: 23700000
+  #     max_block: 0              # 0 = no upper limit
+  #   groups:
+  #     - name: "uniswap-v3"
+  #       enabled: true
+  #       contracts:
+  #         - name: "WETH/USDC Pool"
+  #           address: "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640"
+  #           types: ["transaction", "log"]
+  #         - name: "Router"
+  #           address: "0xE592427A0AEce92De3Edee1F18E0157C05861564"
+  #           types: ["transaction"]
+  #       topics:
+  #         - name: "Swap"
+  #           topic0: "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+  #     - name: "erc20-transfers"
+  #       enabled: false
+  #       topics:
+  #         - name: "Transfer"
+  #           topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 logger:
   development: false
   level: "error"
