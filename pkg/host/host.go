@@ -131,6 +131,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	defraNode, networkHandler, err := defra.StartDefraInstance(
 		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
+		nil,
 		constants.AllCollections...,
 	)
 	if err != nil {
@@ -427,7 +428,7 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 
 	// Get actual peer information using signer package methods
 	if h.DefraNode != nil && h.NetworkHandler != nil {
-		peerInfoStrings, err := h.DefraNode.DB.PeerInfo()
+		peerInfoStrings, err := h.DefraNode.DB.PeerInfo(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
 			return p2pInfo, nil

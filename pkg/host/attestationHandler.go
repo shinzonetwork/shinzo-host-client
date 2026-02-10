@@ -117,11 +117,11 @@ var docQueue chan docEvent
 func (h *Host) initDocQueue() (workerCount, queueSize int) {
 	queueSize = h.config.Shinzo.DocQueueSize
 	if queueSize <= 0 {
-		queueSize = 1000
+		queueSize = 5000
 	}
 	workerCount = h.config.Shinzo.DocWorkerCount
 	if workerCount <= 0 {
-		workerCount = 4
+		workerCount = 16
 	}
 	docQueue = make(chan docEvent, queueSize)
 	return workerCount, queueSize
@@ -256,7 +256,7 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 	}
 
 	var doc *client.Document
-	maxRetries := 3
+	maxRetries := 10
 
 	for attempt := range maxRetries {
 		doc, err = col.Get(ctx, docIDTyped, false)
@@ -267,12 +267,13 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(10 * time.Millisecond):
+			case <-time.After(2 * time.Millisecond):
 			}
 		}
 	}
 
 	if err != nil || doc == nil {
+		logger.Sugar.Warnf("Failed to fetch BatchSignature doc %s after %d retries: %v", docID, maxRetries, err)
 		return
 	}
 

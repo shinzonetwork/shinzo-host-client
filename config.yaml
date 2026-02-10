@@ -4,7 +4,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/35.222.53.130/tcp/9171/p2p/12D3KooWE1o71iQrJXLFyYPzxsdVksRJfNUQWQoPMY9CXUx7987D'
+      - '/ip4/35.192.125.8/tcp/9171/p2p/12D3KooWJYv6GRj3ELSzYeSorhi9QwD3xYsqvFDgUcdvy4XdboGf'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -12,6 +12,14 @@ defradb:
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
     path: "./.defra"
+    # Badger memory configuration
+    block_cache_mb: 1024  # Block cache size
+    memtable_mb: 128      # Memtable size
+    index_cache_mb: 512   # Index cache size
+    # Badger compaction configuration
+    num_compactors: 4              # Number of compaction workers
+    # num_level_zero_tables: 20      # L0 tables before compaction starts
+    # num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
 shinzo:
   minimum_attestations: 1
   start_height: 23700000
@@ -31,11 +39,11 @@ shinzo:
   batch_query_cache_size: 1000        # Cache query templates for reuse
   # Attestation Processing Settings
   batch_writer_count: 8             # Number of batch writers
-  batch_size: 5000                    # Max attestations per batch
+  batch_size: 1000                  # Max attestations per batch
   batch_flush_interval: 100          # Flush interval in milliseconds
   use_batch_signatures: true
-  doc_worker_count: 8
-  doc_queue_size: 1000
+  doc_worker_count: 32
+  doc_queue_size: 50000
 logger:
   development: false
   level: "error"
