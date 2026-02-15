@@ -142,7 +142,7 @@ func enqueueDoc(evt docEvent) {
 	}
 }
 
-// docWorker processes documents from the unified queue
+// docWorker processes documents from the unified queue.
 func (h *Host) docWorker(ctx context.Context) {
 	for {
 		select {
@@ -216,21 +216,36 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 						h.metrics.IncrementBatchSigEventsReceived()
 					}
 					enqueueDoc(docEvent{docID: update.DocID, collectionName: constants.CollectionBatchSignature})
+					if h.pruneQueue != nil {
+						h.pruneQueue.Push(constants.CollectionBatchSignature, update.DocID)
+					}
 				case blockCollectionID:
 					if h.metrics != nil {
 						h.metrics.IncrementBlocksReceived()
+					}
+					if h.pruneQueue != nil {
+						h.pruneQueue.Push(constants.CollectionBlock, update.DocID)
 					}
 				case transactionCollectionID:
 					if h.metrics != nil {
 						h.metrics.IncrementDocumentByType(constants.CollectionTransaction)
 					}
+					if h.pruneQueue != nil {
+						h.pruneQueue.Push(constants.CollectionTransaction, update.DocID)
+					}
 				case logCollectionID:
 					if h.metrics != nil {
 						h.metrics.IncrementDocumentByType(constants.CollectionLog)
 					}
+					if h.pruneQueue != nil {
+						h.pruneQueue.Push(constants.CollectionLog, update.DocID)
+					}
 				case accessListCollectionID:
 					if h.metrics != nil {
 						h.metrics.IncrementDocumentByType(constants.CollectionAccessListEntry)
+					}
+					if h.pruneQueue != nil {
+						h.pruneQueue.Push(constants.CollectionAccessListEntry, update.DocID)
 					}
 				}
 			}

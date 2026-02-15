@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
@@ -110,6 +112,9 @@ type Host struct {
 	metrics      *server.HostMetrics // Comprehensive metrics tracking
 
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+
+	pruner     *pruner.Pruner     // Document pruner for removing old blocks
+	pruneQueue *pruner.EventQueue // FIFO queue tracking replicated docIDs
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -346,6 +351,30 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
 	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
 
+	// Initialize pruner for removing old replicated blocks
+	if cfg.Pruner.Enabled && defraNode != nil {
+		cfg.Pruner.SetDefaults()
+		collections := pruner.DefaultCollectionConfig()
+
+		pruneQueue := pruner.NewEventQueue(collections)
+		queuePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
+		if loaded, err := pruneQueue.LoadFromFile(queuePath); err != nil {
+			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
+		} else if loaded > 0 {
+			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
+		}
+
+		p := pruner.NewPruner(&cfg.Pruner, defraNode)
+		p.SetQueue(pruneQueue)
+
+		if err := p.Start(ctx); err != nil {
+			logger.Sugar.Warnf("Failed to start pruner: %v", err)
+		}
+
+		newHost.pruner = p
+		newHost.pruneQueue = pruneQueue
+	}
+
 	if cfg.HostConfig.OpenBrowserOnStart {
 		go func() {
 			time.Sleep(2 * time.Second)
@@ -521,6 +550,12 @@ func incrementPort(apiURL string) (string, error) {
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
+
+	// Stop pruner and save queue to disk
+	if h.pruner != nil {
+		h.pruner.Stop()
+		h.pruner = nil
+	}
 
 	// Close the playground server if it's running
 	if h.playgroundServer != nil {
