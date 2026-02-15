@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# NOTE: Put config.yaml into the VM before running this script
-
 set -e
 
 apt-get update
@@ -10,7 +8,7 @@ apt-get install -y docker.io
 mkdir -p ~/data/defradb
 chown -R 1003:1006 ~/data/defradb
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.5.0
 docker run -d \
   --name shinzo-host \
   --restart unless-stopped \
@@ -19,6 +17,8 @@ docker run -d \
   -v ~/data/defradb:/app/.defra \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -e DEFRA_URL=0.0.0.0:9181 \
+  -e START_HEIGHT=${START_HEIGHT:-} \
+  -e BOOTSTRAP_PEERS=${BOOTSTRAP_PEERS:-} \
   -e LOG_LEVEL=error \
   -e LOG_SOURCE=false \
   -e LOG_STACKTRACE=false \
@@ -29,4 +29,4 @@ docker run -d \
   --health-start-period=40s \
   --log-opt max-size=50m \
   --log-opt max-file=3 \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.5.0
