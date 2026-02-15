@@ -3,8 +3,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,6 +35,8 @@ type DefraDBStoreConfig struct {
 	NumCompactors           int `yaml:"num_compactors"`
 	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
 	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
+	// Badger value log configuration
+	ValueLogFileSizeMB int64 `yaml:"value_log_file_size_mb"`
 }
 
 // DefraDBConfig represents DefraDB configuration
@@ -52,6 +57,7 @@ type Config struct {
 	Shinzo     ShinzoConfig  `yaml:"shinzo"`
 	Logger     LoggerConfig  `yaml:"logger"`
 	HostConfig HostConfig    `yaml:"host"`
+	Pruner     pruner.Config `yaml:"pruner"`
 }
 
 type ShinzoConfig struct {
@@ -101,6 +107,19 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// Apply environment variable overrides
+	if v := os.Getenv("START_HEIGHT"); v != "" {
+		height, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid START_HEIGHT value %q: %w", v, err)
+		}
+		cfg.Shinzo.StartHeight = height
+	}
+
+	if v := os.Getenv("BOOTSTRAP_PEERS"); v != "" {
+		cfg.DefraDB.P2P.BootstrapPeers = strings.Split(v, ",")
+	}
+
 	return &cfg, nil
 }
 
@@ -132,6 +151,7 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 				NumCompactors:           c.DefraDB.Store.NumCompactors,
 				NumLevelZeroTables:      c.DefraDB.Store.NumLevelZeroTables,
 				NumLevelZeroTablesStall: c.DefraDB.Store.NumLevelZeroTablesStall,
+				ValueLogFileSizeMB:      c.DefraDB.Store.ValueLogFileSizeMB,
 			},
 		},
 		Logger: appConfig.LoggerConfig{
