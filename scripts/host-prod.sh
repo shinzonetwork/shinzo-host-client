@@ -124,10 +124,18 @@ services:
 EOF
 
 # Docker + Nginx
-apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin nginx
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose nginx
 
-mkdir -p ~/data/defradb
-chown -R 1003:1006 ~/data/defradb
+sudo mkdir -p ~/data/defradb
+sudo chown -R 1003:1006 ~/data/defradb
+
 
 docker compose up -d
+
+
+# Step 1 - Create ssl
+# Step 2 - Copy nginx + docker compose files
+# Step 3 - Install docker, docker compose, + nginx
+# Steo 4 - Create app repo's and give correct permissions
+# Step 5 - run `docker-compose up -d`
