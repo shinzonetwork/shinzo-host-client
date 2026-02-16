@@ -4,7 +4,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/35.192.125.8/tcp/9171/p2p/12D3KooWJYv6GRj3ELSzYeSorhi9QwD3xYsqvFDgUcdvy4XdboGf'
+      - '/ip4/34.69.215.190/tcp/9171/p2p/12D3KooWGgxLTv8hg188tmAGKcbe7V8FUMjoAwM2sLTWgAwZqiMF'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -24,7 +24,7 @@ defradb:
     value_log_file_size_mb: 512     # Size of each vlog file (smaller = faster GC)
 shinzo:
   minimum_attestations: 1
-  start_height: 24463000
+  start_height: 24470000
   hub_base_url: rpc.devnet.shinzo.network:26657
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
@@ -48,7 +48,7 @@ shinzo:
   doc_queue_size: 50000
 pruner:
   enabled: true             # Set to true to enable automatic pruning
-  max_blocks: 1000         # Number of blocks to retain
+  max_blocks: 10000         # Number of blocks to retain
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
@@ -58,5 +58,4 @@ logger:
 host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080
-  pprof_port: 6060
   open_browser_on_start: false
