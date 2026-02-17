@@ -189,7 +189,7 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 			continue
 		}
 
-		existingDoc, err := col.Get(ctx, docID, false)
+		existingDoc, err := col.Get(ctx, docID)
 		if err != nil {
 			continue
 		}

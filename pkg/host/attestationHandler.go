@@ -80,7 +80,7 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 	}
 
 	// Get BatchSignature collection ID
-	cols, err := h.DefraNode.DB.GetCollections(ctx, client.CollectionFetchOptions{})
+	cols, err := h.DefraNode.DB.GetCollections(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get collections: %w", err)
 	}
@@ -274,7 +274,7 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 	maxRetries := 10
 
 	for attempt := range maxRetries {
-		doc, err = col.Get(ctx, docIDTyped, false)
+		doc, err = col.Get(ctx, docIDTyped)
 		if err == nil && doc != nil {
 			break
 		}
