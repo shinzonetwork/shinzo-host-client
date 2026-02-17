@@ -114,7 +114,7 @@ WORKDIR /app
 COPY --from=builder /app/bin/host /app/host
 
 # Copy config and playground assets
-COPY --from=builder /app/config.yaml /app/config.yaml
+COPY --from=builder /app/config/config.yaml /app/config.yaml
 COPY --from=builder /app/playground/dist /app/playground/dist
 
 # Create directories for data persistence

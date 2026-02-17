@@ -12,9 +12,9 @@ import (
 
 func findConfigFile() string {
 	possiblePaths := []string{
-		"./config.yaml",     // From project root
-		"../config.yaml",    // From bin/ directory
-		"../../config.yaml", // From pkg/host/ directory - test context
+		"./config/config.yaml", // From project root
+		"./config.yaml",        // Docker / mounted path
+		"../config.yaml",       // From bin/ directory
 	}
 
 	for _, path := range possiblePaths {
