@@ -1,27 +1,23 @@
-version: '3.8'
-
 networks:
   shinzo-net:
     driver: bridge
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:latest
-    platform: linux/amd64
-    mem_reservation: 30g
+    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.0
+    mem_reservation: 15g
     restart: unless-stopped
     container_name: shinzo-host
     networks:
       - shinzo-net
     ports:
-      - "9181:9181"  # DefraDB API (for internal network access)
+      - "9181:9181"  # DefraDB API (internal network access)
       - "444:9182"  # GraphQL Playground 
-      - "8080:8080"  # Metrics
-      - "9171:9171"  # P2P networking (needs external access)
+      - "9171:9171"  # P2P networking (still needs external access)
     volumes:
       - ~/data/defradb:/app/.defra/data
       - ~/data/lens:/app/.lens
-      - ${SHINZO_CONFIG_PATH:-./config.yaml}:/app/config.yaml:ro
+      - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
       - LOG_LEVEL=error
@@ -29,7 +25,19 @@ services:
       - LOG_STACKTRACE=false
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/metrics"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      interval: 15s
+      timeout: 30s
+      retries: 10
+      start_period: 120s
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - shinzo-host
+    networks:
+      - shinzo-net
+    restart: unless-stopped
