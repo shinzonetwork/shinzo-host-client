@@ -3,7 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
-	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,18 +14,8 @@ import (
 	"github.com/sourcenetwork/defradb/event"
 )
 
-// Striped lock for serializing attestation writes per block number.
-const attestationStripes = 64
-
-var attestationLocks [attestationStripes]sync.Mutex
-
-func getAttestationLock(blockNumber int64) *sync.Mutex {
-	idx := blockNumber % attestationStripes
-	if idx < 0 {
-		idx = -idx
-	}
-	return &attestationLocks[idx]
-}
+// attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
+var attestedBlocks sync.Map
 
 // Document represents a document from DefraDB
 type Document struct {
@@ -228,16 +218,13 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 				switch update.CollectionID {
 				case batchSigCollectionID:
 					if h.metrics != nil {
-						h.metrics.IncrementBatchSigEventsReceived()
+						h.metrics.IncrementDocumentByType(constants.CollectionBatchSignature)
 					}
 					enqueueDoc(docEvent{docID: update.DocID, collectionName: constants.CollectionBatchSignature})
 					if h.pruneQueue != nil {
 						h.pruneQueue.Push(constants.CollectionBatchSignature, update.DocID)
 					}
 				case blockCollectionID:
-					if h.metrics != nil {
-						h.metrics.IncrementBlocksReceived()
-					}
 					if h.pruneQueue != nil {
 						h.pruneQueue.Push(constants.CollectionBlock, update.DocID)
 					}
@@ -314,6 +301,7 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Document) {
 	blockNumberVal, err := doc.Get("blockNumber")
 	if err != nil {
+		logger.Sugar.Warnf("BatchSignature missing blockNumber: %v", err)
 		return
 	}
 	blockNumber, ok := blockNumberVal.(int64)
@@ -325,10 +313,12 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 
 	merkleRootVal, err := doc.Get("merkleRoot")
 	if err != nil {
+		logger.Sugar.Warnf("BatchSignature for block %d missing merkleRoot: %v", blockNumber, err)
 		return
 	}
 	merkleRoot, ok := merkleRootVal.(string)
 	if !ok || merkleRoot == "" {
+		logger.Sugar.Warnf("BatchSignature for block %d has empty merkleRoot", blockNumber)
 		return
 	}
 
@@ -397,64 +387,50 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 	}
 
 	blockNumber := batchSig.BlockNumber
-	indexerID := batchSig.SignatureIdentity
+	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
 
-	// Serialize attestation writes per block to prevent concurrent upsert conflicts
-	mu := getAttestationLock(blockNumber)
-	mu.Lock()
-	defer mu.Unlock()
-
-	// Read existing attestation for this block
-	existing, err := attestationService.GetBlockAttestation(ctx, h.DefraNode, blockNumber)
-	if err != nil {
-		logger.Sugar.Warnf("Failed to read attestation for block %d: %v", blockNumber, err)
+	record := &constants.AttestationRecord{
+		AttestedDocId: blockAttestedID,
+		SourceDocId:   batchSig.SignatureIdentity,
+		CIDs:          []string{batchSig.MerkleRoot},
+		DocType:       "Block",
+		VoteCount:     1,
 	}
 
-	if existing != nil {
-		// Check if this indexer already attested — deduplicate
-		if slices.Contains(existing.CIDs, indexerID) {
-			return
-		}
-
-		// Append indexer ID and update
-		cids := append(existing.CIDs, indexerID)
-		record := &constants.AttestationRecord{
-			AttestedDocId: existing.AttestedDocId,
-			SourceDocId:   existing.SourceDocId,
-			CIDs:          cids,
-			DocType:       "Block",
-			VoteCount:     1, // p-counter increments by 1
-		}
+	var lastErr error
+	for attempt := range 5 {
 		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
-			logger.Sugar.Warnf("Failed to update attestation for block %d: %v", blockNumber, err)
+			lastErr = err
+			if strings.Contains(err.Error(), "transaction conflict") || strings.Contains(err.Error(), "Please retry") {
+				time.Sleep(time.Duration(10*(1<<attempt)) * time.Millisecond)
+				continue
+			}
+			// Non-retryable error
+			logger.Sugar.Warnf("Failed to post attestation for block %d: %v", blockNumber, err)
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationErrors()
 			}
 			return
 		}
-		logger.Sugar.Infof("Updated attestation for block %d (%d indexers)", blockNumber, len(cids))
-	} else {
-		// Create new attestation with this indexer
-		record := &constants.AttestationRecord{
-			AttestedDocId: fmt.Sprintf("block:%d", blockNumber),
-			SourceDocId:   indexerID,
-			CIDs:          []string{indexerID},
-			DocType:       "Block",
-			VoteCount:     1,
-		}
-		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
-			logger.Sugar.Warnf("Failed to create attestation for block %d: %v", blockNumber, err)
+		// Success
+		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
+			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(batchSig.SignatureIdentity, 16))
+		} else {
 			if h.metrics != nil {
-				h.metrics.IncrementAttestationErrors()
+				h.metrics.IncrementAttestationsCreated()
+				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
 			}
-			return
+			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(batchSig.SignatureIdentity, 16))
 		}
-		logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(indexerID, 16))
+		if h.metrics != nil {
+			h.metrics.UpdateMostRecentBlock(uint64(blockNumber))
+		}
+		return
 	}
 
+	logger.Sugar.Warnf("Failed to post attestation for block %d after retries: %v", blockNumber, lastErr)
 	if h.metrics != nil {
-		h.metrics.IncrementAttestationsCreated()
-		h.metrics.UpdateMostRecentBlock(uint64(blockNumber))
+		h.metrics.IncrementAttestationErrors()
 	}
 }
 
