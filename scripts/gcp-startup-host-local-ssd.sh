@@ -53,7 +53,7 @@ mkdir -p \
   $MNT/logs
 chown -R 1003:1006 $MNT/defradb
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.5.0
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.5.1
 docker rm -f shinzo-host || true
 docker run -d \
   --name shinzo-host \
@@ -75,4 +75,4 @@ docker run -d \
   --health-start-period=40s \
   --log-opt max-size=50m \
   --log-opt max-file=3 \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.5.0
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.5.1

@@ -4,7 +4,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.0
+    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.1
     mem_reservation: 15g
     restart: unless-stopped
     container_name: shinzo-host
