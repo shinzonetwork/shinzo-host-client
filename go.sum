@@ -2240,8 +2240,8 @@ github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNX
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 h1:n661drycOFuPLCN3Uc8sB6B/s6Z4t2xvBgU1htSHuq8=
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260217145105-7eb5bb966c62 h1:WhlLFwqeKRABz2x8hSMxRs8YrWGdRmgk9eGUqTO8B/M=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260217145105-7eb5bb966c62/go.mod h1:25/QQfyq5srCG+eZhxPYyMsmUKgROhF7u1mBPZNCbmg=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260217164614-d784f996e4b1 h1:2qn2uoIByJINmpBPeudGBNgu3reHDZXmIxklVoNiY+4=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260217164614-d784f996e4b1/go.mod h1:25/QQfyq5srCG+eZhxPYyMsmUKgROhF7u1mBPZNCbmg=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8 h1:g+7aGWLyrrFFHWq7mch0b0Af2YXCNKR2xOTQ/Ed/z70=
 github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8/go.mod h1:IpuhmHiO6IYcutRGG+c1vvUvxYb2c8yqB1eyHOdXx3c=
 github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094 h1:EzUKZsp+t5MKWZHI1KmrIa1hMGaXvp0xAMcdP1z7u+s=
