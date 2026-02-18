@@ -3,6 +3,8 @@ package host
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
@@ -11,6 +13,19 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
 )
+
+// Striped lock for serializing attestation writes per block number.
+const attestationStripes = 64
+
+var attestationLocks [attestationStripes]sync.Mutex
+
+func getAttestationLock(blockNumber int64) *sync.Mutex {
+	idx := blockNumber % attestationStripes
+	if idx < 0 {
+		idx = -idx
+	}
+	return &attestationLocks[idx]
+}
 
 // Document represents a document from DefraDB
 type Document struct {
@@ -375,39 +390,72 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 	}
 }
 
-// processAttestationsFromBatchSignature creates a single attestation record for the entire block
+// processAttestationsFromBatchSignature creates or updates an attestation record for a block.
 func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchSig *attestationService.BatchSignature) {
 	if h.DefraNode == nil {
 		return
 	}
 
 	blockNumber := batchSig.BlockNumber
-	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
+	indexerID := batchSig.SignatureIdentity
 
-	record := &constants.AttestationRecord{
-		AttestedDocId: blockAttestedID,
-		SourceDocId:   batchSig.SignatureIdentity,
-		CIDs:          []string{batchSig.MerkleRoot},
-		DocType:       "Block",
-		VoteCount:     1,
+	// Serialize attestation writes per block to prevent concurrent upsert conflicts
+	mu := getAttestationLock(blockNumber)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Read existing attestation for this block
+	existing, err := attestationService.GetBlockAttestation(ctx, h.DefraNode, blockNumber)
+	if err != nil {
+		logger.Sugar.Warnf("Failed to read attestation for block %d: %v", blockNumber, err)
 	}
 
-	if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
-		logger.Sugar.Warnf("Failed to post block attestation for block %d: %v", blockNumber, err)
-		if h.metrics != nil {
-			h.metrics.IncrementAttestationErrors()
+	if existing != nil {
+		// Check if this indexer already attested — deduplicate
+		if slices.Contains(existing.CIDs, indexerID) {
+			return
 		}
-		return
+
+		// Append indexer ID and update
+		cids := append(existing.CIDs, indexerID)
+		record := &constants.AttestationRecord{
+			AttestedDocId: existing.AttestedDocId,
+			SourceDocId:   existing.SourceDocId,
+			CIDs:          cids,
+			DocType:       "Block",
+			VoteCount:     1, // p-counter increments by 1
+		}
+		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+			logger.Sugar.Warnf("Failed to update attestation for block %d: %v", blockNumber, err)
+			if h.metrics != nil {
+				h.metrics.IncrementAttestationErrors()
+			}
+			return
+		}
+		logger.Sugar.Infof("Updated attestation for block %d (%d indexers)", blockNumber, len(cids))
+	} else {
+		// Create new attestation with this indexer
+		record := &constants.AttestationRecord{
+			AttestedDocId: fmt.Sprintf("block:%d", blockNumber),
+			SourceDocId:   indexerID,
+			CIDs:          []string{indexerID},
+			DocType:       "Block",
+			VoteCount:     1,
+		}
+		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+			logger.Sugar.Warnf("Failed to create attestation for block %d: %v", blockNumber, err)
+			if h.metrics != nil {
+				h.metrics.IncrementAttestationErrors()
+			}
+			return
+		}
+		logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(indexerID, 16))
 	}
 
 	if h.metrics != nil {
 		h.metrics.IncrementAttestationsCreated()
-		h.metrics.IncrementDocumentByType(constants.CollectionBlock)
-		h.metrics.IncrementDocumentByType(constants.CollectionBatchSignature)
 		h.metrics.UpdateMostRecentBlock(uint64(blockNumber))
 	}
-
-	logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(batchSig.SignatureIdentity, 16))
 }
 
 func truncateString(s string, maxLen int) string {
