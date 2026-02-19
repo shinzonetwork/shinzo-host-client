@@ -503,13 +503,14 @@ func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, block
 	return false, nil
 }
 
-// GetBlockAttestation retrieves the attestation record for a specific block.
-func GetBlockAttestation(ctx context.Context, defraNode *node.Node, blockNumber int64) (*AttestationRecord, error) {
-	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
+// GetBlockAttestations retrieves all attestation records for a specific block height.
+// With multiple indexers, different merkle roots produce separate attestation records.
+func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber int64) ([]AttestationRecord, error) {
+	blockPrefix := fmt.Sprintf("block:%d:", blockNumber)
 
 	query := fmt.Sprintf(`
 		query {
-			%s(filter: {attested_doc: {_eq: "%s"}, doc_type: {_eq: "Block"}}) {
+			%s(filter: {attested_doc: {_like: "%s%%"}, doc_type: {_eq: "Block"}}) {
 				_docID
 				attested_doc
 				source_doc
@@ -518,21 +519,17 @@ func GetBlockAttestation(ctx context.Context, defraNode *node.Node, blockNumber 
 				vote_count
 			}
 		}
-	`, constants.CollectionAttestationRecord, blockAttestedID)
+	`, constants.CollectionAttestationRecord, blockPrefix)
 
 	records, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to query block attestation for block %d: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to query block attestations for block %d: %w", blockNumber, err)
 	}
 
-	if len(records) == 0 {
-		return nil, nil
-	}
-
-	return &records[0], nil
+	return records, nil
 }
 
 // ========================================

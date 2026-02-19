@@ -11,12 +11,12 @@ const (
 	CollectionChain             = "Ethereum__Mainnet"
 )
 
-// Collection name slice for bulk operations
+// Collection name slice for bulk operations (used for P2P replication subscriptions).
+// AttestationRecord is excluded — each host builds its own attestation state independently.
 var AllCollections = []string{
 	CollectionBlock,
 	CollectionTransaction,
 	CollectionAccessListEntry,
 	CollectionLog,
-	CollectionAttestationRecord,
 	CollectionBatchSignature,
 }

@@ -387,7 +387,7 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 	}
 
 	blockNumber := batchSig.BlockNumber
-	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)
+	blockAttestedID := fmt.Sprintf("block:%d:%s", blockNumber, batchSig.MerkleRoot)
 
 	record := &constants.AttestationRecord{
 		AttestedDocId: blockAttestedID,
