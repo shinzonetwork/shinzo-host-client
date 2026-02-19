@@ -18,6 +18,7 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/rustffi"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
@@ -89,6 +90,7 @@ var DefaultConfig *config.Config = func() *config.Config {
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defra.NetworkHandler // P2P network control
+	rustClient     *rustffi.Client       // Rust FFI client (non-nil in FFI mode)
 
 	// signature verifier as a service
 	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
@@ -124,6 +126,11 @@ func StartHosting(cfg *config.Config) (*Host, error) {
 func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if cfg == nil {
 		cfg = DefaultConfig
+	}
+
+	// Rust FFI mode — delegate to separate initialization path
+	if cfg.DefraDB.UseRustFFI {
+		return startFFIHostFull(cfg)
 	}
 
 	logger.Init(cfg.Logger.Development, "./logs")
@@ -364,7 +371,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
 		}
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode)
+		p := pruner.NewPruner(&cfg.Pruner, &pruner.GoDBAdapter{Node: defraNode})
 		p.SetQueue(pruneQueue)
 
 		if err := p.Start(ctx); err != nil {
@@ -397,7 +404,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 // HealthChecker interface implementation for Host
 func (h *Host) IsHealthy() bool {
-	// Check if DefraDB is accessible and processing pipeline is running
+	if h.rustClient != nil {
+		return h.processingPipeline != nil
+	}
 	return h.DefraNode != nil && h.processingPipeline != nil
 }
 
@@ -574,9 +583,12 @@ func (h *Host) Close(ctx context.Context) error {
 		h.processingPipeline.Stop()
 	}
 
-	// Close the DefraDB node
+	// Close the DefraDB node or FFI client
 	if h.DefraNode != nil {
 		return h.DefraNode.Close(ctx)
+	}
+	if h.rustClient != nil {
+		return h.rustClient.Close()
 	}
 
 	return nil
