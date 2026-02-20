@@ -455,28 +455,52 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 		PeerInfo: []server.PeerInfo{},
 	}
 
-	// Get actual peer information using signer package methods
-	if h.DefraNode != nil && h.NetworkHandler != nil {
-		peerInfoStrings, err := h.DefraNode.DB.PeerInfo(context.Background())
-		if err != nil {
-			logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
-			return p2pInfo, nil
-		}
+	if h.DefraNode == nil || h.NetworkHandler == nil {
+		return p2pInfo, nil
+	}
 
-		peers, errs := defra.BootstrapIntoPeers(peerInfoStrings)
-		if len(errs) > 0 {
-			logger.Sugar.Warnf("Errors parsing peer info: %v", errs)
-		}
+	ctx := context.Background()
 
-		for _, peer := range peers {
-			peerInfo := server.PeerInfo{
+	// Get this node's own peer info (listening addresses)
+	ownAddresses, err := h.DefraNode.DB.PeerInfo(ctx)
+	if err != nil {
+		logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
+		return p2pInfo, nil
+	}
+	ownPeers, _ := defra.BootstrapIntoPeers(ownAddresses)
+
+	if len(ownPeers) > 0 {
+		var addresses []string
+		for _, p := range ownPeers {
+			addresses = append(addresses, p.Addresses...)
+		}
+		p2pInfo.Self = &server.PeerInfo{
+			ID:        ownPeers[0].ID,
+			Addresses: addresses,
+		}
+	}
+
+	// Get actually connected peers
+	activePeerStrings, err := h.DefraNode.DB.ActivePeers(ctx)
+	if err != nil {
+		activePeerStrings = nil // P2P not ready, treat as no peers
+	}
+	activePeers, _ := defra.BootstrapIntoPeers(activePeerStrings)
+
+	// Deduplicate peers by ID and merge addresses
+	peerMap := make(map[string]*server.PeerInfo)
+	for _, peer := range activePeers {
+		if existing, ok := peerMap[peer.ID]; ok {
+			existing.Addresses = append(existing.Addresses, peer.Addresses...)
+		} else {
+			peerMap[peer.ID] = &server.PeerInfo{
 				ID:        peer.ID,
 				Addresses: peer.Addresses,
-				PublicKey: peer.ID,
 			}
-
-			p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, peerInfo)
 		}
+	}
+	for _, p := range peerMap {
+		p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, *p)
 	}
 
 	return p2pInfo, nil

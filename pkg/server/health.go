@@ -42,6 +42,7 @@ type HealthChecker interface {
 // P2PInfo represents DefraDB P2P network information
 type P2PInfo struct {
 	Enabled  bool       `json:"enabled"`
+	Self     *PeerInfo  `json:"self,omitempty"`
 	PeerInfo []PeerInfo `json:"peers"`
 }
 
@@ -170,21 +171,18 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	if hs.host != nil {
 		response.CurrentBlock = hs.host.GetCurrentBlock()
 		response.LastProcessed = hs.host.GetLastProcessedTime()
-		p2p, err := hs.host.GetPeerInfo()
+		p2p, _ := hs.host.GetPeerInfo()
 		response.P2P = p2p
-		if err != nil {
-			response.Status = "unhealthy"
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
 
 		if !hs.host.IsHealthy() {
 			response.Status = "unhealthy"
-			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if response.Status == "unhealthy" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 	json.NewEncoder(w).Encode(response)
 }
 
