@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	defaultBatchWriterCount          = 8
+	defaultBatchWriterCount          = 50
 	defaultBatchSize                 = 1000
 	defaultBatchFlushIntervalMs      = 100
 	defaultMaxConcurrentAttestations = 200

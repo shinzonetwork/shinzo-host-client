@@ -117,11 +117,11 @@ var docQueue chan docEvent
 func (h *Host) initDocQueue() (workerCount, queueSize int) {
 	queueSize = h.config.Shinzo.DocQueueSize
 	if queueSize <= 0 {
-		queueSize = 5000
+		queueSize = 1000
 	}
 	workerCount = h.config.Shinzo.DocWorkerCount
 	if workerCount <= 0 {
-		workerCount = 16
+		workerCount = 4
 	}
 	docQueue = make(chan docEvent, queueSize)
 	return workerCount, queueSize
@@ -256,7 +256,7 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 	}
 
 	var doc *client.Document
-	maxRetries := 10
+	maxRetries := 3
 
 	for attempt := range maxRetries {
 		doc, err = col.Get(ctx, docIDTyped, false)
@@ -267,7 +267,7 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(2 * time.Millisecond):
+			case <-time.After(10 * time.Millisecond):
 			}
 		}
 	}
