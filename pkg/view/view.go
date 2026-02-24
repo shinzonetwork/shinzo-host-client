@@ -39,7 +39,7 @@ func (view *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
 		return fmt.Errorf("cannot subscribe to view %s: collection does not exist", view.Name)
 	}
 
-	err = defraNode.DB.AddP2PCollections(ctx, view.Name)
+	err = defraNode.DB.CreateP2PCollections(ctx, view.Name)
 	if err != nil {
 		return fmt.Errorf("error subscribing to collection %s: %v", view.Name, err)
 	}

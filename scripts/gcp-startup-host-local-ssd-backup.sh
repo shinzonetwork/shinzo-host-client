@@ -75,7 +75,7 @@ BACKUP_SCRIPT
 chmod +x /usr/local/bin/backup-defra.sh
 nohup /usr/local/bin/backup-defra.sh &
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.8
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
 docker rm -f shinzo-host || true
 docker run -d \
   --name shinzo-host \
@@ -93,4 +93,4 @@ docker run -d \
   --health-timeout=10s \
   --health-retries=3 \
   --health-start-period=40s \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.8
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9

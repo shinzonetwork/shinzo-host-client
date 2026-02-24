@@ -131,6 +131,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	defraNode, networkHandler, err := defra.StartDefraInstance(
 		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
+		nil,
 		constants.AllCollections...,
 	)
 	if err != nil {
@@ -251,8 +252,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if networkHandler != nil {
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
-		// Add the indexer peer(s) - these were removed from config to delay P2P until ViewManager is ready
-		bootstrapPeers := cfg.DefraDB.P2P.BootstrapPeers
+		// Resolve bootstrap peers — auto-discover peer IDs for addresses that don't include them
+		bootstrapPeers := resolveBootstrapPeers(context.Background(), cfg.DefraDB.P2P.BootstrapPeers)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
 
 		for _, peer := range bootstrapPeers {
@@ -353,6 +354,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 			} else {
 				logger.Sugar.Infof("🌐 Opened metrics page in browser")
 			}
+			if err := openBrowser(healthURL); err != nil {
+				logger.Sugar.Debugf("Could not open browser automatically: %v", err)
+				logger.Sugar.Infof("📊 Health available at: %s", healthURL)
+			} else {
+				logger.Sugar.Infof("🌐 Opened health page in browser: %s", healthURL)
+			}
 		}()
 	}
 
@@ -421,7 +428,7 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 
 	// Get actual peer information using signer package methods
 	if h.DefraNode != nil && h.NetworkHandler != nil {
-		peerInfoStrings, err := h.DefraNode.DB.PeerInfo()
+		peerInfoStrings, err := h.DefraNode.DB.PeerInfo(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
 			return p2pInfo, nil
