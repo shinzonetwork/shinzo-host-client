@@ -8,6 +8,7 @@ const (
 	CollectionAccessListEntry   = "Ethereum__Mainnet__AccessListEntry"
 	CollectionAttestationRecord = "Ethereum__Mainnet__AttestationRecord"
 	CollectionBatchSignature    = "Ethereum__Mainnet__BatchSignature"
+	CollectionSnapshotSignature = "Ethereum__Mainnet__SnapshotSignature"
 	CollectionChain             = "Ethereum__Mainnet"
 )
 

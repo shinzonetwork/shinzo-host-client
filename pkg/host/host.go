@@ -158,6 +158,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
+	// Bootstrap from historical snapshots before P2P starts
+	if cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
+		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
+	}
+
 	// Log API URL
 	if defraNode.APIURL != "" {
 		fmt.Printf("🚀 Host HTTP API available at %s\n", defraNode.APIURL)
