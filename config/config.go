@@ -85,12 +85,69 @@ type ShinzoConfig struct {
 	UseBatchSignatures         bool `yaml:"use_batch_signatures"`         // Use batch signatures for attestations
 	DocWorkerCount             int  `yaml:"doc_worker_count"`             // Number of document processing workers
 	DocQueueSize               int  `yaml:"doc_queue_size"`               // Queue size for document event notifications
+
+	// Event Filtering
+	EventFilter EventFilterConfig `yaml:"event_filter"` // Configure filtering of P2P events
+}
+
+// EventFilterConfig configures content-based filtering of P2P events.
+type EventFilterConfig struct {
+	Enabled        bool              `yaml:"enabled"`         // Master switch for filtering
+	Mode           string            `yaml:"mode"`            // "allowlist" (default) or "blocklist"
+	CascadeFilters bool              `yaml:"cascade_filters"` // If true, filtering a tx also filters its logs/ALEs
+	BlockRange     *BlockRangeFilter `yaml:"block_range"`     // Optional block number range filter
+	Groups         []FilterGroup     `yaml:"groups"`          // Named filter groups combined with OR logic
+}
+
+// FilterGroup is a named set of contract and topic filters that can be toggled independently.
+type FilterGroup struct {
+	Name      string           `yaml:"name"`      // Human-readable name (e.g., "uniswap-v3")
+	Enabled   bool             `yaml:"enabled"`   // Toggle this group on/off
+	Contracts []ContractFilter `yaml:"contracts"` // Contract address filters
+	Topics    []TopicFilter    `yaml:"topics"`    // Event topic filters
+}
+
+// ContractFilter matches events by contract address.
+type ContractFilter struct {
+	Address string   `yaml:"address"` // Contract address (0x...)
+	Name    string   `yaml:"name"`    // Human-readable name for logging
+	Types   []string `yaml:"types"`   // Collection types to apply to: "transaction", "log", "accessListEntry"
+}
+
+// TopicFilter matches log events by topic values.
+type TopicFilter struct {
+	Topic0 string `yaml:"topic0"` // Event signature hash (required)
+	Topic1 string `yaml:"topic1"` // Optional indexed parameter 1
+	Topic2 string `yaml:"topic2"` // Optional indexed parameter 2
+	Topic3 string `yaml:"topic3"` // Optional indexed parameter 3
+	Name   string `yaml:"name"`   // Human-readable name (e.g., "Swap", "Transfer")
+}
+
+// BlockRangeFilter restricts processing to a range of block numbers.
+type BlockRangeFilter struct {
+	MinBlock uint64 `yaml:"min_block"` // Minimum block number (inclusive)
+	MaxBlock uint64 `yaml:"max_block"` // Maximum block number (inclusive), 0 = no upper limit
 }
 
 type HostConfig struct {
-	LensRegistryPath   string `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
-	HealthServerPort   int    `yaml:"health_server_port"`    // Port for the health server (default: 8080)
-	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"` // Auto-open metrics page in browser on startup (default: false)
+	LensRegistryPath   string         `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
+	HealthServerPort   int            `yaml:"health_server_port"`    // Port for the health server (default: 8080)
+	OpenBrowserOnStart bool           `yaml:"open_browser_on_start"` // Auto-open metrics page in browser on startup (default: false)
+	Snapshot           SnapshotConfig `yaml:"snapshot"`              // Snapshot bootstrap configuration
+}
+
+// SnapshotConfig configures historical snapshot download and import on startup.
+type SnapshotConfig struct {
+	// IndexerURL is the HTTP base URL of the indexer serving snapshots.
+	IndexerURL string `yaml:"indexer_url"`
+	// HistoricalRanges specifies block ranges the host needs for bootstrap.
+	HistoricalRanges []BlockRange `yaml:"historical_ranges"`
+}
+
+// BlockRange represents an inclusive block number range.
+type BlockRange struct {
+	Start int64 `yaml:"start"`
+	End   int64 `yaml:"end"`
 }
 
 // LoadConfig loads configuration from a YAML file

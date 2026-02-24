@@ -4,7 +4,12 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.69.215.190/tcp/9171/p2p/12D3KooWGgxLTv8hg188tmAGKcbe7V8FUMjoAwM2sLTWgAwZqiMF'
+      # - '/ip4/34.58.253.113/tcp/9171/p2p/12D3KooWETGBs3EWTiaTTYbxpC83pfUYm24y91EXqC8hKZi1g6kn'
+      # - '/ip4/35.232.162.183/tcp/9171/p2p/12D3KooWNMRkikMbKMprQ7Yw1h8c2GoyEV4VQ3PybiM1HPXSohni'
+      # - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWQjxr1mCRyh7t29UsBgYMaHPXJXTrDcU47GsMtT6NbAEp'
+      # - '/ip4/35.223.54.157/tcp/9171/p2p/12D3KooWKy3GPaGyBXrQuGgMCgmbPpFA4tBsshuuWSQkHvrvfFv2'
+      # - '/ip4/34.28.231.220/tcp/9171/p2p/12D3KooWNxDkqXXx6f9XrJACsNBbdzazyYtWDb7xUVCeEaBYRKog'
+      - '/ip4/34.9.109.135/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -13,9 +18,9 @@ defradb:
   store:
     path: "./.defra"
     # Badger memory configuration
-    block_cache_mb: 1024  # Block cache size
-    memtable_mb: 128      # Memtable size
-    index_cache_mb: 512   # Index cache size
+    block_cache_mb: 512  # Block cache size
+    memtable_mb: 64      # Memtable size
+    index_cache_mb: 256   # Index cache size
     # Badger compaction configuration
     num_compactors: 4              # Number of compaction workers
     # num_level_zero_tables: 20      # L0 tables before compaction starts
@@ -24,7 +29,7 @@ defradb:
     value_log_file_size_mb: 128     # Size of each vlog file (smaller = faster GC)
 shinzo:
   minimum_attestations: 1
-  start_height: 24470000
+  start_height: 0 # Indexer auto-detects from chain tip
   hub_base_url: rpc.devnet.shinzo.network:26657
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
@@ -48,7 +53,7 @@ shinzo:
   doc_queue_size: 50000
 pruner:
   enabled: true             # Set to true to enable automatic pruning
-  max_blocks: 10000         # Number of blocks to retain
+  max_blocks: 2000         # Number of blocks to retain
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
@@ -59,3 +64,35 @@ host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080
   open_browser_on_start: false
+  snapshot:
+    indexer_url: "http://34.9.109.135:8080"
+    historical_ranges:
+      - start: 24500000
+        end: 24500999
+  # Event Filtering — filter P2P events by contract address, topics, or block range.
+  # When enabled, only events matching the filter criteria are processed and stored.
+  # event_filter:
+  #   enabled: true
+  #   mode: "allowlist"           # "allowlist" = only matching events, "blocklist" = exclude matching events
+  #   cascade_filters: true       # Filtering a tx also filters its related logs/ALEs
+  #   block_range:
+  #     min_block: 23700000
+  #     max_block: 0              # 0 = no upper limit
+  #   groups:
+  #     - name: "uniswap-v3"
+  #       enabled: true
+  #       contracts:
+  #         - name: "WETH/USDC Pool"
+  #           address: "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640"
+  #           types: ["transaction", "log"]
+  #         - name: "Router"
+  #           address: "0xE592427A0AEce92De3Edee1F18E0157C05861564"
+  #           types: ["transaction"]
+  #       topics:
+  #         - name: "Swap"
+  #           topic0: "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+  #     - name: "erc20-transfers"
+  #       enabled: false
+  #       topics:
+  #         - name: "Transfer"
+  #           topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
