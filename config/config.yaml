@@ -4,12 +4,13 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/34.58.253.113/tcp/9171/p2p/12D3KooWETGBs3EWTiaTTYbxpC83pfUYm24y91EXqC8hKZi1g6kn'
+      # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWETGBs3EWTiaTTYbxpC83pfUYm24y91EXqC8hKZi1g6kn'
       # - '/ip4/35.232.162.183/tcp/9171/p2p/12D3KooWNMRkikMbKMprQ7Yw1h8c2GoyEV4VQ3PybiM1HPXSohni'
       # - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWQjxr1mCRyh7t29UsBgYMaHPXJXTrDcU47GsMtT6NbAEp'
       # - '/ip4/35.223.54.157/tcp/9171/p2p/12D3KooWKy3GPaGyBXrQuGgMCgmbPpFA4tBsshuuWSQkHvrvfFv2'
       # - '/ip4/34.28.231.220/tcp/9171/p2p/12D3KooWNxDkqXXx6f9XrJACsNBbdzazyYtWDb7xUVCeEaBYRKog'
-      - '/ip4/34.9.109.135/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
+      # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
+      # - '/ip4/35.206.105.60/tcp/9171/p2p/12D3KooWRMKdfBkjc161t3NWo3EbJvNRAioMDbqm4GBxjXhowN8d'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -65,10 +66,10 @@ host:
   health_server_port: 8080
   open_browser_on_start: false
   snapshot:
-    indexer_url: "http://34.9.109.135:8080"
+    indexer_url: "http://35.206.105.60:8080"
     historical_ranges:
-      - start: 24500000
-        end: 24500999
+      - start: 24528700
+        end: 24528899
   # Event Filtering — filter P2P events by contract address, topics, or block range.
   # When enabled, only events matching the filter criteria are processed and stored.
   # event_filter:
