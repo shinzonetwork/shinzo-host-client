@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,13 +35,19 @@ func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, snapCfg h
 		return
 	}
 
-	needed := findCoveringSnapshots(available, snapCfg.HistoricalRanges)
+	// Query existing block range to skip already-imported snapshots.
+	existingMin, existingMax := getExistingBlockRange(ctx, defraNode)
+	if existingMax > 0 {
+		logger.Sugar.Infof("Existing blocks in DB: %d-%d", existingMin, existingMax)
+	}
+
+	needed := findCoveringSnapshots(available, snapCfg.HistoricalRanges, existingMin, existingMax)
 	if len(needed) == 0 {
-		logger.Sugar.Info("No signed snapshots found for configured ranges")
+		logger.Sugar.Info("No new snapshots needed (all ranges already covered or no signed snapshots)")
 		return
 	}
 
-	logger.Sugar.Infof("Found %d snapshots covering configured ranges", len(needed))
+	logger.Sugar.Infof("Found %d snapshots to import (skipped already-imported ranges)", len(needed))
 
 	tmpDir := os.TempDir()
 	var imported int
@@ -84,18 +91,23 @@ func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, snapCfg h
 	logger.Sugar.Infof("Snapshot bootstrap complete: %d/%d snapshots imported", imported, len(needed))
 }
 
-// findCoveringSnapshots returns signed snapshots overlapping the requested ranges.
-func findCoveringSnapshots(available []snapshot.SnapshotInfo, ranges []hostConfig.BlockRange) []snapshot.SnapshotInfo {
+// findCoveringSnapshots returns signed snapshots overlapping the requested ranges,
+// skipping snapshots whose block range is already fully present in the DB.
+func findCoveringSnapshots(available []snapshot.SnapshotInfo, ranges []hostConfig.BlockRange, existingMin, existingMax int64) []snapshot.SnapshotInfo {
 	var needed []snapshot.SnapshotInfo
 	seen := make(map[string]bool)
 
 	for _, r := range ranges {
 		for _, snap := range available {
 			if snap.EndBlock < r.Start || snap.StartBlock > r.End {
-				continue // no overlap
+				continue // no overlap with requested range
 			}
 			if !snap.Signed {
 				continue // only import signed snapshots
+			}
+			// Skip if this snapshot's entire range is already in the DB.
+			if existingMax > 0 && snap.StartBlock >= existingMin && snap.EndBlock <= existingMax {
+				continue
 			}
 			if !seen[snap.Filename] {
 				seen[snap.Filename] = true
@@ -109,6 +121,50 @@ func findCoveringSnapshots(available []snapshot.SnapshotInfo, ranges []hostConfi
 	})
 
 	return needed
+}
+
+// getExistingBlockRange queries DefraDB for the min and max block numbers already stored.
+// Returns (0, 0) if no blocks exist or on error.
+func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, int64) {
+	type blockResult struct {
+		Number int64 `json:"number"`
+	}
+	type queryResult struct {
+		Block []blockResult `json:"Ethereum__Mainnet__Block"`
+	}
+
+	// Get highest block.
+	maxQuery := fmt.Sprintf(`query { %s(order: {number: DESC}, limit: 1) { number } }`, constants.CollectionBlock)
+	maxResult := defraNode.DB.ExecRequest(ctx, maxQuery)
+	if maxResult.GQL.Errors != nil {
+		return 0, 0
+	}
+	jsonBytes, err := json.Marshal(maxResult.GQL.Data)
+	if err != nil {
+		return 0, 0
+	}
+	var maxQR queryResult
+	if err := json.Unmarshal(jsonBytes, &maxQR); err != nil || len(maxQR.Block) == 0 {
+		return 0, 0
+	}
+	maxBlock := maxQR.Block[0].Number
+
+	// Get lowest block.
+	minQuery := fmt.Sprintf(`query { %s(order: {number: ASC}, limit: 1) { number } }`, constants.CollectionBlock)
+	minResult := defraNode.DB.ExecRequest(ctx, minQuery)
+	if minResult.GQL.Errors != nil {
+		return 0, maxBlock
+	}
+	jsonBytes, err = json.Marshal(minResult.GQL.Data)
+	if err != nil {
+		return 0, maxBlock
+	}
+	var minQR queryResult
+	if err := json.Unmarshal(jsonBytes, &minQR); err != nil || len(minQR.Block) == 0 {
+		return 0, maxBlock
+	}
+
+	return minQR.Block[0].Number, maxBlock
 }
 
 // createSnapshotAttestation records an attestation for an imported snapshot.
