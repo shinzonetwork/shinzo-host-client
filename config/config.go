@@ -43,6 +43,8 @@ type DefraDBStoreConfig struct {
 type DefraDBConfig struct {
 	Url           string             `yaml:"url"`
 	KeyringSecret string             `yaml:"keyring_secret"`
+	Embedded      bool               `yaml:"embedded"`
+	UseRustFFI    bool               `yaml:"use_rust_ffi"`
 	P2P           DefraDBP2PConfig   `yaml:"p2p"`
 	Store         DefraDBStoreConfig `yaml:"store"`
 }

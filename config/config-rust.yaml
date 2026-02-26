@@ -1,0 +1,27 @@
+defradb:
+  url: "localhost:9181"
+  keyring_secret: "test-keyring-secret-for-testing"
+  embedded: true
+  use_rust_ffi: true
+  p2p:
+    enabled: false
+    bootstrap_peers: []
+    listen_addr: "/ip4/0.0.0.0/tcp/9171"
+  store:
+    path: "/tmp/shinzo-host-rust-ffi-data"
+
+shinzo:
+  minimum_attestations: 1
+  p2p_enabled: false
+  cache_queue_size: 50000
+  use_batch_signatures: true
+
+logger:
+  development: true
+
+host:
+  lens_registry_path: "./.defra/lens"
+  health_server_port: 8080
+
+pruner:
+  enabled: false
