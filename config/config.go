@@ -138,6 +138,8 @@ type HostConfig struct {
 
 // SnapshotConfig configures historical snapshot download and import on startup.
 type SnapshotConfig struct {
+	// Enabled controls whether snapshot bootstrap runs on startup.
+	Enabled bool `yaml:"enabled"`
 	// IndexerURL is the HTTP base URL of the indexer serving snapshots.
 	IndexerURL string `yaml:"indexer_url"`
 	// HistoricalRanges specifies block ranges the host needs for bootstrap.
