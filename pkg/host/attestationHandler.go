@@ -71,7 +71,7 @@ func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
 
 // Known collection IDs - stored at startup for direct comparison
 var (
-	batchSigCollectionID    string
+	blockSigCollectionID    string
 	blockCollectionID       string
 	transactionCollectionID string
 	logCollectionID         string
@@ -84,7 +84,7 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 		return fmt.Errorf("DefraNode not available")
 	}
 
-	// Get BatchSignature collection ID
+	// Get BlockSignature collection ID
 	cols, err := h.DefraNode.DB.GetCollections(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get collections: %w", err)
@@ -92,8 +92,8 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 
 	for _, col := range cols {
 		switch col.Name() {
-		case constants.CollectionBatchSignature:
-			batchSigCollectionID = col.CollectionID()
+		case constants.CollectionBlockSignature:
+			blockSigCollectionID = col.CollectionID()
 		case constants.CollectionBlock:
 			blockCollectionID = col.CollectionID()
 		case constants.CollectionTransaction:
@@ -155,8 +155,8 @@ func (h *Host) docWorker(ctx context.Context) {
 			return
 		case evt := <-docQueue:
 			switch evt.collectionName {
-			case constants.CollectionBatchSignature:
-				h.processBatchSignatureFromEventBus(ctx, evt.docID)
+			case constants.CollectionBlockSignature:
+				h.processBlockSignatureFromEventBus(ctx, evt.docID)
 			}
 		}
 	}
@@ -216,13 +216,13 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 				}
 
 				switch update.CollectionID {
-				case batchSigCollectionID:
+				case blockSigCollectionID:
 					if h.metrics != nil {
-						h.metrics.IncrementDocumentByType(constants.CollectionBatchSignature)
+						h.metrics.IncrementDocumentByType(constants.CollectionBlockSignature)
 					}
-					enqueueDoc(docEvent{docID: update.DocID, collectionName: constants.CollectionBatchSignature})
+					enqueueDoc(docEvent{docID: update.DocID, collectionName: constants.CollectionBlockSignature})
 					if h.pruneQueue != nil {
-						h.pruneQueue.Push(constants.CollectionBatchSignature, update.DocID)
+						h.pruneQueue.Push(constants.CollectionBlockSignature, update.DocID)
 					}
 				case blockCollectionID:
 					if h.pruneQueue != nil {
@@ -255,15 +255,15 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 	}
 }
 
-// processBatchSignatureFromEventBus fetches a BatchSignature document by DocID and processes it.
-func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID string) {
+// processBlockSignatureFromEventBus fetches a BlockSignature document by DocID and processes it.
+func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID string) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		return
 	}
 
-	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBatchSignature)
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
 	if err != nil {
-		logger.Sugar.Warnf("Failed to get BatchSignature collection: %v", err)
+		logger.Sugar.Warnf("Failed to get BlockSignature collection: %v", err)
 		return
 	}
 
@@ -290,18 +290,18 @@ func (h *Host) processBatchSignatureFromEventBus(ctx context.Context, docID stri
 	}
 
 	if err != nil || doc == nil {
-		logger.Sugar.Warnf("Failed to fetch BatchSignature doc %s after %d retries: %v", docID, maxRetries, err)
+		logger.Sugar.Warnf("Failed to fetch BlockSignature doc %s after %d retries: %v", docID, maxRetries, err)
 		return
 	}
 
-	h.processBatchSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, doc)
 }
 
-// processBatchSignatureDocument extracts fields from a client.Document and processes them.
-func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Document) {
+// processBlockSignatureDocument extracts fields from a client.Document and processes them.
+func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Document) {
 	blockNumberVal, err := doc.Get("blockNumber")
 	if err != nil {
-		logger.Sugar.Warnf("BatchSignature missing blockNumber: %v", err)
+		logger.Sugar.Warnf("BlockSignature missing blockNumber: %v", err)
 		return
 	}
 	blockNumber, ok := blockNumberVal.(int64)
@@ -313,69 +313,69 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 
 	merkleRootVal, err := doc.Get("merkleRoot")
 	if err != nil {
-		logger.Sugar.Warnf("BatchSignature for block %d missing merkleRoot: %v", blockNumber, err)
+		logger.Sugar.Warnf("BlockSignature for block %d missing merkleRoot: %v", blockNumber, err)
 		return
 	}
 	merkleRoot, ok := merkleRootVal.(string)
 	if !ok || merkleRoot == "" {
-		logger.Sugar.Warnf("BatchSignature for block %d has empty merkleRoot", blockNumber)
+		logger.Sugar.Warnf("BlockSignature for block %d has empty merkleRoot", blockNumber)
 		return
 	}
 
-	batchSig := &attestationService.BatchSignature{
+	blockSig := &attestationService.BlockSignature{
 		BlockNumber: blockNumber,
 		MerkleRoot:  merkleRoot,
 	}
 
 	if val, err := doc.Get("blockHash"); err == nil {
 		if s, ok := val.(string); ok {
-			batchSig.BlockHash = s
+			blockSig.BlockHash = s
 		}
 	}
 	if val, err := doc.Get("cidCount"); err == nil {
 		switch v := val.(type) {
 		case int64:
-			batchSig.CIDCount = int(v)
+			blockSig.CIDCount = int(v)
 		case float64:
-			batchSig.CIDCount = int(v)
+			blockSig.CIDCount = int(v)
 		}
 	}
 	if val, err := doc.Get("signatureType"); err == nil {
 		if s, ok := val.(string); ok {
-			batchSig.SignatureType = s
+			blockSig.SignatureType = s
 		}
 	}
 	if val, err := doc.Get("signatureIdentity"); err == nil {
 		if s, ok := val.(string); ok {
-			batchSig.SignatureIdentity = s
+			blockSig.SignatureIdentity = s
 		}
 	}
 	if val, err := doc.Get("signatureValue"); err == nil {
 		if s, ok := val.(string); ok {
-			batchSig.SignatureValue = s
+			blockSig.SignatureValue = s
 		}
 	}
 	if val, err := doc.Get("createdAt"); err == nil {
 		if s, ok := val.(string); ok {
-			batchSig.CreatedAt = s
+			blockSig.CreatedAt = s
 		}
 	}
 	if val, err := doc.Get("cids"); err == nil && val != nil {
 		switch v := val.(type) {
 		case []string:
-			batchSig.CIDs = v
+			blockSig.CIDs = v
 		case []any:
 			for _, item := range v {
 				if s, ok := item.(string); ok {
-					batchSig.CIDs = append(batchSig.CIDs, s)
+					blockSig.CIDs = append(blockSig.CIDs, s)
 				}
 			}
 		}
 	}
 
-	if h.batchSignatureVerifier != nil {
-		if err := h.batchSignatureVerifier.VerifyBatchSignature(ctx, batchSig); err != nil {
-			logger.Sugar.Warnf("Invalid batch signature for block %d: %v", batchSig.BlockNumber, err)
+	if h.blockSignatureVerifier != nil {
+		if err := h.blockSignatureVerifier.VerifyBlockSignature(ctx, blockSig); err != nil {
+			logger.Sugar.Warnf("Invalid block signature for block %d: %v", blockSig.BlockNumber, err)
 			if h.metrics != nil {
 				h.metrics.IncrementSignatureFailures()
 			}
@@ -383,12 +383,12 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 		}
 
 		// Verify CID list against merkle root (if present)
-		if len(batchSig.CIDs) > 0 {
-			cidMatch, cidErr := h.batchSignatureVerifier.VerifyCIDListAgainstMerkleRoot(batchSig)
+		if len(blockSig.CIDs) > 0 {
+			cidMatch, cidErr := h.blockSignatureVerifier.VerifyCIDListAgainstMerkleRoot(blockSig)
 			if cidErr != nil {
-				logger.Sugar.Warnf("Block %d: CID list verification error: %v", batchSig.BlockNumber, cidErr)
+				logger.Sugar.Warnf("Block %d: CID list verification error: %v", blockSig.BlockNumber, cidErr)
 			} else if !cidMatch {
-				logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root", batchSig.BlockNumber)
+				logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root", blockSig.BlockNumber)
 				if h.metrics != nil {
 					h.metrics.IncrementSignatureFailures()
 				}
@@ -400,30 +400,30 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 			h.metrics.IncrementSignatureVerifications()
 		}
 
-		h.batchSignatureVerifier.AddBatchSignature(batchSig)
+		h.blockSignatureVerifier.AddBlockSignature(blockSig)
 
-		h.processAttestationsFromBatchSignature(ctx, batchSig)
+		h.processAttestationsFromBlockSignature(ctx, blockSig)
 	}
 }
 
-// processAttestationsFromBatchSignature creates or updates an attestation record for a block.
-func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchSig *attestationService.BatchSignature) {
+// processAttestationsFromBlockSignature creates or updates an attestation record for a block.
+func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockSig *attestationService.BlockSignature) {
 	if h.DefraNode == nil {
 		return
 	}
 
-	blockNumber := batchSig.BlockNumber
-	blockAttestedID := fmt.Sprintf("block:%d:%s", blockNumber, batchSig.MerkleRoot)
+	blockNumber := blockSig.BlockNumber
+	blockAttestedID := fmt.Sprintf("block:%d:%s", blockNumber, blockSig.MerkleRoot)
 
-	if len(batchSig.CIDs) == 0 {
-		logger.Sugar.Warnf("Skipping attestation for block %d: batch signature has no CID list", blockNumber)
+	if len(blockSig.CIDs) == 0 {
+		logger.Sugar.Warnf("Skipping attestation for block %d: block signature has no CID list", blockNumber)
 		return
 	}
 
 	record := &constants.AttestationRecord{
 		AttestedDocId: blockAttestedID,
-		SourceDocId:   batchSig.SignatureIdentity,
-		CIDs:          batchSig.CIDs,
+		SourceDocId:   blockSig.SignatureIdentity,
+		CIDs:          blockSig.CIDs,
 		DocType:       "Block",
 		VoteCount:     1,
 	}
@@ -445,13 +445,13 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 		}
 		// Success
 		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
-			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(batchSig.SignatureIdentity, 16))
+			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, 16))
 		} else {
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationsCreated()
 				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
 			}
-			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(batchSig.SignatureIdentity, 16))
+			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, 16))
 		}
 		if h.metrics != nil {
 			h.metrics.UpdateMostRecentBlock(uint64(blockNumber))

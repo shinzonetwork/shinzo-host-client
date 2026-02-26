@@ -82,7 +82,7 @@ type ShinzoConfig struct {
 	BatchSize                  int  `yaml:"batch_size"`                   // Max attestations per batch
 	BatchFlushInterval         int  `yaml:"batch_flush_interval"`         // Flush interval in milliseconds
 	MaxConcurrentVerifications int  `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications
-	UseBatchSignatures         bool `yaml:"use_batch_signatures"`         // Use batch signatures for attestations
+	UseBlockSignatures         bool `yaml:"use_block_signatures"`         // Use block signatures for attestations
 	DocWorkerCount             int  `yaml:"doc_worker_count"`             // Number of document processing workers
 	DocQueueSize               int  `yaml:"doc_queue_size"`               // Queue size for document event notifications
 

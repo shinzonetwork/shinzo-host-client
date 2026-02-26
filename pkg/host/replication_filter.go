@@ -33,11 +33,11 @@ func (f *EventReplicationFilter) AllowReplication(
 	_ string,
 	fields map[string]any,
 ) bool {
-	// Structural collections always pass — we never filter blocks or batch signatures.
+	// Structural collections always pass — we never filter blocks or block signatures.
 	switch collectionID {
 	case constants.CollectionBlock:
 		return f.allowBlock(fields)
-	case constants.CollectionBatchSignature, constants.CollectionSnapshotSignature:
+	case constants.CollectionBlockSignature, constants.CollectionSnapshotSignature:
 		return true
 	}
 

@@ -25,12 +25,12 @@ type ImportResult struct {
 
 // kvSnapshotHeader matches the header written by the indexer's KV snapshot format.
 type kvSnapshotHeader struct {
-	Magic               string                          `json:"magic"`
-	Version             int                             `json:"version"`
-	StartBlock          int64                           `json:"start_block"`
-	EndBlock            int64                           `json:"end_block"`
-	CreatedAt           string                          `json:"created_at"`
-	BatchSigMerkleRoots []string                        `json:"batch_sig_merkle_roots,omitempty"`
+	Magic               string                           `json:"magic"`
+	Version             int                              `json:"version"`
+	StartBlock          int64                            `json:"start_block"`
+	EndBlock            int64                            `json:"end_block"`
+	CreatedAt           string                           `json:"created_at"`
+	BlockSigMerkleRoots []string                         `json:"block_sig_merkle_roots,omitempty"`
 	FieldMappings       []*client.CollectionFieldMapping `json:"field_mappings,omitempty"`
 }
 
@@ -72,15 +72,15 @@ func ImportWithVerification(ctx context.Context, defraNode *node.Node, snapshotP
 		return nil, fmt.Errorf("invalid snapshot magic: %q", header.Magic)
 	}
 
-	if len(header.BatchSigMerkleRoots) == 0 {
-		return nil, fmt.Errorf("no batch signatures found in KV snapshot header")
+	if len(header.BlockSigMerkleRoots) == 0 {
+		return nil, fmt.Errorf("no block signatures found in KV snapshot header")
 	}
 
-	roots := make([][]byte, 0, len(header.BatchSigMerkleRoots))
-	for _, rootHex := range header.BatchSigMerkleRoots {
+	roots := make([][]byte, 0, len(header.BlockSigMerkleRoots))
+	for _, rootHex := range header.BlockSigMerkleRoots {
 		rootBytes, err := hex.DecodeString(rootHex)
 		if err != nil {
-			return nil, fmt.Errorf("decode batch sig root: %w", err)
+			return nil, fmt.Errorf("decode block sig root: %w", err)
 		}
 		roots = append(roots, rootBytes)
 	}
@@ -89,6 +89,20 @@ func ImportWithVerification(ctx context.Context, defraNode *node.Node, snapshotP
 	computedRootHex := hex.EncodeToString(computedRoot)
 	if computedRootHex != sig.MerkleRoot {
 		return nil, fmt.Errorf("merkle root mismatch: computed %s, expected %s", computedRootHex, sig.MerkleRoot)
+	}
+
+	// If the signature carries its own block sig roots, verify they match the file header.
+	if len(sig.BlockSigMerkleRoots) > 0 {
+		if len(sig.BlockSigMerkleRoots) != len(header.BlockSigMerkleRoots) {
+			return nil, fmt.Errorf("block sig root count mismatch: signature has %d, file header has %d",
+				len(sig.BlockSigMerkleRoots), len(header.BlockSigMerkleRoots))
+		}
+		for i, sigRoot := range sig.BlockSigMerkleRoots {
+			if sigRoot != header.BlockSigMerkleRoots[i] {
+				return nil, fmt.Errorf("block sig root mismatch at index %d: signature has %s, file header has %s",
+					i, sigRoot, header.BlockSigMerkleRoots[i])
+			}
+		}
 	}
 
 	var count int
@@ -159,14 +173,14 @@ func verifySignature(sig *SnapshotSignatureData) error {
 	return nil
 }
 
-// computeSnapshotMerkleRoot computes a Merkle root from per-block batch sig roots.
-func computeSnapshotMerkleRoot(batchSigMerkleRoots [][]byte) []byte {
-	if len(batchSigMerkleRoots) == 0 {
+// computeSnapshotMerkleRoot computes a Merkle root from per-block block sig roots.
+func computeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
+	if len(blockSigMerkleRoots) == 0 {
 		return nil
 	}
 
-	hashes := make([][]byte, len(batchSigMerkleRoots))
-	for i, root := range batchSigMerkleRoots {
+	hashes := make([][]byte, len(blockSigMerkleRoots))
+	for i, root := range blockSigMerkleRoots {
 		hash := sha256.Sum256(root)
 		hashes[i] = hash[:]
 	}

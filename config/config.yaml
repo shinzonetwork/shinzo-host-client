@@ -49,11 +49,11 @@ shinzo:
   batch_writer_count: 8             # Number of batch writers
   batch_size: 500                  # Max attestations per batch
   batch_flush_interval: 100          # Flush interval in milliseconds
-  use_batch_signatures: true
+  use_block_signatures: true
   doc_worker_count: 32
   doc_queue_size: 50000
   # Event Replication Filter
-  # Controls which P2P documents the host stores. Blocks and BatchSignatures
+  # Controls which P2P documents the host stores. Blocks and BlockSignatures
   # always pass through regardless of filter settings.
   event_filter:
     enabled: true                 # Set to false to accept all documents (no filtering)

@@ -465,7 +465,7 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 // ========================================
 
 // IsDocumentAttestedViaBlock checks if a document's CID is attested via a block-level attestation.
-// This is used when batch signatures are enabled - individual documents inherit attestation
+// This is used when block signatures are enabled - individual documents inherit attestation
 // from the block they belong to. Returns true if the CID is found in any block attestation.
 func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, blockNumber int64, documentCID string) (bool, error) {
 	blockAttestedID := fmt.Sprintf("block:%d", blockNumber)

@@ -22,16 +22,17 @@ type SnapshotInfo struct {
 
 // SnapshotSignatureData holds the cryptographic signature for a snapshot file.
 type SnapshotSignatureData struct {
-	Version           int    `json:"version"`
-	SnapshotFile      string `json:"snapshot_file"`
-	StartBlock        int64  `json:"start_block"`
-	EndBlock          int64  `json:"end_block"`
-	MerkleRoot        string `json:"merkle_root"`
-	BlockCount        int    `json:"block_count"`
-	SignatureType     string `json:"signature_type"`
-	SignatureIdentity string `json:"signature_identity"`
-	SignatureValue    string `json:"signature_value"`
-	CreatedAt         string `json:"created_at"`
+	Version             int      `json:"version"`
+	SnapshotFile        string   `json:"snapshot_file"`
+	StartBlock          int64    `json:"start_block"`
+	EndBlock            int64    `json:"end_block"`
+	MerkleRoot          string   `json:"merkle_root"`
+	BlockCount          int      `json:"block_count"`
+	SignatureType       string   `json:"signature_type"`
+	SignatureIdentity   string   `json:"signature_identity"`
+	SignatureValue      string   `json:"signature_value"`
+	CreatedAt           string   `json:"created_at"`
+	BlockSigMerkleRoots []string `json:"block_sig_merkle_roots,omitempty"`
 }
 
 // Client is an HTTP client for interacting with an indexer's snapshot API.

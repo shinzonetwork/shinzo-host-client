@@ -169,10 +169,16 @@ func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, in
 
 // createSnapshotAttestation records an attestation for an imported snapshot.
 func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *snapshot.SnapshotSignatureData) {
+	if len(sig.BlockSigMerkleRoots) == 0 {
+		logger.Sugar.Warnf("Skipping attestation for snapshot %d-%d: no block sig merkle roots",
+			sig.StartBlock, sig.EndBlock)
+		return
+	}
+
 	record := &constants.AttestationRecord{
 		AttestedDocId: fmt.Sprintf("snapshot:%d-%d", sig.StartBlock, sig.EndBlock),
 		SourceDocId:   sig.SignatureIdentity,
-		CIDs:          []string{sig.MerkleRoot},
+		CIDs:          sig.BlockSigMerkleRoots,
 		DocType:       "Snapshot",
 		VoteCount:     1,
 	}

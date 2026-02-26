@@ -92,7 +92,7 @@ type Host struct {
 
 	// signature verifier as a service
 	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
-	batchSignatureVerifier *attestation.BatchSignatureVerifier // Batch signature verifier for batch-signed documents
+	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
 	blockCIDCollector      *attestation.BlockCIDCollector      // Collects CIDs per block for batch verification
 
 	webhookCleanupFunction func()
@@ -291,11 +291,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	newHost.processingPipeline = NewProcessingPipeline(
 		context.Background(), newHost, queueSize,
 		cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval,
-		cfg.Shinzo.UseBatchSignatures,
+		cfg.Shinzo.UseBlockSignatures,
 	)
 
-	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBatchSignatures=%v",
-		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBatchSignatures)
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBlockSignatures=%v",
+		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBlockSignatures)
 
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
@@ -334,9 +334,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	if defraNode != nil {
 		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
-		newHost.batchSignatureVerifier = attestation.NewBatchSignatureVerifier(10000) // Cache last 10000 blocks
+		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(10000) // Cache last 10000 blocks
 		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
-		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with batch signature support)")
+		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with block signature support)")
 	}
 
 	port := cfg.HostConfig.HealthServerPort

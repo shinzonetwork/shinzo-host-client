@@ -46,8 +46,8 @@ type ProcessingPipeline struct {
 	attestationSem chan struct{}
 	attestationWg  sync.WaitGroup
 
-	// Batch signature mode
-	useBatchSignatures bool
+	// Block signature mode
+	useBlockSignatures bool
 
 	// Metrics for monitoring
 	queuedCount              int64
@@ -63,7 +63,7 @@ func NewProcessingPipeline(
 	host *Host,
 	queueSize int,
 	batchWriterCount, batchSize, batchFlushIntervalMs int,
-	useBatchSignatures bool,
+	useBlockSignatures bool,
 ) *ProcessingPipeline {
 	pipelineCtx, cancel := context.WithCancel(ctx)
 
@@ -86,7 +86,7 @@ func NewProcessingPipeline(
 		batchSize:          batchSize,
 		batchFlushInterval: time.Duration(batchFlushIntervalMs) * time.Millisecond,
 		attestationSem:     make(chan struct{}, defaultMaxConcurrentAttestations),
-		useBatchSignatures: useBatchSignatures,
+		useBlockSignatures: useBlockSignatures,
 	}
 }
 
@@ -174,17 +174,17 @@ func (pp *ProcessingPipeline) batchWriter(writerID int) {
 }
 
 // processBatch processes a batch of documents and marks them as received immediately.
-// When useBatchSignatures is false, it spawns async goroutine for per-document attestation creation.
-// When useBatchSignatures is true, attestations are created via batch signature flow instead.
+// When useBlockSignatures is false, it spawns async goroutine for per-document attestation creation.
+// When useBlockSignatures is true, attestations are created via block signature flow instead.
 func (pp *ProcessingPipeline) processBatch(_ int, jobs []DocumentJob) {
 	if len(jobs) == 0 {
 		return
 	}
 
-	// Skip per-document attestation when using batch signatures
-	// Attestations are created via the batch signature flow instead (one per block)
+	// Skip per-document attestation when using block signatures
+	// Attestations are created via the block signature flow instead (one per block)
 	// Individual documents can be verified against the block attestation
-	if pp.useBatchSignatures {
+	if pp.useBlockSignatures {
 		if pp.host.metrics != nil {
 			for _, job := range jobs {
 				pp.host.metrics.IncrementDocumentsReceived()
