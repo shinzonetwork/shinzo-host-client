@@ -1,6 +1,7 @@
 package attestation
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,14 +16,15 @@ import (
 
 // BatchSignature represents a batch signature from an indexer
 type BatchSignature struct {
-	BlockNumber       int64  `json:"blockNumber"`
-	BlockHash         string `json:"blockHash"`
-	MerkleRoot        string `json:"merkleRoot"` // Hex-encoded merkle root
-	CIDCount          int    `json:"cidCount"`
-	SignatureType     string `json:"signatureType"`     // ES256K or Ed25519
-	SignatureIdentity string `json:"signatureIdentity"` // Hex-encoded public key
-	SignatureValue    string `json:"signatureValue"`    // Hex-encoded signature
-	CreatedAt         string `json:"createdAt"`
+	BlockNumber       int64    `json:"blockNumber"`
+	BlockHash         string   `json:"blockHash"`
+	MerkleRoot        string   `json:"merkleRoot"` // Hex-encoded merkle root
+	CIDCount          int      `json:"cidCount"`
+	CIDs              []string `json:"cids"`              // Sorted CID strings for Merkle verification
+	SignatureType     string   `json:"signatureType"`     // ES256K or Ed25519
+	SignatureIdentity string   `json:"signatureIdentity"` // Hex-encoded public key
+	SignatureValue    string   `json:"signatureValue"`    // Hex-encoded signature
+	CreatedAt         string   `json:"createdAt"`
 }
 
 // BatchSignatureCache stores batch signatures indexed by block number
@@ -164,6 +166,15 @@ func (v *BatchSignatureVerifier) VerifyCIDsAgainstBatchSignature(cids []string, 
 	return true, nil
 }
 
+// VerifyCIDListAgainstMerkleRoot verifies that the CID list stored on a
+// BatchSignature matches its Merkle root.
+func (v *BatchSignatureVerifier) VerifyCIDListAgainstMerkleRoot(sig *BatchSignature) (bool, error) {
+	if sig == nil || len(sig.CIDs) == 0 {
+		return false, nil
+	}
+	return v.VerifyCIDsAgainstBatchSignature(sig.CIDs, sig)
+}
+
 // ComputeMerkleRootFromStrings computes a merkle root from CID strings
 // This must match defradb/internal/core/block/batch_signing.go
 func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
@@ -186,7 +197,7 @@ func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	}
 
 	sort.Slice(parsedCids, func(i, j int) bool {
-		return parsedCids[i].String() < parsedCids[j].String()
+		return bytes.Compare(parsedCids[i].Bytes(), parsedCids[j].Bytes()) < 0
 	})
 
 	hashes := make([][]byte, len(parsedCids))

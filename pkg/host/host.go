@@ -137,6 +137,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
 		nil,
+		NewEventReplicationFilter(cfg.Shinzo.EventFilter),
 		constants.AllCollections...,
 	)
 	if err != nil {
@@ -159,7 +160,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	}
 
 	// Bootstrap from historical snapshots before P2P starts
-	if cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
+	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
 		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
 	}
 

@@ -360,6 +360,18 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 			batchSig.CreatedAt = s
 		}
 	}
+	if val, err := doc.Get("cids"); err == nil && val != nil {
+		switch v := val.(type) {
+		case []string:
+			batchSig.CIDs = v
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					batchSig.CIDs = append(batchSig.CIDs, s)
+				}
+			}
+		}
+	}
 
 	if h.batchSignatureVerifier != nil {
 		if err := h.batchSignatureVerifier.VerifyBatchSignature(ctx, batchSig); err != nil {
@@ -368,6 +380,20 @@ func (h *Host) processBatchSignatureDocument(ctx context.Context, doc *client.Do
 				h.metrics.IncrementSignatureFailures()
 			}
 			return
+		}
+
+		// Verify CID list against merkle root (if present)
+		if len(batchSig.CIDs) > 0 {
+			cidMatch, cidErr := h.batchSignatureVerifier.VerifyCIDListAgainstMerkleRoot(batchSig)
+			if cidErr != nil {
+				logger.Sugar.Warnf("Block %d: CID list verification error: %v", batchSig.BlockNumber, cidErr)
+			} else if !cidMatch {
+				logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root", batchSig.BlockNumber)
+				if h.metrics != nil {
+					h.metrics.IncrementSignatureFailures()
+				}
+				return
+			}
 		}
 
 		if h.metrics != nil {
@@ -389,10 +415,15 @@ func (h *Host) processAttestationsFromBatchSignature(ctx context.Context, batchS
 	blockNumber := batchSig.BlockNumber
 	blockAttestedID := fmt.Sprintf("block:%d:%s", blockNumber, batchSig.MerkleRoot)
 
+	if len(batchSig.CIDs) == 0 {
+		logger.Sugar.Warnf("Skipping attestation for block %d: batch signature has no CID list", blockNumber)
+		return
+	}
+
 	record := &constants.AttestationRecord{
 		AttestedDocId: blockAttestedID,
 		SourceDocId:   batchSig.SignatureIdentity,
-		CIDs:          []string{batchSig.MerkleRoot},
+		CIDs:          batchSig.CIDs,
 		DocType:       "Block",
 		VoteCount:     1,
 	}
