@@ -12,6 +12,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
+	"github.com/sourcenetwork/immutable"
 )
 
 // attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
@@ -360,10 +361,16 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 			blockSig.CreatedAt = s
 		}
 	}
-	if val, err := doc.Get("cids"); err == nil && val != nil {
-		switch v := val.(type) {
+	if cidVal, cidErr := doc.Get("cids"); cidErr == nil && cidVal != nil {
+		switch v := cidVal.(type) {
 		case []string:
 			blockSig.CIDs = v
+		case []immutable.Option[string]:
+			for _, item := range v {
+				if item.HasValue() {
+					blockSig.CIDs = append(blockSig.CIDs, item.Value())
+				}
+			}
 		case []any:
 			for _, item := range v {
 				if s, ok := item.(string); ok {
