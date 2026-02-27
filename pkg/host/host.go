@@ -253,7 +253,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
 		// Resolve bootstrap peers — auto-discover peer IDs for addresses that don't include them
-		bootstrapPeers := resolveBootstrapPeers(context.Background(), cfg.DefraDB.P2P.BootstrapPeers)
+		discoveryTimeout := time.Duration(cfg.DefraDB.P2P.PeerDiscoveryTimeoutMs) * time.Millisecond
+		bootstrapPeers := resolveBootstrapPeers(context.Background(), cfg.DefraDB.P2P.BootstrapPeers, discoveryTimeout)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
 
 		for _, peer := range bootstrapPeers {
