@@ -4,6 +4,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
+      - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWDQM8p7R7ti8cNYPSVRuLoHkVJWmj87UCoAnJVfsbPF63'
       # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
       # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWETGBs3EWTiaTTYbxpC83pfUYm24y91EXqC8hKZi1g6kn'
       # - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWQjxr1mCRyh7t29UsBgYMaHPXJXTrDcU47GsMtT6NbAEp'
@@ -53,8 +54,8 @@ shinzo:
   # always pass through regardless of filter settings.
   event_filter:
     enabled: true                 # Set to false to accept all documents (no filtering)
-    # Mode: "allowlist" (default) — only accept documents matching a group.
-    #        "blocklist"          — accept everything EXCEPT documents matching a group.
+    # Mode: "allowlist" (default) - only accept documents matching a group.
+    #        "blocklist"          - accept everything EXCEPT documents matching a group.
     mode: "allowlist"
     # When true, a contract filter with types: ["transaction"] also applies to
     # logs and access-list entries from the same address. Set to false for
@@ -65,23 +66,23 @@ shinzo:
     #   min_block: 20000000
     #   max_block: 0              # 0 = no upper limit
     #
-    # Filter groups — each group bundles related contracts and topics.
+    # Filter groups - each group bundles related contracts and topics.
     # In allowlist mode a document must match at least one enabled group.
     # In blocklist mode a document is rejected if it matches any enabled group.
     groups:
       - name: "uniswap-v3"       # Human-readable label (for logs)
         enabled: true             # Set to false to disable this group without removing it
-        # Contract filters — match documents by on-chain address.
+        # Contract filters - match documents by on-chain address.
         # "types" controls which collection types this address applies to:
-        #   "transaction" — matches tx.to field
-        #   "log"         — matches log.address field
-        #   "accessListEntry" — matches accessListEntry.address field
+        #   "transaction" - matches tx.to field
+        #   "log"         - matches log.address field
+        #   "accessListEntry" - matches accessListEntry.address field
         # Multiple types can be combined: ["transaction", "log"]
         contracts:
           - name: "Uniswap V3 Router 2"
             address: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
             types: ["transaction", "log"]
-        # Topic filters — match logs by event signature (topic0).
+        # Topic filters - match logs by event signature (topic0).
         # topic0 is required; topic1-3 are optional (omit = wildcard).
         topics:
           - name: "Swap"
@@ -114,7 +115,7 @@ host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080
   open_browser_on_start: false
-  # Snapshot Bootstrap — download historical data from an indexer on first startup.
+  # Snapshot Bootstrap - download historical data from an indexer on first startup.
   # Set enabled: false to skip snapshot import entirely.
   snapshot:
     enabled: false
