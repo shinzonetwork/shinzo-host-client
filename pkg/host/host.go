@@ -29,6 +29,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -113,8 +114,9 @@ type Host struct {
 
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
 
-	pruner     *pruner.Pruner     // Document pruner for removing old blocks
-	pruneQueue *pruner.EventQueue // FIFO queue tracking replicated docIDs
+	pruner         *pruner.Pruner     // Document pruner for removing old blocks
+	pruneQueue     *pruner.EventQueue // FIFO queue tracking replicated docIDs
+	pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -133,11 +135,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		Level: corelog.LevelError,
 	})
 
+	var replicationFilter client.ReplicationFilter
+	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
+		replicationFilter = f
+	}
+
 	defraNode, networkHandler, err := defra.StartDefraInstance(
 		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
 		nil,
-		NewEventReplicationFilter(cfg.Shinzo.EventFilter),
+		replicationFilter,
 		constants.AllCollections...,
 	)
 	if err != nil {

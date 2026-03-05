@@ -15,29 +15,12 @@ import (
 )
 
 // Helper functions for testing
-func startDefraInstanceForTest(t *testing.T, ctx context.Context) *node.Node {
+func startDefraInstanceForTest(t *testing.T, _ context.Context) *node.Node {
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	require.NotNil(t, defraNode)
 
 	return defraNode
-}
-
-func queryBlockNumber(ctx context.Context, defraNode *node.Node) (int, error) {
-	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
-
-	block, err := defra.QuerySingle[map[string]any](ctx, defraNode, query)
-
-	if err != nil {
-		return 0, fmt.Errorf("Error querying block number: %v", err)
-	}
-
-	number, ok := block["number"].(int)
-	if !ok {
-		return 0, fmt.Errorf("No blocks found")
-	}
-
-	return number, nil
 }
 
 // Mock EventSubscription for testing

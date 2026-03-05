@@ -4,10 +4,9 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWDQM8p7R7ti8cNYPSVRuLoHkVJWmj87UCoAnJVfsbPF63'
       # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
-      # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWETGBs3EWTiaTTYbxpC83pfUYm24y91EXqC8hKZi1g6kn'
-      # - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWQjxr1mCRyh7t29UsBgYMaHPXJXTrDcU47GsMtT6NbAEp'
+      # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWCXACP55i3jSf6rMiZXGpdruyvr9SyEdXBxu2PXeQGtv1'
+      - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -53,7 +52,7 @@ shinzo:
   # Controls which P2P documents the host stores. Blocks and BlockSignatures
   # always pass through regardless of filter settings.
   event_filter:
-    enabled: true                 # Set to false to accept all documents (no filtering)
+    enabled: false                 # Set to false to accept all documents (no filtering)
     # Mode: "allowlist" (default) - only accept documents matching a group.
     #        "blocklist"          - accept everything EXCEPT documents matching a group.
     mode: "allowlist"
