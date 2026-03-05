@@ -31,7 +31,7 @@ type HostMetrics struct {
 	SignatureVerifications int64 `json:"signature_verifications"`
 	SignatureFailures      int64 `json:"signature_failures"`
 
-	BatchSigEventsReceived int64 `json:"batch_sig_events_received"`
+	BlockSigEventsReceived int64 `json:"block_sig_events_received"`
 	BlocksReceived         int64 `json:"blocks_received"`
 
 	// Document processing metrics
@@ -40,7 +40,7 @@ type HostMetrics struct {
 	TransactionsProcessed    int64 `json:"transactions_processed"`
 	LogsProcessed            int64 `json:"logs_processed"`
 	AccessListsProcessed     int64 `json:"access_lists_processed"`
-	BatchSignaturesProcessed int64 `json:"batch_signatures_processed"`
+	BlockSignaturesProcessed int64 `json:"block_signatures_processed"`
 
 	// Unique document counters (tracks first-time attestations only)
 	UniqueBlocks       int64 `json:"unique_blocks"`
@@ -107,9 +107,9 @@ func (m *HostMetrics) IncrementSignatureFailures() {
 	atomic.AddInt64(&m.SignatureFailures, 1)
 }
 
-// IncrementBatchSigEventsReceived atomically increments the batch sig events received counter
-func (m *HostMetrics) IncrementBatchSigEventsReceived() {
-	atomic.AddInt64(&m.BatchSigEventsReceived, 1)
+// IncrementBlockSigEventsReceived atomically increments the block sig events received counter
+func (m *HostMetrics) IncrementBlockSigEventsReceived() {
+	atomic.AddInt64(&m.BlockSigEventsReceived, 1)
 }
 
 // IncrementBlocksReceived atomically increments the blocks received counter
@@ -134,8 +134,8 @@ func (m *HostMetrics) IncrementDocumentByType(docType string) {
 		atomic.AddInt64(&m.LogsProcessed, 1)
 	case constants.CollectionAccessListEntry:
 		atomic.AddInt64(&m.AccessListsProcessed, 1)
-	case constants.CollectionBatchSignature:
-		atomic.AddInt64(&m.BatchSignaturesProcessed, 1)
+	case constants.CollectionBlockSignature:
+		atomic.AddInt64(&m.BlockSignaturesProcessed, 1)
 	}
 }
 
@@ -193,14 +193,14 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		AttestationErrors:        atomic.LoadInt64(&m.AttestationErrors),
 		SignatureVerifications:   atomic.LoadInt64(&m.SignatureVerifications),
 		SignatureFailures:        atomic.LoadInt64(&m.SignatureFailures),
-		BatchSigEventsReceived:   atomic.LoadInt64(&m.BatchSigEventsReceived),
+		BlockSigEventsReceived:   atomic.LoadInt64(&m.BlockSigEventsReceived),
 		BlocksReceived:           atomic.LoadInt64(&m.BlocksReceived),
 		DocumentsReceived:        atomic.LoadInt64(&m.DocumentsReceived),
 		BlocksProcessed:          atomic.LoadInt64(&m.BlocksProcessed),
 		TransactionsProcessed:    atomic.LoadInt64(&m.TransactionsProcessed),
 		LogsProcessed:            atomic.LoadInt64(&m.LogsProcessed),
 		AccessListsProcessed:     atomic.LoadInt64(&m.AccessListsProcessed),
-		BatchSignaturesProcessed: atomic.LoadInt64(&m.BatchSignaturesProcessed),
+		BlockSignaturesProcessed: atomic.LoadInt64(&m.BlockSignaturesProcessed),
 		UniqueBlocks:             atomic.LoadInt64(&m.UniqueBlocks),
 		UniqueTransactions:       atomic.LoadInt64(&m.UniqueTransactions),
 		UniqueLogs:               atomic.LoadInt64(&m.UniqueLogs),

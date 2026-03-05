@@ -1,6 +1,7 @@
 package attestation
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,38 +14,39 @@ import (
 	"github.com/sourcenetwork/defradb/crypto"
 )
 
-// BatchSignature represents a batch signature from an indexer
-type BatchSignature struct {
-	BlockNumber       int64  `json:"blockNumber"`
-	BlockHash         string `json:"blockHash"`
-	MerkleRoot        string `json:"merkleRoot"` // Hex-encoded merkle root
-	CIDCount          int    `json:"cidCount"`
-	SignatureType     string `json:"signatureType"`     // ES256K or Ed25519
-	SignatureIdentity string `json:"signatureIdentity"` // Hex-encoded public key
-	SignatureValue    string `json:"signatureValue"`    // Hex-encoded signature
-	CreatedAt         string `json:"createdAt"`
+// BlockSignature represents a block signature from an indexer
+type BlockSignature struct {
+	BlockNumber       int64    `json:"blockNumber"`
+	BlockHash         string   `json:"blockHash"`
+	MerkleRoot        string   `json:"merkleRoot"` // Hex-encoded merkle root
+	CIDCount          int      `json:"cidCount"`
+	CIDs              []string `json:"cids"`              // Sorted CID strings for Merkle verification
+	SignatureType     string   `json:"signatureType"`     // ES256K or Ed25519
+	SignatureIdentity string   `json:"signatureIdentity"` // Hex-encoded public key
+	SignatureValue    string   `json:"signatureValue"`    // Hex-encoded signature
+	CreatedAt         string   `json:"createdAt"`
 }
 
-// BatchSignatureCache stores batch signatures indexed by block number
-type BatchSignatureCache struct {
+// BlockSignatureCache stores block signatures indexed by block number
+type BlockSignatureCache struct {
 	mu         sync.RWMutex
-	signatures map[int64]*BatchSignature
+	signatures map[int64]*BlockSignature
 	maxSize    int
 }
 
-// NewBatchSignatureCache creates a new batch signature cache
-func NewBatchSignatureCache(maxSize int) *BatchSignatureCache {
+// NewBlockSignatureCache creates a new block signature cache
+func NewBlockSignatureCache(maxSize int) *BlockSignatureCache {
 	if maxSize <= 0 {
 		maxSize = 10000
 	}
-	return &BatchSignatureCache{
-		signatures: make(map[int64]*BatchSignature),
+	return &BlockSignatureCache{
+		signatures: make(map[int64]*BlockSignature),
 		maxSize:    maxSize,
 	}
 }
 
-// Add adds a batch signature to the cache
-func (c *BatchSignatureCache) Add(sig *BatchSignature) {
+// Add adds a block signature to the cache
+func (c *BlockSignatureCache) Add(sig *BlockSignature) {
 	if sig == nil {
 		return
 	}
@@ -64,40 +66,40 @@ func (c *BatchSignatureCache) Add(sig *BatchSignature) {
 	}
 }
 
-// Get retrieves a batch signature by block number
-func (c *BatchSignatureCache) Get(blockNumber int64) (*BatchSignature, bool) {
+// Get retrieves a block signature by block number
+func (c *BlockSignatureCache) Get(blockNumber int64) (*BlockSignature, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	sig, ok := c.signatures[blockNumber]
 	return sig, ok
 }
 
-// BatchSignatureVerifier verifies batch signatures and their CIDs
-type BatchSignatureVerifier struct {
-	cache *BatchSignatureCache
+// BlockSignatureVerifier verifies block signatures and their CIDs
+type BlockSignatureVerifier struct {
+	cache *BlockSignatureCache
 }
 
-// NewBatchSignatureVerifier creates a new batch signature verifier
-func NewBatchSignatureVerifier(cacheSize int) *BatchSignatureVerifier {
-	return &BatchSignatureVerifier{
-		cache: NewBatchSignatureCache(cacheSize),
+// NewBlockSignatureVerifier creates a new block signature verifier
+func NewBlockSignatureVerifier(cacheSize int) *BlockSignatureVerifier {
+	return &BlockSignatureVerifier{
+		cache: NewBlockSignatureCache(cacheSize),
 	}
 }
 
-// AddBatchSignature adds a batch signature to the verifier's cache
-func (v *BatchSignatureVerifier) AddBatchSignature(sig *BatchSignature) {
+// AddBlockSignature adds a block signature to the verifier's cache
+func (v *BlockSignatureVerifier) AddBlockSignature(sig *BlockSignature) {
 	v.cache.Add(sig)
 }
 
-// GetBatchSignature retrieves a batch signature by block number
-func (v *BatchSignatureVerifier) GetBatchSignature(blockNumber int64) (*BatchSignature, bool) {
+// GetBlockSignature retrieves a block signature by block number
+func (v *BlockSignatureVerifier) GetBlockSignature(blockNumber int64) (*BlockSignature, bool) {
 	return v.cache.Get(blockNumber)
 }
 
-// VerifyBatchSignature verifies that a batch signature is valid
-func (v *BatchSignatureVerifier) VerifyBatchSignature(ctx context.Context, sig *BatchSignature) error {
+// VerifyBlockSignature verifies that a block signature is valid
+func (v *BlockSignatureVerifier) VerifyBlockSignature(ctx context.Context, sig *BlockSignature) error {
 	if sig == nil {
-		return fmt.Errorf("batch signature is nil")
+		return fmt.Errorf("block signature is nil")
 	}
 
 	merkleRoot, err := hex.DecodeString(sig.MerkleRoot)
@@ -130,16 +132,16 @@ func (v *BatchSignatureVerifier) VerifyBatchSignature(ctx context.Context, sig *
 		return fmt.Errorf("signature verification error: %w", err)
 	}
 	if !valid {
-		return fmt.Errorf("batch signature verification failed for block %d", sig.BlockNumber)
+		return fmt.Errorf("block signature verification failed for block %d", sig.BlockNumber)
 	}
 
 	return nil
 }
 
-// VerifyCIDsAgainstBatchSignature verifies that a list of CIDs matches a batch signature's merkle root
-func (v *BatchSignatureVerifier) VerifyCIDsAgainstBatchSignature(cids []string, sig *BatchSignature) (bool, error) {
+// VerifyCIDsAgainstBlockSignature verifies that a list of CIDs matches a block signature's merkle root
+func (v *BlockSignatureVerifier) VerifyCIDsAgainstBlockSignature(cids []string, sig *BlockSignature) (bool, error) {
 	if sig == nil {
-		return false, fmt.Errorf("batch signature is nil")
+		return false, fmt.Errorf("block signature is nil")
 	}
 
 	computedRoot := ComputeMerkleRootFromStrings(cids)
@@ -164,8 +166,17 @@ func (v *BatchSignatureVerifier) VerifyCIDsAgainstBatchSignature(cids []string, 
 	return true, nil
 }
 
+// VerifyCIDListAgainstMerkleRoot verifies that the CID list stored on a
+// BlockSignature matches its Merkle root.
+func (v *BlockSignatureVerifier) VerifyCIDListAgainstMerkleRoot(sig *BlockSignature) (bool, error) {
+	if sig == nil || len(sig.CIDs) == 0 {
+		return false, nil
+	}
+	return v.VerifyCIDsAgainstBlockSignature(sig.CIDs, sig)
+}
+
 // ComputeMerkleRootFromStrings computes a merkle root from CID strings
-// This must match defradb/internal/core/block/batch_signing.go
+// This must match defradb/internal/core/block/block_signing.go
 func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	if len(cidStrings) == 0 {
 		return nil
@@ -186,7 +197,7 @@ func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	}
 
 	sort.Slice(parsedCids, func(i, j int) bool {
-		return parsedCids[i].String() < parsedCids[j].String()
+		return bytes.Compare(parsedCids[i].Bytes(), parsedCids[j].Bytes()) < 0
 	})
 
 	hashes := make([][]byte, len(parsedCids))
@@ -212,7 +223,7 @@ func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	return hashes[0]
 }
 
-// BlockCIDCollector collects CIDs for documents in a block for batch verification
+// BlockCIDCollector collects CIDs for documents in a block for block signature verification
 type BlockCIDCollector struct {
 	mu        sync.Mutex
 	blockCIDs map[int64][]string

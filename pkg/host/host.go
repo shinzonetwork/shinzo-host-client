@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
@@ -27,6 +29,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -90,7 +93,7 @@ type Host struct {
 
 	// signature verifier as a service
 	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
-	batchSignatureVerifier *attestation.BatchSignatureVerifier // Batch signature verifier for batch-signed documents
+	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
 	blockCIDCollector      *attestation.BlockCIDCollector      // Collects CIDs per block for batch verification
 
 	webhookCleanupFunction func()
@@ -110,6 +113,10 @@ type Host struct {
 	metrics      *server.HostMetrics // Comprehensive metrics tracking
 
 	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+
+	pruner         *pruner.Pruner     // Document pruner for removing old blocks
+	pruneQueue     *pruner.EventQueue // FIFO queue tracking replicated docIDs
+	pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
 func StartHosting(cfg *config.Config) (*Host, error) {
@@ -128,10 +135,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		Level: corelog.LevelError,
 	})
 
+	var replicationFilter client.ReplicationFilter
+	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
+		replicationFilter = f
+	}
+
 	defraNode, networkHandler, err := defra.StartDefraInstance(
 		cfg.ToAppConfig(),
 		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
 		nil,
+		replicationFilter,
 		constants.AllCollections...,
 	)
 	if err != nil {
@@ -151,6 +164,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	err = applySchema(ctx, defraNode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
+	}
+
+	// Bootstrap from historical snapshots before P2P starts
+	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
+		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
 	}
 
 	// Log API URL
@@ -281,11 +299,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	newHost.processingPipeline = NewProcessingPipeline(
 		context.Background(), newHost, queueSize,
 		cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval,
-		cfg.Shinzo.UseBatchSignatures,
+		cfg.Shinzo.UseBlockSignatures,
 	)
 
-	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBatchSignatures=%v",
-		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBatchSignatures)
+	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBlockSignatures=%v",
+		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBlockSignatures)
 
 	// Start the process pipeline
 	newHost.processingPipeline.Start()
@@ -324,9 +342,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	if defraNode != nil {
 		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
-		newHost.batchSignatureVerifier = attestation.NewBatchSignatureVerifier(10000) // Cache last 10000 blocks
+		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(10000) // Cache last 10000 blocks
 		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
-		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with batch signature support)")
+		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with block signature support)")
 	}
 
 	port := cfg.HostConfig.HealthServerPort
@@ -346,6 +364,30 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
 	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
 	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
+
+	// Initialize pruner for removing old replicated blocks
+	if cfg.Pruner.Enabled && defraNode != nil {
+		cfg.Pruner.SetDefaults()
+		collections := pruner.DefaultCollectionConfig()
+
+		pruneQueue := pruner.NewEventQueue(collections)
+		queuePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
+		if loaded, err := pruneQueue.LoadFromFile(queuePath); err != nil {
+			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
+		} else if loaded > 0 {
+			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
+		}
+
+		p := pruner.NewPruner(&cfg.Pruner, defraNode)
+		p.SetQueue(pruneQueue)
+
+		if err := p.Start(ctx); err != nil {
+			logger.Sugar.Warnf("Failed to start pruner: %v", err)
+		}
+
+		newHost.pruner = p
+		newHost.pruneQueue = pruneQueue
+	}
 
 	if cfg.HostConfig.OpenBrowserOnStart {
 		go func() {
@@ -427,28 +469,52 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 		PeerInfo: []server.PeerInfo{},
 	}
 
-	// Get actual peer information using signer package methods
-	if h.DefraNode != nil && h.NetworkHandler != nil {
-		peerInfoStrings, err := h.DefraNode.DB.PeerInfo(context.Background())
-		if err != nil {
-			logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
-			return p2pInfo, nil
-		}
+	if h.DefraNode == nil || h.NetworkHandler == nil {
+		return p2pInfo, nil
+	}
 
-		peers, errs := defra.BootstrapIntoPeers(peerInfoStrings)
-		if len(errs) > 0 {
-			logger.Sugar.Warnf("Errors parsing peer info: %v", errs)
-		}
+	ctx := context.Background()
 
-		for _, peer := range peers {
-			peerInfo := server.PeerInfo{
+	// Get this node's own peer info (listening addresses)
+	ownAddresses, err := h.DefraNode.DB.PeerInfo(ctx)
+	if err != nil {
+		logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
+		return p2pInfo, nil
+	}
+	ownPeers, _ := defra.BootstrapIntoPeers(ownAddresses)
+
+	if len(ownPeers) > 0 {
+		var addresses []string
+		for _, p := range ownPeers {
+			addresses = append(addresses, p.Addresses...)
+		}
+		p2pInfo.Self = &server.PeerInfo{
+			ID:        ownPeers[0].ID,
+			Addresses: addresses,
+		}
+	}
+
+	// Get actually connected peers
+	activePeerStrings, err := h.DefraNode.DB.ActivePeers(ctx)
+	if err != nil {
+		activePeerStrings = nil // P2P not ready, treat as no peers
+	}
+	activePeers, _ := defra.BootstrapIntoPeers(activePeerStrings)
+
+	// Deduplicate peers by ID and merge addresses
+	peerMap := make(map[string]*server.PeerInfo)
+	for _, peer := range activePeers {
+		if existing, ok := peerMap[peer.ID]; ok {
+			existing.Addresses = append(existing.Addresses, peer.Addresses...)
+		} else {
+			peerMap[peer.ID] = &server.PeerInfo{
 				ID:        peer.ID,
 				Addresses: peer.Addresses,
-				PublicKey: peer.ID,
 			}
-
-			p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, peerInfo)
 		}
+	}
+	for _, p := range peerMap {
+		p2pInfo.PeerInfo = append(p2pInfo.PeerInfo, *p)
 	}
 
 	return p2pInfo, nil
@@ -522,6 +588,12 @@ func incrementPort(apiURL string) (string, error) {
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
+
+	// Stop pruner and save queue to disk
+	if h.pruner != nil {
+		h.pruner.Stop()
+		h.pruner = nil
+	}
 
 	// Close the playground server if it's running
 	if h.playgroundServer != nil {

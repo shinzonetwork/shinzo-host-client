@@ -6,16 +6,21 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/ipfs/go-cid v0.6.0
 	github.com/rs/zerolog v1.34.0
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260210125115-568b003e29c6
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260226160102-0ae94d37513b
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/view-creator v0.0.0-20251212162028-8f5d6bb53094
 	github.com/sourcenetwork/corelog v0.0.8
-	github.com/sourcenetwork/defradb v0.20.1-0.20260210124918-8a2d92878ebc
+	github.com/sourcenetwork/defradb v0.20.1-0.20260226155958-94d678704115 // replaced locally
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.10.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/libp2p/go-libp2p v0.46.0
+	github.com/multiformats/go-multiaddr v0.16.1
 )
 
 require (
@@ -227,7 +232,6 @@ require (
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.3.0 // indirect
-	github.com/libp2p/go-libp2p v0.46.0 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.4.1 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.36.0 // indirect
 	github.com/libp2p/go-libp2p-kbucket v0.8.0 // indirect
@@ -257,7 +261,6 @@ require (
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
-	github.com/multiformats/go-multiaddr v0.16.1 // indirect
 	github.com/multiformats/go-multiaddr-dns v0.4.1 // indirect
 	github.com/multiformats/go-multiaddr-fmt v0.1.0 // indirect
 	github.com/multiformats/go-multibase v0.2.0 // indirect

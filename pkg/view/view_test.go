@@ -14,33 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Helper functions copied from host_test.go
-func startDefraInstanceForTest(t *testing.T, ctx context.Context, options []node.Option) *node.Node {
-	myNode, err := node.New(ctx, options...)
+// Helper functions for testing
+func startDefraInstanceForTest(t *testing.T, _ context.Context) *node.Node {
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	require.NotNil(t, myNode)
+	require.NotNil(t, defraNode)
 
-	err = myNode.Start(ctx)
-	require.NoError(t, err)
-
-	return myNode
-}
-
-func queryBlockNumber(ctx context.Context, defraNode *node.Node) (int, error) {
-	query := `query GetHighestBlockNumber { Block(order: {number: DESC}, limit: 1) { number } }`
-
-	block, err := defra.QuerySingle[map[string]any](ctx, defraNode, query)
-
-	if err != nil {
-		return 0, fmt.Errorf("Error querying block number: %v", err)
-	}
-
-	number, ok := block["number"].(int)
-	if !ok {
-		return 0, fmt.Errorf("No blocks found")
-	}
-
-	return number, nil
+	return defraNode
 }
 
 // Mock EventSubscription for testing
@@ -223,8 +203,7 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a DefraDB instance with real schema
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
-	require.NoError(t, err)
+	defraNode := startDefraInstanceForTest(t, ctx)
 	defer defraNode.Close(ctx)
 
 	// Create a test view with a specific SDL schema that only includes certain fields
@@ -233,7 +212,7 @@ func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
 	query := "User { name age }"
 
 	// First, add the view schema to DefraDB so the collection exists
-	_, err = defraNode.DB.AddSchema(ctx, sdl)
+	_, err := defraNode.DB.AddSchema(ctx, sdl)
 	require.NoError(t, err)
 
 	view := View{

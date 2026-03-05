@@ -250,7 +250,7 @@
                         <span><span id="attestation_match">-</span></span>
                     </div>
                     <div class="summary-item">
-                        <span> <span id="sig_verification_match_icon"></span> Sig Verifications = Attestations</span>
+                        <span> <span id="sig_verification_match_icon"></span> Sig Verifications = Block Signatures</span>
                         <span><span id="sig_verification_match">-</span></span>
                     </div>
                     <div class="summary-item">
@@ -321,7 +321,7 @@
                     <h3>Verification & Errors</h3>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem;">
                         <div class="metric-card">
-                            <p class="metric-label">Attestation Created</p>
+                            <p class="metric-label">Attestations Created</p>
                             <span class="metric-value" id="att-created">-</span>
                         </div>
                         <div class="metric-card">
@@ -435,7 +435,7 @@
                 document.getElementById('attestation_errors_summary').textContent = `${attestationErrors}`;
             }
 
-            const sigVerificationMatch = Number(data.metrics.signature_verifications)===Number(data.metrics.attestations_created);
+            const sigVerificationMatch = Number(data.metrics.signature_verifications)===Number(data.metrics.block_signatures_processed);
             const sigVerificationMatchIconElement = document.getElementById('sig_verification_match_icon');
             if (sigVerificationMatch) {
                 sigVerificationMatchIconElement.classList.add('check-circle');
@@ -446,7 +446,7 @@
                 sigVerificationMatchIconElement.classList.add('alert-circle');
                 sigVerificationMatchIconElement.classList.remove('check-circle');
                 sigVerificationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('sig_verification_match').textContent = `Δ ${Math.abs(Number(data.metrics.signature_verifications) - Number(data.metrics.attestations_created))}`;
+                document.getElementById('sig_verification_match').textContent = `Δ ${Math.abs(Number(data.metrics.signature_verifications) - Number(data.metrics.block_signatures_processed))}`;
             }
 
             const sigFailures = data.metrics.signature_failures;

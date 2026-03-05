@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# NOTE: Put config.yaml into the VM before running this script
-
 set -euxo pipefail
 
 apt-get update
@@ -55,7 +53,7 @@ mkdir -p \
   $MNT/logs
 chown -R 1003:1006 $MNT/defradb
 
-docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
+docker pull ghcr.io/shinzonetwork/shinzo-host-client:v0.5.1
 docker rm -f shinzo-host || true
 docker run -d \
   --name shinzo-host \
@@ -65,6 +63,8 @@ docker run -d \
   -v $MNT/defradb:/app/.defra \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -e DEFRA_URL=0.0.0.0:9181 \
+  -e START_HEIGHT=${START_HEIGHT:-} \
+  -e BOOTSTRAP_PEERS=${BOOTSTRAP_PEERS:-} \
   -e LOG_LEVEL=error \
   -e LOG_SOURCE=false \
   -e LOG_STACKTRACE=false \
@@ -75,4 +75,4 @@ docker run -d \
   --health-start-period=40s \
   --log-opt max-size=50m \
   --log-opt max-file=3 \
-  ghcr.io/shinzonetwork/shinzo-host-client:v0.4.9
+  ghcr.io/shinzonetwork/shinzo-host-client:v0.5.1

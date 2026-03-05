@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"time"
 
@@ -14,9 +12,9 @@ import (
 
 func findConfigFile() string {
 	possiblePaths := []string{
-		"./config.yaml",     // From project root
-		"../config.yaml",    // From bin/ directory
-		"../../config.yaml", // From pkg/host/ directory - test context
+		"./config/config.yaml", // From project root
+		"./config.yaml",        // Docker / mounted path
+		"../config.yaml",       // From bin/ directory
 	}
 
 	for _, path := range possiblePaths {
@@ -34,14 +32,6 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("Unable to load config: %v", err))
 	}
-
-	go func() {
-		pprofPort := cfg.HostConfig.PprofPort
-		if pprofPort == 0 {
-			pprofPort = 6060
-		}
-		http.ListenAndServe(fmt.Sprintf(":%d", pprofPort), nil)
-	}()
 
 	myHost, err := host.StartHosting(cfg)
 	if err != nil {

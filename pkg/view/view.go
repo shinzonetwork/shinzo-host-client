@@ -13,8 +13,8 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/view-creator/core/models"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/sourcenetwork/immutable"
 	"github.com/sourcenetwork/lens/host-go/config/model"
 )
 
@@ -39,7 +39,7 @@ func (view *View) SubscribeTo(ctx context.Context, defraNode *node.Node) error {
 		return fmt.Errorf("cannot subscribe to view %s: collection does not exist", view.Name)
 	}
 
-	err = defraNode.DB.CreateP2PCollections(ctx, view.Name)
+	err = defraNode.DB.CreateP2PCollections(ctx, []string{view.Name})
 	if err != nil {
 		return fmt.Errorf("error subscribing to collection %s: %v", view.Name, err)
 	}
@@ -222,20 +222,19 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	logger.Sugar.Debugf("🔧 View %s: lens modules: %+v", v.Name, lens)
 
 	// Register lens and create view
-	var lensOpt immutable.Option[string]
+	var viewOpts []options.Enumerable[options.AddViewOptions]
 	if len(v.Transform.Lenses) > 0 {
 		lensCID, err := defraNode.DB.AddLens(ctx, lens)
 		if err != nil {
 			return fmt.Errorf("failed to register lens: %w", err)
 		}
 		logger.Sugar.Debugf("🔧 View %s: lens CID: %s", v.Name, lensCID)
-		lensOpt = immutable.Some(lensCID)
+		viewOpts = append(viewOpts, options.AddView().SetTransformCID(lensCID))
 	} else {
 		logger.Sugar.Debugf("🔧 View %s: no lenses, creating view without lens transform", v.Name)
-		lensOpt = immutable.None[string]()
 	}
 
-	_, err := defraNode.DB.AddView(ctx, transformedQuery, sdl, lensOpt)
+	_, err := defraNode.DB.AddView(ctx, transformedQuery, sdl, viewOpts...)
 
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return fmt.Errorf("failed to create view: %w", err)
