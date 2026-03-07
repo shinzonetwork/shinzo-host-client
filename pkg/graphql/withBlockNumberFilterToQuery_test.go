@@ -217,3 +217,58 @@ func TestWithBlockNumberFilter_EdgeCases(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// WithBlockNumberFilter – unclosed parenthesis and no-brace-in-body paths
+// ---------------------------------------------------------------------------
+
+func TestWithBlockNumberFilter_UnclosedParenthesis(t *testing.T) {
+	// Query with opening parenthesis but no matching close => error
+	query := constants.CollectionLog + "(filter: { address: { _eq: \"0x123\" }"
+	_, err := WithBlockNumberFilter(query, 1, 100)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unable to find matching closing parenthesis")
+}
+
+func TestWithBlockNumberFilter_ExistingFilterEmpty_Block(t *testing.T) {
+	// Block collection with existing empty filter args
+	query := constants.CollectionBlock + "() { hash number }"
+	result, err := WithBlockNumberFilter(query, 10, 20)
+	require.NoError(t, err)
+	require.Contains(t, result, "number: { _ge: 10 }")
+	require.Contains(t, result, "number: { _le: 20 }")
+}
+
+func TestWithBlockNumberFilter_ExistingFilterEmpty_AccessListEntry(t *testing.T) {
+	// AccessListEntry collection with existing empty filter args
+	query := constants.CollectionAccessListEntry + "() { address storageKeys }"
+	result, err := WithBlockNumberFilter(query, 10, 20)
+	require.NoError(t, err)
+	require.Contains(t, result, "transaction: { blockNumber: { _ge: 10 } }")
+	require.Contains(t, result, "transaction: { blockNumber: { _le: 20 } }")
+}
+
+func TestWithBlockNumberFilter_WhitespaceOnlyQuery(t *testing.T) {
+	// Whitespace-only query is trimmed but still doesn't match the regex
+	_, err := WithBlockNumberFilter("   ", 1, 100)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unable to parse collection name")
+}
+
+func TestWithBlockNumberFilter_ExistingFilterEmpty_Generic(t *testing.T) {
+	// Generic collection (Log/Transaction) with existing empty filter args
+	query := constants.CollectionLog + "() { address topics }"
+	result, err := WithBlockNumberFilter(query, 10, 20)
+	require.NoError(t, err)
+	require.Contains(t, result, "blockNumber: { _ge: 10 }")
+	require.Contains(t, result, "blockNumber: { _le: 20 }")
+}
+
+func TestWithBlockNumberFilter_ExistingFilterEmpty_Transaction(t *testing.T) {
+	// Transaction collection with existing empty filter args
+	query := constants.CollectionTransaction + "() { hash from to }"
+	result, err := WithBlockNumberFilter(query, 5, 15)
+	require.NoError(t, err)
+	require.Contains(t, result, "blockNumber: { _ge: 5 }")
+	require.Contains(t, result, "blockNumber: { _le: 15 }")
+}
