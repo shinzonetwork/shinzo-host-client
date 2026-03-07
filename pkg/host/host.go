@@ -826,17 +826,21 @@ func (h *Host) GetActiveViewNames() []string {
 	return h.viewManager.GetActiveViewNames()
 }
 
+// execCommand is the function used to create exec.Cmd instances.
+// Overridden in tests to avoid actually opening browsers.
+var execCommand = exec.Command
+
 // openBrowser opens the specified URL in the default browser
 // Works on macOS, Linux, and Windows
 func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = execCommand("cmd", "/c", "start", url)
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = execCommand("open", url)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = execCommand("xdg-open", url)
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}

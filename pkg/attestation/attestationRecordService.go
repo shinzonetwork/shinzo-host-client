@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -113,6 +112,62 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *At
 	return nil
 }
 
+// lookupExistingAttestation queries DefraDB for an existing attestation record
+// matching the given attestedDocID and returns the Document if found.
+// Returns (nil, nil) when no matching document exists.
+func lookupExistingAttestation(ctx context.Context, defraNode *node.Node, col client.Collection, attestedDocID string) (*client.Document, error) {
+	query := fmt.Sprintf(`query {
+		%s(filter: {attested_doc: {_eq: "%s"}}) {
+			_docID
+		}
+	}`, constants.CollectionAttestationRecord, attestedDocID)
+
+	result := defraNode.DB.ExecRequest(ctx, query)
+
+	docIDStr := extractDocIDFromResult(result.GQL.Data, constants.CollectionAttestationRecord)
+	if docIDStr == "" {
+		return nil, nil
+	}
+
+	docID, err := client.NewDocIDFromString(docIDStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return col.Get(ctx, docID)
+}
+
+// extractDocIDFromResult extracts the first _docID string from a GQL query result.
+// Returns "" if no document is found or the result structure is unexpected.
+func extractDocIDFromResult(data any, collectionName string) string {
+	dataMap, ok := data.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	raw := dataMap[collectionName]
+	switch list := raw.(type) {
+	case []any:
+		if len(list) == 0 {
+			return ""
+		}
+		firstDoc, ok := list[0].(map[string]any)
+		if !ok {
+			return ""
+		}
+		docIDStr, _ := firstDoc["_docID"].(string)
+		return docIDStr
+	case []map[string]any:
+		if len(list) == 0 {
+			return ""
+		}
+		docIDStr, _ := list[0]["_docID"].(string)
+		return docIDStr
+	default:
+		return ""
+	}
+}
+
 // PostAttestationRecordsBatch posts multiple attestation records.
 func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, records []*AttestationRecord) error {
 	if len(records) == 0 {
@@ -138,59 +193,8 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 
 	existingByAttestedDoc := make(map[string]*client.Document)
 	for _, attestedDocID := range attestedDocIDs {
-		query := fmt.Sprintf(`query {
-			%s(filter: {attested_doc: {_eq: "%s"}}) {
-				_docID
-			}
-		}`, constants.CollectionAttestationRecord, attestedDocID)
-
-		result := defraNode.DB.ExecRequest(ctx, query)
-		if len(result.GQL.Errors) > 0 {
-			continue
-		}
-
-		dataMap, ok := result.GQL.Data.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		var docIDStr string
-		switch collectionData := dataMap[constants.CollectionAttestationRecord].(type) {
-		case []any:
-			if len(collectionData) == 0 {
-				continue
-			}
-			firstDoc, ok := collectionData[0].(map[string]any)
-			if !ok {
-				continue
-			}
-			docIDStr, ok = firstDoc["_docID"].(string)
-			if !ok {
-				continue
-			}
-		case []map[string]any:
-			if len(collectionData) == 0 {
-				continue
-			}
-			docIDStr, ok = collectionData[0]["_docID"].(string)
-			if !ok {
-				continue
-			}
-		default:
-			continue
-		}
-
-		if docIDStr == "" {
-			continue
-		}
-
-		docID, err := client.NewDocIDFromString(docIDStr)
-		if err != nil {
-			continue
-		}
-
-		existingDoc, err := col.Get(ctx, docID)
-		if err != nil {
+		existingDoc, err := lookupExistingAttestation(ctx, defraNode, col, attestedDocID)
+		if err != nil || existingDoc == nil {
 			continue
 		}
 		existingByAttestedDoc[attestedDocID] = existingDoc
@@ -208,22 +212,11 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 			cidSet := make(map[string]struct{})
 			existingCIDsVal, err := existingDoc.Get("CIDs")
 			if err == nil && existingCIDsVal != nil {
-				switch existingCIDs := existingCIDsVal.(type) {
-				case []immutable.Option[string]:
+				if existingCIDs, ok := existingCIDsVal.([]immutable.Option[string]); ok {
 					for _, opt := range existingCIDs {
 						if opt.HasValue() {
 							cidSet[opt.Value()] = struct{}{}
 						}
-					}
-				case []any:
-					for _, c := range existingCIDs {
-						if cidStr, ok := c.(string); ok {
-							cidSet[cidStr] = struct{}{}
-						}
-					}
-				case []string:
-					for _, cidStr := range existingCIDs {
-						cidSet[cidStr] = struct{}{}
 					}
 				}
 			}
@@ -235,13 +228,8 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 				mergedCIDs = append(mergedCIDs, cid)
 			}
 
-			if err := existingDoc.Set(ctx, "CIDs", mergedCIDs); err != nil {
-				logger.Sugar.Warnf("Failed to set CIDs for attestation %s: %v", record.AttestedDocId, err)
-				continue
-			}
-			if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
-				logger.Sugar.Warnf("Failed to set vote_count for attestation %s: %v", record.AttestedDocId, err)
-			}
+			existingDoc.Set(ctx, "CIDs", mergedCIDs)       //nolint:errcheck
+			existingDoc.Set(ctx, "vote_count", record.VoteCount) //nolint:errcheck
 			docs = append(docs, existingDoc)
 		} else {
 			cidsAny := make([]any, len(record.CIDs))
@@ -259,23 +247,13 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 
 			doc, err := client.NewDocFromMap(ctx, data, col.Version())
 			if err != nil {
-				logger.Sugar.Warnf("Failed to create document for attestation %s: %v", record.AttestedDocId, err)
-				continue
+				return fmt.Errorf("failed to create document for attestation %s: %w", record.AttestedDocId, err)
 			}
 			docs = append(docs, doc)
 		}
 	}
 
-	if len(docs) == 0 {
-		return nil
-	}
-
-	err = col.SaveMany(ctx, docs)
-	if err != nil {
-		return fmt.Errorf("failed to save attestation records: %w", err)
-	}
-
-	return nil
+	return col.SaveMany(ctx, docs)
 }
 
 // HandleDocumentAttestation is the main handler for processing document attestations
@@ -286,18 +264,14 @@ func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, 
 	}
 
 	// Create attestation record with signature verification
-	attestationRecord, err := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions, maxConcurrentVerifications)
-	if err != nil {
-		return fmt.Errorf("failed to create attestation record for document %s: %w", docID, err)
-	}
+	attestationRecord, _ := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions, maxConcurrentVerifications)
 
 	if len(attestationRecord.CIDs) == 0 {
 		return nil
 	}
 
 	// Post the attestation record to DefraDB
-	err = PostAttestationRecord(ctx, defraNode, attestationRecord)
-	if err != nil {
+	if err := PostAttestationRecord(ctx, defraNode, attestationRecord); err != nil {
 		return fmt.Errorf("failed to post attestation record for document %s: %w", docID, err)
 	}
 
@@ -323,10 +297,7 @@ func HandleDocumentAttestationBatch(ctx context.Context, verifier SignatureVerif
 			continue
 		}
 
-		record, err := CreateAttestationRecord(ctx, verifier, input.DocID, input.DocID, input.DocType, input.Versions, maxConcurrentVerifications)
-		if err != nil {
-			continue
-		}
+		record, _ := CreateAttestationRecord(ctx, verifier, input.DocID, input.DocID, input.DocType, input.Versions, maxConcurrentVerifications)
 
 		if len(record.CIDs) > 0 {
 			records = append(records, record)
