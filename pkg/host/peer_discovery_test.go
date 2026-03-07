@@ -239,3 +239,125 @@ func TestResolveBootstrapPeers_UnreachablePeerFallsBack(t *testing.T) {
 	require.Len(t, resolved, 1)
 	require.Equal(t, "/ip4/192.0.2.1/tcp/9171", resolved[0]) // Falls back to address without peer ID
 }
+
+// ---------------------------------------------------------------------------
+// resolveBootstrapPeers - mixed peers (some with IDs, some without)
+// ---------------------------------------------------------------------------
+
+func TestResolveBootstrapPeers_MixedPeers(t *testing.T) {
+	peers := []string{
+		"/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r", // Full multiaddr
+		"",           // Empty (skip)
+		"  ",         // Whitespace (skip)
+		"not-valid!", // Invalid (skip)
+	}
+
+	resolved := resolveBootstrapPeers(context.Background(), peers, DefaultPeerDiscoveryTimeout)
+	require.Len(t, resolved, 1)
+	require.Contains(t, resolved[0], "10.0.0.1")
+}
+
+func TestResolveBootstrapPeers_NilPeers(t *testing.T) {
+	resolved := resolveBootstrapPeers(context.Background(), nil, DefaultPeerDiscoveryTimeout)
+	require.Empty(t, resolved)
+}
+
+func TestResolveBootstrapPeers_NegativeTimeout(t *testing.T) {
+	// Negative timeout should use default
+	peers := []string{
+		"/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
+	}
+	resolved := resolveBootstrapPeers(context.Background(), peers, -1*time.Second)
+	require.Len(t, resolved, 1)
+}
+
+// ---------------------------------------------------------------------------
+// discoverPeerID - various error conditions
+// ---------------------------------------------------------------------------
+
+func TestDiscoverPeerID_UnreachableAddress(t *testing.T) {
+	maddr, err := normalizeToMultiaddr("192.0.2.1:9171")
+	require.NoError(t, err)
+
+	// Very short timeout to fail quickly
+	_, err = discoverPeerID(context.Background(), maddr, 500*time.Millisecond)
+	require.Error(t, err)
+}
+
+func TestDiscoverPeerID_CancelledContext(t *testing.T) {
+	maddr, err := normalizeToMultiaddr("192.0.2.1:9171")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = discoverPeerID(ctx, maddr, 1*time.Second)
+	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// extractPeerIDFromMismatchString - various delimiters
+// ---------------------------------------------------------------------------
+
+func TestExtractPeerIDFromMismatchString_CommaDelimiter(t *testing.T) {
+	errMsg := "but remote key matches 12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF, something else"
+	pid, err := extractPeerIDFromMismatchString(errMsg)
+	require.NoError(t, err)
+	expectedID, _ := peer.Decode("12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF")
+	require.Equal(t, expectedID, pid)
+}
+
+func TestExtractPeerIDFromMismatchString_SpaceDelimiter(t *testing.T) {
+	errMsg := "but remote key matches 12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF more text"
+	pid, err := extractPeerIDFromMismatchString(errMsg)
+	require.NoError(t, err)
+	expectedID, _ := peer.Decode("12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF")
+	require.Equal(t, expectedID, pid)
+}
+
+func TestExtractPeerIDFromMismatchString_ParenDelimiter(t *testing.T) {
+	errMsg := "but remote key matches 12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF)"
+	pid, err := extractPeerIDFromMismatchString(errMsg)
+	require.NoError(t, err)
+	expectedID, _ := peer.Decode("12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF")
+	require.Equal(t, expectedID, pid)
+}
+
+func TestExtractPeerIDFromMismatchString_EndOfString(t *testing.T) {
+	errMsg := "but remote key matches 12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF"
+	pid, err := extractPeerIDFromMismatchString(errMsg)
+	require.NoError(t, err)
+	expectedID, _ := peer.Decode("12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF")
+	require.Equal(t, expectedID, pid)
+}
+
+// ---------------------------------------------------------------------------
+// normalizeToMultiaddr - additional edge cases
+// ---------------------------------------------------------------------------
+
+func TestNormalizeToMultiaddr_InvalidMultiaddr(t *testing.T) {
+	_, err := normalizeToMultiaddr("/invalid/format")
+	require.Error(t, err)
+}
+
+func TestNormalizeToMultiaddr_ValidIPv4Port(t *testing.T) {
+	maddr, err := normalizeToMultiaddr("10.0.0.1:4001")
+	require.NoError(t, err)
+	require.Equal(t, "/ip4/10.0.0.1/tcp/4001", maddr.String())
+}
+
+// ---------------------------------------------------------------------------
+// buildMultiaddr - edge cases
+// ---------------------------------------------------------------------------
+
+func TestBuildMultiaddr_LoopbackIPv4(t *testing.T) {
+	maddr, err := buildMultiaddr("127.0.0.1", "9171")
+	require.NoError(t, err)
+	require.Equal(t, "/ip4/127.0.0.1/tcp/9171", maddr.String())
+}
+
+func TestBuildMultiaddr_FullIPv6(t *testing.T) {
+	maddr, err := buildMultiaddr("2001:db8::1", "4001")
+	require.NoError(t, err)
+	require.Equal(t, "/ip6/2001:db8::1/tcp/4001", maddr.String())
+}
