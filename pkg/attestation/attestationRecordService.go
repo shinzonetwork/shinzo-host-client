@@ -228,7 +228,7 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 				mergedCIDs = append(mergedCIDs, cid)
 			}
 
-			existingDoc.Set(ctx, "CIDs", mergedCIDs)       //nolint:errcheck
+			existingDoc.Set(ctx, "CIDs", mergedCIDs)             //nolint:errcheck
 			existingDoc.Set(ctx, "vote_count", record.VoteCount) //nolint:errcheck
 			docs = append(docs, existingDoc)
 		} else {
