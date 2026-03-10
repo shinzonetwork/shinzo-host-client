@@ -100,20 +100,30 @@ func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page int) {
 	logger.Sugar.Debugf("📡 saveLastProcessedPage: checking existing records")
 	if result.GQL.Errors == nil {
 		if data, ok := result.GQL.Data.(map[string]any); ok {
-			if records, ok := data["Config__LastProcessedPage"].([]any); ok && len(records) > 0 {
-				// Update existing record
-				if r, ok := records[0].(map[string]any); ok {
-					existingPage := int64(0)
-					if p, ok := r["page"].(int64); ok {
-						existingPage = p
-					}
-					logger.Sugar.Debugf("📡 saveLastProcessedPage: found existing page=%d, new page=%d", existingPage, page)
+			raw := data["Config__LastProcessedPage"]
+			var firstRecord map[string]any
+			switch list := raw.(type) {
+			case []any:
+				if len(list) > 0 {
+					firstRecord, _ = list[0].(map[string]any)
+				}
+			case []map[string]any:
+				if len(list) > 0 {
+					firstRecord = list[0]
+				}
+			}
+			if firstRecord != nil {
+				existingPage := int64(0)
+				if p, ok := firstRecord["page"].(int64); ok {
+					existingPage = p
+				}
+				logger.Sugar.Debugf("📡 saveLastProcessedPage: found existing page=%d, new page=%d", existingPage, page)
 
-					// Only update if new page is greater
-					if int64(page) <= existingPage {
-						logger.Sugar.Debugf("📡 saveLastProcessedPage: skipping, page %d <= existing %d", page, existingPage)
-						return
-					}
+				// Only update if new page is greater
+				if int64(page) <= existingPage {
+					logger.Sugar.Debugf("📡 saveLastProcessedPage: skipping, page %d <= existing %d", page, existingPage)
+					return
+				}
 
 					if docID, ok := r["_docID"].(string); ok {
 						updateMutation := fmt.Sprintf(`mutation { update_Config__LastProcessedPage(docID: "%s", input: {page: %d, pageSize: %d}) { _docID page pageSize } }`, docID, page, pageSize)
@@ -125,6 +135,7 @@ func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page int) {
 						}
 						return
 					}
+					return
 				}
 			}
 		}
