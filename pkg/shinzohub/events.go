@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+
 	"github.com/gorilla/websocket"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 type RPCResponse struct {
@@ -84,11 +84,27 @@ func GetEntityType(entityValue string) EntityType {
 func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	conn, _, err := websocket.DefaultDialer.Dial(tendermintURL, nil)
-	if err != nil {
-		cancel()
-		return cancel, nil, fmt.Errorf("failed to connect to Tendermint WebSocket: %w", err)
+	// Keep trying to connect until cancelled
+	var conn *websocket.Conn
+	var err error
+	
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return cancel, nil, fmt.Errorf("connection cancelled")
+		default:
+			conn, _, err = websocket.DefaultDialer.Dial(tendermintURL, nil)
+			if err == nil {
+				// Connected successfully - break out of the loop
+				goto Connected
+			}
+			// Wait 5 seconds before retrying
+			time.Sleep(5 * time.Second)
+		}
 	}
+	
+Connected:
 
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
@@ -161,24 +177,37 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		defer cancel()
 		defer close(eventChan)
 
+		// Heartbeat ticker
+		heartbeat := time.NewTicker(30 * time.Second)
+		defer heartbeat.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				fmt.Printf("Context cancelled, stopping message loop\n")
 				return
+			case <-heartbeat.C:
+				// Send ping to keep connection alive
+				if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+					fmt.Printf("WebSocket ping failed: %v\n", err)
+					return
+				}
+				fmt.Printf("WebSocket ping sent\n")
 			default:
-				// Set a deadline for the next read
-				// if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-				// 	fmt.Printf("Failed to set read deadline: %v\n", err)
-				// 	return
-				// }
+				// Set read deadline to detect dead connections
+				conn.SetReadDeadline(time.Now().Add(35 * time.Second))
 
 				// Read raw message first to see what we're getting
-				_, message, err := conn.ReadMessage()
+				messageType, message, err := conn.ReadMessage()
 				if err != nil {
 					fmt.Printf("WebSocket connection failed: %v\n", err)
 					return // This WILL close the goroutine via defers
+				}
 
+				// Handle pong responses
+				if messageType == websocket.PongMessage {
+					fmt.Printf("WebSocket pong received\n")
+					continue
 				}
 
 				// Now try to parse it
@@ -233,20 +262,23 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				case "creator":
 					registeredEvent.Creator = attr.Value
 				case "view":
-					// Parse the view JSON string into View struct
-					var view view.View
-					if err := json.Unmarshal([]byte(attr.Value), &view); err != nil {
-						fmt.Printf("Failed to parse view JSON: %v, value: %s\n", err, attr.Value)
+					// Process the view using the new view processor
+					processor := NewViewProcessor(nil) // We don't need defraNode for extraction
+					newView, err := processor.ProcessViewFromWire(context.Background(), attr.Value)
+					if err != nil {
+						fmt.Printf("Failed to process view from wire: %v\n", err)
 						continue
 					}
-					ExtractNameFromSDL(&view)
 
-					registeredEvent.View = view
+					registeredEvent.View = *newView
 				}
 			}
 
 			// Only add if we have all required fields
-			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Query != nil && *registeredEvent.View.Query != "" {
+			if registeredEvent.View.Data.Query != "" {
+				fmt.Printf("📋 Registered View: %s (creator: %s)\n", registeredEvent.View.Name, registeredEvent.Creator)
+			}
+			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
 				fmt.Printf("🔍 View %s registered for monitoring\n", registeredEvent.View.Name)
 
 				events = append(events, &registeredEvent)
