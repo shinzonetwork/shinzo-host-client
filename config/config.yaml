@@ -6,7 +6,7 @@ defradb:
     bootstrap_peers:
       # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
       # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWCXACP55i3jSf6rMiZXGpdruyvr9SyEdXBxu2PXeQGtv1'
-      - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
+      - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWGqjj1ZeaM5WYuvopSFh8rnsoTYje91mhzwgQGchRAJKa'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -15,9 +15,9 @@ defradb:
   store:
     path: "./.defra"
     # Badger memory configuration
-    block_cache_mb: 512  # Block cache size
-    memtable_mb: 64      # Memtable size
-    index_cache_mb: 256   # Index cache size
+    block_cache_mb: 1024  # Block cache size (increased from 512)
+    memtable_mb: 128      # Memtable size (increased from 64)
+    index_cache_mb: 512   # Index cache size (increased from 256)
     # Badger compaction configuration
     num_compactors: 4              # Number of compaction workers
     # num_level_zero_tables: 20      # L0 tables before compaction starts
@@ -108,7 +108,7 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
 logger:
-  development: false
+  development: true
   level: "error"
 host:
   lens_registry_path: "./.defra/lens"
