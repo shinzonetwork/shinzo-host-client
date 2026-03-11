@@ -216,8 +216,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	newHost := &Host{
 		DefraNode:      defraNode,
 		NetworkHandler: networkHandler,
-		// COMMENTED: View initialization - pure event-driven attestation focus
-		// HostedViews:             []view.View{},
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},
@@ -248,11 +246,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if rpcURL != "" {
 		logger.Sugar.Infof("🔍 Querying ShinzoHub for registered views: %s", rpcURL)
 		rpcClient := shinzohub.NewRPCClient(rpcURL, defraNode)
-		fetchedViews, err := rpcClient.FetchAllRegisteredViews(context.Background())
+		fetchedViews, totalCount, err := rpcClient.FetchAllRegisteredViews(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("⚠️ Failed to fetch views from ShinzoHub: %v", err)
 		}
-		logger.Sugar.Infof("📋 Found %d views from ShinzoHub", len(fetchedViews))
+		logger.Sugar.Infof("📋 Found %d views from ShinzoHub", totalCount)
 		hubViews = fetchedViews
 	} else {
 		logger.Sugar.Info("📋 No ShinzoHub base URL configured - skipping remote view fetch")
@@ -800,7 +798,7 @@ func applySchema(ctx context.Context, defraNode *node.Node) error {
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
-		configSchema := `type Config__LastProcessedPage { page: Int}`
+		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int }`
 		_, configErr := defraNode.DB.AddSchema(ctx, configSchema)
 		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
 			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)

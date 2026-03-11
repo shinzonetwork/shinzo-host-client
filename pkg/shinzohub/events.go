@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 type RPCResponse struct {
@@ -83,27 +84,11 @@ func GetEntityType(entityValue string) EntityType {
 func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Keep trying to connect until cancelled
-	var conn *websocket.Conn
-	var err error
-	
-	for {
-		select {
-		case <-ctx.Done():
-			cancel()
-			return cancel, nil, fmt.Errorf("connection cancelled")
-		default:
-			conn, _, err = websocket.DefaultDialer.Dial(tendermintURL, nil)
-			if err == nil {
-				// Connected successfully - break out of the loop
-				goto Connected
-			}
-			// Wait 5 seconds before retrying
-			time.Sleep(5 * time.Second)
-		}
+	conn, _, err := websocket.DefaultDialer.Dial(tendermintURL, nil)
+	if err != nil {
+		cancel()
+		return cancel, nil, fmt.Errorf("failed to connect to Tendermint WebSocket: %w", err)
 	}
-	
-Connected:
 
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
@@ -176,44 +161,24 @@ Connected:
 		defer cancel()
 		defer close(eventChan)
 
-		// Heartbeat ticker
-		heartbeat := time.NewTicker(30 * time.Second)
-		defer heartbeat.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
 				fmt.Printf("Context cancelled, stopping message loop\n")
 				return
-			case <-heartbeat.C:
-				// Send ping to keep connection alive
-				if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-					fmt.Printf("WebSocket ping failed: %v\n", err)
-					return
-				}
-				fmt.Printf("WebSocket ping sent\n")
 			default:
-				// Set read deadline to detect dead connections
-				conn.SetReadDeadline(time.Now().Add(35 * time.Second))
+				// Set a deadline for the next read
+				// if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+				// 	fmt.Printf("Failed to set read deadline: %v\n", err)
+				// 	return
+				// }
 
 				// Read raw message first to see what we're getting
-				messageType, message, err := conn.ReadMessage()
+				_, message, err := conn.ReadMessage()
 				if err != nil {
 					fmt.Printf("WebSocket connection failed: %v\n", err)
 					return // This WILL close the goroutine via defers
-				}
 
-				// Log that we received a WebSocket message
-				if messageType == websocket.TextMessage {
-					fmt.Printf("📥 WebSocket: Received text message (%d bytes)\n", len(message))
-				} else if messageType == websocket.BinaryMessage {
-					fmt.Printf("📥 WebSocket: Received binary message (%d bytes)\n", len(message))
-				}
-
-				// Handle pong responses
-				if messageType == websocket.PongMessage {
-					fmt.Printf("WebSocket pong received\n")
-					continue
 				}
 
 				// Now try to parse it
@@ -223,24 +188,13 @@ Connected:
 					continue
 				}
 
-				// Debug: Log the parsed message structure
-				fmt.Printf("🔍 WebSocket: Parsed RPCResponse - Version: %s, ID: %d\n", msg.JsonRpcVersion, msg.ID)
-				if msg.Result.Data.Type != "" {
-					fmt.Printf("🔍 WebSocket: Event type: %s\n", msg.Result.Data.Type)
-				}
-
 				// Look for Registered and EntityRegistered events and send them to the channel
 				events := extractShinzoEvents(msg)
-				if len(events) > 0 {
-					fmt.Printf("🌐 WebSocket: Received %d ShinzoHub event(s) from Tendermint\n", len(events))
-				} else {
-					fmt.Printf("🔍 WebSocket: No ShinzoHub events found in this message\n")
-				}
 				for _, event := range events {
 					// Send event to channel (this will block if channel is full)
 					select {
 					case eventChan <- event:
-						fmt.Printf("📤 WebSocket: Sent %s event to processing channel\n", event.ToString())
+						// Event sent successfully
 					case <-ctx.Done():
 						// Context cancelled, stop sending
 						return
@@ -258,24 +212,12 @@ Connected:
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 
-	// Debug: Log validation steps
-	fmt.Printf("🔍 extractShinzoEvents: Version=%s, Type=%s\n", msg.JsonRpcVersion, msg.Result.Data.Type)
-
 	// Validate message structure
-	if msg.JsonRpcVersion != "2.0" {
-		fmt.Printf("🔍 extractShinzoEvents: Invalid JSON-RPC version\n")
+	if msg.JsonRpcVersion != "2.0" ||
+		msg.Result.Data.Type != "tendermint.event" ||
+		msg.Result.Data.Value.TxResult.Result.Events == nil {
 		return events
 	}
-	if msg.Result.Data.Type != "tendermint.event" {
-		fmt.Printf("🔍 extractShinzoEvents: Not a tendermint.event type\n")
-		return events
-	}
-	if msg.Result.Data.Value.TxResult.Result.Events == nil {
-		fmt.Printf("🔍 extractShinzoEvents: No events array in TxResult\n")
-		return events
-	}
-
-	fmt.Printf("🔍 extractShinzoEvents: Found %d events in TxResult\n", len(msg.Result.Data.Value.TxResult.Result.Events))
 
 	// Navigate through the nested structure to find events
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
@@ -297,15 +239,13 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 						fmt.Printf("Failed to process view from wire: %v\n", err)
 						continue
 					}
+					v.ExtractNameFromSDL()
 
-					registeredEvent.View = *newView
+					registeredEvent.View = v
 				}
 			}
 
 			// Only add if we have all required fields
-			if registeredEvent.View.Data.Query != "" {
-				fmt.Printf("📋 Registered View: %s (creator: %s)\n", registeredEvent.View.Name, registeredEvent.Creator)
-			}
 			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
 				fmt.Printf("🔍 View %s registered for monitoring\n", registeredEvent.View.Name)
 
