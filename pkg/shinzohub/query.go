@@ -95,7 +95,7 @@ func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page int) {
 	pageSize := c.calculateDynamicPageSize(ctx)
 
 	// Check if a record exists
-	query := `query { Config__LastProcessedPage { _docID page pageSize } }`
+	query := `query { Config__LastProcessedPage { _docID page pageSize localLensCount } }`
 	result := c.defraNode.DB.ExecRequest(ctx, query)
 	logger.Sugar.Debugf("📡 saveLastProcessedPage: checking existing records")
 	if result.GQL.Errors == nil {
@@ -125,15 +125,13 @@ func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page int) {
 					return
 				}
 
-					if docID, ok := r["_docID"].(string); ok {
-						updateMutation := fmt.Sprintf(`mutation { update_Config__LastProcessedPage(docID: "%s", input: {page: %d, pageSize: %d}) { _docID page pageSize } }`, docID, page, pageSize)
-						updateResult := c.defraNode.DB.ExecRequest(ctx, updateMutation)
-						if updateResult.GQL.Errors != nil {
-							logger.Sugar.Warnf("📡 Failed to update last processed page: %v", updateResult.GQL.Errors)
-						} else {
-							logger.Sugar.Debugf("📡 Updated progress: page %d, pageSize: %d", page, pageSize)
-						}
-						return
+				if docID, ok := firstRecord["_docID"].(string); ok {
+					updateMutation := fmt.Sprintf(`mutation { update_Config__LastProcessedPage(docID: "%s", input: {page: %d, pageSize: %d, localLensCount: %d}) { _docID page pageSize localLensCount } }`, docID, page, pageSize, 0)
+					updateResult := c.defraNode.DB.ExecRequest(ctx, updateMutation)
+					if updateResult.GQL.Errors != nil {
+						logger.Sugar.Warnf("📡 Failed to update last processed page: %v", updateResult.GQL.Errors)
+					} else {
+						logger.Sugar.Debugf("📡 Updated progress: page %d, pageSize: %d", page, pageSize)
 					}
 					return
 				}
@@ -141,12 +139,59 @@ func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page int) {
 		}
 	}
 	logger.Sugar.Debugf("📡 saveLastProcessedPage: no existing record found, creating new")
-	mutation := fmt.Sprintf(`mutation { create_Config__LastProcessedPage(input: {page: %d, pageSize: %d}) { _docID } }`, page, pageSize)
+	mutation := fmt.Sprintf(`mutation { create_Config__LastProcessedPage(input: {page: %d, pageSize: %d, localLensCount: %d}) { _docID } }`, page, pageSize, 0)
 	result = c.defraNode.DB.ExecRequest(ctx, mutation)
 	if result.GQL.Errors != nil {
 		logger.Sugar.Warnf("📡 Failed to save last processed page: %v", result.GQL.Errors)
 	} else {
 		logger.Sugar.Infof("📡 Saved last processed page: %d, pageSize: %d", page, pageSize)
+	}
+}
+
+// saveProgressWithLocalCount updates both RPC progress and local lens count in one operation
+// This is the A+ approach: 1 RPC call + local count update
+func (c *RPCClient) saveProgressWithLocalCount(ctx context.Context, page, totalCount, localLensCount int) {
+	if c.defraNode == nil {
+		return
+	}
+
+	// Calculate optimal pageSize for next run based on totalCount
+	nextPageSize := c.calculateAdaptivePageSize(0, totalCount)
+
+	// Check if a record exists
+	query := `query { Config__LastProcessedPage { _docID page pageSize localLensCount } }`
+	result := c.defraNode.DB.ExecRequest(ctx, query)
+	if result.GQL.Errors == nil {
+		if data, ok := result.GQL.Data.(map[string]any); ok {
+			if records, ok := data["Config__LastProcessedPage"].([]any); ok && len(records) > 0 {
+				if firstRecord, ok := records[0].(map[string]any); ok {
+					if docID, ok := firstRecord["_docID"].(string); ok {
+						// Update existing record with both counts
+						updateMutation := fmt.Sprintf(`mutation { update_Config__LastProcessedPage(docID: "%s", input: {page: %d, pageSize: %d, localLensCount: %d}) { _docID page pageSize localLensCount } }`, 
+							docID, page, nextPageSize, localLensCount)
+						updateResult := c.defraNode.DB.ExecRequest(ctx, updateMutation)
+						if updateResult.GQL.Errors != nil {
+							logger.Sugar.Warnf("📡 Failed to update progress: %v", updateResult.GQL.Errors)
+						} else {
+							logger.Sugar.Infof("📡 Updated progress: page=%d, pageSize=%d (next), totalCount=%d, localLensCount=%d", 
+								page, nextPageSize, totalCount, localLensCount)
+						}
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// Create new record if none exists
+	mutation := fmt.Sprintf(`mutation { create_Config__LastProcessedPage(input: {page: %d, pageSize: %d, localLensCount: %d}) { _docID } }`, 
+		page, nextPageSize, localLensCount)
+	result = c.defraNode.DB.ExecRequest(ctx, mutation)
+	if result.GQL.Errors != nil {
+		logger.Sugar.Warnf("📡 Failed to save progress: %v", result.GQL.Errors)
+	} else {
+		logger.Sugar.Infof("📡 Saved progress: page=%d, pageSize=%d (next), totalCount=%d, localLensCount=%d", 
+			page, nextPageSize, totalCount, localLensCount)
 	}
 }
 
@@ -213,6 +258,47 @@ func (c *RPCClient) pageSizeFromViewCount(viewCount int) int {
 	}
 }
 
+// calculateAdaptivePageSize determines optimal page size based on current pageSize and total_count
+func (c *RPCClient) calculateAdaptivePageSize(currentPageSize, totalCount int) int {
+	// Start with pageSize = 10 by default
+	if currentPageSize == 0 {
+		return 10
+	}
+
+	// If total_count < current page size, get everything in one call
+	if totalCount < currentPageSize {
+		return totalCount
+	}
+	
+	return currentPageSize
+}
+
+// FetchAllRegisteredViewsAPlus makes only 1 RPC call and updates both local and remote counts
+// A+ approach: 1 RPC call to get all data, then update localLensCount
+func (c *RPCClient) FetchAllRegisteredViewsAPlus(ctx context.Context) ([]view.View, error) {
+	// Start with pageSize = total_count to get everything in one call
+	pageSize := 1000 // Large enough to get all transactions
+	page := 1
+	
+	logger.Sugar.Debugf("📡 A+ approach: Fetching all views with single RPC call (pageSize=%d)...", pageSize)
+	views, totalCount, err := c.fetchRegisteredViewsPage(ctx, page, pageSize)
+	if err != nil {
+		logger.Sugar.Debugf("📡 A+ approach: RPC call failed: %v", err)
+		return nil, err
+	}
+
+	logger.Sugar.Infof("📡 A+ approach: Got %d views from ShinzoHub (total_count=%d)", len(views), totalCount)
+	
+	// Count local lenses (this would be done by the caller)
+	// For now, we'll save with 0 and let the caller update it
+	localLensCount := 0
+	
+	// Save progress with both counts using the A+ function
+	c.saveProgressWithLocalCount(ctx, page, totalCount, localLensCount)
+	
+	return views, nil
+}
+
 // TxSearchResponse represents the response from tx_search RPC call.
 type TxSearchResponse struct {
 	JSONRPC string `json:"jsonrpc"`
@@ -263,6 +349,15 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, e
 			// Error likely means we've gone past the last page
 			logger.Sugar.Debugf("📡 Stopping at page %d: %v", page, err)
 			break
+		}
+
+		// On first successful page, adjust pageSize based on total_count
+		if page == startPage && total > 0 {
+			newPageSize := c.calculateAdaptivePageSize(pageSize, total)
+			if newPageSize != pageSize {
+				logger.Sugar.Debugf("📡 Adjusting pageSize from %d to %d based on total_count=%d", pageSize, newPageSize, total)
+				pageSize = newPageSize
+			}
 		}
 
 		// Batch append views to reduce slice growth operations

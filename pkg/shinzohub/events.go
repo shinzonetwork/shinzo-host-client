@@ -204,6 +204,13 @@ Connected:
 					return // This WILL close the goroutine via defers
 				}
 
+				// Log that we received a WebSocket message
+				if messageType == websocket.TextMessage {
+					fmt.Printf("📥 WebSocket: Received text message (%d bytes)\n", len(message))
+				} else if messageType == websocket.BinaryMessage {
+					fmt.Printf("📥 WebSocket: Received binary message (%d bytes)\n", len(message))
+				}
+
 				// Handle pong responses
 				if messageType == websocket.PongMessage {
 					fmt.Printf("WebSocket pong received\n")
@@ -217,13 +224,24 @@ Connected:
 					continue
 				}
 
+				// Debug: Log the parsed message structure
+				fmt.Printf("🔍 WebSocket: Parsed RPCResponse - Version: %s, ID: %d\n", msg.JsonRpcVersion, msg.ID)
+				if msg.Result.Data.Type != "" {
+					fmt.Printf("🔍 WebSocket: Event type: %s\n", msg.Result.Data.Type)
+				}
+
 				// Look for Registered and EntityRegistered events and send them to the channel
 				events := extractShinzoEvents(msg)
+				if len(events) > 0 {
+					fmt.Printf("🌐 WebSocket: Received %d ShinzoHub event(s) from Tendermint\n", len(events))
+				} else {
+					fmt.Printf("🔍 WebSocket: No ShinzoHub events found in this message\n")
+				}
 				for _, event := range events {
 					// Send event to channel (this will block if channel is full)
 					select {
 					case eventChan <- event:
-						// Event sent successfully
+						fmt.Printf("📤 WebSocket: Sent %s event to processing channel\n", event.ToString())
 					case <-ctx.Done():
 						// Context cancelled, stop sending
 						return
@@ -241,12 +259,24 @@ Connected:
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 
+	// Debug: Log validation steps
+	fmt.Printf("🔍 extractShinzoEvents: Version=%s, Type=%s\n", msg.JsonRpcVersion, msg.Result.Data.Type)
+
 	// Validate message structure
-	if msg.JsonRpcVersion != "2.0" ||
-		msg.Result.Data.Type != "tendermint.event" ||
-		msg.Result.Data.Value.TxResult.Result.Events == nil {
+	if msg.JsonRpcVersion != "2.0" {
+		fmt.Printf("🔍 extractShinzoEvents: Invalid JSON-RPC version\n")
 		return events
 	}
+	if msg.Result.Data.Type != "tendermint.event" {
+		fmt.Printf("🔍 extractShinzoEvents: Not a tendermint.event type\n")
+		return events
+	}
+	if msg.Result.Data.Value.TxResult.Result.Events == nil {
+		fmt.Printf("🔍 extractShinzoEvents: No events array in TxResult\n")
+		return events
+	}
+
+	fmt.Printf("🔍 extractShinzoEvents: Found %d events in TxResult\n", len(msg.Result.Data.Value.TxResult.Result.Events))
 
 	// Navigate through the nested structure to find events
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
