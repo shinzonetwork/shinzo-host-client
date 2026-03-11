@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/sourcenetwork/lens/host-go/config/model"
 )
@@ -183,14 +185,20 @@ func (v *View) PostWasmToFile(ctx context.Context, lensRegistryPath string) erro
 	return nil
 }
 
-// ConfigureLens creates the view in DefraDB (SetMigration handled by ViewManager)
-func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaService *SchemaService) error {
+// ConfigureLens creates the view in DefraDB with the lens transform CID
+func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaService *SchemaService, lensCID string) error {
 	if v.Data.Query == "" || v.Data.Sdl == "" {
 		return fmt.Errorf("view query and SDL are required")
 	}
 
-	// Create view (SetMigration already handled by ViewManager.RegisterView)
-	_, err := defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
+	var err error
+	if lensCID != "" {
+		// Create view with the lens transform CID so DefraDB applies the WASM lens
+		viewOpts := options.AddView().SetTransformCID(lensCID)
+		_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl, viewOpts)
+	} else {
+		_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
+	}
 	if err != nil && !contains(err.Error(), "already exists") {
 		return fmt.Errorf("failed to create view: %w", err)
 	}
@@ -203,10 +211,16 @@ func (v *View) BuildLensConfig() (client.LensConfig, error) {
 	lensModules := make([]model.LensModule, 0, len(v.Data.Transform.Lenses))
 	
 	for _, lens := range v.Data.Transform.Lenses {
+		args := map[string]any{}
+		if lens.Arguments != "" {
+			if err := json.Unmarshal([]byte(lens.Arguments), &args); err != nil {
+				return client.LensConfig{}, fmt.Errorf("failed to parse lens arguments: %w", err)
+			}
+		}
 		lensModules = append(lensModules, model.LensModule{
 			Path:      lens.Path,
 			Inverse:   false,
-			Arguments: map[string]any{},
+			Arguments: args,
 		})
 	}
 

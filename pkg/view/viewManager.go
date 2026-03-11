@@ -199,12 +199,19 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 		}
 	}
 
-	// Step 1: Set up lens migration (required before AddView)
+	// Step 1a: Store the lens and get its CID
 	lensConfig, err := v.BuildLensConfig()
 	if err != nil {
 		return fmt.Errorf("failed to build lens config for view %s: %w", v.Name, err)
 	}
-	logger.Sugar.Infof("Setting up lens migration for view %s", v.Name)
+	logger.Sugar.Infof("Storing lens for view %s", v.Name)
+	lensCID, err := vm.defraNode.DB.AddLens(ctx, lensConfig.Lens)
+	if err != nil {
+		return fmt.Errorf("failed to add lens for view %s: %w", v.Name, err)
+	}
+	logger.Sugar.Infof("Lens CID for view %s: %s", v.Name, lensCID)
+
+	// Step 1b: Set up the migration path
 	_, err = vm.defraNode.DB.SetMigration(ctx, lensConfig)
 	if err != nil {
 		return fmt.Errorf("failed to set migration for view %s: %w", v.Name, err)
@@ -218,7 +225,7 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, constants.CollectionChain, sourceCollection)
 	}
 	
-	err = v.ConfigureLens(ctx, vm.defraNode, vm.schemaService)
+	err = v.ConfigureLens(ctx, vm.defraNode, vm.schemaService, lensCID)
 	if err != nil {
 		return fmt.Errorf("failed to configure lens for view %s: %w", v.Name, err)
 	}

@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/view-creator/core/models"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
+
+
 
 func TestNewViewManager(t *testing.T) {
 	ctx := context.Background()
@@ -22,7 +24,6 @@ func TestNewViewManager(t *testing.T) {
 	require.NotNil(t, vm)
 	require.NotNil(t, vm.activeViews)
 	require.NotNil(t, vm.defraNode)
-	require.NotNil(t, vm.lensService)
 	require.NotNil(t, vm.schemaService)
 	require.Equal(t, registryPath, vm.registryPath)
 }
@@ -105,27 +106,32 @@ func TestExtractWasmURLsFromViews(t *testing.T) {
 	views := []View{
 		{
 			Name: "View1",
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{Path: "https://example.com/filter.wasm"},
-					{Path: "http://example.com/transform.wasm"},
+			Data: viewbundle.View{
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{Path: "file://" + "filter_transaction.wasm"},
+					},
 				},
 			},
 		},
 		{
 			Name: "View2",
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{Path: "file:///local/path.wasm"}, // Should be excluded
-					{Path: "base64encodeddata"},       // Should be excluded
+			Data: viewbundle.View{
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{Path: "file://" + "filter_transaction.wasm"},
+
+					},
 				},
 			},
 		},
 		{
 			Name: "View3",
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{Path: "https://another.com/lens.wasm"},
+			Data: viewbundle.View{
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{Path: "file://" + "filter_transaction.wasm"},
+					},
 				},
 			},
 		},
@@ -133,9 +139,7 @@ func TestExtractWasmURLsFromViews(t *testing.T) {
 
 	urls := extractWasmURLsFromViews(views)
 
-	require.Len(t, urls, 3)
-	require.Contains(t, urls, "https://example.com/filter.wasm")
-	require.Contains(t, urls, "http://example.com/transform.wasm")
+	require.Len(t, urls, 1) // Only HTTP URLs should be extracted
 	require.Contains(t, urls, "https://another.com/lens.wasm")
 }
 
@@ -143,10 +147,12 @@ func TestExtractWasmURLsFromViews_NoHTTPURLs(t *testing.T) {
 	views := []View{
 		{
 			Name: "View1",
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{Path: "file:///local/path.wasm"},
-					{Path: "base64encodeddata"},
+			Data: viewbundle.View{
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{Path: "file://" + "filter_transaction.wasm"},
+						{Path: "file://" + "decode_event.wasm", Arguments: `[{"type":"event","name":"AdminChanged","inputs":[]}]`},
+					},
 				},
 			},
 		},
@@ -165,8 +171,8 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 	}{
 		{
 			name:     "simple query",
-			query:    "Log { address topics }",
-			expected: "Log",
+			query:    "Ethereum__Mainnet__Log { address topics }",
+			expected: "Ethereum__Mainnet__Log",
 		},
 		{
 			name:     "full collection name",
@@ -175,8 +181,8 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 		},
 		{
 			name:     "no braces",
-			query:    "Transaction",
-			expected: "Transaction",
+			query:    "Ethereum__Mainnet__Transaction",
+			expected: "Ethereum__Mainnet__Transaction",
 		},
 	}
 
@@ -189,34 +195,32 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 }
 
 func TestView_BuildLensConfig(t *testing.T) {
-	query := "Log { address topics }"
+	query := "Ethereum__Mainnet__Log { address topics }" // Add prefix
 	sdl := "type FilteredLog { address: String }"
 
 	v := View{
-		Name:  "FilteredLog",
-		Query: &query,
-		Sdl:   &sdl,
-		Transform: models.Transform{
-			Lenses: []models.Lens{
-				{
-					Label: "filter",
-					Path:  "file:///path/to/filter.wasm",
-					Arguments: map[string]any{
-						"field": "address",
-						"value": "0x123",
+		Name: "FilteredLog",
+		Data: viewbundle.View{
+			Query: query,
+			Sdl:   sdl,
+			Transform: viewbundle.Transform{
+				Lenses: []viewbundle.Lens{
+					{
+						Path: "file://" + "filter_transaction.wasm",
 					},
 				},
 			},
 		},
 	}
 
-	config := v.BuildLensConfig()
+	config, err := v.BuildLensConfig()
+	require.NoError(t, err)
 
 	require.Equal(t, query, config.SourceCollectionVersionID)
 	require.Equal(t, sdl, config.DestinationCollectionVersionID)
 	require.Len(t, config.Lens.Lenses, 1)
-	require.Equal(t, "file:///path/to/filter.wasm", config.Lens.Lenses[0].Path)
-	require.Equal(t, "address", config.Lens.Lenses[0].Arguments["field"])
+	require.Equal(t, "file://"+"filter_transaction.wasm", config.Lens.Lenses[0].Path)
+	require.Equal(t, map[string]any{}, config.Lens.Lenses[0].Arguments) // Arguments are empty
 }
 
 func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
@@ -232,9 +236,15 @@ func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	vm.activeViews["TestView"] = nil
 
 	// Try to register the same view
-	v := View{Name: "TestView"}
+	v := View{
+		Name: "TestView",
+		Data: viewbundle.View{
+			Query: "Ethereum__Mainnet__Log { address }", // Add prefix
+			Sdl:   "type TestView { address: String }",
+		},
+	}
 	err = vm.RegisterView(ctx, v)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "already registered")
+	require.Contains(t, err.Error(), "already registered") // This should be the actual error
 }

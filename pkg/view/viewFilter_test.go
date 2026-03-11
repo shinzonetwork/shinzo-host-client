@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/view-creator/core/models"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -67,9 +67,9 @@ func TestViewFilterByStatus(t *testing.T) {
 	t.Run("FilterByStatusTrue", func(t *testing.T) {
 		viewTrue := createStatusFilterView(t, wasmPath, true)
 		t.Logf("📋 View name: %s", viewTrue.Name)
-		t.Logf("📋 View query: %s", *viewTrue.Query)
-		t.Logf("📋 View SDL: %s", *viewTrue.Sdl)
-		t.Logf("📋 View has %d lenses", len(viewTrue.Transform.Lenses))
+		t.Logf("📋 View query: %s", viewTrue.Data.Query)
+		t.Logf("📋 View SDL: %s", viewTrue.Data.Sdl)
+		t.Logf("📋 View has %d lenses", len(viewTrue.Data.Transform.Lenses))
 
 		err := vm.RegisterView(ctx, viewTrue)
 		if err != nil {
@@ -216,17 +216,15 @@ func createStatusFilterView(t *testing.T, wasmPath string, statusValue bool) Vie
 	wasmBase64 := base64.StdEncoding.EncodeToString(wasmBytes)
 
 	return View{
-		Name:  viewName,
-		Query: &query,
-		Sdl:   &sdl,
-		Transform: models.Transform{
-			Lenses: []models.Lens{
-				{
-					Label: "filter_by_status",
-					Path:  wasmBase64,
-					Arguments: map[string]any{
-						"src":   "status",
-						"value": statusValue,
+		Name: viewName,
+		Data: viewbundle.View{
+			Query: query,
+			Sdl:   sdl,
+			Transform: viewbundle.Transform{
+				Lenses: []viewbundle.Lens{
+					{
+						Path:      wasmBase64,
+						Arguments: fmt.Sprintf(`{"status": %t}`, statusValue),
 					},
 				},
 			},
