@@ -107,16 +107,16 @@ func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews [
 	}
 
 	// Step 4: Register each view
-	for _, v := range allViews {
-		if err := vm.RegisterView(ctx, v); err != nil {
-			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", v.Name, err)
+	for i := range allViews {
+		if err := vm.RegisterView(ctx, &allViews[i]); err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", allViews[i].Name, err)
 			continue
 		}
-		logger.Sugar.Infof("✅ Registered view: %s", v.Name)
+		logger.Sugar.Infof("✅ Registered view: %s", allViews[i].Name)
 
-		// Persist view to local registry for next startup
-		if err := SaveViewToRegistry(vm.registryPath, v); err != nil {
-			logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", v.Name, err)
+		// Persist view to local registry for next startup (with any auto-corrections applied)
+		if err := SaveViewToRegistry(vm.registryPath, allViews[i]); err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", allViews[i].Name, err)
 		}
 	}
 
@@ -178,10 +178,17 @@ func (vm *ViewManager) QueueView(v View) {
 }
 
 // RegisterView implements the full view registration flow with validation
-func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
+func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 	// Pre-validate view before any operations
 	if err := v.Validate(); err != nil {
 		return fmt.Errorf("view validation failed for %s: %w", v.Name, err)
+	}
+
+	// Pre-emptively fix common query issues (inputData -> input)
+	// This ensures the corrected query is used everywhere, not just in DefraDB
+	if strings.Contains(v.Data.Query, "inputData") {
+		logger.Sugar.Infof("🔧 Pre-correcting query for view %s: replacing 'inputData' with 'input'", v.Name)
+		v.Data.Query = strings.ReplaceAll(v.Data.Query, "inputData", "input")
 	}
 
 	vm.mutex.Lock()
@@ -199,24 +206,15 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 		}
 	}
 
-	// Step 1a: Store the lens and get its CID
-	lensConfig, err := v.BuildLensConfig()
-	if err != nil {
-		return fmt.Errorf("failed to build lens config for view %s: %w", v.Name, err)
-	}
+	// Step 1: Set up lens and migration if needed
 	logger.Sugar.Infof("Storing lens for view %s", v.Name)
-	lensCID, err := vm.defraNode.DB.AddLens(ctx, lensConfig.Lens)
+	lensCID, err := SetupLensInDefraDB(ctx, vm.defraNode, v)
 	if err != nil {
-		return fmt.Errorf("failed to add lens for view %s: %w", v.Name, err)
+		return fmt.Errorf("failed to setup lens for view %s: %w", v.Name, err)
 	}
-	logger.Sugar.Infof("Lens CID for view %s: %s", v.Name, lensCID)
-
-	// Step 1b: Set up the migration path
-	_, err = vm.defraNode.DB.SetMigration(ctx, lensConfig)
-	if err != nil {
-		return fmt.Errorf("failed to set migration for view %s: %w", v.Name, err)
+	if lensCID != "" {
+		logger.Sugar.Infof("Lens CID for view %s: %s", v.Name, lensCID)
 	}
-	vm.activeViews[v.Name] = &lensConfig
 
 	// Step 2: Auto-fix collection name if needed and create view in DefraDB
 	sourceCollection := extractCollectionFromQuery(v.Data.Query)

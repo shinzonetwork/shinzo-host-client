@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-
 	"github.com/gorilla/websocket"
 )
 
@@ -292,9 +291,8 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				case "creator":
 					registeredEvent.Creator = attr.Value
 				case "view":
-					// Process the view using the new view processor
-					processor := NewViewProcessor(nil) // We don't need defraNode for extraction
-					newView, err := processor.ProcessViewFromWire(context.Background(), attr.Value)
+					// Process view from wire format
+					newView, err := ProcessViewFromWireFormat(attr.Value)
 					if err != nil {
 						fmt.Printf("Failed to process view from wire: %v\n", err)
 						continue

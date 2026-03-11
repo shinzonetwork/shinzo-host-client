@@ -199,11 +199,77 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	} else {
 		_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
 	}
+	
 	if err != nil && !contains(err.Error(), "already exists") {
+		// Try to auto-fix common field name issues
+		if strings.Contains(err.Error(), "Cannot query field") && strings.Contains(err.Error(), "Did you mean") {
+			fmt.Printf("🔧 Auto-correcting query for view %s: %s\n", v.Name, err.Error())
+			correctedQuery := v.attemptQueryCorrection(err.Error())
+			if correctedQuery != v.Data.Query {
+				fmt.Printf("🔧 Corrected query: %s -> %s\n", v.Data.Query, correctedQuery)
+				v.Data.Query = correctedQuery
+				// Retry with corrected query
+				if lensCID != "" {
+					viewOpts := options.AddView().SetTransformCID(lensCID)
+					_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl, viewOpts)
+				} else {
+					_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
+				}
+				
+				if err != nil && !contains(err.Error(), "already exists") {
+					fmt.Printf("❌ Auto-correction retry failed for view %s: %v\n", v.Name, err)
+					return fmt.Errorf("failed to create view after correction: %w", err)
+				}
+				fmt.Printf("✅ Query auto-corrected successfully for view %s\n", v.Name)
+				return nil
+			} else {
+				fmt.Printf("⚠️ Auto-correction produced same query for view %s\n", v.Name)
+			}
+		}
 		return fmt.Errorf("failed to create view: %w", err)
 	}
 
 	return nil
+}
+
+// attemptQueryCorrection tries to fix common field name issues based on error message
+func (v *View) attemptQueryCorrection(errMsg string) string {
+	// Extract the incorrect field and suggested field from error message
+	// Error format: Cannot query field "inputData" on type "X". Did you mean "input"?
+	re := regexp.MustCompile(`Cannot query field "([^"]+)".*Did you mean "([^"]+)"`)
+	matches := re.FindStringSubmatch(errMsg)
+	
+	if len(matches) == 3 {
+		incorrectField := matches[1]
+		suggestedField := matches[2]
+		correctedQuery := strings.ReplaceAll(v.Data.Query, incorrectField, suggestedField)
+		return correctedQuery
+	}
+	
+	return v.Data.Query
+}
+
+// SetupLensInDefraDB stores the lens WASM in DefraDB and returns the lens CID
+// Note: SetMigration is NOT called here - it's only needed when using PatchCollection
+// to transform data between collection versions, which we don't do for view lenses
+func SetupLensInDefraDB(ctx context.Context, defraNode *node.Node, v *View) (string, error) {
+	if !v.HasLenses() {
+		return "", nil
+	}
+
+	// Build lens config
+	lensConfig, err := v.BuildLensConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to build lens config: %w", err)
+	}
+
+	// Add lens to DefraDB to store the WASM
+	lensCID, err := defraNode.DB.AddLens(ctx, lensConfig.Lens)
+	if err != nil {
+		return "", fmt.Errorf("failed to add lens: %w", err)
+	}
+
+	return lensCID, nil
 }
 
 // BuildLensConfig creates the lens configuration for DefraDB SetMigration
@@ -247,26 +313,6 @@ func (v *View) needsWasmConversion() bool {
 		}
 	}
 	return false
-}
-
-// BuildLensConfig creates a lens configuration for a transformation between query and sdl
-// query: the source collection (e.g. "Block { _docID _version { cid signature { value identity type } } hash blockNumber from to value }")
-// sdl: the output schema (e.g. "FilteredBlock { _docID _version { cid signature { value identity type } } hash blockNumber from to value }")
-// wasmPath: path to WASM file
-// args: arguments for the lens
-func BuildLensConfig(query, sdl string, wasmPath string, args map[string]any) client.LensConfig {
-	return client.LensConfig{
-		SourceCollectionVersionID:      query,
-		DestinationCollectionVersionID: sdl,
-		Lens: model.Lens{
-			Lenses: []model.LensModule{
-				{
-					Path:      wasmPath,
-					Arguments: args,
-				},
-			},
-		},
-	}
 }
 
 // Helper function to check if error contains substring

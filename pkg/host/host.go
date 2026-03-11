@@ -444,11 +444,11 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	}
 
 	// Register view
-	if err := h.viewManager.RegisterView(ctx, event.View); err != nil {
+	if err := h.viewManager.RegisterView(ctx, &event.View); err != nil {
 		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
 	}
 
-	// Persist to registry
+	// Persist to registry (with any auto-corrections applied)
 	if err := view.SaveViewToRegistry(h.LensRegistryPath, event.View); err != nil {
 		logger.Sugar.Warnf("Failed to persist view %s: %v", event.View.Name, err)
 	}
@@ -696,10 +696,10 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 				// 3. Register the view with ViewManager and persist to registry
 				if h.viewManager != nil {
-					if err := h.viewManager.RegisterView(ctx, registeredEvent.View); err != nil {
+					if err := h.viewManager.RegisterView(ctx, &registeredEvent.View); err != nil {
 						logger.Sugar.Errorf("❌ Failed to register view %s: %v", registeredEvent.View.Name, err)
 					} else {
-						// 4. Persist view to registry for next startup
+						// 4. Persist view to registry for next startup (with any auto-corrections applied)
 						if err := view.SaveViewToRegistry(h.LensRegistryPath, registeredEvent.View); err != nil {
 							logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", registeredEvent.View.Name, err)
 						}
@@ -800,7 +800,7 @@ func applySchema(ctx context.Context, defraNode *node.Node) error {
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
-		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int, localLensCount: Int }`
+		configSchema := `type Config__LastProcessedPage { page: Int}`
 		_, configErr := defraNode.DB.AddSchema(ctx, configSchema)
 		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
 			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)
@@ -815,7 +815,7 @@ func (h *Host) RegisterViewWithManager(ctx context.Context, v view.View) error {
 	if h.viewManager == nil {
 		return fmt.Errorf("ViewManager not initialized")
 	}
-	return h.viewManager.RegisterView(ctx, v)
+	return h.viewManager.RegisterView(ctx, &v)
 }
 
 // GetActiveViewNames returns names of all active views
