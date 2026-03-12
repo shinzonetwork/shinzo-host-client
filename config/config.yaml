@@ -6,7 +6,7 @@ defradb:
     bootstrap_peers:
       # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
       # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWCXACP55i3jSf6rMiZXGpdruyvr9SyEdXBxu2PXeQGtv1'
-      - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWGqjj1ZeaM5WYuvopSFh8rnsoTYje91mhzwgQGchRAJKa'
+      - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -15,9 +15,9 @@ defradb:
   store:
     path: "./.defra"
     # Badger memory configuration
-    block_cache_mb: 1024  # Block cache size (increased from 512)
-    memtable_mb: 128      # Memtable size (increased from 64)
-    index_cache_mb: 512   # Index cache size (increased from 256)
+    block_cache_mb: 512  # Block cache size
+    memtable_mb: 64      # Memtable size
+    index_cache_mb: 256   # Index cache size
     # Badger compaction configuration
     num_compactors: 4              # Number of compaction workers
     # num_level_zero_tables: 20      # L0 tables before compaction starts
@@ -71,18 +71,18 @@ shinzo:
     groups:
       - name: "uniswap-v3"       # Human-readable label (for logs)
         enabled: true             # Set to false to disable this group without removing it
-    #     # Contract filters - match documents by on-chain address.
-    #     # "types" controls which collection types this address applies to:
-    #     #   "transaction" - matches tx.to field
-    #     #   "log"         - matches log.address field
-    #     #   "accessListEntry" - matches accessListEntry.address field
-    #     # Multiple types can be combined: ["transaction", "log"]
+        # Contract filters - match documents by on-chain address.
+        # "types" controls which collection types this address applies to:
+        #   "transaction" - matches tx.to field
+        #   "log"         - matches log.address field
+        #   "accessListEntry" - matches accessListEntry.address field
+        # Multiple types can be combined: ["transaction", "log"]
         contracts:
           - name: "Uniswap V3 Router 2"
             address: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
             types: ["transaction", "log"]
-    #     # Topic filters - match logs by event signature (topic0).
-    #     # topic0 is required; topic1-3 are optional (omit = wildcard).
+        # Topic filters - match logs by event signature (topic0).
+        # topic0 is required; topic1-3 are optional (omit = wildcard).
         topics:
           - name: "Swap"
             topic0: "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
@@ -108,7 +108,7 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
 logger:
-  development: true
+  development: false
   level: "error"
 host:
   lens_registry_path: "./.defra/lens"
