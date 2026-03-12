@@ -52,3 +52,5 @@ logs/
 .DS_Store
 
 .local_tests/
+
+/pkg/view/var/

@@ -161,6 +161,18 @@ func (vm *ViewManager) GetActiveViewNames() []string {
 	return names
 }
 
+// GetActiveViewDetails returns names + sdl of all active views as [name, sdl] pairs
+func (vm *ViewManager) GetActiveViewDetails() [][]string {
+	vm.mutex.RLock()
+	defer vm.mutex.RUnlock()
+
+	details := make([][]string, 0, len(vm.activeViews))
+	for name, lensConfig := range vm.activeViews {
+		details = append(details, []string{name, lensConfig.DestinationCollectionVersionID})
+	}
+	return details
+}	
+
 // GetViewCount returns the number of active views
 func (vm *ViewManager) GetViewCount() int {
 	vm.mutex.RLock()
@@ -179,6 +191,11 @@ func (vm *ViewManager) QueueView(v View) {
 
 // RegisterView implements the full view registration flow with validation
 func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
+	// Debug log the SDL schema when registering
+	logger.Sugar.Debugf("🔍 Registering view: %s", v.Name)
+	logger.Sugar.Debugf("📄 SDL for %s:\n%s", v.Name, v.Data.Sdl)
+	logger.Sugar.Debugf("🎯 Query for %s:\n%s", v.Name, v.Data.Query)
+	
 	// Pre-validate view before any operations
 	if err := v.Validate(); err != nil {
 		return fmt.Errorf("view validation failed for %s: %w", v.Name, err)
@@ -254,6 +271,12 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 		}
 	}
 
+	// Step 5: Add view to active views registry
+	vm.activeViews[v.Name] = &client.LensConfig{
+		SourceCollectionVersionID: v.Data.Query,
+		DestinationCollectionVersionID: v.Data.Sdl,
+	}
+
 	return nil
 }
 
@@ -271,7 +294,7 @@ func extractCollectionFromQuery(query string) string {
 	// e.g., "Log { address topics }" -> "Log"
 	// This is a simplified version - the host package has a more robust implementation
 	for i, r := range query {
-		if r == '{' || r == ' ' {
+		if r == '{' || r == ' ' || r == '\n' || r == '\t' {
 			return query[:i]
 		}
 	}

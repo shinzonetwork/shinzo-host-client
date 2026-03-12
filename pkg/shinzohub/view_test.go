@@ -6,7 +6,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
-	"github.com/shinzonetwork/view-creator/core/models"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,7 +48,7 @@ func TestExtractNameFromSDL(t *testing.T) {
 		},
 		{
 			name:     "Invalid SDL format",
-			sdl:      "not a type definition",
+			sdl:      "not a valid SDL",
 			expected: "",
 		},
 		{
@@ -120,11 +120,15 @@ func TestExtractNameFromSDL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			view := &view.View{Sdl: &tt.sdl}
-			ExtractNameFromSDL(view)
+			// Create a viewbundle and then convert to View
+			bundledView := viewbundle.View{
+				Sdl: tt.sdl,
+			}
+			v, err := view.NewViewFromBundle(bundledView)
+			require.NoError(t, err)
 
-			if view.Name != tt.expected {
-				t.Errorf("ExtractNameFromSDL() = %v, want %v", view.Name, tt.expected)
+			if v.Name != tt.expected {
+				t.Errorf("ExtractNameFromSDL() = %v, want %v", v.Name, tt.expected)
 			}
 		})
 	}
@@ -134,12 +138,14 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 	ctx := context.Background()
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
-	testView := view.View{
-		Query:     &query,
-		Sdl:       &sdl,
-		Transform: models.Transform{},
-		Name:      "FilteredAndDecodedLogs",
+	
+	// Create view using viewbundle
+	bundledView := viewbundle.View{
+		Query: query,
+		Sdl:   sdl,
 	}
+	testView, err := view.NewViewFromBundle(bundledView)
+	require.NoError(t, err)
 
 	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
@@ -155,12 +161,14 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 func TestSubscribeToInvalidViewFails(t *testing.T) {
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
-	testView := view.View{
-		Query:     &query,
-		Sdl:       &sdl,
-		Transform: models.Transform{},
-		Name:      "FilteredAndDecodedLogs",
+	
+	// Create view using viewbundle
+	bundledView := viewbundle.View{
+		Query: query,
+		Sdl:   sdl,
 	}
+	testView, err := view.NewViewFromBundle(bundledView)
+	require.NoError(t, err)
 
 	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)

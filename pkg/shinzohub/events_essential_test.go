@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 

@@ -249,6 +249,14 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		fetchedViews, totalCount, err := rpcClient.FetchAllRegisteredViews(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("⚠️ Failed to fetch views from ShinzoHub: %v", err)
+		} else {
+			logger.Sugar.Infof("📋 Found %d views from ShinzoHub", totalCount)
+			// Debug log the SDL schema for each fetched view
+			for i, view := range fetchedViews {
+				logger.Sugar.Debugf("🔍 View %d/%d: %s", i+1, len(fetchedViews), view.Name)
+				logger.Sugar.Debugf("📄 SDL for %s:\n%s", view.Name, view.Data.Sdl)
+				logger.Sugar.Debugf("🎯 Query for %s:\n%s", view.Name, view.Data.Query)
+			}
 		}
 		logger.Sugar.Infof("📋 Found %d views from ShinzoHub", totalCount)
 		hubViews = fetchedViews

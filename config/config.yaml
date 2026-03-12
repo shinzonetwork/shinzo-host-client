@@ -59,7 +59,7 @@ shinzo:
     # When true, a contract filter with types: ["transaction"] also applies to
     # logs and access-list entries from the same address. Set to false for
     # strict per-type matching only.
-    cascade_filters: false
+    cascade_filters: true
     # Optional block range gate (omit to accept all blocks):
     # block_range:
     #   min_block: 20000000
@@ -68,39 +68,39 @@ shinzo:
     # Filter groups - each group bundles related contracts and topics.
     # In allowlist mode a document must match at least one enabled group.
     # In blocklist mode a document is rejected if it matches any enabled group.
-    # groups:
-    #   - name: "uniswap-v3"       # Human-readable label (for logs)
-    #     enabled: true             # Set to false to disable this group without removing it
+    groups:
+      - name: "uniswap-v3"       # Human-readable label (for logs)
+        enabled: true             # Set to false to disable this group without removing it
     #     # Contract filters - match documents by on-chain address.
     #     # "types" controls which collection types this address applies to:
     #     #   "transaction" - matches tx.to field
     #     #   "log"         - matches log.address field
     #     #   "accessListEntry" - matches accessListEntry.address field
     #     # Multiple types can be combined: ["transaction", "log"]
-    #     contracts:
-    #       - name: "Uniswap V3 Router 2"
-    #         address: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
-    #         types: ["transaction", "log"]
+        contracts:
+          - name: "Uniswap V3 Router 2"
+            address: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
+            types: ["transaction", "log"]
     #     # Topic filters - match logs by event signature (topic0).
     #     # topic0 is required; topic1-3 are optional (omit = wildcard).
-    #     topics:
-    #       - name: "Swap"
-    #         topic0: "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
-    #         # topic1: "0x..."    # Optional: filter by indexed param 1
-    #         # topic2: "0x..."    # Optional: filter by indexed param 2
-    #         # topic3: "0x..."    # Optional: filter by indexed param 3
-    #   - name: "stablecoins"
-    #     enabled: true
-    #     contracts:
-    #       - name: "USDT"
-    #         address: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
-    #         types: ["log"]
-    #       - name: "USDC"
-    #         address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-    #         types: ["log"]
-    #     topics:
-    #       - name: "Transfer"
-    #         topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        topics:
+          - name: "Swap"
+            topic0: "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+            # topic1: "0x..."    # Optional: filter by indexed param 1
+            # topic2: "0x..."    # Optional: filter by indexed param 2
+            # topic3: "0x..."    # Optional: filter by indexed param 3
+      - name: "stablecoins"
+        enabled: true
+        contracts:
+          - name: "USDT"
+            address: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            types: ["log"]
+          - name: "USDC"
+            address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+            types: ["log"]
+        topics:
+          - name: "Transfer"
+            topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
   max_blocks: 2000         # Number of blocks to retain
