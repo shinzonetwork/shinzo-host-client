@@ -290,7 +290,7 @@ func extractViewFromEvent(event Event) (view.View, error) {
 				return v, fmt.Errorf("failed to process view from wire: %w", err)
 			}
 
-			v = *newView
+			v = newView
 		}
 	}
 

@@ -50,3 +50,5 @@ coverage.html
 logs/
 
 .DS_Store
+
+.local_tests/

@@ -25,25 +25,25 @@ func NewViewProcessor(defraNode *node.Node) *ViewProcessor {
 }
 
 // ProcessViewFromWireFormat decodes, unbundles, and validates a view from base64 wire format
-func ProcessViewFromWireFormat(wireBase64 string) (*view.View, error) {
+func ProcessViewFromWireFormat(wireBase64 string) (view.View, error) {
 	// Decode base64 wire format
 	wire, err := base64.StdEncoding.DecodeString(wireBase64)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 wire: %w", err)
+		return view.View{}, fmt.Errorf("failed to decode base64 wire: %w", err)
 	}
 
 	// Unbundle the view
 	newView, err := view.NewViewFromWire(wire)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create view from wire: %w", err)
+		return view.View{}, fmt.Errorf("failed to create view from wire: %w", err)
 	}
 
 	// Validate the view
 	if err := newView.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid view: %w", err)
+		return view.View{}, fmt.Errorf("invalid view: %w", err)
 	}
 
-	return newView, nil
+	return *newView, nil
 }
 
 // SetupViewInDefraDB sets up the view in DefraDB

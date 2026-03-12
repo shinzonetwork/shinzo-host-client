@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 type RPCResponse struct {
@@ -239,15 +238,14 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 						fmt.Printf("Failed to process view from wire: %v\n", err)
 						continue
 					}
-					v.ExtractNameFromSDL()
 
-					registeredEvent.View = v
+					registeredEvent.View = newView
 				}
 			}
 
 			// Only add if we have all required fields
 			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
-				fmt.Printf("🔍 View %s registered for monitoring\n", registeredEvent.View.Name)
+				fmt.Printf(" View %s registered for monitoring\n", registeredEvent.View.Name)
 
 				events = append(events, &registeredEvent)
 			} else {
