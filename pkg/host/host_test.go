@@ -16,7 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	indexerschema "github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
-	"github.com/shinzonetwork/view-creator/core/models"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -365,9 +365,11 @@ func TestView_HasLenses_Integration(t *testing.T) {
 	// Test view with lenses
 	viewWithLenses := view.View{
 		Name: "TestView",
-		Transform: models.Transform{
-			Lenses: []models.Lens{
-				{Path: "file:///test.wasm"},
+		Data: viewbundle.View{
+			Transform: viewbundle.Transform{
+				Lenses: []viewbundle.Lens{
+					{Path: "file:///test.wasm"},
+				},
 			},
 		},
 	}
@@ -598,8 +600,10 @@ func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 	query := "SELECT * FROM something"
 	event := shinzohub.ViewRegisteredEvent{
 		View: view.View{
-			Name:  "testview",
-			Query: &query,
+			Name: "testview",
+			Data: viewbundle.View{
+				Query: query,
+			},
 		},
 	}
 
@@ -622,8 +626,10 @@ func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 	emptyStr := ""
 	event := shinzohub.ViewRegisteredEvent{
 		View: view.View{
-			Name:  "testview",
-			Query: &emptyStr,
+			Name: "testview",
+			Data: viewbundle.View{
+				Query: emptyStr,
+			},
 		},
 	}
 
@@ -647,9 +653,11 @@ func TestHost_ProcessViewRegistrationEvent_EmptySDL(t *testing.T) {
 	emptyStr := ""
 	event := shinzohub.ViewRegisteredEvent{
 		View: view.View{
-			Name:  "testview",
-			Query: &query,
-			Sdl:   &emptyStr,
+			Name: "testview",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   emptyStr,
+			},
 		},
 	}
 
@@ -802,9 +810,11 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NilViewManager(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestView",
-			Query: &query,
-			Sdl:   &sdl,
+			Name: "TestView",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+			},
 		},
 	}
 
@@ -872,8 +882,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptyQuery(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestView",
-			Query: &emptyQuery,
+			Name: "TestView",
+			Data: viewbundle.View{
+				Query: emptyQuery,
+			},
 		},
 	}
 
@@ -907,8 +919,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingSDL(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestView",
-			Query: &query,
+			Name: "TestView",
+			Data: viewbundle.View{
+				Query: query,
+			},
 		},
 	}
 
@@ -943,9 +957,11 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptySDL(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestView",
-			Query: &query,
-			Sdl:   &emptySDL,
+			Name: "TestView",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   emptySDL,
+			},
 		},
 	}
 
@@ -1043,12 +1059,14 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestViewLens",
-			Query: &query,
-			Sdl:   &sdl,
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{Path: "nonexistent.wasm"},
+			Name: "TestViewLens",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{Path: "nonexistent.wasm"},
+					},
 				},
 			},
 		},
@@ -1083,9 +1101,11 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestView",
-			Query: &query,
-			Sdl:   &sdl,
+			Name: "TestView",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+			},
 		},
 	}
 
@@ -1114,9 +1134,11 @@ func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 	query := "SELECT * FROM test"
 	sdl := "type TestView { field: String }"
 	v := view.View{
-		Name:  "TestView",
-		Query: &query,
-		Sdl:   &sdl,
+		Name: "TestView",
+		Data: viewbundle.View{
+			Query: query,
+			Sdl:   sdl,
+		},
 	}
 
 	// May fail at the DefraDB level but exercises the code path
@@ -1392,13 +1414,15 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestViewWithLenses",
-			Query: &query,
-			Sdl:   &sdl,
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{
-						Path: "invalid/wasm/path.wasm",
+			Name: "TestViewWithLenses",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{
+							Path: "invalid/wasm/path.wasm",
+						},
 					},
 				},
 			},
@@ -1446,9 +1470,11 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestView",
-			Query: &query,
-			Sdl:   &sdl,
+			Name: "TestView",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+			},
 		},
 	}
 
@@ -1606,14 +1632,15 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 		Key:     "key1",
 		Creator: "creator1",
 		View: view.View{
-			Name:  "TestLensView",
-			Query: &query,
-			Sdl:   &sdl,
-			Transform: models.Transform{
-				Lenses: []models.Lens{
-					{
-						Path:  "AAAA", // valid base64 for 3 zero bytes
-						Label: "test_lens",
+			Name: "TestLensView",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+				Transform: viewbundle.Transform{
+					Lenses: []viewbundle.Lens{
+						{
+							Path: "AAAA", // valid base64 for 3 zero bytes
+						},
 					},
 				},
 			},
@@ -1665,10 +1692,12 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 		Key:     "key2",
 		Creator: "creator2",
 		View: view.View{
-			Name:  "NoLensView",
-			Query: &query,
-			Sdl:   &sdl,
-			// No lenses — skips PostWasmToFile, goes straight to RegisterView
+			Name: "NoLensView",
+			Data: viewbundle.View{
+				Query: query,
+				Sdl:   sdl,
+				// No lenses — skips PostWasmToFile, goes straight to RegisterView
+			},
 		},
 	}
 
