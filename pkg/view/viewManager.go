@@ -7,12 +7,17 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/sourcenetwork/lens/host-go/config/model"
 	"go.uber.org/zap"
 )
+
+// ViewRegistrar defines the contract for view registration operations
+type ViewRegistrar interface {
+	RegisterView(ctx context.Context, v View) error
+}
 
 type ViewQueueItem struct {
 	viewName      string
@@ -20,11 +25,16 @@ type ViewQueueItem struct {
 	lensConfig    *client.LensConfig
 }
 
+// ViewManager orchestrates the complete lifecycle of Shinzo views including:
+// - Loading views from local storage and external sources
+// - Managing WASM lens files and migrations
+// - Registering views with DefraDB (SetMigration + AddView)
+// - Setting up P2P subscriptions for real-time updates
+// - Tracking active views and metrics
 type ViewManager struct {
 	activeViews     map[string]*client.LensConfig
 	defraNode       *node.Node
 	mutex           sync.RWMutex
-	lensService     LensService
 	schemaService   *SchemaService
 	wasmRegistry    *WASMRegistry
 	registryPath    string
@@ -32,12 +42,13 @@ type ViewManager struct {
 	metricsCallback func() *server.HostMetrics
 }
 
+// NewViewManager creates a new ViewManager with the given DefraDB node and registry path
+// It initializes all required services and sets up the processing queue for async operations
 func NewViewManager(defraNode *node.Node, registryPath string) *ViewManager {
 	wasmRegistry, _ := NewWASMRegistry(registryPath, zap.L().Sugar())
 	return &ViewManager{
 		activeViews:     make(map[string]*client.LensConfig),
 		defraNode:       defraNode,
-		lensService:     NewLensService(defraNode),
 		schemaService:   NewSchemaService(),
 		wasmRegistry:    wasmRegistry,
 		registryPath:    registryPath,
@@ -50,9 +61,12 @@ func (vm *ViewManager) SetMetricsCallback(callback func() *server.HostMetrics) {
 	vm.metricsCallback = callback
 }
 
-// LoadAndRegisterViews loads views from local registry and optional external views, ensures WASM files exist, and registers them.
-// externalViews can be views fetched from ShinzoHub or other sources.
-// This is the main startup function - call once on host startup.
+// LoadAndRegisterViews is the main startup function that:
+// 1. Loads views from local registry and external sources
+// 2. Ensures WASM files are available (downloads if needed)
+// 3. Registers each view with DefraDB (SetMigration + AddView)
+// 4. Persists views for next startup
+// Call once during host startup.
 func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews []View) error {
 	var allViews []View
 
@@ -93,16 +107,16 @@ func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews [
 	}
 
 	// Step 4: Register each view
-	for _, v := range allViews {
-		if err := vm.RegisterView(ctx, v); err != nil {
-			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", v.Name, err)
+	for i := range allViews {
+		if err := vm.RegisterView(ctx, &allViews[i]); err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", allViews[i].Name, err)
 			continue
 		}
-		logger.Sugar.Infof("✅ Registered view: %s", v.Name)
+		logger.Sugar.Infof("✅ Registered view: %s", allViews[i].Name)
 
-		// Persist view to local registry for next startup
-		if err := SaveViewToRegistry(vm.registryPath, v); err != nil {
-			logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", v.Name, err)
+		// Persist view to local registry for next startup (with any auto-corrections applied)
+		if err := SaveViewToRegistry(vm.registryPath, allViews[i]); err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", allViews[i].Name, err)
 		}
 	}
 
@@ -126,7 +140,7 @@ func deduplicateViews(views []View) []View {
 func extractWasmURLsFromViews(views []View) []string {
 	var urls []string
 	for _, v := range views {
-		for _, lens := range v.Transform.Lenses {
+		for _, lens := range v.Data.Transform.Lenses {
 			if strings.HasPrefix(lens.Path, "http://") || strings.HasPrefix(lens.Path, "https://") {
 				urls = append(urls, lens.Path)
 			}
@@ -147,6 +161,18 @@ func (vm *ViewManager) GetActiveViewNames() []string {
 	return names
 }
 
+// GetActiveViewDetails returns names + sdl of all active views as [name, sdl] pairs
+func (vm *ViewManager) GetActiveViewDetails() [][]string {
+	vm.mutex.RLock()
+	defer vm.mutex.RUnlock()
+
+	details := make([][]string, 0, len(vm.activeViews))
+	for name, lensConfig := range vm.activeViews {
+		details = append(details, []string{name, lensConfig.DestinationCollectionVersionID})
+	}
+	return details
+}	
+
 // GetViewCount returns the number of active views
 func (vm *ViewManager) GetViewCount() int {
 	vm.mutex.RLock()
@@ -163,13 +189,25 @@ func (vm *ViewManager) QueueView(v View) {
 	vm.processingQueue <- item
 }
 
-// RegisterView implements the full view registration flow:
-// 0. Ensure WASM files exist (convert base64 to file paths if needed)
-// 1. lensService.SetMigration - Configure lens transformation
-// 2. AddView via ConfigureLens - Create the view in DefraDB
-// 3. SubscribeTo - Subscribe to the view collection for P2P replication
-// 4. SubscribeToSourceCollection - Subscribe to source collection for real-time updates
-func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
+// RegisterView implements the full view registration flow with validation
+func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
+	// Debug log the SDL schema when registering
+	logger.Sugar.Debugf("🔍 Registering view: %s", v.Name)
+	logger.Sugar.Debugf("📄 SDL for %s:\n%s", v.Name, v.Data.Sdl)
+	logger.Sugar.Debugf("🎯 Query for %s:\n%s", v.Name, v.Data.Query)
+	
+	// Pre-validate view before any operations
+	if err := v.Validate(); err != nil {
+		return fmt.Errorf("view validation failed for %s: %w", v.Name, err)
+	}
+
+	// Pre-emptively fix common query issues (inputData -> input)
+	// This ensures the corrected query is used everywhere, not just in DefraDB
+	if strings.Contains(v.Data.Query, "inputData") {
+		logger.Sugar.Infof("🔧 Pre-correcting query for view %s: replacing 'inputData' with 'input'", v.Name)
+		v.Data.Query = strings.ReplaceAll(v.Data.Query, "inputData", "input")
+	}
+
 	vm.mutex.Lock()
 	defer vm.mutex.Unlock()
 
@@ -178,30 +216,36 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 		return fmt.Errorf("view %s already registered", v.Name)
 	}
 
-	// Step 0: Ensure WASM files are written to disk (converts base64 to file paths)
+	// Step 0: Convert base64 WASM to files if needed
 	if v.HasLenses() && v.needsWasmConversion() {
 		if err := v.PostWasmToFile(ctx, vm.registryPath); err != nil {
 			return fmt.Errorf("failed to write WASM files for view %s: %w", v.Name, err)
 		}
 	}
 
-	// Step 1: Set migration if view has lenses
-	lensConfig := v.BuildLensConfig()
-	logger.Sugar.Infof("Lens config: %v", lensConfig)
-	_, err := vm.lensService.SetMigration(ctx, vm.defraNode, lensConfig)
-	logger.Sugar.Infof("Lens migrated")
+	// Step 1: Set up lens and migration if needed
+	logger.Sugar.Infof("Storing lens for view %s", v.Name)
+	lensCID, err := SetupLensInDefraDB(ctx, vm.defraNode, v)
 	if err != nil {
-		return fmt.Errorf("failed to set migration for view %s: %w", v.Name, err)
+		return fmt.Errorf("failed to setup lens for view %s: %w", v.Name, err)
 	}
-	vm.activeViews[v.Name] = &lensConfig
+	if lensCID != "" {
+		logger.Sugar.Infof("Lens CID for view %s: %s", v.Name, lensCID)
+	}
 
-	// Step 2: Configure lens and create view (AddView is called inside ConfigureLens)
-	err = v.ConfigureLens(ctx, vm.defraNode, vm.schemaService)
+	// Step 2: Auto-fix collection name if needed and create view in DefraDB
+	sourceCollection := extractCollectionFromQuery(v.Data.Query)
+	if !strings.HasPrefix(sourceCollection, constants.CollectionChain+"__") {
+		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, constants.CollectionChain+"__"+sourceCollection, 1)
+		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, constants.CollectionChain, sourceCollection)
+	}
+	
+	err = v.ConfigureLens(ctx, vm.defraNode, vm.schemaService, lensCID)
 	if err != nil {
 		return fmt.Errorf("failed to configure lens for view %s: %w", v.Name, err)
 	}
 
-	// Step 3: Subscribe to the view collection (P2P replication)
+	// Step 3: Subscribe to view collection for P2P replication
 	err = v.SubscribeTo(ctx, vm.defraNode)
 	if err != nil {
 		logger.Sugar.Warnf("Failed to subscribe to view %s: %v", v.Name, err)
@@ -209,8 +253,8 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 	}
 
 	// Step 4: Subscribe to source collection for real-time updates
-	if v.Query != nil {
-		sourceCollection := extractCollectionFromQuery(*v.Query)
+	if v.Data.Query != "" {
+		sourceCollection := extractCollectionFromQuery(v.Data.Query)
 		if sourceCollection != "" {
 			err = vm.subscribeToSourceCollection(ctx, sourceCollection, v.Name)
 			if err != nil {
@@ -225,6 +269,12 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v View) error {
 			metrics.IncrementViewsRegistered()
 			metrics.SetViewsActive(int64(len(vm.activeViews)))
 		}
+	}
+
+	// Step 5: Add view to active views registry
+	vm.activeViews[v.Name] = &client.LensConfig{
+		SourceCollectionVersionID: v.Data.Query,
+		DestinationCollectionVersionID: v.Data.Sdl,
 	}
 
 	return nil
@@ -244,28 +294,21 @@ func extractCollectionFromQuery(query string) string {
 	// e.g., "Log { address topics }" -> "Log"
 	// This is a simplified version - the host package has a more robust implementation
 	for i, r := range query {
-		if r == '{' || r == ' ' {
+		if r == '{' || r == ' ' || r == '\n' || r == '\t' {
 			return query[:i]
 		}
 	}
 	return query
 }
 
-func (v *View) BuildLensConfig() client.LensConfig {
-	// Build all lens modules from transform
-	lensModules := make([]model.LensModule, 0, len(v.Transform.Lenses))
-	for _, lens := range v.Transform.Lenses {
-		lensModules = append(lensModules, model.LensModule{
-			Path:      lens.Path,
-			Arguments: lens.Arguments,
-		})
+// suggestCorrectCollection suggests the correct collection name based on available collections
+func (vm *ViewManager) suggestCorrectCollection(invalidCollection string) string {
+	// If the collection already starts with a chain network prefix, return as-is
+	if strings.HasPrefix(invalidCollection, constants.CollectionChain+"__") || 
+	   strings.Contains(invalidCollection, "__") {
+		return invalidCollection
 	}
-
-	return client.LensConfig{
-		SourceCollectionVersionID:      *v.Query,
-		DestinationCollectionVersionID: *v.Sdl,
-		Lens: model.Lens{
-			Lenses: lensModules,
-		},
-	}
+	
+	// Prepend the default chain network prefix with double underscore separator
+	return fmt.Sprintf("%s__%s", constants.CollectionChain, invalidCollection)
 }

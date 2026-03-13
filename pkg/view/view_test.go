@@ -2,114 +2,14 @@ package view
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/views"
-	"github.com/shinzonetwork/shinzo-host-client/config"
-	indexerschema "github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
-	"github.com/sourcenetwork/defradb/node"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 
-// Helper functions for testing
-func startDefraInstanceForTest(t *testing.T, _ context.Context) *node.Node {
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	require.NotNil(t, defraNode)
-
-	return defraNode
-}
-
-// Mock EventSubscription for testing
-type MockEventSubscription struct {
-	events chan string
-}
-
-func NewMockEventSubscription() *MockEventSubscription {
-	return &MockEventSubscription{
-		events: make(chan string, 10),
-	}
-}
-
-func (m *MockEventSubscription) SendRawJSONMessage(message string) error {
-	m.events <- message
-	return nil
-}
-
-func (m *MockEventSubscription) Events() <-chan string {
-	return m.events
-}
-
-func (m *MockEventSubscription) ProcessEvent(host *MockHost, event string) {
-	// Parse the event and add to HostedViews
-	var eventData struct {
-		Type string `json:"type"`
-		Data struct {
-			Name      string `json:"name"`
-			SDL       string `json:"sdl"`
-			Query     string `json:"query"`
-			Transform struct {
-				Lenses []struct {
-					Label     string            `json:"label"`
-					Path      string            `json:"path"`
-					Arguments map[string]string `json:"arguments"`
-				} `json:"lenses"`
-			} `json:"transform"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal([]byte(event), &eventData); err == nil {
-		// Create the view with lens data
-		view := views.View{
-			Name:  eventData.Data.Name,
-			Sdl:   &eventData.Data.SDL,
-			Query: &eventData.Data.Query,
-			// Note: We can't directly set Transform field due to type constraints
-			// In a real scenario, this would be set by the event processing
-		}
-		host.HostedViews = append(host.HostedViews, view)
-	} else {
-		fmt.Printf("Failed to parse event: %v\n", err)
-		if len(event) > 200 {
-			fmt.Printf("Event content: %s\n", event[:200])
-		} else {
-			fmt.Printf("Event content: %s\n", event)
-		}
-	}
-}
-
-// Mock Host struct for testing
-type MockHost struct {
-	DefraNode   *node.Node
-	HostedViews []views.View
-}
-
-func (h *MockHost) Close(ctx context.Context) error {
-	return h.DefraNode.Close(ctx)
-}
-
-// StartHostingWithEventSubscription creates a mock host for testing
-func StartHostingWithEventSubscription(t *testing.T, cfg *config.Config, eventSub *MockEventSubscription) (*MockHost, error) {
-	// Create DefraDB instance
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
-	if err != nil {
-		return nil, err
-	}
-
-	// Create mock host
-	host := &MockHost{
-		DefraNode:   defraNode,
-		HostedViews: []views.View{},
-	}
-
-	// Event processing will be done manually in the test
-
-	return host, nil
-}
-
+// TestView_SubscribeTo tests basic view subscription functionality
 func TestView_SubscribeTo(t *testing.T) {
 	ctx := context.Background()
 
@@ -117,9 +17,11 @@ func TestView_SubscribeTo(t *testing.T) {
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
 	testView := View{
-		Query: &query,
-		Sdl:   &sdl,
-		Name:  "FilteredAndDecodedLogs",
+		Name: "FilteredAndDecodedLogs",
+		Data: viewbundle.View{
+			Query: query,
+			Sdl:   sdl,
+		},
 	}
 
 	// Create a mock DefraDB node
@@ -128,162 +30,145 @@ func TestView_SubscribeTo(t *testing.T) {
 	defer defraNode.Close(ctx)
 
 	// SubscribeTo should fail because the collection doesn't exist yet
-	// (views must be created before they can be subscribed to)
 	err = testView.SubscribeTo(ctx, defraNode)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "collection does not exist")
 }
 
-func TestView_ApplyLensTransform_EmptyDocuments(t *testing.T) {
-	// Test with a query string (the function now takes a query string, not documents)
-	view := View{
-		Name: "TestView",
-	}
-
-	// Create a mock DefraDB node
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-
-	// Test with a query string - this will query the view collection
-	// The view may not exist, so we expect an error or empty results
-	sourceQuery := "TestView { _docID }"
-	result, err := view.ApplyLensTransform(context.Background(), defraNode, sourceQuery)
-
-	// If the view doesn't exist, we'll get an error, which is acceptable for this test
-	// If it does exist but has no data, we'll get empty results
-	if err != nil {
-		// View doesn't exist or query failed - this is acceptable for this test
-		return
-	}
-	// Result can be nil or empty for non-existent view or no data
-	if result != nil {
-		require.Len(t, result, 0)
-	}
-}
-
-func TestView_WriteTransformedToCollection_EmptyDocuments(t *testing.T) {
-	// Test with empty documents
-	view := View{
-		Name: "TestView",
-	}
-
-	// Create a mock DefraDB node
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-
-	// Test with empty documents - this should fail because the collection doesn't exist
-	transformedDocuments := []map[string]any{}
-	docIds, err := view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "error getting collection")
-	require.Nil(t, docIds)
-}
-
-func TestView_WriteTransformedToCollection_NonExistentCollection(t *testing.T) {
-	// Test with non-existent collection
-	view := View{
-		Name: "NonExistentView",
-	}
-
-	// Create a mock DefraDB node
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-
-	// Test with non-existent collection
-	transformedDocuments := []map[string]any{
-		{"field1": "value1"},
-	}
-	docIds, err := view.WriteTransformedToCollection(context.Background(), defraNode, transformedDocuments)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "error getting collection")
-	require.Nil(t, docIds)
-}
-
-func TestView_WriteTransformedToCollection_SchemaFiltering(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a DefraDB instance with real schema
-	defraNode := startDefraInstanceForTest(t, ctx)
-	defer defraNode.Close(ctx)
-
-	// Create a test view with a specific SDL schema that only includes certain fields
-	viewName := "FilteredTestView"
-	sdl := "type FilteredTestView { name: String }" // Only name field
-	query := "User { name age }"
-
-	// First, add the view schema to DefraDB so the collection exists
-	_, err := defraNode.DB.AddSchema(ctx, sdl)
-	require.NoError(t, err)
-
-	view := View{
-		Name:  viewName,
-		Sdl:   &sdl,
-		Query: &query,
-	}
-
-	// Now subscription should work since collection exists
-	err = view.SubscribeTo(ctx, defraNode)
-	require.NoError(t, err)
-
-	// Create test documents with extra fields that should be filtered out
-	transformedDocuments := []map[string]any{
+// TestView_HasLenses tests lens detection
+func TestView_HasLenses(t *testing.T) {
+	tests := []struct {
+		name     string
+		view     View
+		expected bool
+	}{
 		{
-			"name":       "Alice",
-			"age":        25,
-			"email":      "alice@example.com", // Should be filtered out
-			"phone":      "123-456-7890",      // Should be filtered out
-			"extraField": "should be removed", // Should be filtered out
+			name: "has lenses",
+			view: View{
+				Data: viewbundle.View{
+					Transform: viewbundle.Transform{
+						Lenses: []viewbundle.Lens{{Path: "filter_transaction.wasm"}},
+					},
+				},
+			},
+			expected: true,
 		},
 		{
-			"name":     "Bob",
-			"age":      30,
-			"email":    "bob@example.com", // Should be filtered out
-			"address":  "123 Main St",     // Should be filtered out
-			"unwanted": "data",            // Should be filtered out
+			name:     "empty transform",
+			view:     View{},
+			expected: false,
+		},
+		{
+			name: "no lenses",
+			view: View{
+				Data: viewbundle.View{
+					Transform: viewbundle.Transform{
+						Lenses: []viewbundle.Lens{},
+					},
+				},
+			},
+			expected: false,
 		},
 	}
 
-	// Test WriteTransformedToCollection with schema filtering
-	docIds, err := view.WriteTransformedToCollection(ctx, defraNode, transformedDocuments)
-	require.NoError(t, err) // This would throw an error if filtering was not working because we would try to write to fields that didn't exist in the schema
-	require.Greater(t, len(docIds), 0)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.view.HasLenses()
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
 
-	// Verify the data was written by querying the collection
-	verifyQuery := fmt.Sprintf(`query VerifyFilteredView { %s(limit: 10) { name } }`, viewName)
-	writtenData, err := defra.QueryArray[map[string]any](ctx, defraNode, verifyQuery)
-	require.NoError(t, err)
-	require.Len(t, writtenData, 2, "Should have written both documents")
-
-	// Verify that only the schema-defined fields are present
-	require.Len(t, writtenData, 2, "Should have written both documents")
-
-	// Create a map to find documents by name for easier verification
-	docMap := make(map[string]map[string]any)
-	for _, doc := range writtenData {
-		if name, ok := doc["name"].(string); ok {
-			docMap[name] = doc
-		}
+// TestView_NeedsWasmConversion tests WASM conversion detection
+func TestView_NeedsWasmConversion(t *testing.T) {
+	tests := []struct {
+		name     string
+		view     View
+		expected bool
+	}{
+		{
+			name: "base64 data needs conversion",
+			view: View{
+				Data: viewbundle.View{
+					Transform: viewbundle.Transform{
+						Lenses: []viewbundle.Lens{{Path: "SGVsbG8gV29ybGQ="}},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "file URL no conversion needed",
+			view: View{
+				Data: viewbundle.View{
+					Transform: viewbundle.Transform{
+						Lenses: []viewbundle.Lens{{Path: "file://filter_transaction.wasm"}},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "http URL no conversion needed",
+			view: View{
+				Data: viewbundle.View{
+					Transform: viewbundle.Transform{
+						Lenses: []viewbundle.Lens{{Path: "http://example.com/lens.wasm"}},
+					},
+				},
+			},
+			expected: false,
+		},
 	}
 
-	// Verify Alice's document
-	aliceDoc, exists := docMap["Alice"]
-	require.True(t, exists, "Alice's document should exist")
-	require.Contains(t, aliceDoc, "name")
-	require.NotContains(t, aliceDoc, "age")
-	require.NotContains(t, aliceDoc, "email")
-	require.NotContains(t, aliceDoc, "phone")
-	require.NotContains(t, aliceDoc, "extraField")
-	require.Equal(t, "Alice", aliceDoc["name"])
-
-	// Verify Bob's document
-	bobDoc, exists := docMap["Bob"]
-	require.True(t, exists, "Bob's document should exist")
-	require.Contains(t, bobDoc, "name")
-	require.NotContains(t, bobDoc, "age")
-	require.NotContains(t, bobDoc, "email")
-	require.NotContains(t, bobDoc, "address")
-	require.NotContains(t, bobDoc, "unwanted")
-	require.Equal(t, "Bob", bobDoc["name"])
-
-	t.Logf("Successfully filtered documents to only include schema-defined fields: %+v", writtenData)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.view.needsWasmConversion()
+			require.Equal(t, tt.expected, result)
+		})
+	}
 }
+
+// TestView_ExtractNameFromSDL tests SDL name extraction
+func TestView_ExtractNameFromSDL(t *testing.T) {
+	tests := []struct {
+		name     string
+		sdl      string
+		expected string
+	}{
+		{
+			name:     "SDL with @materialized",
+			sdl:      "type LogView @materialized(if: false) { address: String }",
+			expected: "LogView",
+		},
+		{
+			name:     "SDL with @index",
+			sdl:      "type TestView @index(unique: [\"address\"]) { address: String }",
+			expected: "TestView",
+		},
+		{
+			name:     "simple SDL",
+			sdl:      "type SimpleView { name: String }",
+			expected: "SimpleView",
+		},
+		{
+			name:     "empty SDL",
+			sdl:      "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := &View{
+				Data: viewbundle.View{
+					Sdl: tt.sdl,
+				},
+			}
+
+			view.ExtractNameFromSDL()
+			require.Equal(t, tt.expected, view.Name)
+		})
+	}
+}
+

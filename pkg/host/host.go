@@ -216,8 +216,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	newHost := &Host{
 		DefraNode:      defraNode,
 		NetworkHandler: networkHandler,
-		// COMMENTED: View initialization - pure event-driven attestation focus
-		// HostedViews:             []view.View{},
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},
@@ -248,11 +246,19 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if rpcURL != "" {
 		logger.Sugar.Infof("🔍 Querying ShinzoHub for registered views: %s", rpcURL)
 		rpcClient := shinzohub.NewRPCClient(rpcURL, defraNode)
-		fetchedViews, err := rpcClient.FetchAllRegisteredViews(context.Background())
+		fetchedViews, totalCount, err := rpcClient.FetchAllRegisteredViews(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("⚠️ Failed to fetch views from ShinzoHub: %v", err)
+		} else {
+			logger.Sugar.Infof("📋 Found %d views from ShinzoHub", totalCount)
+			// Debug log the SDL schema for each fetched view
+			for i, view := range fetchedViews {
+				logger.Sugar.Debugf("🔍 View %d/%d: %s", i+1, len(fetchedViews), view.Name)
+				logger.Sugar.Debugf("📄 SDL for %s:\n%s", view.Name, view.Data.Sdl)
+				logger.Sugar.Debugf("🎯 Query for %s:\n%s", view.Name, view.Data.Query)
+			}
 		}
-		logger.Sugar.Infof("📋 Found %d views from ShinzoHub", len(fetchedViews))
+		logger.Sugar.Infof("📋 Found %d views from ShinzoHub", totalCount)
 		hubViews = fetchedViews
 	} else {
 		logger.Sugar.Info("📋 No ShinzoHub base URL configured - skipping remote view fetch")
@@ -429,26 +435,26 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	}
 
 	// Validate view has required fields
-	if event.View.Query == nil || *event.View.Query == "" {
+	if event.View.Data.Query == "" {
 		return fmt.Errorf("view %s missing query", event.View.Name)
 	}
-	if event.View.Sdl == nil || *event.View.Sdl == "" {
+	if event.View.Data.Sdl == "" {
 		return fmt.Errorf("view %s missing SDL", event.View.Name)
 	}
 
 	// Write WASM to disk
-	if len(event.View.Transform.Lenses) > 0 {
+	if len(event.View.Data.Transform.Lenses) > 0 {
 		if err := event.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
 			return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
 		}
 	}
 
 	// Register view
-	if err := h.viewManager.RegisterView(ctx, event.View); err != nil {
+	if err := h.viewManager.RegisterView(ctx, &event.View); err != nil {
 		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
 	}
 
-	// Persist to registry
+	// Persist to registry (with any auto-corrections applied)
 	if err := view.SaveViewToRegistry(h.LensRegistryPath, event.View); err != nil {
 		logger.Sugar.Warnf("Failed to persist view %s: %v", event.View.Name, err)
 	}
@@ -677,17 +683,17 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 				// Process the event through the ViewRegistrationHandler
 				// 1. Check that request is complete: Query, SDL, and Lenses are present
-				if registeredEvent.View.Query == nil || *registeredEvent.View.Query == "" {
+				if registeredEvent.View.Data.Query == "" {
 					logger.Sugar.Errorf("❌ View %s missing query - skipping registration", registeredEvent.View.Name)
 					continue
 				}
-				if registeredEvent.View.Sdl == nil || *registeredEvent.View.Sdl == "" {
+				if registeredEvent.View.Data.Sdl == "" {
 					logger.Sugar.Errorf("❌ View %s missing SDL - skipping registration", registeredEvent.View.Name)
 					continue
 				}
 
 				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
-				if len(registeredEvent.View.Transform.Lenses) > 0 {
+				if len(registeredEvent.View.Data.Transform.Lenses) > 0 {
 					if err := registeredEvent.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
 						logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
 						continue
@@ -696,10 +702,10 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 				// 3. Register the view with ViewManager and persist to registry
 				if h.viewManager != nil {
-					if err := h.viewManager.RegisterView(ctx, registeredEvent.View); err != nil {
+					if err := h.viewManager.RegisterView(ctx, &registeredEvent.View); err != nil {
 						logger.Sugar.Errorf("❌ Failed to register view %s: %v", registeredEvent.View.Name, err)
 					} else {
-						// 4. Persist view to registry for next startup
+						// 4. Persist view to registry for next startup (with any auto-corrections applied)
 						if err := view.SaveViewToRegistry(h.LensRegistryPath, registeredEvent.View); err != nil {
 							logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", registeredEvent.View.Name, err)
 						}
@@ -800,7 +806,7 @@ func applySchema(ctx context.Context, defraNode *node.Node) error {
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
-		configSchema := `type Config__LastProcessedPage { page: Int @index }`
+		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int }`
 		_, configErr := defraNode.DB.AddSchema(ctx, configSchema)
 		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
 			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)
@@ -815,7 +821,7 @@ func (h *Host) RegisterViewWithManager(ctx context.Context, v view.View) error {
 	if h.viewManager == nil {
 		return fmt.Errorf("ViewManager not initialized")
 	}
-	return h.viewManager.RegisterView(ctx, v)
+	return h.viewManager.RegisterView(ctx, &v)
 }
 
 // GetActiveViewNames returns names of all active views
