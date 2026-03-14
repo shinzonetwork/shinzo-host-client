@@ -61,22 +61,15 @@ func (vm *ViewManager) SetMetricsCallback(callback func() *server.HostMetrics) {
 	vm.metricsCallback = callback
 }
 
-// LoadAndRegisterViews is the main startup function that:
-// 1. Loads views from local registry and external sources
-// 2. Ensures WASM files are available (downloads if needed)
-// 3. Registers each view with DefraDB (SetMigration + AddView)
-// 4. Persists views for next startup
-// Call once during host startup.
+// LoadAndRegisterViews loads views from local registry and external sources, ensures WASM files exist, and registers them.
 func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews []View) error {
 	var allViews []View
 
-	// Step 1: Add external views (e.g., from ShinzoHub)
 	if len(externalViews) > 0 {
 		logger.Sugar.Infof("📋 Received %d external views", len(externalViews))
 		allViews = append(allViews, externalViews...)
 	}
 
-	// Step 2: Load views from local views.json (merge with external views)
 	localViews, err := AddViewsFromLensRegistry(vm.registryPath)
 	if err != nil {
 		logger.Sugar.Warnf("⚠️ Failed to load local views: %v", err)
@@ -94,7 +87,6 @@ func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews [
 	allViews = deduplicateViews(allViews)
 	logger.Sugar.Infof("📋 Total unique views to register: %d", len(allViews))
 
-	// Step 3: Ensure WASM files exist (download if needed)
 	wasmURLs := extractWasmURLsFromViews(allViews)
 	if len(wasmURLs) > 0 && vm.wasmRegistry != nil {
 		logger.Sugar.Infof("📥 Downloading %d WASM files...", len(wasmURLs))
@@ -106,10 +98,9 @@ func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews [
 		}
 	}
 
-	// Step 4: Register each view
-	for i := range allViews {
-		if err := vm.RegisterView(ctx, &allViews[i]); err != nil {
-			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", allViews[i].Name, err)
+	for _, v := range allViews {
+		if err := vm.RegisterView(ctx, v); err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", v.Name, err)
 			continue
 		}
 		logger.Sugar.Infof("✅ Registered view: %s", allViews[i].Name)
@@ -171,7 +162,7 @@ func (vm *ViewManager) GetActiveViewDetails() [][]string {
 		details = append(details, []string{name, lensConfig.DestinationCollectionVersionID})
 	}
 	return details
-}	
+}
 
 // GetViewCount returns the number of active views
 func (vm *ViewManager) GetViewCount() int {
@@ -195,7 +186,7 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 	logger.Sugar.Debugf("🔍 Registering view: %s", v.Name)
 	logger.Sugar.Debugf("📄 SDL for %s:\n%s", v.Name, v.Data.Sdl)
 	logger.Sugar.Debugf("🎯 Query for %s:\n%s", v.Name, v.Data.Query)
-	
+
 	// Pre-validate view before any operations
 	if err := v.Validate(); err != nil {
 		return fmt.Errorf("view validation failed for %s: %w", v.Name, err)
@@ -239,7 +230,7 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, constants.CollectionChain+"__"+sourceCollection, 1)
 		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, constants.CollectionChain, sourceCollection)
 	}
-	
+
 	err = v.ConfigureLens(ctx, vm.defraNode, vm.schemaService, lensCID)
 	if err != nil {
 		return fmt.Errorf("failed to configure lens for view %s: %w", v.Name, err)
@@ -273,7 +264,7 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 
 	// Step 5: Add view to active views registry
 	vm.activeViews[v.Name] = &client.LensConfig{
-		SourceCollectionVersionID: v.Data.Query,
+		SourceCollectionVersionID:      v.Data.Query,
 		DestinationCollectionVersionID: v.Data.Sdl,
 	}
 
@@ -288,11 +279,7 @@ func (vm *ViewManager) subscribeToSourceCollection(ctx context.Context, collecti
 	return nil
 }
 
-// extractCollectionFromQuery extracts the collection name from a GraphQL query
 func extractCollectionFromQuery(query string) string {
-	// Simple extraction - find first word after opening brace or query keyword
-	// e.g., "Log { address topics }" -> "Log"
-	// This is a simplified version - the host package has a more robust implementation
 	for i, r := range query {
 		if r == '{' || r == ' ' || r == '\n' || r == '\t' {
 			return query[:i]
@@ -304,11 +291,11 @@ func extractCollectionFromQuery(query string) string {
 // suggestCorrectCollection suggests the correct collection name based on available collections
 func (vm *ViewManager) suggestCorrectCollection(invalidCollection string) string {
 	// If the collection already starts with a chain network prefix, return as-is
-	if strings.HasPrefix(invalidCollection, constants.CollectionChain+"__") || 
-	   strings.Contains(invalidCollection, "__") {
+	if strings.HasPrefix(invalidCollection, constants.CollectionChain+"__") ||
+		strings.Contains(invalidCollection, "__") {
 		return invalidCollection
 	}
-	
+
 	// Prepend the default chain network prefix with double underscore separator
 	return fmt.Sprintf("%s__%s", constants.CollectionChain, invalidCollection)
 }

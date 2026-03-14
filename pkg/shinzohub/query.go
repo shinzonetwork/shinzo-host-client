@@ -38,7 +38,7 @@ type queryResult struct {
 	Config__LastProcessedPage []struct {
 		Page     int `json:"page"`
 		PageSize int `json:"pageSize"`
-	} `json:"Config__LastProcessedPage"` 
+	} `json:"Config__LastProcessedPage"`
 }
 
 // getLastProcessedPage reads the last processed page from DefraDB.
@@ -47,7 +47,7 @@ func (c *RPCClient) getLastProcessedPage(ctx context.Context) (int, int) {
 		return 0, 5
 	}
 
-	query := `query { Config__LastProcessedPage { page pageSize } }` 
+	query := `query { Config__LastProcessedPage { page pageSize } }`
 	result := c.defraNode.DB.ExecRequest(ctx, query)
 	if result.GQL.Errors != nil {
 		logger.Sugar.Debugf("📡 getLastProcessedPage error: %v", result.GQL.Errors)
@@ -126,28 +126,25 @@ func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page, pageSize in
 
 // TxSearchResponse represents the response from tx_search RPC call.
 type TxSearchResponse struct {
-	JSONRPC string `json:"jsonrpc"` 
-	ID      int    `json:"id"` 
+	JSONRPC string `json:"jsonrpc"`
+	ID      int    `json:"id"`
 	Result  struct {
-		Txs        []TxSearchItem `json:"txs"` 
-		TotalCount string         `json:"total_count"` 
-	} `json:"result"` 
+		Txs        []TxSearchItem `json:"txs"`
+		TotalCount string         `json:"total_count"`
+	} `json:"result"`
 }
 
 // TxSearchItem represents a single transaction in tx_search results.
 type TxSearchItem struct {
-	Hash     string `json:"hash"` 
-	Height   string `json:"height"` 
+	Hash     string `json:"hash"`
+	Height   string `json:"height"`
 	TxResult struct {
-		Events []Event `json:"events"` 
-	} `json:"tx_result"` 
+		Events []Event `json:"events"`
+	} `json:"tx_result"`
 }
 
-// FetchAllRegisteredViews queries the RPC endpoint for all Registered events
-// and extracts the view definitions.
-// Strategy: Fetch 1 tx at a time, counting up until we get an error or empty results.
-// This avoids memory issues with large responses (31MB+ total).
-// On restart, skips already-processed pages using persisted state.
+// FetchAllRegisteredViews fetches all Registered events from the RPC endpoint one tx at a time,
+// resuming from the last processed page on restart.
 func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, int, error) {
 	var allViews []view.View
 
@@ -179,7 +176,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 		totalCount = total
 
 		// Stop if we've processed all transactions
-		if page * pageSize >= total {
+		if page*pageSize >= total {
 			logger.Sugar.Debugf("📡 Reached end of transactions (page %d of %d)", page, total)
 			break
 		}

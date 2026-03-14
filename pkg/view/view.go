@@ -67,7 +67,7 @@ func (v *View) ExtractNameFromSDL() {
 		v.Name = ""
 		return
 	}
-	
+
 	// Look for pattern: type <Name> @...
 	re := regexp.MustCompile(`type\s+(\w+)\s+@`)
 	matches := re.FindStringSubmatch(v.Data.Sdl)
@@ -100,7 +100,7 @@ func (v *View) Validate() error {
 		if lens.Path == "" {
 			return fmt.Errorf("lens %d has empty path", i)
 		}
-		
+
 		// Additional validation for base64 WASM
 		if !strings.HasPrefix(lens.Path, "file://") && !strings.HasPrefix(lens.Path, "http") {
 			if !isValidBase64(lens.Path) {
@@ -199,7 +199,7 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	} else {
 		_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
 	}
-	
+
 	if err != nil && !contains(err.Error(), "already exists") {
 		// Try to auto-fix common field name issues
 		if strings.Contains(err.Error(), "Cannot query field") && strings.Contains(err.Error(), "Did you mean") {
@@ -215,7 +215,7 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 				} else {
 					_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
 				}
-				
+
 				if err != nil && !contains(err.Error(), "already exists") {
 					fmt.Printf("❌ Auto-correction retry failed for view %s: %v\n", v.Name, err)
 					return fmt.Errorf("failed to create view after correction: %w", err)
@@ -238,14 +238,14 @@ func (v *View) attemptQueryCorrection(errMsg string) string {
 	// Error format: Cannot query field "inputData" on type "X". Did you mean "input"?
 	re := regexp.MustCompile(`Cannot query field "([^"]+)".*Did you mean "([^"]+)"`)
 	matches := re.FindStringSubmatch(errMsg)
-	
+
 	if len(matches) == 3 {
 		incorrectField := matches[1]
 		suggestedField := matches[2]
 		correctedQuery := strings.ReplaceAll(v.Data.Query, incorrectField, suggestedField)
 		return correctedQuery
 	}
-	
+
 	return v.Data.Query
 }
 
@@ -275,7 +275,7 @@ func SetupLensInDefraDB(ctx context.Context, defraNode *node.Node, v *View) (str
 // BuildLensConfig creates the lens configuration for DefraDB SetMigration
 func (v *View) BuildLensConfig() (client.LensConfig, error) {
 	lensModules := make([]model.LensModule, 0, len(v.Data.Transform.Lenses))
-	
+
 	for _, lens := range v.Data.Transform.Lenses {
 		args := map[string]any{}
 		if lens.Arguments != "" {
@@ -292,7 +292,7 @@ func (v *View) BuildLensConfig() (client.LensConfig, error) {
 
 	return client.LensConfig{
 		SourceCollectionVersionID:      v.Data.Query,
-		DestinationCollectionVersionID:  v.Data.Sdl,
+		DestinationCollectionVersionID: v.Data.Sdl,
 		Lens: model.Lens{
 			Lenses: lensModules,
 		},
@@ -317,11 +317,11 @@ func (v *View) needsWasmConversion() bool {
 
 // Helper function to check if error contains substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || 
-		(len(s) > len(substr) && 
-			(s[:len(substr)] == substr || 
-			 s[len(s)-len(substr):] == substr || 
-			 indexOf(s, substr) >= 0)))
+	return len(s) >= len(substr) && (s == substr ||
+		(len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
+				indexOf(s, substr) >= 0)))
 }
 
 func indexOf(s, substr string) int {

@@ -221,8 +221,7 @@ func (qs *QueryService) BuildHierarchicalQuery(rootCollection CollectionType, fi
 		query = fmt.Sprintf("%s(filter: %s) { %s }", collectionName, filterStr, rootFieldsStr)
 	}
 
-	// Add nested collections as separate fields outside the filter
-	// We need to insert them before the closing brace of the root collection
+	// Insert nested collections before the closing brace of the root collection
 	if nested, exists := hierarchy[rootCollection]; exists {
 		for _, nestedType := range nested {
 			nestedFields := qs.GetFieldsForCollection(nestedType)
