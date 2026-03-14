@@ -171,4 +171,3 @@ func TestView_ExtractNameFromSDL(t *testing.T) {
 		})
 	}
 }
-

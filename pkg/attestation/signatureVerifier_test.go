@@ -240,9 +240,7 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 }
 
 func TestDefraSignatureVerifier_Verify_InvalidPublicKeyParse(t *testing.T) {
-	// This test covers the PublicKeyFromString error path (line 54-57).
-	// We need a real defra node so we pass the nil node check,
-	// but provide an identity that is valid hex but invalid secp256k1 key.
+	// Valid hex but invalid secp256k1 key triggers PublicKeyFromString error path.
 	client := setupDefraForVerifier(t)
 	defraNode := client.GetNode()
 	ctx := context.Background()

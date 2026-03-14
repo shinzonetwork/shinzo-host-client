@@ -685,11 +685,9 @@ func TestHost_RegisterViewWithManager_NilViewManager(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIsPlaygroundEnabled(t *testing.T) {
-	// isPlaygroundEnabled is a simple function that returns true (when built with hostplayground tag)
-	// or false (when not). In our test build it should consistently return a boolean.
 	result := isPlaygroundEnabled()
-	// The function returns true in the default build (see host.go line 792)
-	require.True(t, result)
+	// Without the hostplayground build tag, playground is disabled
+	require.False(t, result)
 }
 
 // ---------------------------------------------------------------------------
@@ -1198,10 +1196,6 @@ func TestOpenBrowser_ReturnsNoError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestStartHosting_NilConfig_UsesDefault(t *testing.T) {
-	// We cannot actually start hosting in a test environment without
-	// a real defra instance, but we verify StartHosting calls
-	// StartHostingWithEventSubscription
-	// This is a structural test
 	require.NotNil(t, DefaultConfig)
 	require.Equal(t, "localhost:9181", DefaultConfig.DefraDB.Url)
 }

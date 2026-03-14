@@ -134,15 +134,7 @@ ENV LOG_STACKTRACE=false
 # 9182: GraphQL Playground (if enabled)
 EXPOSE 9181 9182 9171
 
-#healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9182 || exit 1
-    
-# Default command
+    CMD wget --no-verbose --tries=1 --spider http://localhost:9181 || exit 1
+
 CMD ["./host"]
-
-# docker run 6241328fc814  --name shinzo-host   -p 9182:9182   -p 6060:6060   -p 9171:9171   -v ./data/defradb:/app/.defra/data   -v ./data/lens:/app/.lens   -v ./config.yaml:/app/config.yaml:ro   -e DEFRA_URL=0.0.0.0:9181   -e LOG_LEVEL=error   -e LOG_SOURCE=false   -e LOG_STACKTRACE=false   --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:6060/metrics || exit 1"   --health-interval=30s   --health-timeout=10s   --health-retries=3   --health-start-period=40s   --restart unless-stopped 
-
-
-# Shinzo Host Run Command
-# docker run -d   --name shinzo-host   --network shinzo-net   --user $(id -u):$(id -g)   -p 9182:9182   -p 9171:9171   -v /home/duncanbrown/data/defradb:/app/.defra/data   -v /home/duncanbrown/data/lens:/app/.lens   -v $(pwd)/config.yaml:/app/config.yaml:ro   -e DEFRA_URL=0.0.0.0:9181   -e LOG_LEVEL=error   -e LOG_SOURCE=false   -e LOG_STACKTRACE=false   --memory=16g   --memory-swap=16g   --restart unless-stopped   gcr.io/shinzo-468905/shinzo-host-client:latest

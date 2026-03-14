@@ -26,11 +26,6 @@ type WASMRegistry struct {
 	cached       map[string]string // url/hash -> local file path
 }
 
-// TODO: -- view lifecycle
-// 1. Function which downloads wasm from event route
-// 2. Function which saves wasm as a view
-// 3. Function which executes setMigration within defra
-
 // NewWASMRegistry creates a new WASM registry with the specified storage path.
 func NewWASMRegistry(registryPath string, logger *zap.SugaredLogger) (*WASMRegistry, error) {
 	// Create registry directory if it doesn't exist
@@ -103,7 +98,6 @@ func SaveViewToRegistry(registryPath string, v View) error {
 	return os.WriteFile(viewsFilePath, data, 0644)
 }
 
-// this function needs to download or ensure it already exists for every register transaction
 // EnsureWASM checks if a WASM file exists locally, downloads it if not.
 // Returns the local file path (file:// URL format for DefraDB).
 func (r *WASMRegistry) EnsureWASM(ctx context.Context, wasmURL string) (string, error) {
