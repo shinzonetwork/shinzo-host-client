@@ -228,8 +228,12 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 				mergedCIDs = append(mergedCIDs, cid)
 			}
 
-			existingDoc.Set(ctx, "CIDs", mergedCIDs)             //nolint:errcheck
-			existingDoc.Set(ctx, "vote_count", record.VoteCount) //nolint:errcheck
+			if err := existingDoc.Set(ctx, "CIDs", mergedCIDs); err != nil {
+				return fmt.Errorf("failed to set CIDs on existing doc: %w", err)
+			}
+			if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
+				return fmt.Errorf("failed to set vote_count on existing doc: %w", err)
+			}
 			docs = append(docs, existingDoc)
 		} else {
 			cidsAny := make([]any, len(record.CIDs))

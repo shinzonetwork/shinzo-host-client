@@ -108,11 +108,10 @@ type Host struct {
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.ViewManager // Manages view lifecycle and processing
 
-	// METRICS SYSTEM: Track attestation and document processing metrics
 	healthServer *server.HealthServer
-	metrics      *server.HostMetrics // Comprehensive metrics tracking
+	metrics      *server.HostMetrics
 
-	mostRecentBlockReceived uint64 // This keeps track of the most recent block number received - useful for debugging and confirming Host is receiving blocks from Indexers
+	mostRecentBlockReceived uint64
 
 	pruner         *pruner.Pruner     // Document pruner for removing old blocks
 	pruneQueue     *pruner.EventQueue // FIFO queue tracking replicated docIDs
@@ -271,8 +270,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	logger.Sugar.Info("🎯 ViewManager initialized")
 
-	// Add bootstrap peers and start P2P network now that ViewManager is ready
-	// Note: ToAppConfig() passes empty peers to StartDefraInstance, peers are added here after ViewManager init
+	// Add bootstrap peers and start P2P network (deferred until ViewManager is ready)
 	if networkHandler != nil {
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
@@ -790,12 +788,8 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	return host, nil
 }
 
-// isPlaygroundEnabled checks if the playground is enabled at build time.
-// This function will only return true when the code is built with the hostplayground tag.
 func isPlaygroundEnabled() bool {
-	// This will be true only when built with -tags hostplayground
-	// We use a build tag to conditionally compile this
-	return true
+	return playgroundEnabled
 }
 
 // applySchema applies the GraphQL schema to DefraDB node

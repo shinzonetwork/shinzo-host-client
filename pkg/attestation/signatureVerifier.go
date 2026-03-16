@@ -34,12 +34,6 @@ func NewDefraSignatureVerifier(defraNode *node.Node, metrics SignatureMetrics) *
 
 // Verify verifies that the signature is valid for the given CID using DefraDB directly (no HTTP)
 func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
-	// Validate required fields
-	if signature.Identity == "" {
-		return fmt.Errorf("empty identity in signature for CID %s", cid)
-	}
-
-	// Validate inputs
 	if signature.Identity == "" || cid == "" {
 		return fmt.Errorf("empty identity or CID")
 	}

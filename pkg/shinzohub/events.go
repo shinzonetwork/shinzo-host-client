@@ -98,7 +98,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		"tm.event='Tx' AND EntityRegistered.key EXISTS",
 	}
 
-	// Send all subscriptions first
 	for i, query := range queries {
 		subscribeMsg := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -149,7 +148,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		}
 	}()
 
-	// Start goroutine for message processing
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -187,15 +185,11 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 					continue
 				}
 
-				// Look for Registered and EntityRegistered events and send them to the channel
 				events := extractShinzoEvents(msg)
 				for _, event := range events {
-					// Send event to channel (this will block if channel is full)
 					select {
 					case eventChan <- event:
-						// Event sent successfully
 					case <-ctx.Done():
-						// Context cancelled, stop sending
 						return
 					}
 				}
@@ -206,12 +200,9 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	return cancel, eventChan, nil
 }
 
-// extractShinzoEvents extracts both Registered and EntityRegistered events from the RPC message
-// and processes them for view registration and indexer/host registration
+// extractShinzoEvents extracts Registered and EntityRegistered events from an RPC message.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
-
-	// Validate message structure
 	if msg.JsonRpcVersion != "2.0" ||
 		msg.Result.Data.Type != "tendermint.event" ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {

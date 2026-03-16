@@ -73,9 +73,6 @@ defradb:
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// Note: Environment overrides are now handled by the app-sdk config loader
-	// The host config loads from YAML directly, so env vars don't apply here
-	// This test now just verifies the YAML loading works
 	if cfg.DefraDB.KeyringSecret != "original_secret" {
 		t.Errorf("Expected keyring_secret 'original_secret', got '%s'", cfg.DefraDB.KeyringSecret)
 	}
