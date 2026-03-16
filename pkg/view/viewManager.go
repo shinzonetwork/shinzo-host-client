@@ -98,9 +98,9 @@ func (vm *ViewManager) LoadAndRegisterViews(ctx context.Context, externalViews [
 		}
 	}
 
-	for _, v := range allViews {
-		if err := vm.RegisterView(ctx, v); err != nil {
-			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", v.Name, err)
+	for i := range allViews {
+		if err := vm.RegisterView(ctx, &allViews[i]); err != nil {
+			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", allViews[i].Name, err)
 			continue
 		}
 		logger.Sugar.Infof("✅ Registered view: %s", allViews[i].Name)
