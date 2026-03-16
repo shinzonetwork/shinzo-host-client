@@ -29,17 +29,12 @@ func TestNewHostMetrics(t *testing.T) {
 	require.Equal(t, int64(0), m.SignatureVerifications)
 	require.Equal(t, int64(0), m.SignatureFailures)
 	require.Equal(t, int64(0), m.BlockSigEventsReceived)
-	require.Equal(t, int64(0), m.BlocksReceived)
 	require.Equal(t, int64(0), m.DocumentsReceived)
 	require.Equal(t, int64(0), m.BlocksProcessed)
 	require.Equal(t, int64(0), m.TransactionsProcessed)
 	require.Equal(t, int64(0), m.LogsProcessed)
 	require.Equal(t, int64(0), m.AccessListsProcessed)
 	require.Equal(t, int64(0), m.BlockSignaturesProcessed)
-	require.Equal(t, int64(0), m.UniqueBlocks)
-	require.Equal(t, int64(0), m.UniqueTransactions)
-	require.Equal(t, int64(0), m.UniqueLogs)
-	require.Equal(t, int64(0), m.UniqueAccessLists)
 	require.Equal(t, int64(0), m.ViewsRegistered)
 	require.Equal(t, int64(0), m.ViewsActive)
 	require.Equal(t, uint64(0), m.MostRecentBlock)
@@ -85,11 +80,6 @@ func TestIncrementBlockSigEventsReceived(t *testing.T) {
 	require.Equal(t, int64(1), atomic.LoadInt64(&m.BlockSigEventsReceived))
 }
 
-func TestIncrementBlocksReceived(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementBlocksReceived()
-	require.Equal(t, int64(1), atomic.LoadInt64(&m.BlocksReceived))
-}
 
 func TestIncrementDocumentsReceived(t *testing.T) {
 	m := NewHostMetrics()
@@ -120,7 +110,6 @@ func TestIncrementConcurrent(t *testing.T) {
 			m.IncrementSignatureVerifications()
 			m.IncrementSignatureFailures()
 			m.IncrementBlockSigEventsReceived()
-			m.IncrementBlocksReceived()
 			m.IncrementDocumentsReceived()
 			m.IncrementViewsRegistered()
 		}()
@@ -132,7 +121,6 @@ func TestIncrementConcurrent(t *testing.T) {
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.SignatureVerifications))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.SignatureFailures))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.BlockSigEventsReceived))
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.BlocksReceived))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.DocumentsReceived))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.ViewsRegistered))
 }
@@ -175,49 +163,6 @@ func TestIncrementDocumentByType(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// IncrementUniqueDocumentByType
-// ---------------------------------------------------------------------------
-
-func TestIncrementUniqueDocumentByType(t *testing.T) {
-	tests := []struct {
-		name    string
-		docType string
-		field   func(m *HostMetrics) int64
-	}{
-		{"Block", constants.CollectionBlock, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.UniqueBlocks) }},
-		{"Transaction", constants.CollectionTransaction, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.UniqueTransactions) }},
-		{"Log", constants.CollectionLog, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.UniqueLogs) }},
-		{"AccessListEntry", constants.CollectionAccessListEntry, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.UniqueAccessLists) }},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewHostMetrics()
-			m.IncrementUniqueDocumentByType(tc.docType)
-			require.Equal(t, int64(1), tc.field(m))
-		})
-	}
-
-	// Unknown and BlockSignature are no-ops for unique counters
-	t.Run("Unknown", func(t *testing.T) {
-		m := NewHostMetrics()
-		m.IncrementUniqueDocumentByType("SomeUnknownCollection")
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueBlocks))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueTransactions))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueLogs))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueAccessLists))
-	})
-
-	t.Run("BlockSignature_NoUniqueCounter", func(t *testing.T) {
-		m := NewHostMetrics()
-		m.IncrementUniqueDocumentByType(constants.CollectionBlockSignature)
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueBlocks))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueTransactions))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueLogs))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.UniqueAccessLists))
-	})
-}
 
 // ---------------------------------------------------------------------------
 // SetViewsActive
@@ -313,17 +258,12 @@ func TestGetSnapshot(t *testing.T) {
 	m.IncrementSignatureVerifications()
 	m.IncrementSignatureFailures()
 	m.IncrementBlockSigEventsReceived()
-	m.IncrementBlocksReceived()
 	m.IncrementDocumentsReceived()
 	m.IncrementDocumentByType(constants.CollectionBlock)
 	m.IncrementDocumentByType(constants.CollectionTransaction)
 	m.IncrementDocumentByType(constants.CollectionLog)
 	m.IncrementDocumentByType(constants.CollectionAccessListEntry)
 	m.IncrementDocumentByType(constants.CollectionBlockSignature)
-	m.IncrementUniqueDocumentByType(constants.CollectionBlock)
-	m.IncrementUniqueDocumentByType(constants.CollectionTransaction)
-	m.IncrementUniqueDocumentByType(constants.CollectionLog)
-	m.IncrementUniqueDocumentByType(constants.CollectionAccessListEntry)
 	m.IncrementViewsRegistered()
 	m.SetViewsActive(7)
 	m.UpdateLastProcessingTime(1.5)
@@ -337,17 +277,12 @@ func TestGetSnapshot(t *testing.T) {
 	require.Equal(t, int64(1), snap.SignatureVerifications)
 	require.Equal(t, int64(1), snap.SignatureFailures)
 	require.Equal(t, int64(1), snap.BlockSigEventsReceived)
-	require.Equal(t, int64(1), snap.BlocksReceived)
 	require.Equal(t, int64(1), snap.DocumentsReceived)
 	require.Equal(t, int64(1), snap.BlocksProcessed)
 	require.Equal(t, int64(1), snap.TransactionsProcessed)
 	require.Equal(t, int64(1), snap.LogsProcessed)
 	require.Equal(t, int64(1), snap.AccessListsProcessed)
 	require.Equal(t, int64(1), snap.BlockSignaturesProcessed)
-	require.Equal(t, int64(1), snap.UniqueBlocks)
-	require.Equal(t, int64(1), snap.UniqueTransactions)
-	require.Equal(t, int64(1), snap.UniqueLogs)
-	require.Equal(t, int64(1), snap.UniqueAccessLists)
 	require.Equal(t, int64(1), snap.ViewsRegistered)
 	require.Equal(t, int64(7), snap.ViewsActive)
 	require.InDelta(t, 1.5, snap.LastProcessingTime, 1e-9)
@@ -356,7 +291,6 @@ func TestGetSnapshot(t *testing.T) {
 	require.Equal(t, m.LastDocumentTime, snap.LastDocumentTime)
 	require.Equal(t, m.BuildTags, snap.BuildTags)
 	require.Equal(t, m.SchemaType, snap.SchemaType)
-	require.Equal(t, int64(0), snap.ProcessingQueueSize)
 }
 
 // ---------------------------------------------------------------------------
