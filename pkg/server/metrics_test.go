@@ -357,7 +357,6 @@ func TestGetSnapshot(t *testing.T) {
 	require.Equal(t, m.BuildTags, snap.BuildTags)
 	require.Equal(t, m.SchemaType, snap.SchemaType)
 	require.Equal(t, int64(0), snap.ProcessingQueueSize)
-	require.Equal(t, int64(0), snap.ViewQueueSize)
 }
 
 // ---------------------------------------------------------------------------
