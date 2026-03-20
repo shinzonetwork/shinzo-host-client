@@ -17,7 +17,7 @@ import (
 
 // attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
 var attestedBlocks sync.Map
-
+var startTime time.Time
 // Document represents a document from DefraDB
 type Document struct {
 	ID          string
@@ -258,6 +258,7 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 
 // processBlockSignatureFromEventBus fetches a BlockSignature document by DocID and processes it.
 func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID string) {
+	startTime = time.Now()
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		return
 	}
@@ -410,6 +411,9 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 		h.blockSignatureVerifier.AddBlockSignature(blockSig)
 
 		h.processAttestationsFromBlockSignature(ctx, blockSig)
+	}
+	if h.metrics != nil {
+		h.metrics.UpdateLastProcessingTime(float64(time.Since(startTime).Milliseconds()))
 	}
 }
 

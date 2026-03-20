@@ -26,10 +26,7 @@ func WithReturnDocIdAndVersion(query string) (string, error) {
 func addDocIdAndVersionToSelectionSets(query string) (string, error) {
 	result := query
 
-	// Find the main selection set by looking for CollectionName { ... } or CollectionName(args) { ... }
-	// We need to find the opening brace that starts the main selection set, not filter/order arguments
-
-	// First, find all opening braces and their positions
+	// Find opening braces for selection sets (not filter/order arguments)
 	var bracePositions []int
 	for i, char := range result {
 		if char == '{' {

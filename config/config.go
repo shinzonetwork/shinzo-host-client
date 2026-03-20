@@ -182,8 +182,7 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// ToAppConfig converts the host config to an app-sdk config
-// Note: BootstrapPeers is intentionally empty - peers are added after ViewManager initializes
+// ToAppConfig converts the host config to an app-sdk config.
 func (c *Config) ToAppConfig() *appConfig.Config {
 	if c == nil {
 		return nil

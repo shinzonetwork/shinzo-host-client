@@ -5,7 +5,10 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
+      # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
+      # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWCXACP55i3jSf6rMiZXGpdruyvr9SyEdXBxu2PXeQGtv1'
+      # - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWMYhYNBo4zAi9j7TpyGQJBSvbwSSNkgsMrLs6vHUnFUzY'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -52,6 +55,54 @@ shinzo:
   # always pass through regardless of filter settings.
   event_filter:
     enabled: false                 # Set to false to accept all documents (no filtering)
+    # Mode: "allowlist" (default) - only accept documents matching a group.
+    #        "blocklist"          - accept everything EXCEPT documents matching a group.
+    mode: "allowlist"
+    # When true, a contract filter with types: ["transaction"] also applies to
+    # logs and access-list entries from the same address. Set to false for
+    # strict per-type matching only.
+    cascade_filters: true
+    # Optional block range gate (omit to accept all blocks):
+    # block_range:
+    #   min_block: 20000000
+    #   max_block: 0              # 0 = no upper limit
+    #
+    # Filter groups - each group bundles related contracts and topics.
+    # In allowlist mode a document must match at least one enabled group.
+    # In blocklist mode a document is rejected if it matches any enabled group.
+    groups:
+      - name: "uniswap-v3"       # Human-readable label (for logs)
+        enabled: true             # Set to false to disable this group without removing it
+        # Contract filters - match documents by on-chain address.
+        # "types" controls which collection types this address applies to:
+        #   "transaction" - matches tx.to field
+        #   "log"         - matches log.address field
+        #   "accessListEntry" - matches accessListEntry.address field
+        # Multiple types can be combined: ["transaction", "log"]
+        contracts:
+          - name: "Uniswap V3 Router 2"
+            address: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
+            types: ["transaction", "log"]
+        # Topic filters - match logs by event signature (topic0).
+        # topic0 is required; topic1-3 are optional (omit = wildcard).
+        topics:
+          - name: "Swap"
+            topic0: "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+            # topic1: "0x..."    # Optional: filter by indexed param 1
+            # topic2: "0x..."    # Optional: filter by indexed param 2
+            # topic3: "0x..."    # Optional: filter by indexed param 3
+      - name: "stablecoins"
+        enabled: true
+        contracts:
+          - name: "USDT"
+            address: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            types: ["log"]
+          - name: "USDC"
+            address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+            types: ["log"]
+        topics:
+          - name: "Transfer"
+            topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
   max_blocks: 2000         # Number of blocks to retain
@@ -84,7 +135,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.5
+    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.7
     mem_limit: 16g
     mem_reservation: 13g
     restart: unless-stopped

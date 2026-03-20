@@ -1,10 +1,12 @@
 package shinzohub
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -173,11 +175,28 @@ func TestMixedEventSubscription(t *testing.T) {
 	require.NoError(t, err)
 	defer cancel()
 
+		// Create valid WASM magic number + some data
+	wasmData := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC, 0xDD}
+	wasmBase64 := base64.StdEncoding.EncodeToString(wasmData)
 	// Test data
 	query := "Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}"
 	expectedView := view.View{
-		Query: &query,
+		Data: viewbundle.View{
+			Query: query,
+			Sdl:   "type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}",
+			Transform: viewbundle.Transform{
+				Lenses: []viewbundle.Lens{
+					{Path: wasmBase64},
+				},
+			},
+		},
 	}
+
+	// Create proper wire format and encode to base64
+	bundler := viewbundle.NewBundler()
+	wire, err := bundler.BundleView(expectedView.Data)
+	require.NoError(t, err)
+	viewBase64 := base64.StdEncoding.EncodeToString(wire)
 
 	// Send a mixed event with both ViewRegistered and EntityRegistered
 	mixedEvent := RPCResponse{
@@ -197,7 +216,7 @@ func TestMixedEventSubscription(t *testing.T) {
 									Attributes: []EventAttribute{
 										{Key: "key", Value: "0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85", Index: true},
 										{Key: "creator", Value: "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", Index: true},
-										{Key: "view", Value: `{"query":"Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}","sdl":"type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}","transform":{"lenses":[]}}`, Index: true},
+										{Key: "view", Value: viewBase64, Index: true},
 									},
 								},
 								{
@@ -238,7 +257,7 @@ func TestMixedEventSubscription(t *testing.T) {
 				if !receivedView {
 					require.Equal(t, "0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85", e.Key)
 					require.Equal(t, "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", e.Creator)
-					require.Equal(t, expectedView.Query, e.View.Query)
+					require.Equal(t, expectedView.Data.Query, e.View.Data.Query)
 					receivedView = true
 					t.Log("✅ Received ViewRegistered event")
 				}

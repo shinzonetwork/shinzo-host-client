@@ -32,8 +32,6 @@ type HostMetrics struct {
 	SignatureFailures      int64 `json:"signature_failures"`
 
 	BlockSigEventsReceived int64 `json:"block_sig_events_received"`
-	BlocksReceived         int64 `json:"blocks_received"`
-
 	// Document processing metrics
 	DocumentsReceived        int64 `json:"documents_received"`
 	BlocksProcessed          int64 `json:"blocks_processed"`
@@ -41,12 +39,6 @@ type HostMetrics struct {
 	LogsProcessed            int64 `json:"logs_processed"`
 	AccessListsProcessed     int64 `json:"access_lists_processed"`
 	BlockSignaturesProcessed int64 `json:"block_signatures_processed"`
-
-	// Unique document counters (tracks first-time attestations only)
-	UniqueBlocks       int64 `json:"unique_blocks"`
-	UniqueTransactions int64 `json:"unique_transactions"`
-	UniqueLogs         int64 `json:"unique_logs"`
-	UniqueAccessLists  int64 `json:"unique_access_lists"`
 
 	// View metrics
 	ViewsRegistered int64 `json:"views_registered"`
@@ -56,8 +48,6 @@ type HostMetrics struct {
 	lastProcessingTimeBits uint64 `json:"-"`
 
 	// Performance metrics
-	ProcessingQueueSize int64   `json:"processing_queue_size"`
-	ViewQueueSize       int64   `json:"view_queue_size"`
 	LastProcessingTime  float64 `json:"last_processing_time_ms"`
 
 	// System metrics
@@ -112,11 +102,6 @@ func (m *HostMetrics) IncrementBlockSigEventsReceived() {
 	atomic.AddInt64(&m.BlockSigEventsReceived, 1)
 }
 
-// IncrementBlocksReceived atomically increments the blocks received counter
-func (m *HostMetrics) IncrementBlocksReceived() {
-	atomic.AddInt64(&m.BlocksReceived, 1)
-}
-
 // IncrementDocumentsReceived atomically increments the documents received counter
 func (m *HostMetrics) IncrementDocumentsReceived() {
 	atomic.AddInt64(&m.DocumentsReceived, 1)
@@ -136,20 +121,6 @@ func (m *HostMetrics) IncrementDocumentByType(docType string) {
 		atomic.AddInt64(&m.AccessListsProcessed, 1)
 	case constants.CollectionBlockSignature:
 		atomic.AddInt64(&m.BlockSignaturesProcessed, 1)
-	}
-}
-
-// IncrementUniqueDocumentByType atomically increments the unique counter for a specific document type
-func (m *HostMetrics) IncrementUniqueDocumentByType(docType string) {
-	switch docType {
-	case constants.CollectionBlock:
-		atomic.AddInt64(&m.UniqueBlocks, 1)
-	case constants.CollectionTransaction:
-		atomic.AddInt64(&m.UniqueTransactions, 1)
-	case constants.CollectionLog:
-		atomic.AddInt64(&m.UniqueLogs, 1)
-	case constants.CollectionAccessListEntry:
-		atomic.AddInt64(&m.UniqueAccessLists, 1)
 	}
 }
 
@@ -194,22 +165,15 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		SignatureVerifications:   atomic.LoadInt64(&m.SignatureVerifications),
 		SignatureFailures:        atomic.LoadInt64(&m.SignatureFailures),
 		BlockSigEventsReceived:   atomic.LoadInt64(&m.BlockSigEventsReceived),
-		BlocksReceived:           atomic.LoadInt64(&m.BlocksReceived),
 		DocumentsReceived:        atomic.LoadInt64(&m.DocumentsReceived),
 		BlocksProcessed:          atomic.LoadInt64(&m.BlocksProcessed),
 		TransactionsProcessed:    atomic.LoadInt64(&m.TransactionsProcessed),
 		LogsProcessed:            atomic.LoadInt64(&m.LogsProcessed),
 		AccessListsProcessed:     atomic.LoadInt64(&m.AccessListsProcessed),
 		BlockSignaturesProcessed: atomic.LoadInt64(&m.BlockSignaturesProcessed),
-		UniqueBlocks:             atomic.LoadInt64(&m.UniqueBlocks),
-		UniqueTransactions:       atomic.LoadInt64(&m.UniqueTransactions),
-		UniqueLogs:               atomic.LoadInt64(&m.UniqueLogs),
-		UniqueAccessLists:        atomic.LoadInt64(&m.UniqueAccessLists),
 		ViewsRegistered:          atomic.LoadInt64(&m.ViewsRegistered),
 		ViewsActive:              atomic.LoadInt64(&m.ViewsActive),
 		// Performance metrics
-		ProcessingQueueSize: atomic.LoadInt64(&m.ProcessingQueueSize),
-		ViewQueueSize:       atomic.LoadInt64(&m.ViewQueueSize),
 		LastProcessingTime:  lastProcessingTime,
 		StartTime:           m.StartTime,
 		LastDocumentTime:    m.LastDocumentTime,
