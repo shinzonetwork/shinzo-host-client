@@ -177,7 +177,7 @@ func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *s
 
 	record := &constants.AttestationRecord{
 		AttestedDocId: fmt.Sprintf("snapshot:%d-%d", sig.StartBlock, sig.EndBlock),
-		SourceDocId:   sig.SignatureIdentity,
+		SourceDocIds:  []string{sig.SignatureIdentity},
 		CIDs:          sig.BlockSigMerkleRoots,
 		DocType:       "Snapshot",
 		VoteCount:     1,

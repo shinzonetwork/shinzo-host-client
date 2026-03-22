@@ -137,11 +137,11 @@ func testAttestationRecordRegistration(t *testing.T, ctx context.Context, defraN
 	sourceDocID := "source-doc-001"
 	docType := constants.CollectionBlock
 
-	record, err := attestation.CreateAttestationRecord(ctx, verifier, docID, sourceDocID, docType, versions, 50)
+	record, err := attestation.CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, docType, versions, 50)
 	require.NoError(t, err, "Should create attestation record")
 	require.NotNil(t, record)
 	require.Equal(t, docID, record.AttestedDocId)
-	require.Equal(t, sourceDocID, record.SourceDocId)
+	require.Equal(t, []string{sourceDocID}, record.SourceDocIds)
 	require.Len(t, record.CIDs, 2, "Should have 2 CIDs from valid signatures")
 
 	// Post attestation record to DefraDB
@@ -155,7 +155,7 @@ func testAttestationRecordRegistration(t *testing.T, ctx context.Context, defraN
 	require.Equal(t, docID, existing[0].AttestedDocId)
 
 	// Test P-counter increment by posting again
-	record2, err := attestation.CreateAttestationRecord(ctx, verifier, docID, sourceDocID, docType, versions, 50)
+	record2, err := attestation.CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, docType, versions, 50)
 	require.NoError(t, err)
 	err = attestation.PostAttestationRecord(ctx, defraNode, record2)
 	require.NoError(t, err, "Should upsert attestation record")
