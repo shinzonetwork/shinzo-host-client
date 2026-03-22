@@ -23,11 +23,11 @@ type Version = constants.Version
 type Signature = constants.Signature
 
 // CreateAttestationRecord creates an attestation record after verifying signatures
-func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocId string, docType string, versions []Version, maxConcurrentVerifications int) (*AttestationRecord, error) {
+func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocIds []string, docType string, versions []Version, maxConcurrentVerifications int) (*AttestationRecord, error) {
 	if len(versions) == 0 {
 		return &constants.AttestationRecord{
 			AttestedDocId: docId,
-			SourceDocId:   sourceDocId,
+			SourceDocIds:  sourceDocIds,
 			CIDs:          []string{},
 			DocType:       docType,
 			VoteCount:     1,
@@ -66,50 +66,125 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 
 	return &constants.AttestationRecord{
 		AttestedDocId: docId,
-		SourceDocId:   sourceDocId,
+		SourceDocIds:  sourceDocIds,
 		CIDs:          cids,
 		DocType:       docType,
 		VoteCount:     1,
 	}, nil
 }
 
-// PostAttestationRecord posts the attestation record to DefraDB
+// PostAttestationRecord posts the attestation record to DefraDB using read-modify-write
+// to correctly merge source_doc lists when multiple indexers attest to the same block.
 func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *AttestationRecord) error {
-	// Format CIDs for GraphQL
-	cidsArray := make([]string, len(record.CIDs))
-	for i, cid := range record.CIDs {
-		cidsArray[i] = fmt.Sprintf(`"%s"`, cid)
+	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	if err != nil {
+		return fmt.Errorf("failed to get attestation collection: %w", err)
 	}
-	cidsString := fmt.Sprintf("[%s]", strings.Join(cidsArray, ", "))
 
-	// Use upsert to merge P-counter vote_count and CIDs for same attested_doc
-	mutation := fmt.Sprintf(`
-		mutation {
-			upsert_%v(
-				create: {
-					attested_doc: "%s",
-					source_doc: "%s",
-					CIDs: %s,
-					doc_type: "%s",
-					vote_count: %d
-				},
-				update: {
-					CIDs: %s,
-					vote_count: %d
-				},
-				filter: {attested_doc: {_eq: "%s"}}
-			) {
-				_docID
+	existingDoc, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocId)
+	if err != nil {
+		return fmt.Errorf("failed to lookup existing attestation: %w", err)
+	}
+
+	if existingDoc != nil {
+		// Merge source_doc identities
+		mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIds)
+		sourcesAny := make([]any, len(mergedSources))
+		for i, s := range mergedSources {
+			sourcesAny[i] = s
+		}
+		if err := existingDoc.Set(ctx, "source_doc", sourcesAny); err != nil {
+			return fmt.Errorf("failed to set source_doc: %w", err)
+		}
+
+		// Merge CIDs
+		mergedCIDs := mergeStringListField(existingDoc, "CIDs", record.CIDs)
+		cidsAny := make([]any, len(mergedCIDs))
+		for i, c := range mergedCIDs {
+			cidsAny[i] = c
+		}
+		if err := existingDoc.Set(ctx, "CIDs", cidsAny); err != nil {
+			return fmt.Errorf("failed to set CIDs: %w", err)
+		}
+
+		if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
+			return fmt.Errorf("failed to set vote_count: %w", err)
+		}
+
+		return col.Save(ctx, existingDoc)
+	}
+
+	// Create new document
+	sourceDocsAny := make([]any, len(record.SourceDocIds))
+	for i, s := range record.SourceDocIds {
+		sourceDocsAny[i] = s
+	}
+	cidsAny := make([]any, len(record.CIDs))
+	for i, c := range record.CIDs {
+		cidsAny[i] = c
+	}
+
+	data := map[string]any{
+		"attested_doc": record.AttestedDocId,
+		"source_doc":   sourceDocsAny,
+		"CIDs":         cidsAny,
+		"doc_type":     record.DocType,
+		"vote_count":   record.VoteCount,
+	}
+
+	doc, err := client.NewDocFromMap(ctx, data, col.Version())
+	if err != nil {
+		return fmt.Errorf("failed to create attestation document: %w", err)
+	}
+
+	return col.Save(ctx, doc)
+}
+
+// mergeStringListField reads an existing string list field from a document and merges
+// it with newValues, returning a deduplicated list.
+func mergeStringListField(doc *client.Document, fieldName string, newValues []string) []string {
+	set := make(map[string]struct{})
+	var result []string
+
+	if val, err := doc.Get(fieldName); err == nil && val != nil {
+		switch v := val.(type) {
+		case []immutable.Option[string]:
+			for _, opt := range v {
+				if opt.HasValue() {
+					s := opt.Value()
+					if _, exists := set[s]; !exists {
+						set[s] = struct{}{}
+						result = append(result, s)
+					}
+				}
+			}
+		case []string:
+			for _, s := range v {
+				if _, exists := set[s]; !exists {
+					set[s] = struct{}{}
+					result = append(result, s)
+				}
+			}
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					if _, exists := set[s]; !exists {
+						set[s] = struct{}{}
+						result = append(result, s)
+					}
+				}
 			}
 		}
-	`, constants.CollectionAttestationRecord, record.AttestedDocId, record.SourceDocId, cidsString, record.DocType, record.VoteCount, cidsString, record.VoteCount, record.AttestedDocId)
-
-	_, err := defra.PostMutation[constants.AttestationRecord](ctx, defraNode, mutation)
-	if err != nil {
-		return fmt.Errorf("error posting attestation record mutation: %v", err)
 	}
 
-	return nil
+	for _, s := range newValues {
+		if _, exists := set[s]; !exists {
+			set[s] = struct{}{}
+			result = append(result, s)
+		}
+	}
+
+	return result
 }
 
 // lookupExistingAttestation queries DefraDB for an existing attestation record
@@ -209,26 +284,23 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 
 		existingDoc, exists := existingByAttestedDoc[record.AttestedDocId]
 		if exists {
-			cidSet := make(map[string]struct{})
-			existingCIDsVal, err := existingDoc.Get("CIDs")
-			if err == nil && existingCIDsVal != nil {
-				if existingCIDs, ok := existingCIDsVal.([]immutable.Option[string]); ok {
-					for _, opt := range existingCIDs {
-						if opt.HasValue() {
-							cidSet[opt.Value()] = struct{}{}
-						}
-					}
-				}
+			// Merge source_doc identities
+			mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIds)
+			sourcesAny := make([]any, len(mergedSources))
+			for i, s := range mergedSources {
+				sourcesAny[i] = s
 			}
-			for _, newCID := range record.CIDs {
-				cidSet[newCID] = struct{}{}
-			}
-			mergedCIDs := make([]any, 0, len(cidSet))
-			for cid := range cidSet {
-				mergedCIDs = append(mergedCIDs, cid)
+			if err := existingDoc.Set(ctx, "source_doc", sourcesAny); err != nil {
+				return fmt.Errorf("failed to set source_doc on existing doc: %w", err)
 			}
 
-			if err := existingDoc.Set(ctx, "CIDs", mergedCIDs); err != nil {
+			// Merge CIDs
+			mergedCIDs := mergeStringListField(existingDoc, "CIDs", record.CIDs)
+			cidsAny := make([]any, len(mergedCIDs))
+			for i, c := range mergedCIDs {
+				cidsAny[i] = c
+			}
+			if err := existingDoc.Set(ctx, "CIDs", cidsAny); err != nil {
 				return fmt.Errorf("failed to set CIDs on existing doc: %w", err)
 			}
 			if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
@@ -240,10 +312,14 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 			for i, cid := range record.CIDs {
 				cidsAny[i] = cid
 			}
+			sourceDocsAny := make([]any, len(record.SourceDocIds))
+			for i, s := range record.SourceDocIds {
+				sourceDocsAny[i] = s
+			}
 
 			data := map[string]any{
 				"attested_doc": record.AttestedDocId,
-				"source_doc":   record.SourceDocId,
+				"source_doc":   sourceDocsAny,
 				"CIDs":         cidsAny,
 				"doc_type":     record.DocType,
 				"vote_count":   record.VoteCount,
@@ -268,7 +344,7 @@ func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, 
 	}
 
 	// Create attestation record with signature verification
-	attestationRecord, _ := CreateAttestationRecord(ctx, verifier, docID, docID, docType, versions, maxConcurrentVerifications)
+	attestationRecord, _ := CreateAttestationRecord(ctx, verifier, docID, []string{docID}, docType, versions, maxConcurrentVerifications)
 
 	if len(attestationRecord.CIDs) == 0 {
 		return nil
@@ -301,7 +377,7 @@ func HandleDocumentAttestationBatch(ctx context.Context, verifier SignatureVerif
 			continue
 		}
 
-		record, _ := CreateAttestationRecord(ctx, verifier, input.DocID, input.DocID, input.DocType, input.Versions, maxConcurrentVerifications)
+		record, _ := CreateAttestationRecord(ctx, verifier, input.DocID, []string{input.DocID}, input.DocType, input.Versions, maxConcurrentVerifications)
 
 		if len(record.CIDs) > 0 {
 			records = append(records, record)
@@ -406,10 +482,26 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 		return nil, fmt.Errorf("cannot merge records with different attested document IDs: %s vs %s", record1.AttestedDocId, record2.AttestedDocId)
 	}
 
+	// Merge source doc identities, avoiding duplicates
+	sourceSet := make(map[string]bool)
+	var mergedSources []string
+	for _, s := range record1.SourceDocIds {
+		if !sourceSet[s] {
+			mergedSources = append(mergedSources, s)
+			sourceSet[s] = true
+		}
+	}
+	for _, s := range record2.SourceDocIds {
+		if !sourceSet[s] {
+			mergedSources = append(mergedSources, s)
+			sourceSet[s] = true
+		}
+	}
+
 	// Create merged record
 	merged := &AttestationRecord{
 		AttestedDocId: record1.AttestedDocId,
-		SourceDocId:   record1.SourceDocId, // Use first record's source doc ID
+		SourceDocIds:  mergedSources,
 		CIDs:          make([]string, 0),
 	}
 
