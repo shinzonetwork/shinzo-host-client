@@ -505,13 +505,13 @@ func TestProcessAttestationsFromBlockSignature_EmptyBlockAttestedID(t *testing.T
 
 	record := &constants.AttestationRecord{
 		AttestedDocId: blockAttestedID,
-		SourceDocId:   blockSig.SignatureIdentity,
+		SourceDocIds:  []string{blockSig.SignatureIdentity},
 		CIDs:          blockSig.CIDs,
 		DocType:       "Block",
 		VoteCount:     1,
 	}
 	require.Equal(t, "block:42:abc123", record.AttestedDocId)
-	require.Equal(t, "0xsigner", record.SourceDocId)
+	require.Equal(t, []string{"0xsigner"}, record.SourceDocIds)
 	require.Equal(t, []string{"cid1", "cid2"}, record.CIDs)
 	require.Equal(t, "Block", record.DocType)
 	require.Equal(t, 1, record.VoteCount)
@@ -1278,6 +1278,56 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 
 	// MostRecentBlock should have been updated
 	require.GreaterOrEqual(t, atomic.LoadUint64(&metrics.MostRecentBlock), uint64(300))
+}
+
+// ---------------------------------------------------------------------------
+// processAttestationsFromBlockSignature - multiple indexers preserve both identities
+// ---------------------------------------------------------------------------
+
+func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIdentities(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	require.NoError(t, err)
+	defer defraNode.Close(ctx)
+
+	metrics := server.NewHostMetrics()
+	h := &Host{
+		DefraNode: defraNode,
+		metrics:   metrics,
+	}
+
+	// Clean up global attestedBlocks state
+	attestedBlocks.Delete(int64(400))
+	defer attestedBlocks.Delete(int64(400))
+
+	// First indexer attests to block 400
+	blockSigA := &attestationService.BlockSignature{
+		BlockNumber:       400,
+		MerkleRoot:        "aaa",
+		SignatureIdentity: "indexer-A",
+		CIDs:              []string{"cid-1", "cid-2"},
+	}
+	h.processAttestationsFromBlockSignature(ctx, blockSigA)
+
+	// Second indexer attests to the same block with the same merkle root
+	blockSigB := &attestationService.BlockSignature{
+		BlockNumber:       400,
+		MerkleRoot:        "aaa",
+		SignatureIdentity: "indexer-B",
+		CIDs:              []string{"cid-1", "cid-2"},
+	}
+	h.processAttestationsFromBlockSignature(ctx, blockSigB)
+
+	// Query the attestation record
+	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, "block:400:aaa", "Block")
+	require.NoError(t, err)
+	require.Len(t, records, 1, "Should have exactly one attestation record for this block")
+
+	record := records[0]
+	require.Contains(t, record.SourceDocIds, "indexer-A", "Should contain first indexer's identity")
+	require.Contains(t, record.SourceDocIds, "indexer-B", "Should contain second indexer's identity")
+	require.Len(t, record.SourceDocIds, 2, "Should have exactly 2 indexer identities")
 }
 
 // ---------------------------------------------------------------------------
