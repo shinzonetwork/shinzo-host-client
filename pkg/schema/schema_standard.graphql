@@ -104,7 +104,7 @@ type Ethereum__Mainnet__Log {
 
 type Ethereum__Mainnet__AttestationRecord {
     attested_doc: String @index
-    source_doc: String
+    source_doc: [String]
     CIDs: [String]
     doc_type: String @index
     vote_count: Int @crdt(type: pcounter)
