@@ -433,7 +433,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 
 	record := &constants.AttestationRecord{
 		AttestedDocId: blockAttestedID,
-		SourceDocId:   blockSig.SignatureIdentity,
+		SourceDocIds:  []string{blockSig.SignatureIdentity},
 		CIDs:          blockSig.CIDs,
 		DocType:       "Block",
 		VoteCount:     1,
