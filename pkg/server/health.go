@@ -278,7 +278,7 @@ func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	redirectURL := fmt.Sprintf(
-		"https://register.shinzo.network/?role=host&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
+		"https://registration.shinzo.network/?role=host&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
 		registration.Message,
 		registration.PeerIDRegistration.PeerID,
 		registration.PeerIDRegistration.SignedPeerMsg,
