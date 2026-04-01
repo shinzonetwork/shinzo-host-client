@@ -35,8 +35,8 @@ type mockHealthChecker struct {
 	peerReg       PeerIDRegistration
 }
 
-func (m *mockHealthChecker) IsHealthy() bool                { return m.healthy }
-func (m *mockHealthChecker) GetCurrentBlock() int64         { return m.currentBlock }
+func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
+func (m *mockHealthChecker) GetCurrentBlock() int64          { return m.currentBlock }
 func (m *mockHealthChecker) GetLastProcessedTime() time.Time { return m.lastProcessed }
 func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.peerInfo, m.peerInfoErr }
 func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
@@ -247,7 +247,7 @@ func TestRegistrationAppHandler_SuccessRedirect(t *testing.T) {
 
 	require.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	loc := w.Header().Get("Location")
-	require.Contains(t, loc, "https://register.shinzo.network/")
+	require.Contains(t, loc, "https://registration.shinzo.network/")
 	require.Contains(t, loc, "defraPublicKey=")
 }
 
