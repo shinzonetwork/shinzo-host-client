@@ -13,7 +13,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
 //go:embed metrics_client_page.html
@@ -48,7 +47,7 @@ type HostMetrics struct {
 	lastProcessingTimeBits uint64 `json:"-"`
 
 	// Performance metrics
-	LastProcessingTime  float64 `json:"last_processing_time_ms"`
+	LastProcessingTime float64 `json:"last_processing_time_ms"`
 
 	// System metrics
 	StartTime        time.Time `json:"start_time"`
@@ -64,11 +63,6 @@ type HostMetrics struct {
 func NewHostMetrics() *HostMetrics {
 	buildTags := "standard"
 	schemaType := "non-branchable"
-
-	if schema.IsBranchable() {
-		buildTags = "branchable"
-		schemaType = "branchable"
-	}
 
 	return &HostMetrics{
 		StartTime:  time.Now(),
@@ -174,12 +168,12 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		ViewsRegistered:          atomic.LoadInt64(&m.ViewsRegistered),
 		ViewsActive:              atomic.LoadInt64(&m.ViewsActive),
 		// Performance metrics
-		LastProcessingTime:  lastProcessingTime,
-		StartTime:           m.StartTime,
-		LastDocumentTime:    m.LastDocumentTime,
-		MostRecentBlock:     atomic.LoadUint64(&m.MostRecentBlock),
-		BuildTags:           m.BuildTags,
-		SchemaType:          m.SchemaType,
+		LastProcessingTime: lastProcessingTime,
+		StartTime:          m.StartTime,
+		LastDocumentTime:   m.LastDocumentTime,
+		MostRecentBlock:    atomic.LoadUint64(&m.MostRecentBlock),
+		BuildTags:          m.BuildTags,
+		SchemaType:         m.SchemaType,
 	}
 }
 
