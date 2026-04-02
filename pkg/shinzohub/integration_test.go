@@ -8,29 +8,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEntityRegisteredToIntegrationFlow tests the complete flow from EntityRegistered event to indexer addition
-func TestEntityRegisteredToIntegrationFlow(t *testing.T) {
-	// Create a mock indexer manager
+// TestIndexerRegisteredToIntegrationFlow tests the complete flow from IndexerRegistered event to indexer addition
+func TestIndexerRegisteredToIntegrationFlow(t *testing.T) {
 	indexerManager := NewMockIndexerManager()
-	
-	// Create the entity registration handler
-	entityHandler := NewEntityRegistrationHandler(indexerManager)
+	handler := NewRegistrationHandler(indexerManager)
 
-	// Create a mock WebSocket server
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
 
-	// Start the event subscription
 	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL())
 	require.NoError(t, err)
 	defer cancel()
 
-	// Create a test EntityRegistered event
 	testEvent := RPCResponse{
 		JsonRpcVersion: "2.0",
-		ID:             1,
+		ID:             3,
 		Result: RPCResult{
-			Query: "tm.event='Tx' AND EntityRegistered.key EXISTS",
+			Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 			Data: RPCData{
 				Type: "tendermint.event",
 				Value: TxResult{
@@ -39,13 +33,13 @@ func TestEntityRegisteredToIntegrationFlow(t *testing.T) {
 						Result: TxResultResult{
 							Events: []Event{
 								{
-									Type: "EntityRegistered",
+									Type: "IndexerRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", Index: true},
-										{Key: "owner", Value: "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", Index: true},
-										{Key: "did", Value: "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", Index: true},
-										{Key: "pid", Value: "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
-										{Key: "entity", Value: "\u0002", Index: true},
+										{Key: "owner", Value: "shinzo1idx123", Index: true},
+										{Key: "did", Value: "did:key:z7r8idx", Index: true},
+										{Key: "connection_string", Value: "/ip4/10.0.0.50/tcp/9090/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r", Index: true},
+										{Key: "source_chain", Value: "ethereum", Index: true},
+										{Key: "source_chain_id", Value: "1", Index: true},
 									},
 								},
 							},
@@ -56,10 +50,8 @@ func TestEntityRegisteredToIntegrationFlow(t *testing.T) {
 		},
 	}
 
-	// Send the event
 	mockServer.SendEvent(testEvent)
 
-	// Process the event
 	timeout := time.After(5 * time.Second)
 	eventProcessed := false
 
@@ -70,20 +62,18 @@ func TestEntityRegisteredToIntegrationFlow(t *testing.T) {
 				t.Fatal("Event channel closed unexpectedly")
 			}
 
-			if entityEvent, ok := event.(*EntityRegisteredEvent); ok {
-				// Process the EntityRegistered event
-				err := entityHandler.ProcessEntityRegisteredEvent(context.Background(), *entityEvent)
+			if indexerEvent, ok := event.(*IndexerRegisteredEvent); ok {
+				err := handler.ProcessIndexerRegisteredEvent(context.Background(), *indexerEvent)
 				require.NoError(t, err)
-				
+
 				eventProcessed = true
-				t.Log("✅ Successfully processed EntityRegistered event")
+				t.Log("Successfully processed IndexerRegistered event")
 			}
 
 		case <-timeout:
 			if !eventProcessed {
-				t.Fatal("Timeout waiting for EntityRegistered event")
+				t.Fatal("Timeout waiting for IndexerRegistered event")
 			}
-			// Continue to verification
 		}
 
 		if eventProcessed {
@@ -91,46 +81,38 @@ func TestEntityRegisteredToIntegrationFlow(t *testing.T) {
 		}
 	}
 
-	// Verify the indexer was added
-	indexer, exists := indexerManager.GetIndexer("0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86")
-	require.True(t, exists, "Indexer should exist after EntityRegistered event")
+	// Verify the indexer was added (keyed by owner)
+	indexer, exists := indexerManager.GetIndexer("shinzo1idx123")
+	require.True(t, exists, "Indexer should exist after IndexerRegistered event")
 
-	require.Equal(t, "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", indexer.Key)
-	require.Equal(t, "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", indexer.Owner)
-	require.Equal(t, "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", indexer.DID)
-	require.Equal(t, "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", indexer.Pid)
+	require.Equal(t, "shinzo1idx123", indexer.Owner)
+	require.Equal(t, "did:key:z7r8idx", indexer.DID)
+	require.Equal(t, "/ip4/10.0.0.50/tcp/9090/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r", indexer.ConnectionString)
+	require.Equal(t, "ethereum", indexer.SourceChain)
+	require.Equal(t, "1", indexer.SourceChainID)
 	require.True(t, indexer.Active)
 
-	// Verify indexer count
 	require.Equal(t, 1, indexerManager.GetIndexerCount())
-
-	t.Log("✅ Integration test completed successfully - indexer added from EntityRegistered event")
 }
 
-// TestMultipleEntityRegisteredEvents tests handling multiple EntityRegistered events
-func TestMultipleEntityRegisteredEvents(t *testing.T) {
-	// Create a mock indexer manager
+// TestMultipleIndexerRegisteredEvents tests handling multiple IndexerRegistered events
+func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 	indexerManager := NewMockIndexerManager()
-	
-	// Create the entity registration handler
-	entityHandler := NewEntityRegistrationHandler(indexerManager)
+	handler := NewRegistrationHandler(indexerManager)
 
-	// Create a mock WebSocket server
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
 
-	// Start the event subscription
 	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL())
 	require.NoError(t, err)
 	defer cancel()
 
-	// Test data for multiple events
 	testEvents := []RPCResponse{
 		{
 			JsonRpcVersion: "2.0",
-			ID:             1,
+			ID:             3,
 			Result: RPCResult{
-				Query: "tm.event='Tx' AND EntityRegistered.key EXISTS",
+				Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 				Data: RPCData{
 					Type: "tendermint.event",
 					Value: TxResult{
@@ -139,12 +121,13 @@ func TestMultipleEntityRegisteredEvents(t *testing.T) {
 							Result: TxResultResult{
 								Events: []Event{
 									{
-										Type: "EntityRegistered",
+										Type: "IndexerRegistered",
 										Attributes: []EventAttribute{
-											{Key: "key", Value: "0x1111111111111111", Index: true},
-											{Key: "owner", Value: "shinzo1user1", Index: true},
+											{Key: "owner", Value: "shinzo1idx1", Index: true},
 											{Key: "did", Value: "did:key:1111", Index: true},
-											{Key: "pid", Value: "12D3KooW111111111111", Index: true},
+											{Key: "connection_string", Value: "/ip4/10.0.0.1/tcp/9090/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
+											{Key: "source_chain", Value: "ethereum", Index: true},
+											{Key: "source_chain_id", Value: "1", Index: true},
 										},
 									},
 								},
@@ -156,9 +139,9 @@ func TestMultipleEntityRegisteredEvents(t *testing.T) {
 		},
 		{
 			JsonRpcVersion: "2.0",
-			ID:             2,
+			ID:             3,
 			Result: RPCResult{
-				Query: "tm.event='Tx' AND EntityRegistered.key EXISTS",
+				Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 				Data: RPCData{
 					Type: "tendermint.event",
 					Value: TxResult{
@@ -167,12 +150,13 @@ func TestMultipleEntityRegisteredEvents(t *testing.T) {
 							Result: TxResultResult{
 								Events: []Event{
 									{
-										Type: "EntityRegistered",
+										Type: "IndexerRegistered",
 										Attributes: []EventAttribute{
-											{Key: "key", Value: "0x2222222222222222", Index: true},
-											{Key: "owner", Value: "shinzo1user2", Index: true},
+											{Key: "owner", Value: "shinzo1idx2", Index: true},
 											{Key: "did", Value: "did:key:2222", Index: true},
-											{Key: "pid", Value: "12D3KooW222222222222", Index: true},
+											{Key: "connection_string", Value: "/ip4/10.0.0.2/tcp/9090/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN", Index: true},
+											{Key: "source_chain", Value: "polygon", Index: true},
+											{Key: "source_chain_id", Value: "137", Index: true},
 										},
 									},
 								},
@@ -184,11 +168,9 @@ func TestMultipleEntityRegisteredEvents(t *testing.T) {
 		},
 	}
 
-	// Send multiple events
 	for i, event := range testEvents {
 		mockServer.SendEvent(event)
-		
-		// Wait for and process each event
+
 		timeout := time.After(2 * time.Second)
 		eventProcessed := false
 
@@ -199,17 +181,17 @@ func TestMultipleEntityRegisteredEvents(t *testing.T) {
 					t.Fatal("Event channel closed unexpectedly")
 				}
 
-				if entityEvent, ok := receivedEvent.(*EntityRegisteredEvent); ok {
-					err := entityHandler.ProcessEntityRegisteredEvent(context.Background(), *entityEvent)
+				if indexerEvent, ok := receivedEvent.(*IndexerRegisteredEvent); ok {
+					err := handler.ProcessIndexerRegisteredEvent(context.Background(), *indexerEvent)
 					require.NoError(t, err)
-					
+
 					eventProcessed = true
-					t.Logf("✅ Processed event %d: %s", i+1, entityEvent.Key)
+					t.Logf("Processed event %d: %s", i+1, indexerEvent.Owner)
 				}
 
 			case <-timeout:
 				if !eventProcessed {
-					t.Fatalf("Timeout waiting for EntityRegistered event %d", i+1)
+					t.Fatalf("Timeout waiting for IndexerRegistered event %d", i+1)
 				}
 			}
 
@@ -219,58 +201,48 @@ func TestMultipleEntityRegisteredEvents(t *testing.T) {
 		}
 	}
 
-	// Verify all indexers were added
 	require.Equal(t, 2, indexerManager.GetIndexerCount())
 
-	// Check first indexer
-	indexer1, exists1 := indexerManager.GetIndexer("0x1111111111111111")
+	indexer1, exists1 := indexerManager.GetIndexer("shinzo1idx1")
 	require.True(t, exists1)
-	require.Equal(t, "shinzo1user1", indexer1.Owner)
+	require.Equal(t, "ethereum", indexer1.SourceChain)
 
-	// Check second indexer
-	indexer2, exists2 := indexerManager.GetIndexer("0x2222222222222222")
+	indexer2, exists2 := indexerManager.GetIndexer("shinzo1idx2")
 	require.True(t, exists2)
-	require.Equal(t, "shinzo1user2", indexer2.Owner)
-
-	t.Log("✅ Multiple EntityRegistered events processed successfully")
+	require.Equal(t, "polygon", indexer2.SourceChain)
 }
 
 // TestIndexerManagerFunctionality tests the indexer manager directly
 func TestIndexerManagerFunctionality(t *testing.T) {
 	manager := NewMockIndexerManager()
 
-	// Test adding indexers
-	err := manager.AddIndexer(context.Background(), "test-key-1", "owner1", "did1", "pid1")
+	err := manager.AddIndexer(context.Background(), "shinzo1owner1", "did1", "/ip4/10.0.0.1/tcp/9090/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", "ethereum", "1")
 	require.NoError(t, err)
 
-	err = manager.AddIndexer(context.Background(), "test-key-2", "owner2", "did2", "pid2")
+	err = manager.AddIndexer(context.Background(), "shinzo1owner2", "did2", "/ip4/10.0.0.2/tcp/9090/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN", "polygon", "137")
 	require.NoError(t, err)
 
-	// Test getting indexers
-	indexer1, exists1 := manager.GetIndexer("test-key-1")
+	indexer1, exists1 := manager.GetIndexer("shinzo1owner1")
 	require.True(t, exists1)
-	require.Equal(t, "owner1", indexer1.Owner)
+	require.Equal(t, "did1", indexer1.DID)
+	require.Equal(t, "ethereum", indexer1.SourceChain)
 
-	indexer2, exists2 := manager.GetIndexer("test-key-2")
+	indexer2, exists2 := manager.GetIndexer("shinzo1owner2")
 	require.True(t, exists2)
-	require.Equal(t, "owner2", indexer2.Owner)
+	require.Equal(t, "did2", indexer2.DID)
+	require.Equal(t, "polygon", indexer2.SourceChain)
 
-	// Test non-existent indexer
 	_, exists3 := manager.GetIndexer("non-existent")
 	require.False(t, exists3)
 
-	// Test listing indexers
 	indexers := manager.ListIndexers()
 	require.Len(t, indexers, 2)
 
-	// Test removing indexer
-	err = manager.RemoveIndexer("test-key-1")
+	err = manager.RemoveIndexer("shinzo1owner1")
 	require.NoError(t, err)
 
-	_, exists4 := manager.GetIndexer("test-key-1")
+	_, exists4 := manager.GetIndexer("shinzo1owner1")
 	require.False(t, exists4)
 
 	require.Equal(t, 1, manager.GetIndexerCount())
-
-	t.Log("✅ Indexer manager functionality test passed")
 }

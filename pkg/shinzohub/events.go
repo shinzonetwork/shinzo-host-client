@@ -58,27 +58,6 @@ type ShinzoEvent interface {
 	ToString() string
 }
 
-// EntityType represents the type of entity
-type EntityType string
-
-const (
-	EntityTypeIndexer EntityType = "Indexer"
-	EntityTypeHost    EntityType = "Host"
-	EntityTypeUnknown EntityType = "Unknown"
-)
-
-// GetEntityType determines the entity type from the entity field value
-func GetEntityType(entityValue string) EntityType {
-	switch entityValue {
-	case "\u0001":
-		return EntityTypeIndexer
-	case "\u0002":
-		return EntityTypeHost
-	default:
-		return EntityTypeUnknown
-	}
-}
-
 // StartEventSubscription starts the event subscription and returns a context for cancellation and event channel
 func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -92,10 +71,12 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	// Create an unbuffered channel for events (direct processing)
 	eventChan := make(chan ShinzoEvent)
 
-	// Subscribe to Registered and EntityRegistered events separately because Tendermint doesn't support OR logic
+	// Subscribe to ViewRegistered, HostRegistered, and IndexerRegistered events separately
+	// because Tendermint doesn't support OR logic
 	queries := []string{
-		"tm.event='Tx' AND Registered.key EXISTS",
-		"tm.event='Tx' AND EntityRegistered.key EXISTS",
+		"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
+		"tm.event='Tx' AND HostRegistered.owner EXISTS",
+		"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 	}
 
 	for i, query := range queries {
@@ -164,12 +145,6 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 				fmt.Printf("Context cancelled, stopping message loop\n")
 				return
 			default:
-				// Set a deadline for the next read
-				// if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-				// 	fmt.Printf("Failed to set read deadline: %v\n", err)
-				// 	return
-				// }
-
 				// Read raw message first to see what we're getting
 				_, message, err := conn.ReadMessage()
 				if err != nil {
@@ -200,7 +175,7 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 	return cancel, eventChan, nil
 }
 
-// extractShinzoEvents extracts Registered and EntityRegistered events from an RPC message.
+// extractShinzoEvents extracts ViewRegistered, HostRegistered, and IndexerRegistered events from an RPC message.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 	if msg.JsonRpcVersion != "2.0" ||
@@ -212,73 +187,80 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	// Navigate through the nested structure to find events
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
-		case "Registered":
+		case "ViewRegistered":
 			registeredEvent := ViewRegisteredEvent{}
 
-			// Extract attributes
 			for _, attr := range event.Attributes {
 				switch attr.Key {
-				case "key":
-					registeredEvent.Key = attr.Value
+				case "view_address":
+					registeredEvent.ViewAddress = attr.Value
+				case "view_name":
+					registeredEvent.ViewName = attr.Value
 				case "creator":
 					registeredEvent.Creator = attr.Value
-				case "view":
-					// Process view from wire format
+				case "data":
 					newView, err := ProcessViewFromWireFormat(attr.Value)
 					if err != nil {
 						fmt.Printf("Failed to process view from wire: %v\n", err)
 						continue
 					}
-
 					registeredEvent.View = newView
 				}
 			}
 
-			// Only add if we have all required fields
-			if registeredEvent.Key != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
-				fmt.Printf(" View %s registered for monitoring\n", registeredEvent.View.Name)
-
+			if registeredEvent.ViewAddress != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
+				fmt.Printf("View %s registered for monitoring\n", registeredEvent.View.Name)
 				events = append(events, &registeredEvent)
 			} else {
-				fmt.Printf("Incomplete Registered event: %+v\n", registeredEvent)
+				fmt.Printf("Incomplete ViewRegistered event: %+v\n", registeredEvent)
 			}
 
-		case "EntityRegistered":
-			entityRegisteredEvent := EntityRegisteredEvent{}
+		case "HostRegistered":
+			hostEvent := HostRegisteredEvent{}
 
-			// Extract attributes
 			for _, attr := range event.Attributes {
 				switch attr.Key {
-				case "key":
-					entityRegisteredEvent.Key = attr.Value
 				case "owner":
-					entityRegisteredEvent.Owner = attr.Value
+					hostEvent.Owner = attr.Value
 				case "did":
-					entityRegisteredEvent.DID = attr.Value
-				case "pid":
-					entityRegisteredEvent.Pid = attr.Value
-				case "entity":
-					entityRegisteredEvent.Entity = attr.Value
+					hostEvent.DID = attr.Value
+				case "connection_string":
+					hostEvent.ConnectionString = attr.Value
 				}
 			}
 
-			// Only add if we have all required fields
-			if entityRegisteredEvent.Key != "" && entityRegisteredEvent.Owner != "" && entityRegisteredEvent.DID != "" && entityRegisteredEvent.Pid != "" {
-				// Determine entity type
-				entityType := "Unknown"
-				switch entityRegisteredEvent.Entity {
-				case "\u0001":
-					entityType = "Indexer"
-				case "\u0002":
-					entityType = "Host"
-				}
-
-				fmt.Printf("🎯 Processing EntityRegistered: type=%s, key=%s, owner=%s, did=%s, pid=%s\n",
-					entityType, entityRegisteredEvent.Key, entityRegisteredEvent.Owner, entityRegisteredEvent.DID, entityRegisteredEvent.Pid)
-
-				events = append(events, &entityRegisteredEvent)
+			if hostEvent.Owner != "" && hostEvent.DID != "" {
+				fmt.Printf("Host registered: owner=%s, did=%s, conn=%s\n",
+					hostEvent.Owner, hostEvent.DID, hostEvent.ConnectionString)
+				events = append(events, &hostEvent)
 			} else {
-				fmt.Printf("Incomplete EntityRegistered event: %+v\n", entityRegisteredEvent)
+				fmt.Printf("Incomplete HostRegistered event: %+v\n", hostEvent)
+			}
+
+		case "IndexerRegistered":
+			indexerEvent := IndexerRegisteredEvent{}
+
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case "owner":
+					indexerEvent.Owner = attr.Value
+				case "did":
+					indexerEvent.DID = attr.Value
+				case "connection_string":
+					indexerEvent.ConnectionString = attr.Value
+				case "source_chain":
+					indexerEvent.SourceChain = attr.Value
+				case "source_chain_id":
+					indexerEvent.SourceChainID = attr.Value
+				}
+			}
+
+			if indexerEvent.Owner != "" && indexerEvent.DID != "" {
+				fmt.Printf("Indexer registered: owner=%s, did=%s, chain=%s/%s\n",
+					indexerEvent.Owner, indexerEvent.DID, indexerEvent.SourceChain, indexerEvent.SourceChainID)
+				events = append(events, &indexerEvent)
+			} else {
+				fmt.Printf("Incomplete IndexerRegistered event: %+v\n", indexerEvent)
 			}
 		}
 	}

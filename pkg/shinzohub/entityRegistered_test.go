@@ -10,23 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEntityRegisteredEventSubscription tests the subscription to EntityRegistered events
-func TestEntityRegisteredEventSubscription(t *testing.T) {
-	// Create a mock WebSocket server for testing
+// TestHostRegisteredEventSubscription tests the subscription to HostRegistered events via WebSocket
+func TestHostRegisteredEventSubscription(t *testing.T) {
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
 
-	// Start the event subscription with the mock server
 	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL())
 	require.NoError(t, err)
 	defer cancel()
 
-	// Send a mock EntityRegistered event
 	mockEvent := RPCResponse{
 		JsonRpcVersion: "2.0",
-		ID:             1,
+		ID:             2,
 		Result: RPCResult{
-			Query: "tm.event='Tx' AND EntityRegistered.key EXISTS",
+			Query: "tm.event='Tx' AND HostRegistered.owner EXISTS",
 			Data: RPCData{
 				Type: "tendermint.event",
 				Value: TxResult{
@@ -37,14 +34,11 @@ func TestEntityRegisteredEventSubscription(t *testing.T) {
 							Data: "success",
 							Events: []Event{
 								{
-									Type: "EntityRegistered",
+									Type: "HostRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", Index: true},
-										{Key: "owner", Value: "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", Index: true},
-										{Key: "did", Value: "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", Index: true},
-										{Key: "pid", Value: "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
-										{Key: "entity", Value: "\u0002", Index: true},
-										{Key: "msg_index", Value: "0", Index: true},
+										{Key: "owner", Value: "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", Index: true},
+										{Key: "did", Value: "did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i", Index: true},
+										{Key: "connection_string", Value: "/ip4/192.168.1.100/tcp/9171/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
 									},
 								},
 							},
@@ -55,10 +49,8 @@ func TestEntityRegisteredEventSubscription(t *testing.T) {
 		},
 	}
 
-	// Send the mock event to the subscription
 	mockServer.SendEvent(mockEvent)
 
-	// Wait for the event to be processed
 	timeout := time.After(5 * time.Second)
 	for {
 		select {
@@ -67,40 +59,30 @@ func TestEntityRegisteredEventSubscription(t *testing.T) {
 				t.Fatal("Event channel closed unexpectedly")
 			}
 
-			// Check if we received an EntityRegistered event
-			if entityEvent, ok := event.(*EntityRegisteredEvent); ok {
-				require.Equal(t, "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", entityEvent.Key)
-				require.Equal(t, "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", entityEvent.Owner)
-				require.Equal(t, "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", entityEvent.DID)
-				require.Equal(t, "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", entityEvent.Pid)
-				require.Equal(t, "\u0002", entityEvent.Entity)
+			if hostEvent, ok := event.(*HostRegisteredEvent); ok {
+				require.Equal(t, "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", hostEvent.Owner)
+				require.Equal(t, "did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i", hostEvent.DID)
+				require.Equal(t, "/ip4/192.168.1.100/tcp/9171/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", hostEvent.ConnectionString)
 
-				t.Logf("✅ Successfully received EntityRegistered event: %s", entityEvent.ToString())
+				t.Logf("Successfully received HostRegistered event: %s", hostEvent.ToString())
 				return
 			}
 
-			// If it's a ViewRegistered event, continue waiting
-			if _, ok := event.(*ViewRegisteredEvent); ok {
-				t.Log("Received ViewRegistered event, waiting for EntityRegistered...")
-				continue
-			}
-
-			t.Fatalf("Unexpected event type: %T", event)
+			// Skip other event types (ViewRegistered, etc.)
+			continue
 
 		case <-timeout:
-			t.Fatal("Timeout waiting for EntityRegistered event")
+			t.Fatal("Timeout waiting for HostRegistered event")
 		}
 	}
 }
 
-// TestExtractEntityRegisteredEvents tests the extraction function directly
-func TestExtractEntityRegisteredEvents(t *testing.T) {
-	// Create a test RPC response with EntityRegistered events
+// TestExtractHostAndIndexerRegisteredEvents tests the extraction function directly
+func TestExtractHostAndIndexerRegisteredEvents(t *testing.T) {
 	testMsg := RPCResponse{
 		JsonRpcVersion: "2.0",
 		ID:             1,
 		Result: RPCResult{
-			Query: "tm.event='Tx' AND EntityRegistered.key EXISTS",
 			Data: RPCData{
 				Type: "tendermint.event",
 				Value: TxResult{
@@ -109,27 +91,34 @@ func TestExtractEntityRegisteredEvents(t *testing.T) {
 						Result: TxResultResult{
 							Events: []Event{
 								{
-									Type: "EntityRegistered",
+									Type: "HostRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", Index: true},
-										{Key: "owner", Value: "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", Index: true},
-										{Key: "did", Value: "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", Index: true},
-										{Key: "pid", Value: "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
-										{Key: "entity", Value: "\u0002", Index: true},
+										{Key: "owner", Value: "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", Index: true},
+										{Key: "did", Value: "did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i", Index: true},
+										{Key: "connection_string", Value: "/ip4/192.168.1.100/tcp/8080/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
 									},
 								},
 								{
-									Type: "EntityRegistered",
+									Type: "IndexerRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0x1234567890abcdef", Index: true},
-										{Key: "owner", Value: "shinzo1abcdef", Index: true},
-										// Missing some attributes - should be filtered out
+										{Key: "owner", Value: "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", Index: true},
+										{Key: "did", Value: "did:key:z7r8op4kfY1gpaF3x3uPBT2VJEsCEJiMGq8EG9u9DXzKzRv2jzG2T4d8ictygKyMCVDSsYSwNreSyiepJfeajFfZSkRQb", Index: true},
+										{Key: "connection_string", Value: "10.0.0.50:9090", Index: true},
+										{Key: "source_chain", Value: "ethereum", Index: true},
+										{Key: "source_chain_id", Value: "1", Index: true},
 									},
 								},
 								{
-									Type: "OtherEvent", // Should be ignored
+									Type: "HostRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0xdeadbeef", Index: true},
+										{Key: "owner", Value: "shinzo1incomplete"},
+										// Missing DID: should be filtered out
+									},
+								},
+								{
+									Type: "OtherEvent",
+									Attributes: []EventAttribute{
+										{Key: "key", Value: "0xdeadbeef"},
 									},
 								},
 							},
@@ -140,50 +129,45 @@ func TestExtractEntityRegisteredEvents(t *testing.T) {
 		},
 	}
 
-	// Extract events
 	allEvents := extractShinzoEvents(testMsg)
 
-	// Filter for EntityRegistered events only
-	var events []EntityRegisteredEvent
-	for _, event := range allEvents {
-		if entityEvent, ok := event.(*EntityRegisteredEvent); ok {
-			events = append(events, *entityEvent)
-		}
-	}
+	// Should get 1 host + 1 indexer (incomplete host and other event filtered out)
+	require.Len(t, allEvents, 2, "Should extract exactly 2 complete events")
 
-	// Should only get the complete EntityRegistered event (the second one is incomplete)
-	require.Len(t, events, 1, "Should extract exactly 1 complete EntityRegistered event")
+	// First event: HostRegistered
+	hostEvent, ok := allEvents[0].(*HostRegisteredEvent)
+	require.True(t, ok, "First event should be HostRegisteredEvent")
+	require.Equal(t, "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", hostEvent.Owner)
+	require.Equal(t, "did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i", hostEvent.DID)
+	require.Equal(t, "/ip4/192.168.1.100/tcp/8080/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", hostEvent.ConnectionString)
 
-	event := events[0]
-	require.Equal(t, "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", event.Key)
-	require.Equal(t, "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", event.Owner)
-	require.Equal(t, "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", event.DID)
-	require.Equal(t, "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", event.Pid)
-	require.Equal(t, "\u0002", event.Entity)
-
-	t.Logf("✅ Successfully extracted EntityRegistered event: %s", event.ToString())
+	// Second event: IndexerRegistered
+	indexerEvent, ok := allEvents[1].(*IndexerRegisteredEvent)
+	require.True(t, ok, "Second event should be IndexerRegisteredEvent")
+	require.Equal(t, "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", indexerEvent.Owner)
+	require.Equal(t, "did:key:z7r8op4kfY1gpaF3x3uPBT2VJEsCEJiMGq8EG9u9DXzKzRv2jzG2T4d8ictygKyMCVDSsYSwNreSyiepJfeajFfZSkRQb", indexerEvent.DID)
+	require.Equal(t, "10.0.0.50:9090", indexerEvent.ConnectionString)
+	require.Equal(t, "ethereum", indexerEvent.SourceChain)
+	require.Equal(t, "1", indexerEvent.SourceChainID)
 }
 
-// TestMixedEventSubscription tests receiving both ViewRegistered and EntityRegistered events
+// TestMixedEventSubscription tests receiving ViewRegistered and HostRegistered events together
 func TestMixedEventSubscription(t *testing.T) {
-	// Create a mock WebSocket server for testing
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
 
-	// Start the event subscription with the mock server
 	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL())
 	require.NoError(t, err)
 	defer cancel()
 
-		// Create valid WASM magic number + some data
+	// Create valid WASM magic number + some data
 	wasmData := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC, 0xDD}
 	wasmBase64 := base64.StdEncoding.EncodeToString(wasmData)
-	// Test data
 	query := "Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}"
 	expectedView := view.View{
 		Data: viewbundle.View{
 			Query: query,
-			Sdl:   "type FilteredAndDecodedLogs_0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85 @materialized(if: false) {transactionHash: String}",
+			Sdl:   "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
 					{Path: wasmBase64},
@@ -198,12 +182,11 @@ func TestMixedEventSubscription(t *testing.T) {
 	require.NoError(t, err)
 	viewBase64 := base64.StdEncoding.EncodeToString(wire)
 
-	// Send a mixed event with both ViewRegistered and EntityRegistered
+	// Send a mixed event with ViewRegistered and HostRegistered
 	mixedEvent := RPCResponse{
 		JsonRpcVersion: "2.0",
 		ID:             1,
 		Result: RPCResult{
-			Query: "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
 			Data: RPCData{
 				Type: "tendermint.event",
 				Value: TxResult{
@@ -212,21 +195,20 @@ func TestMixedEventSubscription(t *testing.T) {
 						Result: TxResultResult{
 							Events: []Event{
 								{
-									Type: "Registered",
+									Type: "ViewRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85", Index: true},
+										{Key: "view_address", Value: "0xf00DFed28B5304251f271c6474dF260067ee6BDa", Index: true},
+										{Key: "view_name", Value: "FilteredAndDecodedLogs", Index: true},
 										{Key: "creator", Value: "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", Index: true},
-										{Key: "view", Value: viewBase64, Index: true},
+										{Key: "data", Value: viewBase64, Index: true},
 									},
 								},
 								{
-									Type: "EntityRegistered",
+									Type: "HostRegistered",
 									Attributes: []EventAttribute{
-										{Key: "key", Value: "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", Index: true},
-										{Key: "owner", Value: "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", Index: true},
-										{Key: "did", Value: "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", Index: true},
-										{Key: "pid", Value: "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
-										{Key: "entity", Value: "\u0002", Index: true},
+										{Key: "owner", Value: "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", Index: true},
+										{Key: "did", Value: "did:key:z7r8host", Index: true},
+										{Key: "connection_string", Value: "/ip4/192.168.1.100/tcp/9171/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", Index: true},
 									},
 								},
 							},
@@ -237,12 +219,10 @@ func TestMixedEventSubscription(t *testing.T) {
 		},
 	}
 
-	// Send the mixed event
 	mockServer.SendEvent(mixedEvent)
 
-	// Wait for both events
 	receivedView := false
-	receivedEntity := false
+	receivedHost := false
 	timeout := time.After(5 * time.Second)
 
 	for {
@@ -255,48 +235,59 @@ func TestMixedEventSubscription(t *testing.T) {
 			switch e := event.(type) {
 			case *ViewRegisteredEvent:
 				if !receivedView {
-					require.Equal(t, "0xdc0812f6a7ea5d7b3bf2ee7362e4ed87e7c070eb6d2852c7aaa9589a85dcdd85", e.Key)
+					require.Equal(t, "0xf00DFed28B5304251f271c6474dF260067ee6BDa", e.ViewAddress)
 					require.Equal(t, "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", e.Creator)
 					require.Equal(t, expectedView.Data.Query, e.View.Data.Query)
 					receivedView = true
-					t.Log("✅ Received ViewRegistered event")
+					t.Log("Received ViewRegistered event")
 				}
 
-			case *EntityRegisteredEvent:
-				if !receivedEntity {
-					require.Equal(t, "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86", e.Key)
-					require.Equal(t, "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy", e.Owner)
-					require.Equal(t, "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt", e.DID)
-					receivedEntity = true
-					t.Log("✅ Received EntityRegistered event")
+			case *HostRegisteredEvent:
+				if !receivedHost {
+					require.Equal(t, "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm", e.Owner)
+					require.Equal(t, "did:key:z7r8host", e.DID)
+					require.Equal(t, "/ip4/192.168.1.100/tcp/9171/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo", e.ConnectionString)
+					receivedHost = true
+					t.Log("Received HostRegistered event")
 				}
 
 			default:
 				t.Fatalf("Unexpected event type: %T", event)
 			}
 
-			// If we've received both events, test is successful
-			if receivedView && receivedEntity {
-				t.Log("✅ Successfully received both ViewRegistered and EntityRegistered events")
+			if receivedView && receivedHost {
+				t.Log("Successfully received both ViewRegistered and HostRegistered events")
 				return
 			}
 
 		case <-timeout:
-			t.Fatal("Timeout waiting for events")
+			t.Fatalf("Timeout waiting for events (view=%v, host=%v)", receivedView, receivedHost)
 		}
 	}
 }
 
-// TestEntityRegisteredEventToString tests the string representation
-func TestEntityRegisteredEventToString(t *testing.T) {
-	event := EntityRegisteredEvent{
-		Key:    "0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86",
-		Owner:  "shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy",
-		DID:    "did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt",
-		Pid:    "12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo",
-		Entity: "\u0002",
+// TestHostRegisteredEventToString tests the string representation
+func TestHostRegisteredEventToString(t *testing.T) {
+	event := HostRegisteredEvent{
+		Owner:            "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm",
+		DID:              "did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i",
+		ConnectionString: "/ip4/192.168.1.100/tcp/8080/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo",
 	}
 
-	expected := "EntityRegistered: key=0x2dabf350a86364713863b2bc7bf59029bb7a87aceb2633c5b2a8b733c16f5e86, owner=shinzo10hphdkj8srj7afwezpu4m3puugj8lrywgswzpy, did=did:key:zQ3shbKR7JqKU3SVfMvxHv5N8UtV4EzbChhJXFyprouANr9mt, pid=12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo"
+	expected := "HostRegistered: owner=shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm, did=did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i, conn=/ip4/192.168.1.100/tcp/8080/p2p/12D3KooWQuQrFFtJ7dNi4R69MaEjrJ7dKxiwjKAhLgzqxjC1ntbo"
+	require.Equal(t, expected, event.ToString())
+}
+
+// TestIndexerRegisteredEventToString tests the string representation
+func TestIndexerRegisteredEventToString(t *testing.T) {
+	event := IndexerRegisteredEvent{
+		Owner:            "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm",
+		DID:              "did:key:z7r8op4kfY1gpaF3x3uPBT2VJEsCEJiMGq8EG9u9DXzKzRv2jzG2T4d8ictygKyMCVDSsYSwNreSyiepJfeajFfZSkRQb",
+		ConnectionString: "/ip4/10.0.0.50/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
+		SourceChain:      "ethereum",
+		SourceChainID:    "1",
+	}
+
+	expected := "IndexerRegistered: owner=shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm, did=did:key:z7r8op4kfY1gpaF3x3uPBT2VJEsCEJiMGq8EG9u9DXzKzRv2jzG2T4d8ictygKyMCVDSsYSwNreSyiepJfeajFfZSkRQb, conn=/ip4/10.0.0.50/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r, chain=ethereum/1"
 	require.Equal(t, expected, event.ToString())
 }
