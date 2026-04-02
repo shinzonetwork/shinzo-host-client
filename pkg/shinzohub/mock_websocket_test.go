@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -13,8 +15,10 @@ type MockWebSocketServer struct {
 	server   *http.Server
 	upgrader websocket.Upgrader
 	conn     *websocket.Conn
+	connMu   sync.Mutex // protects concurrent writes to conn
 	done     chan struct{}
 	port     int
+	ready    chan struct{} // signals when all subscriptions have been processed
 }
 
 // NewMockWebSocketServer creates a new mock WebSocket server
@@ -24,23 +28,23 @@ func NewMockWebSocketServer() *MockWebSocketServer {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create listener: %v", err))
 	}
-	
+
 	server := &http.Server{Handler: mux}
-	
+
 	mock := &MockWebSocketServer{
 		server: server,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for testing
+				return true
 			},
 		},
-		done: make(chan struct{}),
-		port: listener.Addr().(*net.TCPAddr).Port,
+		done:  make(chan struct{}),
+		ready: make(chan struct{}),
+		port:  listener.Addr().(*net.TCPAddr).Port,
 	}
 
 	mux.HandleFunc("/websocket", mock.handleWebSocket)
-	
-	// Start the server in a goroutine
+
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("Mock WebSocket server error: %v\n", err)
@@ -61,32 +65,29 @@ func (m *MockWebSocketServer) Close() {
 	if m.server != nil {
 		m.server.Close()
 	}
+	m.connMu.Lock()
 	if m.conn != nil {
 		m.conn.Close()
 	}
+	m.connMu.Unlock()
 }
 
-// SendEvent sends a mock event to the connected client
+// SendEvent sends a mock event to the connected client.
+// Waits briefly for subscriptions to be processed before sending.
 func (m *MockWebSocketServer) SendEvent(event RPCResponse) {
+	// Wait for the handler to finish processing subscriptions
+	select {
+	case <-m.ready:
+	case <-time.After(2 * time.Second):
+	}
+
+	m.connMu.Lock()
+	defer m.connMu.Unlock()
+
 	if m.conn == nil {
 		return
 	}
 
-	// Send subscription response first (simulating successful subscription)
-	subscriptionResponse := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"result": map[string]interface{}{
-			"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
-		},
-	}
-
-	if err := m.conn.WriteJSON(subscriptionResponse); err != nil {
-		fmt.Printf("Failed to send subscription response: %v\n", err)
-		return
-	}
-
-	// Send the actual event
 	if err := m.conn.WriteJSON(event); err != nil {
 		fmt.Printf("Failed to send event: %v\n", err)
 		return
@@ -101,10 +102,13 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	m.connMu.Lock()
 	m.conn = conn
+	m.connMu.Unlock()
 	defer conn.Close()
 
-	// Handle WebSocket messages
+	subscriptionCount := 0
+
 	for {
 		select {
 		case <-m.done:
@@ -118,9 +122,8 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 				return
 			}
 
-			// Handle subscription message
 			if method, ok := msg["method"].(string); ok && method == "subscribe" {
-				// Send subscription confirmation
+				m.connMu.Lock()
 				response := map[string]interface{}{
 					"jsonrpc": "2.0",
 					"id":      msg["id"],
@@ -129,8 +132,21 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 					},
 				}
 				if err := conn.WriteJSON(response); err != nil {
+					m.connMu.Unlock()
 					fmt.Printf("Failed to send subscription response: %v\n", err)
 					return
+				}
+				m.connMu.Unlock()
+
+				subscriptionCount++
+				// Signal ready after all 3 subscriptions are processed
+				if subscriptionCount >= 3 {
+					select {
+					case <-m.ready:
+						// already closed
+					default:
+						close(m.ready)
+					}
 				}
 			}
 		}
