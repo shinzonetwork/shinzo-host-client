@@ -753,7 +753,7 @@ func TestHandleIncomingEvents_ChannelClosed(t *testing.T) {
 	}
 }
 
-func TestHandleIncomingEvents_EntityRegisteredEvent_NoNetworkHandler(t *testing.T) {
+func TestHandleIncomingEvents_IndexerRegisteredEvent_NoNetworkHandler(t *testing.T) {
 	h := &Host{
 		NetworkHandler: nil,
 	}
@@ -769,12 +769,12 @@ func TestHandleIncomingEvents_EntityRegisteredEvent_NoNetworkHandler(t *testing.
 	}()
 
 	// Send entity event
-	ch <- &shinzohub.EntityRegisteredEvent{
-		Key:    "key1",
-		Owner:  "owner1",
-		DID:    "did1",
-		Pid:    "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
-		Entity: "\u0001",
+	ch <- &shinzohub.IndexerRegisteredEvent{
+		Owner:            "owner1",
+		DID:              "did1",
+		ConnectionString: "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
+		SourceChain:      "ethereum",
+		SourceChainID:    "1",
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -805,7 +805,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NilViewManager(t *testing.T) {
 	query := "SELECT * FROM blocks"
 	sdl := "type Block { hash: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -843,7 +843,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingQuery(t *testing.T) {
 
 	// View with nil Query
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -877,7 +877,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptyQuery(t *testing.T) {
 
 	emptyQuery := ""
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -914,7 +914,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingSDL(t *testing.T) {
 
 	query := "SELECT * FROM blocks"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -952,7 +952,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptySDL(t *testing.T) {
 	query := "SELECT * FROM blocks"
 	emptySDL := ""
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -1054,7 +1054,7 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 	query := "SELECT * FROM test"
 	sdl := "type TestView { field: String }"
 	event := shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestViewLens",
@@ -1096,7 +1096,7 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 	query := "SELECT * FROM test"
 	sdl := "type TestView { field: String }"
 	event := shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -1305,7 +1305,7 @@ func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 // handleIncomingEvents - entity event with real NetworkHandler
 // ---------------------------------------------------------------------------
 
-func TestHandleIncomingEvents_EntityRegisteredEvent_WithoutNetworkHandler(t *testing.T) {
+func TestHandleIncomingEvents_HostRegisteredEvent_WithoutNetworkHandler(t *testing.T) {
 	// NetworkHandler is nil — exercises the entity event parsing and nil-check branch
 	// (cannot use bare &defra.NetworkHandler{} because AddPeer panics on uninitialized maps)
 	h := &Host{}
@@ -1320,12 +1320,10 @@ func TestHandleIncomingEvents_EntityRegisteredEvent_WithoutNetworkHandler(t *tes
 		close(done)
 	}()
 
-	ch <- &shinzohub.EntityRegisteredEvent{
-		Key:    "key1",
-		Owner:  "owner1",
-		DID:    "did1",
-		Pid:    "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
-		Entity: "\u0002", // Host entity type
+	ch <- &shinzohub.HostRegisteredEvent{
+		Owner:            "owner1",
+		DID:              "did1",
+		ConnectionString: "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -1359,7 +1357,7 @@ func TestHandleIncomingEvents_UnknownEventType(t *testing.T) {
 		close(done)
 	}()
 
-	// Send an event that is neither ViewRegistered nor EntityRegistered
+	// Send an event that is none of the known types
 	ch <- &unknownTestEvent{}
 
 	time.Sleep(100 * time.Millisecond)
@@ -1405,7 +1403,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 	sdl := "type TestView { hash: String }"
 	// View with lenses that have invalid WASM (will fail PostWasmToFile but exercises the path)
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestViewWithLenses",
@@ -1461,7 +1459,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 	query := "SELECT * FROM blocks"
 	sdl := "type TestView { hash: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestView",
@@ -1623,7 +1621,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	sdl := "type TestLensView { address: String }"
 	// Use valid base64 (tiny fake WASM) so PostWasmToFile succeeds
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key1",
+		ViewAddress: "0xkey1",
 		Creator: "creator1",
 		View: view.View{
 			Name: "TestLensView",
@@ -1683,7 +1681,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 	query := "Log { address }"
 	sdl := "type NoLensView { address: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		Key:     "key2",
+		ViewAddress: "0xkey2",
 		Creator: "creator2",
 		View: view.View{
 			Name: "NoLensView",

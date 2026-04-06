@@ -712,23 +712,43 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				} else {
 					logger.Sugar.Warn("ViewManager not initialized - cannot register view")
 				}
-			} else if entityEvent, ok := event.(*shinzohub.EntityRegisteredEvent); ok {
-				// Process EntityRegistered events - add as P2P peers
-				entityType := shinzohub.GetEntityType(entityEvent.Entity)
-				logger.Sugar.Infof("🎯 Received EntityRegistered event: type=%s, key=%s, owner=%s, pid=%s",
-					entityType, entityEvent.Key, entityEvent.Owner, entityEvent.Pid)
+			} else if hostEvent, ok := event.(*shinzohub.HostRegisteredEvent); ok {
+				logger.Sugar.Infof("Received host registration: owner=%s, did=%s, conn=%s",
+					hostEvent.Owner, hostEvent.DID, hostEvent.ConnectionString)
 
-				// Add entity as P2P peer for communication
-				if h.NetworkHandler != nil {
-					err := h.NetworkHandler.AddPeer(entityEvent.Pid)
-					if err != nil {
-						logger.Sugar.Errorf("❌ Failed to add %s peer %s: %v", entityType, entityEvent.Pid, err)
-					} else {
-						logger.Sugar.Infof("✅ Successfully added %s as P2P peer: %s", entityType, entityEvent.Pid)
+				if h.NetworkHandler != nil && hostEvent.ConnectionString != "" {
+					resolved := resolveBootstrapPeers(context.Background(),
+						[]string{hostEvent.ConnectionString},
+						5*time.Second,
+					)
+					for _, addr := range resolved {
+						if err := h.NetworkHandler.AddPeer(addr); err != nil {
+							logger.Sugar.Errorf("Failed to add host peer %s: %v", addr, err)
+						} else {
+							logger.Sugar.Infof("Added host as P2P peer: %s", addr)
+						}
 					}
-				} else {
-					logger.Sugar.Warn("NetworkHandler not initialized - cannot add P2P peer")
 				}
+
+			} else if indexerEvent, ok := event.(*shinzohub.IndexerRegisteredEvent); ok {
+				logger.Sugar.Infof("Received indexer registration: owner=%s, did=%s, chain=%s/%s, conn=%s",
+					indexerEvent.Owner, indexerEvent.DID, indexerEvent.SourceChain,
+					indexerEvent.SourceChainID, indexerEvent.ConnectionString)
+
+				if h.NetworkHandler != nil && indexerEvent.ConnectionString != "" {
+					resolved := resolveBootstrapPeers(context.Background(),
+						[]string{indexerEvent.ConnectionString},
+						5*time.Second,
+					)
+					for _, addr := range resolved {
+						if err := h.NetworkHandler.AddPeer(addr); err != nil {
+							logger.Sugar.Errorf("Failed to add indexer peer %s: %v", addr, err)
+						} else {
+							logger.Sugar.Infof("Added indexer as P2P peer: %s", addr)
+						}
+					}
+				}
+
 			} else {
 				logger.Sugar.Debugf("Received unknown event type: %+v", event)
 			}

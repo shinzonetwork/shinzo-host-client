@@ -192,8 +192,8 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 // fetchRegisteredViewsPage fetches a single page of Registered events with retry logic.
 func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage int) ([]view.View, int, error) {
 	// Build the query URL
-	// Query: Registered.key EXISTS
-	query := url.QueryEscape(`Registered.key EXISTS`)
+	// Query: ViewRegistered.view_address EXISTS
+	query := url.QueryEscape(`ViewRegistered.view_address EXISTS`)
 	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"asc\"",
 		c.rpcURL, query, page, perPage)
 
@@ -252,7 +252,7 @@ func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage 
 
 	for _, tx := range txResp.Result.Txs {
 		for _, event := range tx.TxResult.Events {
-			if event.Type == "Registered" {
+			if event.Type == "ViewRegistered" {
 				v, err := extractViewFromEvent(event)
 				if err != nil {
 					skippedMalformed++
@@ -280,7 +280,7 @@ func extractViewFromEvent(event Event) (view.View, error) {
 
 	for _, attr := range event.Attributes {
 		switch attr.Key {
-		case "view":
+		case "data":
 			// Process view from wire format
 			newView, err := ProcessViewFromWireFormat(attr.Value)
 			if err != nil {

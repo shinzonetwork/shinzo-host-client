@@ -5,63 +5,56 @@ import (
 	"fmt"
 )
 
-// IndexerManager defines the interface for managing indexers
+// IndexerManager defines the interface for managing indexers.
+// NOTE: This is not currently wired into the event handler in host.go.
+// The event handler calls AddPeer() directly. This interface exists for
+// future use when proper indexer tracking is needed.
 type IndexerManager interface {
-	AddIndexer(ctx context.Context, key string, owner string, did string, pid string) error
-	GetIndexer(key string) (Indexer, bool)
-	RemoveIndexer(key string) error
+	AddIndexer(ctx context.Context, owner string, did string, connectionString string, sourceChain string, sourceChainID string) error
+	GetIndexer(owner string) (Indexer, bool)
+	RemoveIndexer(owner string) error
 }
 
 // Indexer represents a blockchain indexer
 type Indexer struct {
-	Key    string
-	Owner  string
-	DID    string
-	Pid    string
-	Entity string
-	Active bool
+	Owner            string
+	DID              string
+	ConnectionString string
+	SourceChain      string
+	SourceChainID    string
+	Active           bool
 }
 
-// EntityRegistrationHandler manages indexer registration from EntityRegistered events
-type EntityRegistrationHandler struct {
+// RegistrationHandler manages indexer registration from IndexerRegistered events
+type RegistrationHandler struct {
 	indexerManager IndexerManager
 }
 
-// NewEntityRegistrationHandler creates a new entity registration handler
-func NewEntityRegistrationHandler(indexerManager IndexerManager) *EntityRegistrationHandler {
-	return &EntityRegistrationHandler{
+// NewRegistrationHandler creates a new registration handler
+func NewRegistrationHandler(indexerManager IndexerManager) *RegistrationHandler {
+	return &RegistrationHandler{
 		indexerManager: indexerManager,
 	}
 }
 
-// ProcessEntityRegisteredEvent handles an EntityRegistered event from Shinzo Hub
-func (erh *EntityRegistrationHandler) ProcessEntityRegisteredEvent(ctx context.Context, event EntityRegisteredEvent) error {
-	fmt.Printf("🚀 Processing EntityRegistered event for indexer: %s\n", event.Key)
-	
-	// Create a new indexer from the event
-	indexer := Indexer{
-		Key:    event.Key,
-		Owner:  event.Owner,
-		DID:    event.DID,
-		Pid:    event.Pid,
-		Entity: event.Entity,
-		Active: true,
-	}
+// ProcessIndexerRegisteredEvent handles an IndexerRegistered event from ShinzoHub
+func (rh *RegistrationHandler) ProcessIndexerRegisteredEvent(ctx context.Context, event IndexerRegisteredEvent) error {
+	fmt.Printf("Processing IndexerRegistered event for indexer: %s\n", event.Owner)
 
 	// Check if indexer already exists
-	if _, exists := erh.indexerManager.GetIndexer(event.Key); exists {
-		fmt.Printf("⚠️  Indexer %s already exists, updating...\n", event.Key)
+	if _, exists := rh.indexerManager.GetIndexer(event.Owner); exists {
+		fmt.Printf("Indexer %s already exists, updating...\n", event.Owner)
 	}
 
 	// Add or update the indexer
-	err := erh.indexerManager.AddIndexer(ctx, indexer.Key, indexer.Owner, indexer.DID, indexer.Pid)
+	err := rh.indexerManager.AddIndexer(ctx, event.Owner, event.DID, event.ConnectionString, event.SourceChain, event.SourceChainID)
 	if err != nil {
-		return fmt.Errorf("failed to add indexer %s: %w", event.Key, err)
+		return fmt.Errorf("failed to add indexer %s: %w", event.Owner, err)
 	}
 
-	fmt.Printf("✅ Successfully added indexer: %s (owner: %s, did: %s, pid: %s)\n", 
-		indexer.Key, indexer.Owner, indexer.DID, indexer.Pid)
-	
+	fmt.Printf("Successfully added indexer: %s (did: %s, chain: %s/%s)\n",
+		event.Owner, event.DID, event.SourceChain, event.SourceChainID)
+
 	return nil
 }
 
@@ -78,26 +71,27 @@ func NewMockIndexerManager() *MockIndexerManager {
 }
 
 // AddIndexer adds a new indexer
-func (mim *MockIndexerManager) AddIndexer(ctx context.Context, key string, owner string, did string, pid string) error {
-	mim.indexers[key] = Indexer{
-		Key:    key,
-		Owner:  owner,
-		DID:    did,
-		Pid:    pid,
-		Active: true,
+func (mim *MockIndexerManager) AddIndexer(ctx context.Context, owner string, did string, connectionString string, sourceChain string, sourceChainID string) error {
+	mim.indexers[owner] = Indexer{
+		Owner:            owner,
+		DID:              did,
+		ConnectionString: connectionString,
+		SourceChain:      sourceChain,
+		SourceChainID:    sourceChainID,
+		Active:           true,
 	}
 	return nil
 }
 
-// GetIndexer retrieves an indexer by key
-func (mim *MockIndexerManager) GetIndexer(key string) (Indexer, bool) {
-	indexer, exists := mim.indexers[key]
+// GetIndexer retrieves an indexer by owner address
+func (mim *MockIndexerManager) GetIndexer(owner string) (Indexer, bool) {
+	indexer, exists := mim.indexers[owner]
 	return indexer, exists
 }
 
-// RemoveIndexer removes an indexer by key
-func (mim *MockIndexerManager) RemoveIndexer(key string) error {
-	delete(mim.indexers, key)
+// RemoveIndexer removes an indexer by owner address
+func (mim *MockIndexerManager) RemoveIndexer(owner string) error {
+	delete(mim.indexers, owner)
 	return nil
 }
 
