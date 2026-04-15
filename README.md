@@ -75,7 +75,7 @@ The host is designed to transform data it receives from Shinzo Indexers. So, whe
 
 ## Configuration
 
-The Host Client reads from [config.yaml](/config.yaml), which comes with sensible defaults. The only field you need to set is `defradb.keyring_secret` which can alternatively be set with the following command in the terminal window.
+The Host Client reads from [config/config.yaml](/config/config.yaml), which comes with sensible defaults. The only field you need to set is `defradb.keyring_secret` which can alternatively be set with the following command in the terminal window.
 
 ```bash
 export DEFRA_KEYRING_SECRET=<make_a_password>
@@ -88,7 +88,7 @@ export DEFRA_KEYRING_SECRET=<make_a_password>
 * **p2p.bootstrap_peers** – Seed peers for joining the Shinzo network. Defaults include a reliable bootstrap peer.
 * **p2p.listen_addr** – Default is suitable for local runs. Override when containerizing.
 * **store.path** – Directory where local DefraDB data is stored.
-* **shinzo.web_socket_url** – Defaults to a hosted ShinzoHub node. Only change if connecting to a different node.
+* **shinzo.hub_base_url** – ShinzoHub node URL for view discovery and event subscriptions. Defaults to devnet.
 * **logger.development** – Set to `false` for production.
 * **host.lens_registry_path** – Where received WASM lens files are stored.
 
@@ -123,48 +123,63 @@ This approach is particularly useful when you are testing or experimenting local
 
 ## Connect to an Indexer (Step-by-Step)
 
-Below is a concrete example of connecting the Host client to a running Indexer.
+Below is a concrete example of connecting the Host client to running Indexers.
 
-**PEER ID INFO**
+**Devnet Indexer Peer Info (last verified: 2026-04-04)**
 
-- IP_ADDRESS: 136.115.148.56
-- PORT: 9171
-- PEER_ID: 12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD
+> Peer IDs change when VMs are redeployed. If connection fails with a "peer id mismatch" error, the error message contains the actual peer ID. Update `bootstrap_peers` with the actual value from the error.
+
+| Indexer | IP | Peer ID |
+|---------|-----|---------|
+| Indexer 1 | 34.63.13.57 | `12D3KooW9vHms1Uyzai3j8L3ZykcPhLYXoHifzrhgKP6HaTmszbV` |
+| Indexer 2 | 35.208.241.78 | `12D3KooWDUN4xrdREQ4qcAbRmHb1otefmwi6F3a9FTsZdconUHUZ` |
+| Indexer 3 | 35.209.45.53 | `12D3KooWPsgondkHZUKU9BT174ga6qiRtwyMzfw4eTAKrJ6N8Lun` |
 
 Peer info format:
 
-`['/ip4/<IP_ADDRESS>/tcp/<PORT>/p2p/<PEER_ID>']`
+`/ip4/<IP_ADDRESS>/tcp/<PORT>/p2p/<PEER_ID>`
 
-Step 1: Update `config.yaml`
+Step 1: Update `config/config.yaml`
 
 ```yaml
-#... existing config.yaml ...
 defradb:
     p2p:
-        bootstrap_peers: ['/ip4/<IP_ADDRESS>/tcp/9171/p2p/<PeerID>']
-        listen_addr: "/ip4/0.0.0.0/tcp/0"
-#... existing config.yaml ...
+        bootstrap_peers:
+          - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooW9vHms1Uyzai3j8L3ZykcPhLYXoHifzrhgKP6HaTmszbV'
+          - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDUN4xrdREQ4qcAbRmHb1otefmwi6F3a9FTsZdconUHUZ'
+          - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPsgondkHZUKU9BT174ga6qiRtwyMzfw4eTAKrJ6N8Lun'
+        listen_addr: "/ip4/0.0.0.0/tcp/9171"
 ```
 
 Step 2: Run the Host Client
 
 ```bash
 make build
-make start
+DEFRA_KEYRING_SECRET=<make_a_password> make start
+```
+
+Or without make:
+
+```bash
+go build -o bin/host cmd/main.go
+DEFRA_KEYRING_SECRET=<make_a_password> ./bin/host
 ```
 
 Step 3: Verify the connection
 
-Check the Host logs. You should see messages indicating successful pub/sub communication with the Indexer:
+Check the Host logs. You should see messages indicating successful P2P connections and data arriving:
 
-```bash
-Nov 12 16:10:15.363 INF p2p Received new pubsub message
-PeerID=12D3KooWSfFo4Dr3T4AFupCGmDyEosFFcZeo7ozfm6itULeTmTDS
-SenderId=12D3KooWT2wVhxc7ySePpFoomm1SengPYdAa1P6iUiAypN5TRijD
-Topic=bafyreidmrvhwhvnjcrucj7qz26mlsxi4cwjevzzpnb4rr23ighgqxn2n7i
+```
+INFO    Connected to peer /ip4/34.63.13.57/tcp/9171/p2p/12D3KooW9vHms1Uyz... on attempt 1
+INFO    Connected to peer /ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDUN4xrd... on attempt 1
+INFO    Connected to peer /ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPsgondk... on attempt 1
+...
+INFO    Created attestation for block 24802393 (indexer: 024445a72604f827...)
 ```
 
 This confirms the Host is connected and receiving data.
+
+> If you see "peer id mismatch: expected X, but remote key matches Y" errors, update the peer IDs in `config/config.yaml` with the actual values from the error message. Peer IDs change when indexer VMs are redeployed.
 
 ## How the Host Client works
 
@@ -182,10 +197,10 @@ Since the transmission of data from one node to another (moving from Indexer -> 
 
 ### View Discovery and Setup
 
-If the `web_socket_url` field in `config.yaml` is set, the Host client will attempt to establish a websocket connection with a ShinzoHub node. At the time of writing, if you are running ShinzoHub locally, this would typically be:
+If the `hub_base_url` field in `config/config.yaml` is set, the Host client will attempt to establish a websocket connection with a ShinzoHub node. For devnet this is `rpc.devnet.shinzo.network:26657`. If you are running ShinzoHub locally, this would typically be:
 
 ```bash
-ws://localhost:26657/websocket
+localhost:26657
 ```
 
 Once connected, the Host subscribes to new View created events. When a new View event is received, the Host will automatically begin hosting that View. This behavior is currently automatic, though more configurability will be introduced before Shinzo goes live.
