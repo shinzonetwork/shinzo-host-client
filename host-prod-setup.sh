@@ -70,7 +70,7 @@ shinzo:
     # In blocklist mode a document is rejected if it matches any enabled group.
     groups:
       - name: "uniswap-v3"       # Human-readable label (for logs)
-        enabled: true             # Set to false to disable this group without removing it
+        enabled: false             # Set to false to disable this group without removing it
         # Contract filters - match documents by on-chain address.
         # "types" controls which collection types this address applies to:
         #   "transaction" - matches tx.to field
@@ -90,7 +90,7 @@ shinzo:
             # topic2: "0x..."    # Optional: filter by indexed param 2
             # topic3: "0x..."    # Optional: filter by indexed param 3
       - name: "stablecoins"
-        enabled: true
+        enabled: false
         contracts:
           - name: "USDT"
             address: "0xdAC17F958D2ee523a2206206994597C13D831ec7"

@@ -10,5 +10,5 @@ sudo rm /tmp/nginx.csr
 sudo apt-get update &&
 sudo apt-get install -y docker.io docker-compose nginx &&
 sudo mkdir -p ~/data/defradb &&
-sudo chown -R 1003:1006 ~/data/defradb &&
+sudo chown -R 1001:1001 ~/data/defradb &&
 docker-compose up -d
