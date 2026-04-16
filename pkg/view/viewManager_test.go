@@ -7,11 +7,9 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/viewbundle-go"
-	"github.com/stretchr/testify/require"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/stretchr/testify/require"
 )
-
-
 
 func TestNewViewManager(t *testing.T) {
 	ctx := context.Background()
@@ -131,18 +129,18 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 	}{
 		{
 			name:     "simple query",
-			query:    "Ethereum__Mainnet__Log { address topics }",
-			expected: "Ethereum__Mainnet__Log",
+			query:    "Ethereum__Testnet__Log { address topics }",
+			expected: "Ethereum__Testnet__Log",
 		},
 		{
 			name:     "full collection name",
-			query:    "Ethereum__Mainnet__Log { address }",
-			expected: "Ethereum__Mainnet__Log",
+			query:    "Ethereum__Testnet__Log { address }",
+			expected: "Ethereum__Testnet__Log",
 		},
 		{
 			name:     "no braces",
-			query:    "Ethereum__Mainnet__Transaction",
-			expected: "Ethereum__Mainnet__Transaction",
+			query:    "Ethereum__Testnet__Transaction",
+			expected: "Ethereum__Testnet__Transaction",
 		},
 	}
 
@@ -155,7 +153,7 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 }
 
 func TestView_BuildLensConfig(t *testing.T) {
-	query := "Ethereum__Mainnet__Log { address topics }" // Add prefix
+	query := "Ethereum__Testnet__Log { address topics }" // Add prefix
 	sdl := "type FilteredLog { address: String }"
 
 	v := View{
@@ -199,7 +197,7 @@ func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	v := View{
 		Name: "TestView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }", // Add prefix
+			Query: "Ethereum__Testnet__Log { address }", // Add prefix
 			Sdl:   "type TestView { address: String }",
 		},
 	}
@@ -225,7 +223,7 @@ func (m *MockWASMRegistry) EnsureAllWASM(ctx context.Context, urls []string) ([]
 	if m.downloadError != nil {
 		return nil, m.downloadError
 	}
-	
+
 	// Always return success without actually downloading anything
 	var downloaded []string
 	for _, url := range urls {
@@ -270,7 +268,7 @@ func TestViewManager_SetMetricsCallback(t *testing.T) {
 	})
 
 	require.NotNil(t, vm.metricsCallback)
-	
+
 	// Test callback is called (this would happen during actual view registration)
 	if vm.metricsCallback != nil {
 		vm.metricsCallback()
@@ -320,9 +318,9 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	vm := NewViewManager(defraNode, t.TempDir())
 
 	// Create source collections first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Transaction { hash: String }")
 	require.NoError(t, err)
 
 	// Create mock views
@@ -330,14 +328,14 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 		{
 			Name: "ExternalView1",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address }",
+				Query: "Ethereum__Testnet__Log { address }",
 				Sdl:   "type ExternalView1 { address: String }",
 			},
 		},
 		{
 			Name: "ExternalView2",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Transaction { hash }",
+				Query: "Ethereum__Testnet__Transaction { hash }",
 				Sdl:   "type ExternalView2 { hash: String }",
 			},
 		},
@@ -367,14 +365,14 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	vm.wasmRegistry = nil
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	views := []View{
 		{
 			Name: "WasmView",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address }",
+				Query: "Ethereum__Testnet__Log { address }",
 				Sdl:   "type WasmView { address: String }",
 				// No lenses to avoid WASM operations - we're testing the URL extraction logic separately
 			},
@@ -425,13 +423,13 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	v := &View{
 		Name: "CorrectionView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { inputData: address }", // Contains inputData
+			Query: "Ethereum__Testnet__Log { inputData: address }", // Contains inputData
 			Sdl:   "type CorrectionView { address: String }",
 		},
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -452,17 +450,17 @@ func TestSuggestCorrectCollection(t *testing.T) {
 		{
 			name:     "simple collection",
 			input:    "Log",
-			expected: "Ethereum__Mainnet__Log",
+			expected: "Ethereum__Testnet__Log",
 		},
 		{
 			name:     "already prefixed",
-			input:    "Ethereum__Mainnet__Log",
-			expected: "Ethereum__Mainnet__Log",
+			input:    "Ethereum__Testnet__Log",
+			expected: "Ethereum__Testnet__Log",
 		},
 		{
 			name:     "different chain prefix",
-			input:    "Polygon__Mainnet__Transaction",
-			expected: "Polygon__Mainnet__Transaction",
+			input:    "Polygon__Testnet__Transaction",
+			expected: "Polygon__Testnet__Transaction",
 		},
 		{
 			name:     "with double underscore",
@@ -490,7 +488,7 @@ func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 
 	vm := NewViewManager(defraNode, t.TempDir())
 
-	err = vm.subscribeToSourceCollection(ctx, "Ethereum__Mainnet__Log", "TestView")
+	err = vm.subscribeToSourceCollection(ctx, "Ethereum__Testnet__Log", "TestView")
 	require.NoError(t, err)
 }
 
@@ -502,10 +500,10 @@ func TestExtractWasmURLsFromViews_MixedURLs(t *testing.T) {
 			Data: viewbundle.View{
 				Transform: viewbundle.Transform{
 					Lenses: []viewbundle.Lens{
-						{Path: "file:///local.wasm"},           // Local file
+						{Path: "file:///local.wasm"},             // Local file
 						{Path: "https://example.com/lens1.wasm"}, // HTTP URL
-						{Path: "http://example.com/lens2.wasm"},  // HTTP URL  
-						{Path: "base64encodeddata"},             // Base64 data
+						{Path: "http://example.com/lens2.wasm"},  // HTTP URL
+						{Path: "base64encodeddata"},              // Base64 data
 					},
 				},
 			},
@@ -530,11 +528,11 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	vm := NewViewManager(defraNode, t.TempDir())
 
 	// Create source collections first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Transaction { hash: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Block { number: Int }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Block { number: Int }")
 	require.NoError(t, err)
 
 	// Create views with duplicate names
@@ -542,21 +540,21 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 		{
 			Name: "DuplicateView",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address }",
+				Query: "Ethereum__Testnet__Log { address }",
 				Sdl:   "type DuplicateView { address: String }",
 			},
 		},
 		{
 			Name: "DuplicateView", // Same name
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Transaction { hash }",
+				Query: "Ethereum__Testnet__Transaction { hash }",
 				Sdl:   "type DuplicateView { hash: String }",
 			},
 		},
 		{
 			Name: "UniqueView",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Block { number }",
+				Query: "Ethereum__Testnet__Block { number }",
 				Sdl:   "type UniqueView { number: Int }",
 			},
 		},
@@ -588,14 +586,14 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	v := &View{
 		Name: "Base64WasmView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: "Ethereum__Testnet__Log { address }",
 			Sdl:   "type Base64WasmView { address: String }",
 			// No lenses to avoid WASM processing issues
 		},
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -623,14 +621,14 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	}
 
 	// Create source collection with full name
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
 	require.NoError(t, err)
 
 	// Verify query was corrected to include chain prefix
-	require.Contains(t, v.Data.Query, "Ethereum__Mainnet__Log")
+	require.Contains(t, v.Data.Query, "Ethereum__Testnet__Log")
 	require.NotEqual(t, "Log { address }", v.Data.Query) // Should not be the original uncorrected form
 }
 
@@ -655,14 +653,14 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	v := &View{
 		Name: "CompleteFlowView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address topics }",
+			Query: "Ethereum__Testnet__Log { address topics }",
 			Sdl:   "type CompleteFlowView { address: String, topics: [String] }",
 			// No Transform/Lenses to avoid WASM operations
 		},
 	}
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String, topics: [String] }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String, topics: [String] }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -731,7 +729,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	v := &View{
 		Name: "NoLensesView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: "Ethereum__Testnet__Log { address }",
 			Sdl:   "type NoLensesView { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{}, // Empty lenses
@@ -740,7 +738,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -764,14 +762,14 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	v := &View{
 		Name: "FileURLView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: "Ethereum__Testnet__Log { address }",
 			Sdl:   "type FileURLView { address: String }",
 			// No lenses to avoid WASM file processing issues
 		},
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -848,13 +846,13 @@ func TestViewManager_MetricsCallbackError(t *testing.T) {
 	v := &View{
 		Name: "MetricsErrorView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: "Ethereum__Testnet__Log { address }",
 			Sdl:   "type MetricsErrorView { address: String }",
 		},
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	// Should not fail even if metrics callback returns nil

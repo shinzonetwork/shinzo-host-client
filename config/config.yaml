@@ -4,9 +4,7 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '136.112.82.96' # IND1
-      - '35.208.194.91' # IND2
-      - '35.208.10.127' # IND3
+      - '/ip4/35.209.139.172/tcp/9171/p2p/12D3KooWEMDRyZBSdJDQBZ7b8Ax7wu3AL7pb7ici3dip1dSmADgH'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)

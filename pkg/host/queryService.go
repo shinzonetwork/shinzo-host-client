@@ -154,13 +154,13 @@ func (qs *QueryService) BuildNestedQuery(primaryCollection CollectionType, neste
 func (qs *QueryService) getCollectionName(collectionType CollectionType) string {
 	switch collectionType {
 	case CollectionBlock:
-		return "Ethereum__Mainnet__Block"
+		return "Ethereum__Testnet__Block"
 	case CollectionTransaction:
-		return "Ethereum__Mainnet__Transaction"
+		return "Ethereum__Testnet__Transaction"
 	case CollectionLog:
-		return "Ethereum__Mainnet__Log"
+		return "Ethereum__Testnet__Log"
 	case CollectionAccessListEntry:
-		return "Ethereum__Mainnet__AccessListEntry"
+		return "Ethereum__Testnet__AccessListEntry"
 	default:
 		return string(collectionType)
 	}

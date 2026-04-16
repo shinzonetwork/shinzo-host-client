@@ -408,13 +408,13 @@ func TestConfigureLens_WithoutLensCID(t *testing.T) {
 	defer defraNode.Close(ctx)
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Log { address: String }")
 	require.NoError(t, err)
 
 	v := &View{
 		Name: "SimpleView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: "Ethereum__Testnet__Log { address }",
 			Sdl:   "type SimpleView { address: String }",
 		},
 	}
@@ -432,13 +432,13 @@ func TestConfigureLens_WithLensCID(t *testing.T) {
 	defer defraNode.Close(ctx)
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Testnet__Transaction { hash: String }")
 	require.NoError(t, err)
 
 	v := &View{
 		Name: "LensedView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Transaction { hash }",
+			Query: "Ethereum__Testnet__Transaction { hash }",
 			Sdl:   "type LensedView { hash: String }",
 		},
 	}
@@ -466,7 +466,7 @@ func TestBuildLensConfig_ComplexArguments(t *testing.T) {
 			},
 		},
 		"config": map[string]interface{}{
-			"strict": true,
+			"strict":  true,
 			"version": 2,
 		},
 	}

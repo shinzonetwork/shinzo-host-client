@@ -605,7 +605,7 @@ func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber
 
 // GetAttestationRecordsByViewName queries attestation records for a specific view
 func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIds []string) ([]AttestationRecord, error) {
-	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	collectionName := fmt.Sprintf("Ethereum__Testnet__AttestationRecord_%s", viewName)
 
 	if len(viewDocIds) > 0 {
 		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter

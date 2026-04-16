@@ -164,8 +164,8 @@ func TestShouldProcessDocument(t *testing.T) {
 				Type: "Transaction",
 				Data: map[string]interface{}{},
 				Metadata: DocumentMetadata{
-					ProcessingDepth: 5,
-					ProcessingChain: "v1,v2,v3,v4,v5",
+					ProcessingDepth:  5,
+					ProcessingChain:  "v1,v2,v3,v4,v5",
 					SourceCollection: "Transaction",
 					DocumentType:     "Transaction",
 					OriginalDocID:    "bae-2",
@@ -406,22 +406,22 @@ func TestGetRequiredFieldsByType(t *testing.T) {
 	}{
 		{
 			name:           "Ethereum Transaction",
-			docType:        "Ethereum__Mainnet__Transaction",
+			docType:        "Ethereum__Testnet__Transaction",
 			expectedFields: []string{"from", "to", "hash", "blockNumber"},
 		},
 		{
 			name:           "Ethereum Block",
-			docType:        "Ethereum__Mainnet__Block",
+			docType:        "Ethereum__Testnet__Block",
 			expectedFields: []string{"hash", "number"},
 		},
 		{
 			name:           "Ethereum Log",
-			docType:        "Ethereum__Mainnet__Log",
+			docType:        "Ethereum__Testnet__Log",
 			expectedFields: []string{"address", "topics", "blockNumber"},
 		},
 		{
 			name:           "Ethereum AccessListEntry",
-			docType:        "Ethereum__Mainnet__AccessListEntry",
+			docType:        "Ethereum__Testnet__AccessListEntry",
 			expectedFields: []string{"address", "storageKeys"},
 		},
 		{

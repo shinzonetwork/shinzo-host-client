@@ -85,7 +85,7 @@ func testViewRegistration(t *testing.T, ctx context.Context, defraNode *node.Nod
 	require.NoError(t, err, "Should handle empty view list")
 
 	// Create a simple view without lenses
-	query := "Ethereum__Mainnet__Log { address blockNumber transactionHash }"
+	query := "Ethereum__Testnet__Log { address blockNumber transactionHash }"
 	sdl := "type TestLogView @materialized(if: false) { address: String blockNumber: Int transactionHash: String }"
 	testView := view.View{
 		Name:  "TestLogView",

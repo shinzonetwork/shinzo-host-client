@@ -212,7 +212,7 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 		type TestDoc {
 			name: String
 		}
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: String
 			CIDs: [String]

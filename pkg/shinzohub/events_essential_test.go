@@ -75,7 +75,7 @@ func TestExtractViewFromEvent(t *testing.T) {
 		View: view.View{
 			Name: "SimpleLog",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address topics data transactionHash blockNumber }",
+				Query: "Ethereum__Testnet__Log { address topics data transactionHash blockNumber }",
 				Sdl:   "type SimpleLog @materialized(if: false) { transactionHash: String }",
 			},
 		},
@@ -85,7 +85,7 @@ func TestExtractViewFromEvent(t *testing.T) {
 	require.Equal(t, "SimpleLog", event.ViewName)
 	require.Equal(t, testViewCreator, event.Creator)
 	require.Equal(t, "SimpleLog", event.View.Name)
-	require.Equal(t, "Ethereum__Mainnet__Log { address topics data transactionHash blockNumber }", event.View.Data.Query)
+	require.Equal(t, "Ethereum__Testnet__Log { address topics data transactionHash blockNumber }", event.View.Data.Query)
 }
 
 func TestEventStructures(t *testing.T) {
@@ -96,7 +96,7 @@ func TestEventStructures(t *testing.T) {
 		View: view.View{
 			Name: "StablecoinEvent",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address topics data }",
+				Query: "Ethereum__Testnet__Log { address topics data }",
 				Sdl:   "type StablecoinEvent @materialized(if: false) { address: String }",
 			},
 		},

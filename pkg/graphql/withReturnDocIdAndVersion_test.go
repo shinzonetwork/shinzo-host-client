@@ -94,7 +94,7 @@ func TestWithReturnDocIdAndVersion(t *testing.T) {
 			expectError:   false,
 		},
 		{
-			name:          "query with Ethereum__Mainnet__AccessListEntry nested structure",
+			name:          "query with Ethereum__Testnet__AccessListEntry nested structure",
 			query:         constants.CollectionAccessListEntry + " { key transaction { hash block { number } } }",
 			expectedQuery: constants.CollectionAccessListEntry + " {_docID _version { cid signature { type identity value } } key transaction { hash block { number } }}",
 			expectError:   false,

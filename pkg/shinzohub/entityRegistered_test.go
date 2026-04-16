@@ -163,7 +163,7 @@ func TestMixedEventSubscription(t *testing.T) {
 	// Create valid WASM magic number + some data
 	wasmData := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC, 0xDD}
 	wasmBase64 := base64.StdEncoding.EncodeToString(wasmData)
-	query := "Ethereum__Mainnet__Log {address topics data transactionHash blockNumber}"
+	query := "Ethereum__Testnet__Log {address topics data transactionHash blockNumber}"
 	expectedView := view.View{
 		Data: viewbundle.View{
 			Query: query,

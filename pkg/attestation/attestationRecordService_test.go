@@ -174,7 +174,7 @@ func TestPostAttestationRecord(t *testing.T) {
 			name: String
 		}
 
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -242,7 +242,7 @@ func TestPostAttestationRecord(t *testing.T) {
 	// Manually create attestation record with the necessary data - we don't use CreateAttestationRecord because we don't want any validation
 	attestationRecord := &AttestationRecord{
 		AttestedDocId: attestedDocId,
-		SourceDocIds:   []string{sourceDocId},
+		SourceDocIds:  []string{sourceDocId},
 		CIDs:          []string{},
 	}
 	for _, version := range testVersions {
@@ -279,13 +279,13 @@ func TestPostAttestationRecord(t *testing.T) {
 func TestMergeAttestationRecords_SameDocument(t *testing.T) {
 	record1 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          []string{"cid-1", "cid-2"},
 	}
 
 	record2 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+		SourceDocIds:  []string{"source-2"},
 		CIDs:          []string{"cid-3", "cid-4"},
 	}
 
@@ -306,13 +306,13 @@ func TestMergeAttestationRecords_SameDocument(t *testing.T) {
 func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
 	record1 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          []string{"cid-1", "cid-2", "cid-3"},
 	}
 
 	record2 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+		SourceDocIds:  []string{"source-2"},
 		CIDs:          []string{"cid-2", "cid-3", "cid-4"}, // cid-2 and cid-3 are duplicates
 	}
 
@@ -339,13 +339,13 @@ func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
 func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
 	record1 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          []string{"cid-1", "cid-2"},
 	}
 
 	record2 := &AttestationRecord{
 		AttestedDocId: "doc-456", // Different document
-		SourceDocIds:   []string{"source-2"},
+		SourceDocIds:  []string{"source-2"},
 		CIDs:          []string{"cid-3", "cid-4"},
 	}
 
@@ -358,13 +358,13 @@ func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
 func TestMergeAttestationRecords_EmptyRecords(t *testing.T) {
 	record1 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          []string{},
 	}
 
 	record2 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+		SourceDocIds:  []string{"source-2"},
 		CIDs:          []string{"cid-1", "cid-2"},
 	}
 
@@ -380,13 +380,13 @@ func TestMergeAttestationRecords_EmptyRecords(t *testing.T) {
 func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
 	record1 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          []string{},
 	}
 
 	record2 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+		SourceDocIds:  []string{"source-2"},
 		CIDs:          []string{},
 	}
 
@@ -409,7 +409,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 		type TestDoc {
 			name: String
 		}
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -493,13 +493,13 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 
 	record1 := &AttestationRecord{
 		AttestedDocId: attestedDocId,
-		SourceDocIds:   []string{doc1Result.DocId},
+		SourceDocIds:  []string{doc1Result.DocId},
 		CIDs:          []string{doc1Result.Version[0].CID},
 	}
 
 	record2 := &AttestationRecord{
 		AttestedDocId: attestedDocId,
-		SourceDocIds:   []string{doc2Result.DocId},
+		SourceDocIds:  []string{doc2Result.DocId},
 		CIDs:          []string{doc2Result.Version[0].CID},
 	}
 
@@ -555,7 +555,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 
 	record1 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          cids1,
 	}
 
@@ -573,7 +573,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 
 	record2 := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+		SourceDocIds:  []string{"source-2"},
 		CIDs:          cids2,
 	}
 
@@ -604,7 +604,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 			name: String
 		}
 
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -636,7 +636,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 
 	record := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"doc-123"},
+		SourceDocIds:  []string{"doc-123"},
 		CIDs:          []string{"cid-1"},
 	}
 
@@ -669,7 +669,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 			name: String
 		}
 
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -701,7 +701,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 
 	record := &AttestationRecord{
 		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"doc-123"},
+		SourceDocIds:  []string{"doc-123"},
 		CIDs:          []string{"cid-1"},
 	}
 
@@ -753,7 +753,7 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	ctx := context.Background()
 
 	schema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -802,7 +802,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -833,7 +833,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 	// Step 1: Create initial attestation record with cid-1 and cid-2
 	initialRecord := &AttestationRecord{
 		AttestedDocId: "attested-doc-123",
-		SourceDocIds:   []string{"source-doc-456"},
+		SourceDocIds:  []string{"source-doc-456"},
 		CIDs:          []string{"cid-1", "cid-2"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -862,7 +862,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 	// Step 2: Post update with new CIDs (cid-2 overlaps, cid-3 is new)
 	updateRecord := &AttestationRecord{
 		AttestedDocId: "attested-doc-123",
-		SourceDocIds:   []string{"source-doc-456"},
+		SourceDocIds:  []string{"source-doc-456"},
 		CIDs:          []string{"cid-2", "cid-3"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -882,7 +882,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -913,7 +913,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	// Create a new record
 	record := &AttestationRecord{
 		AttestedDocId: "new-attested-doc",
-		SourceDocIds:   []string{"new-source-doc"},
+		SourceDocIds:  []string{"new-source-doc"},
 		CIDs:          []string{"cid-a", "cid-b"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -944,7 +944,7 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -976,14 +976,14 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	records := []*AttestationRecord{
 		{
 			AttestedDocId: "doc-1",
-			SourceDocIds:   []string{"source-1"},
+			SourceDocIds:  []string{"source-1"},
 			CIDs:          []string{"cid-1"},
 			DocType:       "TypeA",
 			VoteCount:     1,
 		},
 		{
 			AttestedDocId: "doc-2",
-			SourceDocIds:   []string{"source-2"},
+			SourceDocIds:  []string{"source-2"},
 			CIDs:          []string{"cid-2", "cid-3"},
 			DocType:       "TypeB",
 			VoteCount:     1,
@@ -1023,7 +1023,7 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1070,7 +1070,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1101,7 +1101,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	// Create initial record
 	initialRecord := &AttestationRecord{
 		AttestedDocId: "attested-doc-mutation-test",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{"cid-1"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -1112,7 +1112,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	// Create update record and save original CIDs
 	updateRecord := &AttestationRecord{
 		AttestedDocId: "attested-doc-mutation-test",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{"cid-2"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -1378,7 +1378,7 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 	}
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1436,7 +1436,7 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 	}
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1557,7 +1557,7 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 	}
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1639,7 +1639,7 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 	}
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1708,7 +1708,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1746,7 +1746,7 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1777,7 +1777,7 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	// First, create an attestation record
 	record := &AttestationRecord{
 		AttestedDocId: "check-existing-doc",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{"cid-check-1"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -1799,7 +1799,7 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1830,7 +1830,7 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 	// Create an attestation record with doc_type "TypeA"
 	record := &AttestationRecord{
 		AttestedDocId: "check-doctype-doc",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{"cid-dt-1"},
 		DocType:       "TypeA",
 		VoteCount:     1,
@@ -1852,7 +1852,7 @@ func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1890,7 +1890,7 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1921,7 +1921,7 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	// Create a block attestation record with attested_doc = "block:42"
 	record := &AttestationRecord{
 		AttestedDocId: "block:42",
-		SourceDocIds:   []string{"block-source"},
+		SourceDocIds:  []string{"block-source"},
 		CIDs:          []string{"target-cid", "other-cid"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -1939,7 +1939,7 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -1970,7 +1970,7 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	// Create a block attestation record
 	record := &AttestationRecord{
 		AttestedDocId: "block:50",
-		SourceDocIds:   []string{"block-source"},
+		SourceDocIds:  []string{"block-source"},
 		CIDs:          []string{"cid-in-block"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -1992,7 +1992,7 @@ func TestGetBlockAttestations_NoRecords(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2029,7 +2029,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2060,14 +2060,14 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	// Create block attestation records with the prefix "block:100:"
 	record1 := &AttestationRecord{
 		AttestedDocId: "block:100:merkle-root-a",
-		SourceDocIds:   []string{"indexer-1"},
+		SourceDocIds:  []string{"indexer-1"},
 		CIDs:          []string{"cid-100-a"},
 		DocType:       "Block",
 		VoteCount:     1,
 	}
 	record2 := &AttestationRecord{
 		AttestedDocId: "block:100:merkle-root-b",
-		SourceDocIds:   []string{"indexer-2"},
+		SourceDocIds:  []string{"indexer-2"},
 		CIDs:          []string{"cid-100-b"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -2075,7 +2075,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	// Also create a record for a different block to make sure it's not returned
 	record3 := &AttestationRecord{
 		AttestedDocId: "block:200:merkle-root-c",
-		SourceDocIds:   []string{"indexer-1"},
+		SourceDocIds:  []string{"indexer-1"},
 		CIDs:          []string{"cid-200-c"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -2109,9 +2109,9 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 	ctx := context.Background()
 
-	// The function queries collection "Ethereum__Mainnet__AttestationRecord_<viewName>"
+	// The function queries collection "Ethereum__Testnet__AttestationRecord_<viewName>"
 	viewName := "TestView"
-	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	collectionName := fmt.Sprintf("Ethereum__Testnet__AttestationRecord_%s", viewName)
 
 	testSchema := fmt.Sprintf(`
 		type %s {
@@ -2188,7 +2188,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 	ctx := context.Background()
 
 	viewName := "TestViewAll"
-	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	collectionName := fmt.Sprintf("Ethereum__Testnet__AttestationRecord_%s", viewName)
 
 	testSchema := fmt.Sprintf(`
 		type %s {
@@ -2248,7 +2248,7 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 	ctx := context.Background()
 
 	viewName := "TestViewEmpty"
-	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	collectionName := fmt.Sprintf("Ethereum__Testnet__AttestationRecord_%s", viewName)
 
 	testSchema := fmt.Sprintf(`
 		type %s {
@@ -2298,7 +2298,7 @@ func TestGetAttestationRecordsByViewName_NoRecords(t *testing.T) {
 	ctx := context.Background()
 
 	viewName := "TestViewNone"
-	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
+	collectionName := fmt.Sprintf("Ethereum__Testnet__AttestationRecord_%s", viewName)
 
 	testSchema := fmt.Sprintf(`
 		type %s {
@@ -2341,7 +2341,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2371,7 +2371,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 
 	record := &AttestationRecord{
 		AttestedDocId: "empty-cids-doc",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -2385,7 +2385,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2415,7 +2415,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 
 	record := &AttestationRecord{
 		AttestedDocId: "multi-cid-doc",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{"cid-1", "cid-2", "cid-3"},
 		DocType:       "TestDoc",
 		VoteCount:     5,
@@ -2530,7 +2530,7 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 
 	record := &AttestationRecord{
 		AttestedDocId: "doc-error",
-		SourceDocIds:   []string{"source-error"},
+		SourceDocIds:  []string{"source-error"},
 		CIDs:          []string{"cid-1"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -2569,7 +2569,7 @@ func TestPostAttestationRecordsBatch_MissingSchema_ReturnsError(t *testing.T) {
 	records := []*AttestationRecord{
 		{
 			AttestedDocId: "doc-1",
-			SourceDocIds:   []string{"source-1"},
+			SourceDocIds:  []string{"source-1"},
 			CIDs:          []string{"cid-1"},
 			DocType:       "TestDoc",
 			VoteCount:     1,
@@ -2588,7 +2588,7 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 	// All records are nil or have empty CIDs - should return early with nil
 	// after filtering produces empty attestedDocIDs
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2687,7 +2687,7 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 	}
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2762,7 +2762,7 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2794,7 +2794,7 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	// Using upsert, the second one will merge with the first
 	record1 := &AttestationRecord{
 		AttestedDocId: "multi-check-doc",
-		SourceDocIds:   []string{"source-1"},
+		SourceDocIds:  []string{"source-1"},
 		CIDs:          []string{"cid-1"},
 		DocType:       "TypeA",
 		VoteCount:     1,
@@ -2817,7 +2817,7 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2848,7 +2848,7 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	// Create a block attestation with specific CIDs
 	record := &AttestationRecord{
 		AttestedDocId: "block:77",
-		SourceDocIds:   []string{"block-source"},
+		SourceDocIds:  []string{"block-source"},
 		CIDs:          []string{"cid-a", "cid-b", "target-cid-77"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -2876,7 +2876,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -2908,7 +2908,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 	for _, bn := range []int{300, 300, 301} {
 		record := &AttestationRecord{
 			AttestedDocId: fmt.Sprintf("block:%d:merkle-%d", bn, bn),
-			SourceDocIds:   []string{fmt.Sprintf("indexer-%d", bn)},
+			SourceDocIds:  []string{fmt.Sprintf("indexer-%d", bn)},
 			CIDs:          []string{fmt.Sprintf("cid-%d", bn)},
 			DocType:       "Block",
 			VoteCount:     1,
@@ -3066,7 +3066,7 @@ func TestExtractVersionsFromDocument_NonStringSignatureType(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-nst", versions[0].CID)
-	require.Equal(t, "", versions[0].Signature.Type)       // Should be zero value
+	require.Equal(t, "", versions[0].Signature.Type) // Should be zero value
 	require.Equal(t, "identity-ok", versions[0].Signature.Identity)
 	require.Equal(t, "sig-ok", versions[0].Signature.Value)
 }
@@ -3213,7 +3213,7 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -3369,7 +3369,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -3409,7 +3409,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	ctx := context.Background()
 
 	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
+		type Ethereum__Testnet__AttestationRecord {
 			attested_doc: String @index
 			source_doc: [String]
 			CIDs: [String]
@@ -3440,7 +3440,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	// Create a record first
 	record := &AttestationRecord{
 		AttestedDocId: "lookup-existing-doc",
-		SourceDocIds:   []string{"source-doc"},
+		SourceDocIds:  []string{"source-doc"},
 		CIDs:          []string{"cid-lookup"},
 		DocType:       "TestDoc",
 		VoteCount:     1,

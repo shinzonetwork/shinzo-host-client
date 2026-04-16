@@ -173,10 +173,10 @@ func (dps *DocumentProvenanceService) PreserveFilterFields(sourceData, outputDat
 // GetRequiredFieldsByType returns the required filter fields for each document type
 func (dps *DocumentProvenanceService) GetRequiredFieldsByType() map[string][]string {
 	return map[string][]string{
-		"Ethereum__Mainnet__Transaction":     {"from", "to", "hash", "blockNumber"},
-		"Ethereum__Mainnet__Block":           {"hash", "number"},
-		"Ethereum__Mainnet__Log":             {"address", "topics", "blockNumber"},
-		"Ethereum__Mainnet__AccessListEntry": {"address", "storageKeys"},
+		"Ethereum__Testnet__Transaction":     {"from", "to", "hash", "blockNumber"},
+		"Ethereum__Testnet__Block":           {"hash", "number"},
+		"Ethereum__Testnet__Log":             {"address", "topics", "blockNumber"},
+		"Ethereum__Testnet__AccessListEntry": {"address", "storageKeys"},
 		"Transaction":                        {"from", "to", "hash", "blockNumber"},
 		"Block":                              {"hash", "number"},
 		"Log":                                {"address", "topics", "blockNumber"},

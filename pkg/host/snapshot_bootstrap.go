@@ -130,7 +130,7 @@ func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, in
 		Number int64 `json:"number"`
 	}
 	type queryResult struct {
-		Block []blockResult `json:"Ethereum__Mainnet__Block"`
+		Block []blockResult `json:"Ethereum__Testnet__Block"`
 	}
 
 	// Get highest block.

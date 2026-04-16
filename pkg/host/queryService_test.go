@@ -132,21 +132,21 @@ func TestBuildDynamicQuery(t *testing.T) {
 			name:           "no filters produces simple query",
 			collectionType: CollectionBlock,
 			filters:        nil,
-			mustContain:    []string{"Ethereum__Mainnet__Block {", "_docID", "_version", "hash", "number"},
+			mustContain:    []string{"Ethereum__Testnet__Block {", "_docID", "_version", "hash", "number"},
 			mustNotContain: []string{"filter:"},
 		},
 		{
 			name:           "empty filter map produces simple query",
 			collectionType: CollectionTransaction,
 			filters:        map[string]interface{}{},
-			mustContain:    []string{"Ethereum__Mainnet__Transaction {", "_docID"},
+			mustContain:    []string{"Ethereum__Testnet__Transaction {", "_docID"},
 			mustNotContain: []string{"filter:"},
 		},
 		{
 			name:           "with string filter",
 			collectionType: CollectionTransaction,
 			filters:        map[string]interface{}{"from": "0xabc"},
-			mustContain:    []string{"Ethereum__Mainnet__Transaction(filter:", "from: {_eq: \"0xabc\"}"},
+			mustContain:    []string{"Ethereum__Testnet__Transaction(filter:", "from: {_eq: \"0xabc\"}"},
 		},
 		{
 			name:           "with bool filter",
@@ -174,11 +174,11 @@ func TestBuildNestedQuery(t *testing.T) {
 	qs := NewQueryService()
 
 	tests := []struct {
-		name              string
-		primary           CollectionType
-		nested            []CollectionType
-		filters           map[string]interface{}
-		mustContain       []string
+		name        string
+		primary     CollectionType
+		nested      []CollectionType
+		filters     map[string]interface{}
+		mustContain []string
 	}{
 		{
 			name:    "block with nested transaction",
@@ -186,8 +186,8 @@ func TestBuildNestedQuery(t *testing.T) {
 			nested:  []CollectionType{CollectionTransaction},
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Block {",
-				"Ethereum__Mainnet__Transaction {",
+				"Ethereum__Testnet__Block {",
+				"Ethereum__Testnet__Transaction {",
 			},
 		},
 		{
@@ -196,9 +196,9 @@ func TestBuildNestedQuery(t *testing.T) {
 			nested:  []CollectionType{CollectionLog, CollectionAccessListEntry},
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Transaction {",
-				"Ethereum__Mainnet__Log {",
-				"Ethereum__Mainnet__AccessListEntry {",
+				"Ethereum__Testnet__Transaction {",
+				"Ethereum__Testnet__Log {",
+				"Ethereum__Testnet__AccessListEntry {",
 			},
 		},
 		{
@@ -207,8 +207,8 @@ func TestBuildNestedQuery(t *testing.T) {
 			nested:  []CollectionType{CollectionTransaction},
 			filters: map[string]interface{}{"number": int64(100)},
 			mustContain: []string{
-				"Ethereum__Mainnet__Block(filter:",
-				"Ethereum__Mainnet__Transaction",
+				"Ethereum__Testnet__Block(filter:",
+				"Ethereum__Testnet__Transaction",
 			},
 		},
 	}
@@ -235,22 +235,22 @@ func TestGetCollectionName(t *testing.T) {
 		{
 			name:           "Block",
 			collectionType: CollectionBlock,
-			expected:       "Ethereum__Mainnet__Block",
+			expected:       "Ethereum__Testnet__Block",
 		},
 		{
 			name:           "Transaction",
 			collectionType: CollectionTransaction,
-			expected:       "Ethereum__Mainnet__Transaction",
+			expected:       "Ethereum__Testnet__Transaction",
 		},
 		{
 			name:           "Log",
 			collectionType: CollectionLog,
-			expected:       "Ethereum__Mainnet__Log",
+			expected:       "Ethereum__Testnet__Log",
 		},
 		{
 			name:           "AccessListEntry",
 			collectionType: CollectionAccessListEntry,
-			expected:       "Ethereum__Mainnet__AccessListEntry",
+			expected:       "Ethereum__Testnet__AccessListEntry",
 		},
 		{
 			name:           "unknown type returns raw string",
@@ -412,8 +412,8 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionBlock,
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Block {",
-				"Ethereum__Mainnet__Transaction {",
+				"Ethereum__Testnet__Block {",
+				"Ethereum__Testnet__Transaction {",
 				"_docID",
 				"_version",
 			},
@@ -424,9 +424,9 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionBlock,
 			filters: map[string]interface{}{"hash": "0xabc"},
 			mustContain: []string{
-				"Ethereum__Mainnet__Block(filter:",
+				"Ethereum__Testnet__Block(filter:",
 				"hash: {_eq: \"0xabc\"}",
-				"Ethereum__Mainnet__Transaction {",
+				"Ethereum__Testnet__Transaction {",
 			},
 		},
 		{
@@ -434,9 +434,9 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionTransaction,
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Transaction {",
-				"Ethereum__Mainnet__Log {",
-				"Ethereum__Mainnet__AccessListEntry {",
+				"Ethereum__Testnet__Transaction {",
+				"Ethereum__Testnet__Log {",
+				"Ethereum__Testnet__AccessListEntry {",
 			},
 			mustNotContain: []string{"filter:"},
 		},
@@ -445,14 +445,14 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionLog,
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Log {",
+				"Ethereum__Testnet__Log {",
 				"_docID",
 				"_version",
 				"address",
 			},
 			mustNotContain: []string{
-				"Ethereum__Mainnet__Transaction",
-				"Ethereum__Mainnet__Block",
+				"Ethereum__Testnet__Transaction",
+				"Ethereum__Testnet__Block",
 				"filter:",
 			},
 		},
@@ -461,12 +461,12 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionAccessListEntry,
 			filters: map[string]interface{}{"address": "0x123"},
 			mustContain: []string{
-				"Ethereum__Mainnet__AccessListEntry(filter:",
+				"Ethereum__Testnet__AccessListEntry(filter:",
 				"address: {_eq: \"0x123\"}",
 			},
 			mustNotContain: []string{
-				"Ethereum__Mainnet__Transaction",
-				"Ethereum__Mainnet__Log",
+				"Ethereum__Testnet__Transaction",
+				"Ethereum__Testnet__Log",
 			},
 		},
 	}
