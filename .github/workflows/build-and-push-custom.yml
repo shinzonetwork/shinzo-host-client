@@ -43,6 +43,8 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-network-testnet
+          build-args: |
+            TAGS=hostplayground
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
