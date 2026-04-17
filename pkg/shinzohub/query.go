@@ -85,6 +85,13 @@ func (c *RPCClient) getLastProcessedPage(ctx context.Context) (int, int) {
 			maxPageSize = rec.PageSize
 		}
 	}
+	// Guard against persisted records that stored pageSize=0 (an older bug
+	// saved totalCount here instead of pageSize; 0 makes tx_search return
+	// no rows and the whole query loop finds zero views). Fall back to the
+	// default so affected hosts self-heal on next restart.
+	if maxPageSize <= 0 {
+		maxPageSize = 5
+	}
 	logger.Sugar.Debugf("📡 getLastProcessedPage: page=%d, pageSize=%d", maxPage, maxPageSize)
 	return maxPage, maxPageSize
 }
@@ -181,9 +188,13 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 			break
 		}
 	}
-	// Save progress after each successful page
-	c.saveLastProcessedPage(ctx, lastSuccessfulPage, totalCount)
-	logger.Sugar.Debugf("📡 Saved progress: page %d + total_count: %d", lastSuccessfulPage, totalCount)
+	// Save progress after each successful page. Persist the actual page size
+	// used in the queries, not the server-reported total_count — the latter
+	// used to sneak into this slot and land pageSize=0 in the record, which
+	// made the next startup query tx_search with per_page=0 and silently
+	// observe zero rows.
+	c.saveLastProcessedPage(ctx, lastSuccessfulPage, pageSize)
+	logger.Sugar.Debugf("📡 Saved progress: page %d (pageSize=%d, total_count=%d)", lastSuccessfulPage, pageSize, totalCount)
 
 	logger.Sugar.Infof("📡 ShinzoHub query complete: found %d new views with lenses", len(allViews))
 	return allViews, totalCount, nil
