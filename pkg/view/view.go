@@ -234,7 +234,6 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 
 // attemptQueryCorrection tries to fix common field name issues based on error message
 func (v *View) attemptQueryCorrection(errMsg string) string {
-	// Extract the incorrect field and suggested field from error message
 	// Error format: Cannot query field "inputData" on type "X". Did you mean "input"?
 	re := regexp.MustCompile(`Cannot query field "([^"]+)".*Did you mean "([^"]+)"`)
 	matches := re.FindStringSubmatch(errMsg)
@@ -242,8 +241,15 @@ func (v *View) attemptQueryCorrection(errMsg string) string {
 	if len(matches) == 3 {
 		incorrectField := matches[1]
 		suggestedField := matches[2]
-		correctedQuery := strings.ReplaceAll(v.Data.Query, incorrectField, suggestedField)
-		return correctedQuery
+		// Match whole-word occurrences only. A plain strings.ReplaceAll
+		// would also mangle identifiers that merely contain incorrectField
+		// as a substring (e.g. replacing "Log" would damage "Logger" or
+		// "logIndex" in the same query). DefraDB errors always refer to
+		// one specific identifier, so word-boundary matching is correct.
+		// The literal replacement variant makes sure a suggested field
+		// containing "$" isn't treated as a capture-group reference.
+		tokenRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(incorrectField) + `\b`)
+		return tokenRe.ReplaceAllLiteralString(v.Data.Query, suggestedField)
 	}
 
 	return v.Data.Query
