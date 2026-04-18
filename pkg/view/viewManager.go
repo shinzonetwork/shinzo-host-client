@@ -180,8 +180,20 @@ func (vm *ViewManager) QueueView(v View) {
 	vm.processingQueue <- item
 }
 
-// RegisterView implements the full view registration flow with validation
-func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
+// RegisterView implements the full view registration flow with validation.
+//
+// A panic in any step (most commonly a malformed lens WASM that parses OK
+// but trips BytesMemory.ReadAt during instantiation in the lens library)
+// would otherwise kill the whole host process. Recover and convert to an
+// error so the caller logs, skips, and continues with other views. Named
+// return is required so the deferred recover can set err.
+func (vm *ViewManager) RegisterView(ctx context.Context, v *View) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic registering view %s: %v", v.Name, r)
+		}
+	}()
+
 	// Debug log the SDL schema when registering
 	logger.Sugar.Debugf("🔍 Registering view: %s", v.Name)
 	logger.Sugar.Debugf("📄 SDL for %s:\n%s", v.Name, v.Data.Sdl)
