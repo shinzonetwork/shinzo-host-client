@@ -7,11 +7,9 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/viewbundle-go"
-	"github.com/stretchr/testify/require"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/stretchr/testify/require"
 )
-
-
 
 func TestNewViewManager(t *testing.T) {
 	ctx := context.Background()
@@ -225,7 +223,7 @@ func (m *MockWASMRegistry) EnsureAllWASM(ctx context.Context, urls []string) ([]
 	if m.downloadError != nil {
 		return nil, m.downloadError
 	}
-	
+
 	// Always return success without actually downloading anything
 	var downloaded []string
 	for _, url := range urls {
@@ -270,7 +268,7 @@ func TestViewManager_SetMetricsCallback(t *testing.T) {
 	})
 
 	require.NotNil(t, vm.metricsCallback)
-	
+
 	// Test callback is called (this would happen during actual view registration)
 	if vm.metricsCallback != nil {
 		vm.metricsCallback()
@@ -502,10 +500,10 @@ func TestExtractWasmURLsFromViews_MixedURLs(t *testing.T) {
 			Data: viewbundle.View{
 				Transform: viewbundle.Transform{
 					Lenses: []viewbundle.Lens{
-						{Path: "file:///local.wasm"},           // Local file
+						{Path: "file:///local.wasm"},             // Local file
 						{Path: "https://example.com/lens1.wasm"}, // HTTP URL
-						{Path: "http://example.com/lens2.wasm"},  // HTTP URL  
-						{Path: "base64encodeddata"},             // Base64 data
+						{Path: "http://example.com/lens2.wasm"},  // HTTP URL
+						{Path: "base64encodeddata"},              // Base64 data
 					},
 				},
 			},
@@ -709,10 +707,6 @@ func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 			expected: "",
 		},
 		{
-			// Template-rendered query.graphql files routinely start with a
-			// newline. Without a leading-whitespace trim the extractor used
-			// to return "" here, which caused the caller to insert the
-			// chain prefix at byte 0 and produce a malformed query.
 			name:     "query with leading newline",
 			query:    "\nLog { address }",
 			expected: "Log",

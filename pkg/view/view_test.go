@@ -172,9 +172,6 @@ func TestView_ExtractNameFromSDL(t *testing.T) {
 	}
 }
 
-// TestAttemptQueryCorrection_WholeWordReplacementOnly makes sure the
-// corrector doesn't mangle identifiers that merely contain the incorrect
-// field as a substring. A plain strings.ReplaceAll would have.
 func TestAttemptQueryCorrection_WholeWordReplacementOnly(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -189,29 +186,24 @@ func TestAttemptQueryCorrection_WholeWordReplacementOnly(t *testing.T) {
 			expected: "Ethereum__Mainnet__Log { address }",
 		},
 		{
-			// "Log" as a substring of "Logger" must not be replaced.
 			name:     "substring in a different identifier is untouched",
 			query:    "Log { Logger address }",
 			errMsg:   `Cannot query field "Log" on type "Query". Did you mean "Ethereum__Mainnet__Log"`,
 			expected: "Ethereum__Mainnet__Log { Logger address }",
 		},
 		{
-			// "inputData" fix must not clip "inputDataLength".
 			name:     "substring suffix is untouched",
 			query:    "Log { inputData inputDataLength }",
 			errMsg:   `Cannot query field "inputData" on type "Log". Did you mean "input"`,
 			expected: "Log { input inputDataLength }",
 		},
 		{
-			// A genuine repeat of the same identifier should all be fixed.
 			name:     "multiple whole-word occurrences all get corrected",
 			query:    "Log { nested { Log } }",
 			errMsg:   `Cannot query field "Log" on type "Query". Did you mean "Ethereum__Mainnet__Log"`,
 			expected: "Ethereum__Mainnet__Log { nested { Ethereum__Mainnet__Log } }",
 		},
 		{
-			// Error string that doesn't match the expected pattern
-			// leaves the query untouched.
 			name:     "unparseable error leaves query alone",
 			query:    "Log { address }",
 			errMsg:   "some unrelated error",

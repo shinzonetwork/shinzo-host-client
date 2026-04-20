@@ -85,10 +85,7 @@ func (c *RPCClient) getLastProcessedPage(ctx context.Context) (int, int) {
 			maxPageSize = rec.PageSize
 		}
 	}
-	// Guard against persisted records that stored pageSize=0 (an older bug
-	// saved totalCount here instead of pageSize; 0 makes tx_search return
-	// no rows and the whole query loop finds zero views). Fall back to the
-	// default so affected hosts self-heal on next restart.
+	// pageSize must be positive; tx_search returns zero rows otherwise.
 	if maxPageSize <= 0 {
 		maxPageSize = 5
 	}
@@ -188,11 +185,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 			break
 		}
 	}
-	// Save progress after each successful page. Persist the actual page size
-	// used in the queries, not the server-reported total_count — the latter
-	// used to sneak into this slot and land pageSize=0 in the record, which
-	// made the next startup query tx_search with per_page=0 and silently
-	// observe zero rows.
+	// Persist the page size we actually queried with, not totalCount.
 	c.saveLastProcessedPage(ctx, lastSuccessfulPage, pageSize)
 	logger.Sugar.Debugf("📡 Saved progress: page %d (pageSize=%d, total_count=%d)", lastSuccessfulPage, pageSize, totalCount)
 

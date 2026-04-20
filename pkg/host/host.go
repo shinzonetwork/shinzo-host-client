@@ -213,8 +213,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	}
 
 	newHost := &Host{
-		DefraNode:      defraNode,
-		NetworkHandler: networkHandler,
+		DefraNode:              defraNode,
+		NetworkHandler:         networkHandler,
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},

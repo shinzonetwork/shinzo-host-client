@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/sourcenetwork/defradb/client"
@@ -192,6 +193,9 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	}
 
 	var err error
+	t0 := time.Now()
+	fmt.Printf("[LENS-PROBE] %s AddView ENTER name=%s lensCID=%s queryLen=%d sdlLen=%d\n",
+		t0.UTC().Format(time.RFC3339Nano), v.Name, lensCID, len(v.Data.Query), len(v.Data.Sdl))
 	if lensCID != "" {
 		// Create view with the lens transform CID so DefraDB applies the WASM lens
 		viewOpts := options.AddView().SetTransformCID(lensCID)
@@ -199,6 +203,8 @@ func (v *View) ConfigureLens(ctx context.Context, defraNode *node.Node, schemaSe
 	} else {
 		_, err = defraNode.DB.AddView(ctx, v.Data.Query, v.Data.Sdl)
 	}
+	fmt.Printf("[LENS-PROBE] %s AddView EXIT  name=%s elapsed=%s err=%v\n",
+		time.Now().UTC().Format(time.RFC3339Nano), v.Name, time.Since(t0), err)
 
 	if err != nil && !contains(err.Error(), "already exists") {
 		// Try to auto-fix common field name issues
@@ -241,13 +247,7 @@ func (v *View) attemptQueryCorrection(errMsg string) string {
 	if len(matches) == 3 {
 		incorrectField := matches[1]
 		suggestedField := matches[2]
-		// Match whole-word occurrences only. A plain strings.ReplaceAll
-		// would also mangle identifiers that merely contain incorrectField
-		// as a substring (e.g. replacing "Log" would damage "Logger" or
-		// "logIndex" in the same query). DefraDB errors always refer to
-		// one specific identifier, so word-boundary matching is correct.
-		// The literal replacement variant makes sure a suggested field
-		// containing "$" isn't treated as a capture-group reference.
+		// Whole-word match so substrings inside other identifiers are not touched.
 		tokenRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(incorrectField) + `\b`)
 		return tokenRe.ReplaceAllLiteralString(v.Data.Query, suggestedField)
 	}
