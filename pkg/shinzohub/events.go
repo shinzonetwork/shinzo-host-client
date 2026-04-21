@@ -278,7 +278,7 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 	if msg.JsonRpcVersion != "2.0" ||
-		msg.Result.Data.Type != "tendermint.event" ||
+		msg.Result.Data.Type != "tendermint/event/Tx" ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {
 		return events
 	}

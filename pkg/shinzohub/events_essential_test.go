@@ -159,7 +159,7 @@ func TestExtractShinzoEvents_ViewRegistered(t *testing.T) {
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
@@ -191,7 +191,7 @@ func TestExtractShinzoEvents_HostRegistered(t *testing.T) {
 		ID:             2,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
@@ -228,7 +228,7 @@ func TestExtractShinzoEvents_IndexerRegistered(t *testing.T) {
 		ID:             3,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
@@ -269,7 +269,7 @@ func TestExtractShinzoEvents_IncompleteHost(t *testing.T) {
 		ID:             2,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
@@ -299,7 +299,7 @@ func TestExtractShinzoEvents_IgnoresUnknownEvents(t *testing.T) {
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{

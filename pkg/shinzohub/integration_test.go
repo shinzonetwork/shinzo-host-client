@@ -26,7 +26,7 @@ func TestIndexerRegisteredToIntegrationFlow(t *testing.T) {
 		Result: RPCResult{
 			Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Height: "12345",
@@ -114,7 +114,7 @@ func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 			Result: RPCResult{
 				Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 				Data: RPCData{
-					Type: "tendermint.event",
+					Type: "tendermint/event/Tx",
 					Value: TxResult{
 						TxResult: TxResultData{
 							Height: "12345",
@@ -143,7 +143,7 @@ func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 			Result: RPCResult{
 				Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
 				Data: RPCData{
-					Type: "tendermint.event",
+					Type: "tendermint/event/Tx",
 					Value: TxResult{
 						TxResult: TxResultData{
 							Height: "12346",
