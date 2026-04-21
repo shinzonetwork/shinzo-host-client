@@ -4,10 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"go.uber.org/zap"
 )
+
+// log returns a non-nil SugaredLogger. Falls back to a nop logger when
+// the global logger hasn't been initialized yet (e.g. in unit tests).
+func log() *zap.SugaredLogger {
+	if logger.Sugar != nil {
+		return logger.Sugar
+	}
+	return zap.NewNop().Sugar()
+}
 
 type RPCResponse struct {
 	JsonRpcVersion string    `json:"jsonrpc"`
@@ -58,121 +70,208 @@ type ShinzoEvent interface {
 	ToString() string
 }
 
-// StartEventSubscription starts the event subscription and returns a context for cancellation and event channel
+// subscriptionQueries are the CometBFT event queries the host subscribes to.
+// Tendermint doesn't support OR logic, so each event type gets its own subscription.
+var subscriptionQueries = []string{
+	"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
+	"tm.event='Tx' AND HostRegistered.owner EXISTS",
+	"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+}
+
+// StartEventSubscription connects to the CometBFT WebSocket, subscribes to
+// registry events, and pushes parsed events to the returned channel. The
+// connection is re-established automatically on drops with exponential
+// backoff (1s, 2s, 4s, ..., capped at 60s). The channel stays open across
+// reconnections; it is only closed when ctx is cancelled.
 func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
+	eventChan := make(chan ShinzoEvent, 16)
 
-	conn, _, err := websocket.DefaultDialer.Dial(tendermintURL, nil)
+	// Verify the URL is reachable before returning to the caller. This
+	// catches typos and DNS failures at startup instead of silently
+	// looping in the background.
+	conn, err := dialAndSubscribe(tendermintURL)
 	if err != nil {
 		cancel()
-		return cancel, nil, fmt.Errorf("failed to connect to Tendermint WebSocket: %w", err)
+		return cancel, nil, fmt.Errorf("initial WebSocket connection failed: %w", err)
 	}
 
-	// Create an unbuffered channel for events (direct processing)
-	eventChan := make(chan ShinzoEvent)
+	go eventLoop(ctx, tendermintURL, conn, eventChan)
 
-	// Subscribe to ViewRegistered, HostRegistered, and IndexerRegistered events separately
-	// because Tendermint doesn't support OR logic
-	queries := []string{
-		"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
-		"tm.event='Tx' AND HostRegistered.owner EXISTS",
-		"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+	return cancel, eventChan, nil
+}
+
+// dialAndSubscribe opens a WebSocket to the CometBFT node and sends all
+// subscription requests. Returns the live connection or an error.
+func dialAndSubscribe(url string) (*websocket.Conn, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", url, err)
 	}
 
-	for i, query := range queries {
-		subscribeMsg := map[string]interface{}{
+	for i, query := range subscriptionQueries {
+		msg := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"method":  "subscribe",
 			"id":      i + 1,
-			"params": map[string]interface{}{
-				"query": query,
-			},
+			"params":  map[string]interface{}{"query": query},
 		}
-
-		fmt.Printf("Sending subscription: %+v\n", subscribeMsg)
-		if err := conn.WriteJSON(subscribeMsg); err != nil {
+		if err := conn.WriteJSON(msg); err != nil {
 			conn.Close()
-			cancel()
-			return cancel, nil, fmt.Errorf("failed to send subscription message: %w", err)
+			return nil, fmt.Errorf("subscribe query %d: %w", i, err)
 		}
-
-		// Read the subscription response
-		_, response, err := conn.ReadMessage()
+		_, resp, err := conn.ReadMessage()
 		if err != nil {
 			conn.Close()
-			cancel()
-			return cancel, nil, fmt.Errorf("failed to read subscription response: %w", err)
+			return nil, fmt.Errorf("subscribe response %d: %w", i, err)
 		}
-		fmt.Printf("Subscription response: %s\n", string(response))
+		log().Debugf("subscription %d accepted: %s", i+1, string(resp))
 	}
 
-	// Start ping goroutine to keep connection alive
+	log().Infof("WebSocket connected to %s with %d subscriptions", url, len(subscriptionQueries))
+	return conn, nil
+}
+
+// eventLoop reads events from the WebSocket and reconnects on failure. It
+// owns the connection lifecycle: when a read fails, it closes the old
+// connection, waits with backoff, dials a new one, re-subscribes, and
+// resumes reading. The channel is closed only when ctx is cancelled.
+func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<- ShinzoEvent) {
+	defer close(out)
+	defer func() {
+		if r := recover(); r != nil {
+			log().Errorf("WebSocket event loop recovered from panic: %v", r)
+		}
+	}()
+
+	backoff := time.Second
+	const maxBackoff = 60 * time.Second
+
+	pingStop := startPing(ctx, conn)
+	connectedAt := time.Now()
+
+	// ReadMessage blocks until data arrives. A read deadline lets the loop
+	// wake up periodically to check ctx cancellation during graceful shutdown.
+	const readTimeout = 30 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			conn.Close()
+			return
+		}
+
+		conn.SetReadDeadline(time.Now().Add(readTimeout))
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			if ctx.Err() != nil {
+				conn.Close()
+				return
+			}
+			if isTimeoutError(err) {
+				continue
+			}
+
+			// Connection failure (reset by peer, server close, etc). Reconnect.
+			pingStop()
+			conn.Close()
+			log().Warnf("WebSocket read failed: %v; reconnecting in ~%v", err, backoff)
+
+			conn = reconnect(ctx, url, &backoff, maxBackoff)
+			if conn == nil {
+				return
+			}
+			pingStop = startPing(ctx, conn)
+			connectedAt = time.Now()
+			continue
+		}
+
+		// Reset backoff only after the connection has been stable for a while.
+		// This prevents a flapping connection from resetting to 1s on every
+		// brief reconnect.
+		if time.Since(connectedAt) > 60*time.Second {
+			backoff = time.Second
+		}
+
+		var msg RPCResponse
+		if err := json.Unmarshal(message, &msg); err != nil {
+			continue
+		}
+
+		for _, ev := range extractShinzoEvents(msg) {
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				conn.Close()
+				return
+			}
+		}
+	}
+}
+
+// isTimeoutError checks whether the error is a read deadline timeout.
+func isTimeoutError(err error) bool {
+	if netErr, ok := err.(interface{ Timeout() bool }); ok {
+		return netErr.Timeout()
+	}
+	return false
+}
+
+// reconnect blocks until a new connection is established or ctx is cancelled.
+// Uses exponential backoff with jitter to avoid thundering herd when multiple
+// hosts reconnect after a CometBFT node restart.
+func reconnect(ctx context.Context, url string, backoff *time.Duration, maxBackoff time.Duration) *websocket.Conn {
+	for {
+		// Add jitter: sleep for backoff +/- 25% to spread reconnection attempts.
+		jitter := time.Duration(rand.Int64N(int64(*backoff) / 2))
+		wait := *backoff + jitter - (*backoff / 4)
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(wait):
+		}
+
+		conn, err := dialAndSubscribe(url)
+		if err != nil {
+			log().Warnf("WebSocket reconnect failed: %v; retrying in ~%v", err, *backoff)
+			*backoff *= 2
+			if *backoff > maxBackoff {
+				*backoff = maxBackoff
+			}
+			continue
+		}
+
+		log().Infof("WebSocket reconnected to %s", url)
+		return conn
+	}
+}
+
+// startPing sends periodic JSON-RPC status requests to keep the WebSocket
+// alive. Returns a stop function that must be called before closing the
+// connection.
+func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
+	pingCtx, pingCancel := context.WithCancel(ctx)
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-pingCtx.Done():
 				return
 			case <-ticker.C:
-				// Send a JSON-RPC request that Tendermint will respond to
-				pingMsg := map[string]interface{}{
+				msg := map[string]interface{}{
 					"jsonrpc": "2.0",
 					"method":  "status",
 					"id":      999,
 					"params":  map[string]interface{}{},
 				}
-				if err := conn.WriteJSON(pingMsg); err != nil {
+				if err := conn.WriteJSON(msg); err != nil {
 					return
 				}
 			}
 		}
 	}()
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("WebSocket goroutine recovered from panic: %v\n", r)
-			}
-		}()
-		defer conn.Close()
-		defer cancel()
-		defer close(eventChan)
-
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Printf("Context cancelled, stopping message loop\n")
-				return
-			default:
-				// Read raw message first to see what we're getting
-				_, message, err := conn.ReadMessage()
-				if err != nil {
-					fmt.Printf("WebSocket connection failed: %v\n", err)
-					return // This WILL close the goroutine via defers
-
-				}
-
-				// Now try to parse it
-				var msg RPCResponse
-				if err := json.Unmarshal(message, &msg); err != nil {
-					fmt.Printf("Failed to parse JSON: %v\n", err)
-					continue
-				}
-
-				events := extractShinzoEvents(msg)
-				for _, event := range events {
-					select {
-					case eventChan <- event:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-		}
-	}()
-
-	return cancel, eventChan, nil
+	return pingCancel
 }
 
 // extractShinzoEvents extracts ViewRegistered, HostRegistered, and IndexerRegistered events from an RPC message.
@@ -184,7 +283,6 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 		return events
 	}
 
-	// Navigate through the nested structure to find events
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
 		case "ViewRegistered":
@@ -201,7 +299,7 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				case "data":
 					newView, err := ProcessViewFromWireFormat(attr.Value)
 					if err != nil {
-						fmt.Printf("Failed to process view from wire: %v\n", err)
+						log().Warnf("failed to process view from wire: %v", err)
 						continue
 					}
 					registeredEvent.View = newView
@@ -209,10 +307,10 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 			}
 
 			if registeredEvent.ViewAddress != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
-				fmt.Printf("View %s registered for monitoring\n", registeredEvent.View.Name)
+				log().Infof("ViewRegistered event received: %s", registeredEvent.View.Name)
 				events = append(events, &registeredEvent)
 			} else {
-				fmt.Printf("Incomplete ViewRegistered event: %+v\n", registeredEvent)
+				log().Debugf("incomplete ViewRegistered event: %+v", registeredEvent)
 			}
 
 		case "HostRegistered":
@@ -230,11 +328,11 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 			}
 
 			if hostEvent.Owner != "" && hostEvent.DID != "" {
-				fmt.Printf("Host registered: owner=%s, did=%s, conn=%s\n",
-					hostEvent.Owner, hostEvent.DID, hostEvent.ConnectionString)
+				log().Infof("HostRegistered event received: owner=%s did=%s",
+					hostEvent.Owner, hostEvent.DID)
 				events = append(events, &hostEvent)
 			} else {
-				fmt.Printf("Incomplete HostRegistered event: %+v\n", hostEvent)
+				log().Debugf("incomplete HostRegistered event: %+v", hostEvent)
 			}
 
 		case "IndexerRegistered":
@@ -256,11 +354,11 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 			}
 
 			if indexerEvent.Owner != "" && indexerEvent.DID != "" {
-				fmt.Printf("Indexer registered: owner=%s, did=%s, chain=%s/%s\n",
+				log().Infof("IndexerRegistered event received: owner=%s did=%s chain=%s/%s",
 					indexerEvent.Owner, indexerEvent.DID, indexerEvent.SourceChain, indexerEvent.SourceChainID)
 				events = append(events, &indexerEvent)
 			} else {
-				fmt.Printf("Incomplete IndexerRegistered event: %+v\n", indexerEvent)
+				log().Debugf("incomplete IndexerRegistered event: %+v", indexerEvent)
 			}
 		}
 	}
