@@ -152,12 +152,19 @@ type TxSearchItem struct {
 func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, int, error) {
 	var allViews []view.View
 
-	// Start from last processed page + 1 to skip already-downloaded views
+	// Re-fetch from the last known page, not the one after it. CometBFT's
+	// tx_search pagination is positional: a new tx can land on a page the
+	// host already fetched if that page had room. Starting from lastPage
+	// instead of lastPage+1 catches those. Views the host already registered
+	// produce "already exists" errors that are silently ignored, so
+	// re-fetching is idempotent.
 	startPage, pageSize := c.getLastProcessedPage(ctx)
-	startPage++
-	logger.Sugar.Debugf("📡 getLastProcessedPage result: %d", startPage)
+	if startPage < 1 {
+		startPage = 1
+	}
+	logger.Sugar.Debugf("📡 getLastProcessedPage result: page=%d, pageSize=%d", startPage, pageSize)
 	if startPage > 1 {
-		logger.Sugar.Infof("📡 Resuming from page %d (skipping %d already processed)", startPage, startPage-1)
+		logger.Sugar.Infof("📡 Resuming from page %d (re-checking last known page for new txs)", startPage)
 	} else {
 		logger.Sugar.Debugf("📡 Starting ShinzoHub query for registered views...")
 	}
