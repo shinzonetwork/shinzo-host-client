@@ -708,6 +708,20 @@ func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 			query:    "",
 			expected: "",
 		},
+		{
+			// Template-rendered query.graphql files routinely start with a
+			// newline. Without a leading-whitespace trim the extractor used
+			// to return "" here, which caused the caller to insert the
+			// chain prefix at byte 0 and produce a malformed query.
+			name:     "query with leading newline",
+			query:    "\nLog { address }",
+			expected: "Log",
+		},
+		{
+			name:     "query with mixed leading whitespace",
+			query:    "  \n\tLog { address }",
+			expected: "Log",
+		},
 	}
 
 	for _, tt := range tests {

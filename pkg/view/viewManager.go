@@ -224,9 +224,13 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 		logger.Sugar.Infof("Lens CID for view %s: %s", v.Name, lensCID)
 	}
 
-	// Step 2: Auto-fix collection name if needed and create view in DefraDB
+	// Step 2: Auto-fix collection name if needed and create view in DefraDB.
+	// The empty-string guard matters: strings.Replace with an empty old
+	// inserts the replacement at byte 0, which would corrupt the query.
+	// Letting extractCollectionFromQuery return "" should never reach this
+	// branch, but we guard in case a future caller passes a malformed query.
 	sourceCollection := extractCollectionFromQuery(v.Data.Query)
-	if !strings.HasPrefix(sourceCollection, constants.CollectionChain+"__") {
+	if sourceCollection != "" && !strings.HasPrefix(sourceCollection, constants.CollectionChain+"__") {
 		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, constants.CollectionChain+"__"+sourceCollection, 1)
 		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, constants.CollectionChain, sourceCollection)
 	}
@@ -279,7 +283,13 @@ func (vm *ViewManager) subscribeToSourceCollection(ctx context.Context, collecti
 	return nil
 }
 
+// extractCollectionFromQuery returns the first identifier in a GraphQL
+// query (the top-level type). Leading whitespace is skipped first; without
+// that skip, a query that starts with a newline would return "" and the
+// caller would then insert the chain prefix at byte 0, producing a
+// malformed query.
 func extractCollectionFromQuery(query string) string {
+	query = strings.TrimLeft(query, " \n\t\r")
 	for i, r := range query {
 		if r == '{' || r == ' ' || r == '\n' || r == '\t' {
 			return query[:i]
