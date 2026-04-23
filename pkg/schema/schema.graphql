@@ -88,7 +88,7 @@ type Ethereum__Testnet__AccessListEntry {
 }
 
 type Ethereum__Testnet__Log {
-    address: String
+    address: String @index
     topics: [String]
     data: String
     transactionHash: String
