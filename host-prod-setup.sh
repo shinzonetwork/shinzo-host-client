@@ -5,10 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
-      # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWCXACP55i3jSf6rMiZXGpdruyvr9SyEdXBxu2PXeQGtv1'
-      # - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
       - '/ip4/35.209.139.172/tcp/9171/p2p/12D3KooWEMDRyZBSdJDQBZ7b8Ax7wu3AL7pb7ici3dip1dSmADgH'
+      - '/ip4/35.206.76.82/tcp/9171/p2p/12D3KooWGjeyNrYKJ5BXUL6CjJNRy7xNpYrYtXXWXma1JT1cKyA3'
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -72,7 +70,7 @@ shinzo:
     # In blocklist mode a document is rejected if it matches any enabled group.
     groups:
       - name: "uniswap-v3"       # Human-readable label (for logs)
-        enabled: true             # Set to false to disable this group without removing it
+        enabled: false             # Set to false to disable this group without removing it
         # Contract filters - match documents by on-chain address.
         # "types" controls which collection types this address applies to:
         #   "transaction" - matches tx.to field
@@ -92,7 +90,7 @@ shinzo:
             # topic2: "0x..."    # Optional: filter by indexed param 2
             # topic3: "0x..."    # Optional: filter by indexed param 3
       - name: "stablecoins"
-        enabled: true
+        enabled: false
         contracts:
           - name: "USDT"
             address: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
@@ -135,7 +133,8 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.7
+    image: ghcr.io/shinzonetwork/shinzo-host-client:custom-network-testnet
+    user: "0:0"
     mem_limit: 16g
     mem_reservation: 13g
     restart: unless-stopped
@@ -216,6 +215,26 @@ http {
       }
 
       proxy_pass http://shinzo-host:8080/metrics;
+      proxy_set_header Host $host;
+    }
+
+    # Health endpoint
+    location = /health {
+      if ($request_method = OPTIONS) {
+        return 204;
+      }
+
+      proxy_pass http://shinzo-host:8080/health;
+      proxy_set_header Host $host;
+    }
+
+    # Registration endpoint
+    location = /registration {
+      if ($request_method = OPTIONS) {
+        return 204;
+      }
+
+      proxy_pass http://shinzo-host:8080/registration;
       proxy_set_header Host $host;
     }
 
