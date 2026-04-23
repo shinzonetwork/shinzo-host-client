@@ -25,7 +25,7 @@ func TestHostRegisteredEventSubscription(t *testing.T) {
 		Result: RPCResult{
 			Query: "tm.event='Tx' AND HostRegistered.owner EXISTS",
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Height: "12345",
@@ -84,7 +84,7 @@ func TestExtractHostAndIndexerRegisteredEvents(t *testing.T) {
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Height: "12345",
@@ -188,7 +188,7 @@ func TestMixedEventSubscription(t *testing.T) {
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint.event",
+				Type: "tendermint/event/Tx",
 				Value: TxResult{
 					TxResult: TxResultData{
 						Height: "12345",

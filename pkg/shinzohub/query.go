@@ -85,10 +85,7 @@ func (c *RPCClient) getLastProcessedPage(ctx context.Context) (int, int) {
 			maxPageSize = rec.PageSize
 		}
 	}
-	// Guard against persisted records that stored pageSize=0 (an older bug
-	// saved totalCount here instead of pageSize; 0 makes tx_search return
-	// no rows and the whole query loop finds zero views). Fall back to the
-	// default so affected hosts self-heal on next restart.
+	// pageSize must be positive; tx_search returns zero rows otherwise.
 	if maxPageSize <= 0 {
 		maxPageSize = 5
 	}
@@ -155,12 +152,19 @@ type TxSearchItem struct {
 func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, int, error) {
 	var allViews []view.View
 
-	// Start from last processed page + 1 to skip already-downloaded views
+	// Re-fetch from the last known page, not the one after it. CometBFT's
+	// tx_search pagination is positional: a new tx can land on a page the
+	// host already fetched if that page had room. Starting from lastPage
+	// instead of lastPage+1 catches those. Views the host already registered
+	// produce "already exists" errors that are silently ignored, so
+	// re-fetching is idempotent.
 	startPage, pageSize := c.getLastProcessedPage(ctx)
-	startPage++
-	logger.Sugar.Debugf("📡 getLastProcessedPage result: %d", startPage)
+	if startPage < 1 {
+		startPage = 1
+	}
+	logger.Sugar.Debugf("📡 getLastProcessedPage result: page=%d, pageSize=%d", startPage, pageSize)
 	if startPage > 1 {
-		logger.Sugar.Infof("📡 Resuming from page %d (skipping %d already processed)", startPage, startPage-1)
+		logger.Sugar.Infof("📡 Resuming from page %d (re-checking last known page for new txs)", startPage)
 	} else {
 		logger.Sugar.Debugf("📡 Starting ShinzoHub query for registered views...")
 	}
@@ -188,11 +192,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 			break
 		}
 	}
-	// Save progress after each successful page. Persist the actual page size
-	// used in the queries, not the server-reported total_count — the latter
-	// used to sneak into this slot and land pageSize=0 in the record, which
-	// made the next startup query tx_search with per_page=0 and silently
-	// observe zero rows.
+	// Persist the page size we actually queried with, not totalCount.
 	c.saveLastProcessedPage(ctx, lastSuccessfulPage, pageSize)
 	logger.Sugar.Debugf("📡 Saved progress: page %d (pageSize=%d, total_count=%d)", lastSuccessfulPage, pageSize, totalCount)
 

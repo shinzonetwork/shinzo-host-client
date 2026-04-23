@@ -180,8 +180,17 @@ func (vm *ViewManager) QueueView(v View) {
 	vm.processingQueue <- item
 }
 
-// RegisterView implements the full view registration flow with validation
-func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
+// RegisterView runs the full view registration flow with validation.
+// A panic from any step (commonly malformed lens WASM at instantiation)
+// is recovered and returned as an error so one bad view does not take
+// down the host.
+func (vm *ViewManager) RegisterView(ctx context.Context, v *View) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic registering view %s: %v", v.Name, r)
+		}
+	}()
+
 	// Debug log the SDL schema when registering
 	logger.Sugar.Debugf("🔍 Registering view: %s", v.Name)
 	logger.Sugar.Debugf("📄 SDL for %s:\n%s", v.Name, v.Data.Sdl)
@@ -225,10 +234,8 @@ func (vm *ViewManager) RegisterView(ctx context.Context, v *View) error {
 	}
 
 	// Step 2: Auto-fix collection name if needed and create view in DefraDB.
-	// The empty-string guard matters: strings.Replace with an empty old
-	// inserts the replacement at byte 0, which would corrupt the query.
-	// Letting extractCollectionFromQuery return "" should never reach this
-	// branch, but we guard in case a future caller passes a malformed query.
+	// Skip when the extracted name is empty; strings.Replace with an empty
+	// old string would otherwise insert the prefix at byte 0.
 	sourceCollection := extractCollectionFromQuery(v.Data.Query)
 	if sourceCollection != "" && !strings.HasPrefix(sourceCollection, constants.CollectionChain+"__") {
 		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, constants.CollectionChain+"__"+sourceCollection, 1)
@@ -284,10 +291,7 @@ func (vm *ViewManager) subscribeToSourceCollection(ctx context.Context, collecti
 }
 
 // extractCollectionFromQuery returns the first identifier in a GraphQL
-// query (the top-level type). Leading whitespace is skipped first; without
-// that skip, a query that starts with a newline would return "" and the
-// caller would then insert the chain prefix at byte 0, producing a
-// malformed query.
+// query, after trimming leading whitespace.
 func extractCollectionFromQuery(query string) string {
 	query = strings.TrimLeft(query, " \n\t\r")
 	for i, r := range query {
