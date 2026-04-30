@@ -555,7 +555,7 @@ func TestRetryableErrorDetection(t *testing.T) {
 func TestInitKnownCollectionIDs_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -597,7 +597,7 @@ func TestInitKnownCollectionIDs_NilDB(t *testing.T) {
 func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -648,7 +648,7 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -683,7 +683,7 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -698,7 +698,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testi
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -717,7 +717,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *tes
 func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -770,7 +770,7 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -824,7 +824,7 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 func TestProcessDocumentAttestationBatch_WithVersionData(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -930,7 +930,7 @@ func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(_ *tes
 func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -968,7 +968,7 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -998,7 +998,7 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing
 func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1046,7 +1046,7 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1085,7 +1085,7 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1128,7 +1128,7 @@ func makeTestCID(data string) string {
 func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1208,7 +1208,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1250,7 +1250,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1289,7 +1289,7 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIdentities(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1332,6 +1332,12 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 	require.Len(t, record.SourceDocIDs, 2, "Should have exactly 2 indexer identities")
 }
 
+func TestDebugSchema(t *testing.T) {
+	schema := localschema.GetSchema()
+	t.Log(schema)
+	require.Contains(t, schema, "source_doc")
+}
+
 // ---------------------------------------------------------------------------
 // processBlockSignatureDocument - valid signature, CID mismatch path
 // ---------------------------------------------------------------------------
@@ -1339,7 +1345,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1414,7 +1420,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1437,7 +1443,7 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 

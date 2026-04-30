@@ -1510,7 +1510,7 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1708,7 +1708,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 func TestHost_Close_Full(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
 
 	metrics := server.NewHostMetrics()
