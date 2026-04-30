@@ -118,7 +118,7 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error
 	case "Ed25519", "ed25519":
 		keyType = crypto.KeyTypeEd25519
 	default:
-		return fmt.Errorf("signature type %s: %w", sig.SignatureType, ErrUnsupportedSignatureType)
+		return fmt.Errorf("unsupported signature type: %s", sig.SignatureType)
 	}
 
 	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)

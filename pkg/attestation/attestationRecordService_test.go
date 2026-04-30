@@ -621,14 +621,14 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 
 	query := fmt.Sprintf(`
 		query {
-			%s(filter: {attested_doc: {_eq: testDocID}}) {
+			%s(filter: {attested_doc: {_eq: "%s"}}) {
 				_docID
 				attested_doc
 				source_doc
 				CIDs
 			}
 		}
-	`, constants.CollectionAttestationRecord)
+	`, constants.CollectionAttestationRecord, testDocID)
 
 	results, err := defra.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -676,14 +676,14 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 
 	query := fmt.Sprintf(`
 		query {
-			%s(filter: {attested_doc: {_eq: testDocID}}) {
+			%s(filter: {attested_doc: {_eq: "%s"}}) {
 				_docID
 				attested_doc
 				source_doc
 				CIDs
 			}
 		}
-	`, constants.CollectionAttestationRecord)
+	`, constants.CollectionAttestationRecord, testDocID)
 
 	results, err := defra.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)

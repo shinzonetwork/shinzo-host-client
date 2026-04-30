@@ -13,8 +13,3 @@ var SchemaGraphQL string
 func GetSchema() string {
 	return SchemaGraphQL
 }
-
-// GetSchemaForBuild returns the appropriate schema based on build tags.
-func GetSchemaForBuild() string {
-	return GetSchema()
-}
