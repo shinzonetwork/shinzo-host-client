@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestHostRegisteredEventSubscription tests the subscription to HostRegistered events via WebSocket
+// TestHostRegisteredEventSubscription tests the subscription to HostRegistered events via WebSocket.
 func TestHostRegisteredEventSubscription(t *testing.T) {
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
@@ -20,7 +20,7 @@ func TestHostRegisteredEventSubscription(t *testing.T) {
 	defer cancel()
 
 	mockEvent := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             2,
 		Result: RPCResult{
 			Query: "tm.event='Tx' AND HostRegistered.owner EXISTS",
@@ -77,10 +77,10 @@ func TestHostRegisteredEventSubscription(t *testing.T) {
 	}
 }
 
-// TestExtractHostAndIndexerRegisteredEvents tests the extraction function directly
+// TestExtractHostAndIndexerRegisteredEvents tests the extraction function directly.
 func TestExtractHostAndIndexerRegisteredEvents(t *testing.T) {
 	testMsg := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
@@ -151,7 +151,7 @@ func TestExtractHostAndIndexerRegisteredEvents(t *testing.T) {
 	require.Equal(t, "1", indexerEvent.SourceChainID)
 }
 
-// TestMixedEventSubscription tests receiving ViewRegistered and HostRegistered events together
+// TestMixedEventSubscription tests receiving ViewRegistered and HostRegistered events together.
 func TestMixedEventSubscription(t *testing.T) {
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
@@ -184,7 +184,7 @@ func TestMixedEventSubscription(t *testing.T) {
 
 	// Send a mixed event with ViewRegistered and HostRegistered
 	mixedEvent := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
@@ -266,7 +266,7 @@ func TestMixedEventSubscription(t *testing.T) {
 	}
 }
 
-// TestHostRegisteredEventToString tests the string representation
+// TestHostRegisteredEventToString tests the string representation.
 func TestHostRegisteredEventToString(t *testing.T) {
 	event := HostRegisteredEvent{
 		Owner:            "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm",
@@ -278,7 +278,7 @@ func TestHostRegisteredEventToString(t *testing.T) {
 	require.Equal(t, expected, event.ToString())
 }
 
-// TestIndexerRegisteredEventToString tests the string representation
+// TestIndexerRegisteredEventToString tests the string representation.
 func TestIndexerRegisteredEventToString(t *testing.T) {
 	event := IndexerRegisteredEvent{
 		Owner:            "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm",

@@ -1,4 +1,3 @@
-// pkg/view/schema_service.go
 package view
 
 import (
@@ -7,13 +6,15 @@ import (
 	"strings"
 )
 
+// SchemaService provides utilities for normalizing and parsing SDL schemas for Shinzo views.
 type SchemaService struct{}
 
+// NewSchemaService creates a new instance of SchemaService.
 func NewSchemaService() *SchemaService {
 	return &SchemaService{}
 }
 
-// NormalizeSDL applies standard transformations to an SDL schema
+// NormalizeSDL applies standard transformations to an SDL schema.
 func (ss *SchemaService) NormalizeSDL(sdl string, typeName string, options SDLOptions) string {
 	// Replace type name if provided
 	if typeName != "" {
@@ -32,11 +33,13 @@ func (ss *SchemaService) NormalizeSDL(sdl string, typeName string, options SDLOp
 	return sdl
 }
 
+// SDLOptions defines options for SDLs within views.
 type SDLOptions struct {
 	Materialized   bool
 	RequiredFields []FieldDef
 }
 
+// FieldDef represents a field definition with a name and type.
 type FieldDef struct {
 	Name string
 	Type string

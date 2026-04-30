@@ -4,6 +4,8 @@ import (
 	_ "embed"
 )
 
+// SchemaGraphQL holds the contents of the GraphQL schema defined in `schema.graphql`.
+//
 //go:embed schema.graphql
 var SchemaGraphQL string
 

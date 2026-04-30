@@ -25,8 +25,8 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func TestFindCoveringSnapshots_NoOverlap(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 200, End: 300},
@@ -37,9 +37,9 @@ func TestFindCoveringSnapshots_NoOverlap(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_FullOverlap(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-150-250.tar", StartBlock: 150, EndBlock: 250, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-150-250.tar", StartBlock: 150, EndBlock: 250, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 100, End: 250},
@@ -53,9 +53,9 @@ func TestFindCoveringSnapshots_FullOverlap(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_AlreadyImported(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-300-400.tar", StartBlock: 300, EndBlock: 400, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-300-400.tar", StartBlock: 300, EndBlock: 400, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 50, End: 500},
@@ -68,9 +68,9 @@ func TestFindCoveringSnapshots_AlreadyImported(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_UnsignedFiltered(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
+	available := []snapshot.Info{
 		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: false},
-		{Filename: "snap-200-300.tar", StartBlock: 200, EndBlock: 300, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+		{Filename: "snap-200-300.tar", StartBlock: 200, EndBlock: 300, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 100, End: 300},
@@ -82,8 +82,8 @@ func TestFindCoveringSnapshots_UnsignedFiltered(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_DeduplicationByFilename(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	// Two ranges that both overlap the same snapshot
 	ranges := []hostConfig.BlockRange{
@@ -97,10 +97,10 @@ func TestFindCoveringSnapshots_DeduplicationByFilename(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_SortedByStartBlock(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-300-400.tar", StartBlock: 300, EndBlock: 400, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-200-300.tar", StartBlock: 200, EndBlock: 300, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-300-400.tar", StartBlock: 300, EndBlock: 400, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-200-300.tar", StartBlock: 200, EndBlock: 300, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 50, End: 500},
@@ -123,8 +123,8 @@ func TestFindCoveringSnapshots_EmptyAvailable(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_EmptyRanges(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-100-200.tar", StartBlock: 100, EndBlock: 200, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 
 	result := findCoveringSnapshots(available, nil, 0, 0)
@@ -133,8 +133,8 @@ func TestFindCoveringSnapshots_EmptyRanges(t *testing.T) {
 
 func TestFindCoveringSnapshots_PartiallyImportedStillIncluded(t *testing.T) {
 	// A snapshot that extends beyond the existing range should still be included
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-50-300.tar", StartBlock: 50, EndBlock: 300, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-50-300.tar", StartBlock: 50, EndBlock: 300, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 1, End: 400},
@@ -148,8 +148,8 @@ func TestFindCoveringSnapshots_PartiallyImportedStillIncluded(t *testing.T) {
 
 func TestFindCoveringSnapshots_ExistingMaxZeroDoesNotSkip(t *testing.T) {
 	// When existingMax is 0, the "already imported" check is skipped entirely
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 1, End: 100},
@@ -160,8 +160,8 @@ func TestFindCoveringSnapshots_ExistingMaxZeroDoesNotSkip(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_SnapshotEndBeforeRangeStart(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-1-50.tar", StartBlock: 1, EndBlock: 50, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-1-50.tar", StartBlock: 1, EndBlock: 50, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 100, End: 200},
@@ -172,8 +172,8 @@ func TestFindCoveringSnapshots_SnapshotEndBeforeRangeStart(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_SnapshotStartAfterRangeEnd(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-300-400.tar", StartBlock: 300, EndBlock: 400, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-300-400.tar", StartBlock: 300, EndBlock: 400, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 100, End: 200},
@@ -185,8 +185,8 @@ func TestFindCoveringSnapshots_SnapshotStartAfterRangeEnd(t *testing.T) {
 
 func TestFindCoveringSnapshots_BoundaryOverlap(t *testing.T) {
 	// Snapshot endBlock equals range start - still overlaps
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-50-100.tar", StartBlock: 50, EndBlock: 100, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-50-100.tar", StartBlock: 50, EndBlock: 100, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 100, End: 200},
@@ -197,10 +197,10 @@ func TestFindCoveringSnapshots_BoundaryOverlap(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_MultipleRangesMultipleSnapshots(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-200-300.tar", StartBlock: 200, EndBlock: 300, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-500-600.tar", StartBlock: 500, EndBlock: 600, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-200-300.tar", StartBlock: 200, EndBlock: 300, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-500-600.tar", StartBlock: 500, EndBlock: 600, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 50, End: 150},
@@ -220,9 +220,9 @@ func TestFindCoveringSnapshots_MultipleRangesMultipleSnapshots(t *testing.T) {
 func TestBootstrapFromSnapshots_NoSnapshotsAvailable(t *testing.T) {
 	// Create a mock HTTP server that returns empty snapshots list
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/snapshots" {
+		if r.URL.Path == testSnapshotsPath {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"snapshots": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"snapshots": []any{}})
 			return
 		}
 		http.NotFound(w, r)
@@ -232,7 +232,7 @@ func TestBootstrapFromSnapshots_NoSnapshotsAvailable(t *testing.T) {
 	ctx := context.Background()
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := hostConfig.SnapshotConfig{
 		Enabled:    true,
@@ -248,7 +248,7 @@ func TestBootstrapFromSnapshots_NoSnapshotsAvailable(t *testing.T) {
 
 func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
 	// Create a mock HTTP server that returns an error
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -256,7 +256,7 @@ func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
 	ctx := context.Background()
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := hostConfig.SnapshotConfig{
 		Enabled:    true,
@@ -273,12 +273,12 @@ func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
 func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
 	// Create a mock HTTP server that returns snapshots outside the requested range
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/snapshots" {
-			snaps := []snapshot.SnapshotInfo{
-				{Filename: "snap-500-600.tar", StartBlock: 500, EndBlock: 600, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+		if r.URL.Path == testSnapshotsPath {
+			snaps := []snapshot.Info{
+				{Filename: "snap-500-600.tar", StartBlock: 500, EndBlock: 600, Signed: true, Signature: &snapshot.SignatureData{}},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
+			_ = json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
 			return
 		}
 		http.NotFound(w, r)
@@ -288,7 +288,7 @@ func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
 	ctx := context.Background()
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := hostConfig.SnapshotConfig{
 		Enabled:    true,
@@ -305,12 +305,12 @@ func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
 func TestBootstrapFromSnapshots_NilSignature(t *testing.T) {
 	// Create a mock HTTP server that returns a snapshot with nil signature
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/snapshots" {
-			snaps := []snapshot.SnapshotInfo{
+		if r.URL.Path == testSnapshotsPath {
+			snaps := []snapshot.Info{
 				{Filename: "snap-1-100.tar", StartBlock: 1, EndBlock: 100, Signed: true, Signature: nil},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
+			_ = json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
 			return
 		}
 		http.NotFound(w, r)
@@ -320,7 +320,7 @@ func TestBootstrapFromSnapshots_NilSignature(t *testing.T) {
 	ctx := context.Background()
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := hostConfig.SnapshotConfig{
 		Enabled:    true,
@@ -338,15 +338,15 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 	// Create a mock HTTP server that lists snapshots but download fails
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/snapshots":
-			snaps := []snapshot.SnapshotInfo{
+		case testSnapshotsPath:
+			snaps := []snapshot.Info{
 				{
 					Filename:   "snap-1-100.tar",
 					StartBlock: 1,
 					EndBlock:   100,
 					SizeBytes:  1024,
 					Signed:     true,
-					Signature: &snapshot.SnapshotSignatureData{
+					Signature: &snapshot.SignatureData{
 						StartBlock:        1,
 						EndBlock:          100,
 						SignatureIdentity: "test-signer",
@@ -354,7 +354,7 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
+			_ = json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -364,7 +364,7 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 	ctx := context.Background()
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := hostConfig.SnapshotConfig{
 		Enabled:    true,
@@ -387,7 +387,7 @@ func TestGetExistingBlockRange_EmptyDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
 	require.Equal(t, int64(0), minBlock)
@@ -403,9 +403,9 @@ func TestCreateSnapshotAttestation_NoBlockSigMerkleRoots(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	sig := &snapshot.SnapshotSignatureData{
+	sig := &snapshot.SignatureData{
 		StartBlock:          1,
 		EndBlock:            100,
 		SignatureIdentity:   "test-signer",
@@ -421,9 +421,9 @@ func TestCreateSnapshotAttestation_WithMerkleRoots(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	sig := &snapshot.SnapshotSignatureData{
+	sig := &snapshot.SignatureData{
 		StartBlock:          1,
 		EndBlock:            100,
 		SignatureIdentity:   "test-signer",
@@ -436,7 +436,7 @@ func TestCreateSnapshotAttestation_WithMerkleRoots(t *testing.T) {
 }
 
 func TestCreateSnapshotAttestation_RecordFormat(t *testing.T) {
-	sig := &snapshot.SnapshotSignatureData{
+	sig := &snapshot.SignatureData{
 		StartBlock:          1,
 		EndBlock:            100,
 		SignatureIdentity:   "test-signer",
@@ -457,7 +457,7 @@ func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Insert some blocks with different block numbers
 	for _, num := range []int{10, 20, 30} {
@@ -484,7 +484,7 @@ func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Insert a single block
 	mutation := `mutation {
@@ -513,9 +513,9 @@ func TestCreateSnapshotAttestation_SuccessVerifyRecord(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	sig := &snapshot.SnapshotSignatureData{
+	sig := &snapshot.SignatureData{
 		StartBlock:          500,
 		EndBlock:            600,
 		SignatureIdentity:   "test-signer-identity",
@@ -542,9 +542,9 @@ func TestCreateSnapshotAttestation_SuccessVerifyRecord(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFindCoveringSnapshots_AllAlreadyImported(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-100-150.tar", StartBlock: 100, EndBlock: 150, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-200-250.tar", StartBlock: 200, EndBlock: 250, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-100-150.tar", StartBlock: 100, EndBlock: 150, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-200-250.tar", StartBlock: 200, EndBlock: 250, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 1, End: 500},
@@ -556,11 +556,11 @@ func TestFindCoveringSnapshots_AllAlreadyImported(t *testing.T) {
 }
 
 func TestFindCoveringSnapshots_MixedSignedAndExisting(t *testing.T) {
-	available := []snapshot.SnapshotInfo{
-		{Filename: "snap-10-50.tar", StartBlock: 10, EndBlock: 50, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+	available := []snapshot.Info{
+		{Filename: "snap-10-50.tar", StartBlock: 10, EndBlock: 50, Signed: true, Signature: &snapshot.SignatureData{}},
 		{Filename: "snap-60-80.tar", StartBlock: 60, EndBlock: 80, Signed: false},
-		{Filename: "snap-90-120.tar", StartBlock: 90, EndBlock: 120, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
-		{Filename: "snap-100-110.tar", StartBlock: 100, EndBlock: 110, Signed: true, Signature: &snapshot.SnapshotSignatureData{}},
+		{Filename: "snap-90-120.tar", StartBlock: 90, EndBlock: 120, Signed: true, Signature: &snapshot.SignatureData{}},
+		{Filename: "snap-100-110.tar", StartBlock: 100, EndBlock: 110, Signed: true, Signature: &snapshot.SignatureData{}},
 	}
 	ranges := []hostConfig.BlockRange{
 		{Start: 1, End: 200},
@@ -579,9 +579,9 @@ func TestCreateSnapshotAttestation_NilBlockSigMerkleRoots(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	sig := &snapshot.SnapshotSignatureData{
+	sig := &snapshot.SignatureData{
 		StartBlock:          1,
 		EndBlock:            100,
 		SignatureIdentity:   "test-signer",
@@ -596,15 +596,15 @@ func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
 	// Create a mock HTTP server that serves a "snapshot" (invalid tar file)
 	svr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/snapshots":
-			snaps := []snapshot.SnapshotInfo{
+		case testSnapshotsPath:
+			snaps := []snapshot.Info{
 				{
 					Filename:   "snap-1-100.tar",
 					StartBlock: 1,
 					EndBlock:   100,
 					SizeBytes:  64,
 					Signed:     true,
-					Signature: &snapshot.SnapshotSignatureData{
+					Signature: &snapshot.SignatureData{
 						StartBlock:          1,
 						EndBlock:            100,
 						SignatureIdentity:   "test-signer",
@@ -613,11 +613,11 @@ func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
+			_ = json.NewEncoder(w).Encode(map[string]any{"snapshots": snaps})
 		case "/snapshots/snap-1-100.tar":
 			// Serve a small invalid tar file
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Write([]byte("this is not a real tar file but serves as a test payload"))
+			_, _ = w.Write([]byte("this is not a real tar file but serves as a test payload"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -627,7 +627,7 @@ func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
 	ctx := context.Background()
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := hostConfig.SnapshotConfig{
 		Enabled:    true,

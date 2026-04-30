@@ -26,29 +26,32 @@ type WASMRegistry struct {
 	cached       map[string]string // url/hash -> local file path
 }
 
+// defaultHTTPClientTimeout is the default timeout for HTTP client requests.
+const defaultHTTPClientTimeout = 30 * time.Second
+
 // NewWASMRegistry creates a new WASM registry with the specified storage path.
 func NewWASMRegistry(registryPath string, logger *zap.SugaredLogger) (*WASMRegistry, error) {
 	// Create registry directory if it doesn't exist
-	if err := os.MkdirAll(registryPath, 0755); err != nil {
+	if err := os.MkdirAll(registryPath, 0o750); err != nil { // nolint:mnd
 		return nil, fmt.Errorf("failed to create WASM registry directory: %w", err)
 	}
 
 	return &WASMRegistry{
 		registryPath: registryPath,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: defaultHTTPClientTimeout,
 		},
 		logger: logger,
 		cached: make(map[string]string),
 	}, nil
 }
 
-// AddViewsFromLensRegistry loads persisted view definitions from views.json in the registry
+// AddViewsFromLensRegistry loads persisted view definitions from views.json in the registry.
 func AddViewsFromLensRegistry(registryPath string) ([]View, error) {
 	viewsFilePath := filepath.Join(registryPath, "views.json")
 
 	// Check if views.json exists
-	data, err := os.ReadFile(viewsFilePath)
+	data, err := os.ReadFile(filepath.Clean(viewsFilePath))
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No persisted views - return empty slice (not an error)
@@ -66,7 +69,7 @@ func AddViewsFromLensRegistry(registryPath string) ([]View, error) {
 	return views, nil
 }
 
-// SaveViewToRegistry persists a view definition to views.json
+// SaveViewToRegistry persists a view definition to views.json.
 func SaveViewToRegistry(registryPath string, v View) error {
 	viewsFilePath := filepath.Join(registryPath, "views.json")
 
@@ -95,7 +98,7 @@ func SaveViewToRegistry(registryPath string, v View) error {
 		return fmt.Errorf("failed to marshal views: %w", err)
 	}
 
-	return os.WriteFile(viewsFilePath, data, 0644)
+	return os.WriteFile(viewsFilePath, data, 0o600) //nolint:mnd
 }
 
 // EnsureWASM checks if a WASM file exists locally, downloads it if not.
@@ -152,7 +155,7 @@ func (r *WASMRegistry) EnsureAllWASM(ctx context.Context, wasmURLs []string) (ma
 	}
 
 	if len(errors) > 0 {
-		return results, fmt.Errorf("failed to download %d WASM files", len(errors))
+		return results, fmt.Errorf("%d files: %w", len(errors), ErrWASMDownloadFailed)
 	}
 
 	return results, nil
@@ -248,23 +251,23 @@ func (r *WASMRegistry) downloadWASM(ctx context.Context, url, destPath string) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		return fmt.Errorf("HTTP %d %s: %w", resp.StatusCode, resp.Status, ErrHTTPErrorResponse)
 	}
 
 	// Create temp file first, then rename for atomicity
 	tmpPath := destPath + ".tmp"
-	f, err := os.Create(tmpPath)
+	f, err := os.Create(filepath.Clean(tmpPath))
 	if err != nil {
 		return err
 	}
 
 	_, err = io.Copy(f, resp.Body)
-	f.Close()
+	_ = f.Close()
 	if err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 

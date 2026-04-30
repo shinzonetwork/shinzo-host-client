@@ -88,7 +88,7 @@ type Ethereum__Mainnet__AccessListEntry {
 }
 
 type Ethereum__Mainnet__Log {
-    address: String
+    address: String @index
     topics: [String]
     data: String
     transactionHash: String

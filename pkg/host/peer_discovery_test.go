@@ -122,11 +122,7 @@ func TestExtractPeerIDFromError_WrappedTypedError(t *testing.T) {
 func TestExtractPeerIDFromError_StringFallback(t *testing.T) {
 	// Simulate an error that doesn't unwrap to ErrPeerIDMismatch
 	// but contains the expected string format
-	errMsg := fmt.Errorf(
-		"all dials failed\n  * [/ip4/34.9.109.135/tcp/9171] failed to negotiate security protocol: "+
-			"peer id mismatch: expected 12D3KooWCS9HHoiqfu1YRBiLM5spAbDGiHb2NtXEGUoHYTcCtEfy, "+
-			"but remote key matches 12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF.",
-	)
+	errMsg := errPeerIDMismatchDial
 
 	actualID, err := extractPeerIDFromError(errMsg)
 	require.NoError(t, err)
@@ -136,7 +132,7 @@ func TestExtractPeerIDFromError_StringFallback(t *testing.T) {
 }
 
 func TestExtractPeerIDFromError_NoMismatchInfo(t *testing.T) {
-	_, err := extractPeerIDFromError(fmt.Errorf("connection refused"))
+	_, err := extractPeerIDFromError(errConnectionRefused)
 	require.Error(t, err)
 }
 

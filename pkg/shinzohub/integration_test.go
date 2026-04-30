@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIndexerRegisteredToIntegrationFlow tests the complete flow from IndexerRegistered event to indexer addition
+// TestIndexerRegisteredToIntegrationFlow tests the complete flow from IndexerRegistered event to indexer addition.
 func TestIndexerRegisteredToIntegrationFlow(t *testing.T) {
 	indexerManager := NewMockIndexerManager()
 	handler := NewRegistrationHandler(indexerManager)
@@ -21,7 +21,7 @@ func TestIndexerRegisteredToIntegrationFlow(t *testing.T) {
 	defer cancel()
 
 	testEvent := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             3,
 		Result: RPCResult{
 			Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
@@ -95,7 +95,7 @@ func TestIndexerRegisteredToIntegrationFlow(t *testing.T) {
 	require.Equal(t, 1, indexerManager.GetIndexerCount())
 }
 
-// TestMultipleIndexerRegisteredEvents tests handling multiple IndexerRegistered events
+// TestMultipleIndexerRegisteredEvents tests handling multiple IndexerRegistered events.
 func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 	indexerManager := NewMockIndexerManager()
 	handler := NewRegistrationHandler(indexerManager)
@@ -109,7 +109,7 @@ func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 
 	testEvents := []RPCResponse{
 		{
-			JsonRpcVersion: "2.0",
+			JSONRPCVersion: "2.0",
 			ID:             3,
 			Result: RPCResult{
 				Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
@@ -138,7 +138,7 @@ func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 			},
 		},
 		{
-			JsonRpcVersion: "2.0",
+			JSONRPCVersion: "2.0",
 			ID:             3,
 			Result: RPCResult{
 				Query: "tm.event='Tx' AND IndexerRegistered.owner EXISTS",
@@ -212,7 +212,7 @@ func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 	require.Equal(t, "polygon", indexer2.SourceChain)
 }
 
-// TestIndexerManagerFunctionality tests the indexer manager directly
+// TestIndexerManagerFunctionality tests the indexer manager directly.
 func TestIndexerManagerFunctionality(t *testing.T) {
 	manager := NewMockIndexerManager()
 

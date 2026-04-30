@@ -1,6 +1,7 @@
 package shinzohub
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,7 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// MockWebSocketServer simulates a ShinzoHub WebSocket server for testing
+// MockWebSocketServer simulates a ShinzoHub WebSocket server for testing.
 type MockWebSocketServer struct {
 	server   *http.Server
 	upgrader websocket.Upgrader
@@ -21,7 +22,7 @@ type MockWebSocketServer struct {
 	ready    chan struct{} // signals when all subscriptions have been processed
 }
 
-// NewMockWebSocketServer creates a new mock WebSocket server
+// NewMockWebSocketServer creates a new mock WebSocket server.
 func NewMockWebSocketServer() *MockWebSocketServer {
 	mux := http.NewServeMux()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -29,12 +30,15 @@ func NewMockWebSocketServer() *MockWebSocketServer {
 		panic(fmt.Sprintf("Failed to create listener: %v", err))
 	}
 
-	server := &http.Server{Handler: mux}
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: defaultTimeout,
+	}
 
 	mock := &MockWebSocketServer{
 		server: server,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
+			CheckOrigin: func(_ *http.Request) bool {
 				return true
 			},
 		},
@@ -46,7 +50,7 @@ func NewMockWebSocketServer() *MockWebSocketServer {
 	mux.HandleFunc("/websocket", mock.handleWebSocket)
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Printf("Mock WebSocket server error: %v\n", err)
 		}
 	}()
@@ -54,20 +58,20 @@ func NewMockWebSocketServer() *MockWebSocketServer {
 	return mock
 }
 
-// WebsocketURL returns the WebSocket URL for the mock server
+// WebsocketURL returns the WebSocket URL for the mock server.
 func (m *MockWebSocketServer) WebsocketURL() string {
 	return fmt.Sprintf("ws://127.0.0.1:%d/websocket", m.port)
 }
 
-// Close shuts down the mock server
+// Close shuts down the mock server.
 func (m *MockWebSocketServer) Close() {
 	close(m.done)
 	if m.server != nil {
-		m.server.Close()
+		defer func() { _ = m.server.Close() }()
 	}
 	m.connMu.Lock()
 	if m.conn != nil {
-		m.conn.Close()
+		_ = m.conn.Close()
 	}
 	m.connMu.Unlock()
 }
@@ -94,7 +98,7 @@ func (m *MockWebSocketServer) SendEvent(event RPCResponse) {
 	}
 }
 
-// handleWebSocket handles WebSocket connections
+// handleWebSocket handles WebSocket connections.
 func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := m.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -105,7 +109,7 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 	m.connMu.Lock()
 	m.conn = conn
 	m.connMu.Unlock()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	subscriptionCount := 0
 
@@ -114,7 +118,7 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 		case <-m.done:
 			return
 		default:
-			var msg map[string]interface{}
+			var msg map[string]any
 			if err := conn.ReadJSON(&msg); err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					fmt.Printf("WebSocket error: %v\n", err)
@@ -124,10 +128,10 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 
 			if method, ok := msg["method"].(string); ok && method == "subscribe" {
 				m.connMu.Lock()
-				response := map[string]interface{}{
+				response := map[string]any{
 					"jsonrpc": "2.0",
 					"id":      msg["id"],
-					"result": map[string]interface{}{
+					"result": map[string]any{
 						"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
 					},
 				}

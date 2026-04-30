@@ -16,9 +16,12 @@ import (
 )
 
 // attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
-var attestedBlocks sync.Map
-var startTime time.Time
-// Document represents a document from DefraDB
+var (
+	attestedBlocks sync.Map  //nolint:gochecknoglobals
+	startTime      time.Time //nolint:gochecknoglobals,unused
+)
+
+// Document represents a document from DefraDB.
 type Document struct {
 	ID          string
 	Type        string
@@ -59,7 +62,7 @@ func (h *Host) processDocumentAttestationBatch(ctx context.Context, docs []Docum
 	return attestationService.HandleDocumentAttestationBatch(ctx, h.signatureVerifier, h.DefraNode, inputs, maxConcurrentVerifications)
 }
 
-// processAttestationEventsWithSubscription starts DefraDB event listeners
+// processAttestationEventsWithSubscription starts DefraDB event listeners.
 func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
 	logger.Sugar.Info("Starting DefraDB event listener")
 	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
@@ -70,19 +73,36 @@ func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
 	logger.Sugar.Info("Event listeners stopped")
 }
 
-// Known collection IDs - stored at startup for direct comparison
+// Known collection IDs - stored at startup for direct comparison.
 var (
-	blockSigCollectionID    string
-	blockCollectionID       string
-	transactionCollectionID string
-	logCollectionID         string
-	accessListCollectionID  string
+	blockSigCollectionID    string //nolint:gochecknoglobals
+	blockCollectionID       string //nolint:gochecknoglobals
+	transactionCollectionID string //nolint:gochecknoglobals
+	logCollectionID         string //nolint:gochecknoglobals
+	accessListCollectionID  string //nolint:gochecknoglobals
 )
+
+// collectionIDToName - mapping for ID to Name.
+var collectionIDToName = map[string]string{ //nolint:gochecknoglobals
+	blockSigCollectionID:    constants.CollectionBlockSignature,
+	blockCollectionID:       constants.CollectionBlock,
+	transactionCollectionID: constants.CollectionTransaction,
+	logCollectionID:         constants.CollectionLog,
+	accessListCollectionID:  constants.CollectionAccessListEntry,
+}
+
+// collectionsWithMetrics - mapping collection to bool.
+var collectionsWithMetrics = map[string]bool{ //nolint:gochecknoglobals
+	constants.CollectionBlockSignature:  true,
+	constants.CollectionTransaction:     true,
+	constants.CollectionLog:             true,
+	constants.CollectionAccessListEntry: true,
+}
 
 // initKnownCollectionIDs fetches the CollectionIDs for collections we care about at startup.
 func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
-		return fmt.Errorf("DefraNode not available")
+		return ErrDefraNodeUnavailable
 	}
 
 	// Get BlockSignature collection ID
@@ -106,20 +126,20 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 		}
 	}
 
-	logger.Sugar.Infof("Initialized %d known collection IDs", 5)
+	logger.Sugar.Infof("Initialized %d known collection IDs", knownCollectionIDs)
 	return nil
 }
 
-// docEvent represents a document event to be processed
+// docEvent represents a document event to be processed.
 type docEvent struct {
 	docID          string
 	collectionName string
 }
 
-// docQueue is the unified queue for all document processing with drop-oldest backpressure
-var docQueue chan docEvent
+// docQueue is the unified queue for all document processing with drop-oldest backpressure.
+var docQueue chan docEvent //nolint:gochecknoglobals
 
-// initDocQueue initializes the document queue with config values
+// initDocQueue initializes the document queue with config values.
 func (h *Host) initDocQueue() (workerCount, queueSize int) {
 	queueSize = h.config.Shinzo.DocQueueSize
 	if queueSize <= 0 {
@@ -133,7 +153,7 @@ func (h *Host) initDocQueue() (workerCount, queueSize int) {
 	return workerCount, queueSize
 }
 
-// enqueueDoc adds a document to the processing queue with drop-oldest backpressure
+// enqueueDoc adds a document to the processing queue with drop-oldest backpressure.
 func enqueueDoc(evt docEvent) {
 	for {
 		select {
@@ -155,15 +175,14 @@ func (h *Host) docWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case evt := <-docQueue:
-			switch evt.collectionName {
-			case constants.CollectionBlockSignature:
+			if evt.collectionName == constants.CollectionBlockSignature {
 				h.processBlockSignatureFromEventBus(ctx, evt.docID)
 			}
 		}
 	}
 }
 
-// startEventBusListener subscribes to DefraDB's event bus to track document metrics
+// startEventBusListener subscribes to DefraDB's event bus to track document metrics.
 func (h *Host) startEventBusListener(ctx context.Context) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
@@ -201,14 +220,9 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 				return
 			}
 
-			switch msg.Name {
-			case event.UpdateName:
+			if msg.Name == event.UpdateName {
 				update, ok := msg.Data.(event.Update)
-				if !ok {
-					continue
-				}
-
-				if !update.IsRelay {
+				if !ok || !update.IsRelay {
 					continue
 				}
 
@@ -216,40 +230,19 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 					h.metrics.IncrementDocumentsReceived()
 				}
 
-				switch update.CollectionID {
-				case blockSigCollectionID:
-					if h.metrics != nil {
-						h.metrics.IncrementDocumentByType(constants.CollectionBlockSignature)
-					}
-					enqueueDoc(docEvent{docID: update.DocID, collectionName: constants.CollectionBlockSignature})
-					if h.pruneQueue != nil {
-						h.pruneQueue.Push(constants.CollectionBlockSignature, update.DocID)
-					}
-				case blockCollectionID:
-					if h.pruneQueue != nil {
-						h.pruneQueue.Push(constants.CollectionBlock, update.DocID)
-					}
-				case transactionCollectionID:
-					if h.metrics != nil {
-						h.metrics.IncrementDocumentByType(constants.CollectionTransaction)
-					}
-					if h.pruneQueue != nil {
-						h.pruneQueue.Push(constants.CollectionTransaction, update.DocID)
-					}
-				case logCollectionID:
-					if h.metrics != nil {
-						h.metrics.IncrementDocumentByType(constants.CollectionLog)
-					}
-					if h.pruneQueue != nil {
-						h.pruneQueue.Push(constants.CollectionLog, update.DocID)
-					}
-				case accessListCollectionID:
-					if h.metrics != nil {
-						h.metrics.IncrementDocumentByType(constants.CollectionAccessListEntry)
-					}
-					if h.pruneQueue != nil {
-						h.pruneQueue.Push(constants.CollectionAccessListEntry, update.DocID)
-					}
+				collectionName, known := collectionIDToName[update.CollectionID]
+				if !known {
+					continue
+				}
+
+				if collectionsWithMetrics[collectionName] && h.metrics != nil {
+					h.metrics.IncrementDocumentByType(collectionName)
+				}
+				if collectionName == constants.CollectionBlockSignature {
+					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
+				}
+				if h.pruneQueue != nil {
+					h.pruneQueue.Push(collectionName, update.DocID)
 				}
 			}
 		}
@@ -286,7 +279,7 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(2 * time.Millisecond):
+			case <-time.After(attestationRetryDelayMs * time.Millisecond):
 			}
 		}
 	}
@@ -299,12 +292,11 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 	h.processBlockSignatureDocument(ctx, doc)
 }
 
-// processBlockSignatureDocument extracts fields from a client.Document and processes them.
-func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Document) {
+// extractBlockSignatureCore extracts blockNumber and merkleRoot, returning a partial BlockSignature or error.
+func extractBlockSignatureCore(doc *client.Document) (*attestationService.BlockSignature, int64, error) {
 	blockNumberVal, err := doc.Get("blockNumber")
 	if err != nil {
-		logger.Sugar.Warnf("BlockSignature missing blockNumber: %v", err)
-		return
+		return nil, 0, fmt.Errorf("missing blockNumber: %w", err)
 	}
 	blockNumber, ok := blockNumberVal.(int64)
 	if !ok {
@@ -315,20 +307,21 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 
 	merkleRootVal, err := doc.Get("merkleRoot")
 	if err != nil {
-		logger.Sugar.Warnf("BlockSignature for block %d missing merkleRoot: %v", blockNumber, err)
-		return
+		return nil, blockNumber, fmt.Errorf("block %d missing merkleRoot: %w", blockNumber, err)
 	}
 	merkleRoot, ok := merkleRootVal.(string)
 	if !ok || merkleRoot == "" {
-		logger.Sugar.Warnf("BlockSignature for block %d has empty merkleRoot", blockNumber)
-		return
+		return nil, blockNumber, fmt.Errorf("block %d: %w", blockNumber, ErrEmptyMerkleRoot)
 	}
 
-	blockSig := &attestationService.BlockSignature{
+	return &attestationService.BlockSignature{
 		BlockNumber: blockNumber,
 		MerkleRoot:  merkleRoot,
-	}
+	}, blockNumber, nil
+}
 
+// populateBlockSignatureFields fills in optional string/int fields on a BlockSignature from a document.
+func populateBlockSignatureFields(doc *client.Document, blockSig *attestationService.BlockSignature) {
 	if val, err := doc.Get("blockHash"); err == nil {
 		if s, ok := val.(string); ok {
 			blockSig.BlockHash = s
@@ -362,46 +355,75 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 			blockSig.CreatedAt = s
 		}
 	}
-	if cidVal, cidErr := doc.Get("cids"); cidErr == nil && cidVal != nil {
-		switch v := cidVal.(type) {
-		case []string:
-			blockSig.CIDs = v
-		case []immutable.Option[string]:
-			for _, item := range v {
-				if item.HasValue() {
-					blockSig.CIDs = append(blockSig.CIDs, item.Value())
-				}
+}
+
+// populateBlockSignatureCIDs extracts the CID list from a document into a BlockSignature.
+func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationService.BlockSignature) {
+	cidVal, err := doc.Get("cids")
+	if err != nil || cidVal == nil {
+		return
+	}
+	switch v := cidVal.(type) {
+	case []string:
+		blockSig.CIDs = v
+	case []immutable.Option[string]:
+		for _, item := range v {
+			if item.HasValue() {
+				blockSig.CIDs = append(blockSig.CIDs, item.Value())
 			}
-		case []any:
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					blockSig.CIDs = append(blockSig.CIDs, s)
-				}
+		}
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				blockSig.CIDs = append(blockSig.CIDs, s)
 			}
 		}
 	}
+}
 
-	if h.blockSignatureVerifier != nil {
-		if err := h.blockSignatureVerifier.VerifyBlockSignature(ctx, blockSig); err != nil {
-			logger.Sugar.Warnf("Invalid block signature for block %d: %v", blockSig.BlockNumber, err)
+// verifyBlockSignature verifies the signature and CID list, updating metrics on failure.
+// Returns false if verification fails and processing should stop.
+func (h *Host) verifyBlockSignature(blockSig *attestationService.BlockSignature) bool {
+	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig); err != nil {
+		logger.Sugar.Warnf("Invalid block signature for block %d: %v", blockSig.BlockNumber, err)
+		if h.metrics != nil {
+			h.metrics.IncrementSignatureFailures()
+		}
+		return false
+	}
+
+	if len(blockSig.CIDs) > 0 {
+		cidMatch, cidErr := h.blockSignatureVerifier.VerifyCIDListAgainstMerkleRoot(blockSig)
+		if cidErr != nil {
+			logger.Sugar.Warnf("Block %d: CID list verification error: %v", blockSig.BlockNumber, cidErr)
+		} else if !cidMatch {
+			logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root", blockSig.BlockNumber)
 			if h.metrics != nil {
 				h.metrics.IncrementSignatureFailures()
 			}
-			return
+			return false
 		}
+	}
 
-		// Verify CID list against merkle root (if present)
-		if len(blockSig.CIDs) > 0 {
-			cidMatch, cidErr := h.blockSignatureVerifier.VerifyCIDListAgainstMerkleRoot(blockSig)
-			if cidErr != nil {
-				logger.Sugar.Warnf("Block %d: CID list verification error: %v", blockSig.BlockNumber, cidErr)
-			} else if !cidMatch {
-				logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root", blockSig.BlockNumber)
-				if h.metrics != nil {
-					h.metrics.IncrementSignatureFailures()
-				}
-				return
-			}
+	return true
+}
+
+// processBlockSignatureDocument extracts fields from a client.Document and processes them.
+func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Document) {
+	startTime := time.Now()
+
+	blockSig, blockNumber, err := extractBlockSignatureCore(doc)
+	if err != nil {
+		logger.Sugar.Warnf("BlockSignature extraction failed: %v (block %d)", err, blockNumber)
+		return
+	}
+
+	populateBlockSignatureFields(doc, blockSig)
+	populateBlockSignatureCIDs(doc, blockSig)
+
+	if h.blockSignatureVerifier != nil {
+		if !h.verifyBlockSignature(blockSig) {
+			return
 		}
 
 		if h.metrics != nil {
@@ -409,9 +431,9 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 		}
 
 		h.blockSignatureVerifier.AddBlockSignature(blockSig)
-
 		h.processAttestationsFromBlockSignature(ctx, blockSig)
 	}
+
 	if h.metrics != nil {
 		h.metrics.UpdateLastProcessingTime(float64(time.Since(startTime).Milliseconds()))
 	}
@@ -432,19 +454,19 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 	}
 
 	record := &constants.AttestationRecord{
-		AttestedDocId: blockAttestedID,
-		SourceDocIds:  []string{blockSig.SignatureIdentity},
+		AttestedDocID: blockAttestedID,
+		SourceDocIDs:  []string{blockSig.SignatureIdentity},
 		CIDs:          blockSig.CIDs,
 		DocType:       "Block",
 		VoteCount:     1,
 	}
 
 	var lastErr error
-	for attempt := range 5 {
+	for attempt := range maxAttestationRetries {
 		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
 			lastErr = err
 			if strings.Contains(err.Error(), "transaction conflict") || strings.Contains(err.Error(), "Please retry") {
-				time.Sleep(time.Duration(10*(1<<attempt)) * time.Millisecond)
+				time.Sleep(time.Duration(attestationBackoffBase*(1<<attempt)) * time.Millisecond)
 				continue
 			}
 			// Non-retryable error
@@ -456,16 +478,16 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		}
 		// Success
 		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
-			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, 16))
+			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		} else {
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationsCreated()
 				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
 			}
-			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, 16))
+			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		}
 		if h.metrics != nil {
-			h.metrics.UpdateMostRecentBlock(uint64(blockNumber))
+			h.metrics.UpdateMostRecentBlock(uint64(blockNumber)) //nolint:gosec // block numbers are always positive
 		}
 		return
 	}

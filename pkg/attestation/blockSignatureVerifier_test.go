@@ -1,7 +1,6 @@
 package attestation
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -72,13 +71,13 @@ func TestBlockSignatureCache_Add(t *testing.T) {
 	}{
 		{
 			name:      "nil signature is ignored",
-			setup:     func(c *BlockSignatureCache) {},
+			setup:     func(_ *BlockSignatureCache) {},
 			sig:       nil,
 			expectLen: 0,
 		},
 		{
 			name:  "add normal signature",
-			setup: func(c *BlockSignatureCache) {},
+			setup: func(_ *BlockSignatureCache) {},
 			sig: &BlockSignature{
 				BlockNumber: 10,
 				BlockHash:   "abc",
@@ -140,7 +139,7 @@ func TestBlockSignatureCache_Get(t *testing.T) {
 		},
 		{
 			name:        "get missing entry",
-			setup:       func(c *BlockSignatureCache) {},
+			setup:       func(_ *BlockSignatureCache) {},
 			blockNumber: 99,
 			expectFound: false,
 		},
@@ -270,11 +269,10 @@ func TestBlockSignatureVerifier_VerifyBlockSignature(t *testing.T) {
 	}
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := v.VerifyBlockSignature(ctx, tt.sig)
+			err := v.VerifyBlockSignature(tt.sig)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -551,7 +549,7 @@ func TestBlockCIDCollector_GetBlockCIDs(t *testing.T) {
 	}{
 		{
 			name:        "get missing block returns nil",
-			setup:       func(c *BlockCIDCollector) {},
+			setup:       func(_ *BlockCIDCollector) {},
 			blockNumber: 99,
 			expect:      nil,
 		},
@@ -633,7 +631,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_Success(t *testing.
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       42,
@@ -643,7 +640,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_Success(t *testing.
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -652,7 +649,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519Lowercase_Success(t 
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       43,
@@ -662,7 +658,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519Lowercase_Success(t 
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -672,7 +668,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_Success(t *testin
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeSecp256k1)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       44,
@@ -682,7 +677,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_Success(t *testin
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -691,7 +686,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_EcdsaAlias_Success(t *testi
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeSecp256k1)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       45,
@@ -701,7 +695,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_EcdsaAlias_Success(t *testi
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -715,7 +709,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_InvalidSignature(t *testing
 	pubKeyHex, sigHex := signMerkleRoot(t, differentData[:], crypto.KeyTypeEd25519)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       46,
@@ -725,7 +718,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_InvalidSignature(t *testing
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 	// Should be either "signature verification error" or "block signature verification failed"
 	errMsg := err.Error()
@@ -744,7 +737,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_InvalidSignature(
 	pubKeyHex, sigHex := signMerkleRoot(t, differentData[:], crypto.KeyTypeSecp256k1)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       47,
@@ -754,7 +746,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_InvalidSignature(
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 }
 
@@ -769,7 +761,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_MalformedSignatureBytes(t *
 	pubKeyHex := privKey.GetPublic().String()
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       48,
@@ -779,7 +770,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_MalformedSignatureBytes(t *
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err = v.VerifyBlockSignature(ctx, sig)
+	err = v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 }
 
@@ -793,7 +784,6 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_MalformedSignatureB
 	pubKeyHex := privKey.GetPublic().String()
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       49,
@@ -803,7 +793,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_MalformedSignatureB
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err = v.VerifyBlockSignature(ctx, sig)
+	err = v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 	errMsg := err.Error()
 	require.True(t,
@@ -854,10 +844,10 @@ func TestBlockCIDCollector_ConcurrentAccess(t *testing.T) {
 			c.AddDocumentCID(1, fmt.Sprintf("doc-%d", idx), "type", fmt.Sprintf("cid-%d", idx))
 			done <- true
 		}(i)
-		go func(idx int) {
+		go func() {
 			_ = c.GetBlockCIDs(1)
 			done <- true
-		}(i)
+		}()
 		go func() {
 			c.ClearBlock(2) // clear a different block concurrently
 			done <- true

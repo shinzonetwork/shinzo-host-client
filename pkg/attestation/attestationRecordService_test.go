@@ -13,14 +13,14 @@ import (
 func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			// All signatures are valid
 			return nil
 		},
 	}
 
-	docId := "doc-123"
-	sourceDocId := "source-doc-456"
+	docID := testDocID
+	sourceDocID := testSourceDocID
 	versions := []Version{
 		{
 			CID: "cid-1",
@@ -48,11 +48,11 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, []string{sourceDocId}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	require.Equal(t, docId, record.AttestedDocId)
-	require.Equal(t, []string{sourceDocId}, record.SourceDocIds)
+	require.Equal(t, docID, record.AttestedDocID)
+	require.Equal(t, []string{sourceDocID}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 3)
 	require.Contains(t, record.CIDs, "cid-1")
 	require.Contains(t, record.CIDs, "cid-2")
@@ -62,17 +62,17 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, cid string, _ Signature) error {
 			// Only cid-1 and cid-3 are valid
 			if cid == "cid-2" {
-				return fmt.Errorf("invalid signature")
+				return errInvalidSignature
 			}
 			return nil
 		},
 	}
 
-	docId := "doc-123"
-	sourceDocId := "source-doc-456"
+	docID := testDocID
+	sourceDocID := testSourceDocID
 	versions := []Version{
 		{
 			CID: "cid-1",
@@ -100,11 +100,11 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, []string{sourceDocId}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	require.Equal(t, docId, record.AttestedDocId)
-	require.Equal(t, []string{sourceDocId}, record.SourceDocIds)
+	require.Equal(t, docID, record.AttestedDocID)
+	require.Equal(t, []string{sourceDocID}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 2)
 	require.Contains(t, record.CIDs, "cid-1")
 	require.NotContains(t, record.CIDs, "cid-2")
@@ -114,14 +114,14 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			// All signatures are invalid
-			return fmt.Errorf("invalid signature")
+			return errInvalidSignature
 		},
 	}
 
-	docId := "doc-123"
-	sourceDocId := "source-doc-456"
+	docID := testDocID
+	sourceDocID := testSourceDocID
 	versions := []Version{
 		{
 			CID: "cid-1",
@@ -141,11 +141,11 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, []string{sourceDocId}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	require.Equal(t, docId, record.AttestedDocId)
-	require.Equal(t, []string{sourceDocId}, record.SourceDocIds)
+	require.Equal(t, docID, record.AttestedDocID)
+	require.Equal(t, []string{sourceDocID}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 0)
 }
 
@@ -153,15 +153,15 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{}
 
-	docId := "doc-123"
-	sourceDocId := "source-doc-456"
+	docID := testDocID
+	sourceDocID := testSourceDocID
 	versions := []Version{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docId, []string{sourceDocId}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	require.Equal(t, docId, record.AttestedDocId)
-	require.Equal(t, []string{sourceDocId}, record.SourceDocIds)
+	require.Equal(t, docID, record.AttestedDocID)
+	require.Equal(t, []string{sourceDocID}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 0)
 }
 
@@ -169,34 +169,22 @@ func TestPostAttestationRecord(t *testing.T) {
 	ctx := context.Background()
 
 	// Define schema inline for this test
-	testSchema := `
-		type TestDoc {
-			name: String
-		}
-
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testDocAndAttestationSchema
 
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
-	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
+	testConfig.DefraDB.P2P.Enabled = false             // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
 
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
@@ -206,7 +194,7 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	type TestDoc struct {
 		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
+		DocID   string    `json:"_docID"`
 		Version []Version `json:"_version"`
 	}
 
@@ -231,18 +219,18 @@ func TestPostAttestationRecord(t *testing.T) {
 	testDocResult, err := defra.PostMutation[TestDoc](t.Context(), defraNode, createTestDocMutation)
 	require.NoError(t, err)
 	require.NotNil(t, testDocResult)
-	require.Greater(t, len(testDocResult.DocId), 0)
+	require.Greater(t, len(testDocResult.DocID), 0)
 	require.Len(t, testDocResult.Version, 1)
 
 	testVersions := testDocResult.Version
 
-	attestedDocId := "attested-doc-123" // This would be the View doc created after processing the view
-	sourceDocId := testDocResult.DocId
+	attestedDocID := "attested-doc-123" // This would be the View doc created after processing the view
+	sourceDocID := testDocResult.DocID
 
 	// Manually create attestation record with the necessary data - we don't use CreateAttestationRecord because we don't want any validation
-	attestationRecord := &AttestationRecord{
-		AttestedDocId: attestedDocId,
-		SourceDocIds:   []string{sourceDocId},
+	attestationRecord := &Record{
+		AttestedDocID: attestedDocID,
+		SourceDocIDs:  []string{sourceDocID},
 		CIDs:          []string{},
 	}
 	for _, version := range testVersions {
@@ -261,13 +249,13 @@ func TestPostAttestationRecord(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defra.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
 	record := results[0]
-	require.Equal(t, attestedDocId, record.AttestedDocId)
-	require.Equal(t, []string{testDocResult.DocId}, record.SourceDocIds)
+	require.Equal(t, attestedDocID, record.AttestedDocID)
+	require.Equal(t, []string{testDocResult.DocID}, record.SourceDocIDs)
 	require.NotNil(t, record.CIDs)
 	require.Len(t, record.CIDs, 1)
 }
@@ -277,25 +265,25 @@ func TestPostAttestationRecord(t *testing.T) {
 // ========================================
 
 func TestMergeAttestationRecords_SameDocument(t *testing.T) {
-	record1 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          []string{"cid-1", "cid-2"},
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+	record2 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-2"},
 		CIDs:          []string{"cid-3", "cid-4"},
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
 	require.NoError(t, err)
 	require.NotNil(t, merged)
-	require.Equal(t, "doc-123", merged.AttestedDocId)
-	require.Len(t, merged.SourceDocIds, 2)
-	require.Contains(t, merged.SourceDocIds, "source-1")
-	require.Contains(t, merged.SourceDocIds, "source-2")
+	require.Equal(t, testDocID, merged.AttestedDocID)
+	require.Len(t, merged.SourceDocIDs, 2)
+	require.Contains(t, merged.SourceDocIDs, "source-1")
+	require.Contains(t, merged.SourceDocIDs, "source-2")
 	require.Len(t, merged.CIDs, 4)
 	require.Contains(t, merged.CIDs, "cid-1")
 	require.Contains(t, merged.CIDs, "cid-2")
@@ -304,22 +292,22 @@ func TestMergeAttestationRecords_SameDocument(t *testing.T) {
 }
 
 func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
-	record1 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          []string{"cid-1", "cid-2", "cid-3"},
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+	record2 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-2"},
 		CIDs:          []string{"cid-2", "cid-3", "cid-4"}, // cid-2 and cid-3 are duplicates
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
 	require.NoError(t, err)
 	require.NotNil(t, merged)
-	require.Equal(t, "doc-123", merged.AttestedDocId)
+	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.CIDs, 4) // Should deduplicate
 	require.Contains(t, merged.CIDs, "cid-1")
 	require.Contains(t, merged.CIDs, "cid-2")
@@ -337,15 +325,15 @@ func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
 }
 
 func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
-	record1 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          []string{"cid-1", "cid-2"},
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: "doc-456", // Different document
-		SourceDocIds:   []string{"source-2"},
+	record2 := &Record{
+		AttestedDocID: "doc-456", // Different document
+		SourceDocIDs:  []string{"source-2"},
 		CIDs:          []string{"cid-3", "cid-4"},
 	}
 
@@ -356,44 +344,44 @@ func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
 }
 
 func TestMergeAttestationRecords_EmptyRecords(t *testing.T) {
-	record1 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          []string{},
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+	record2 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-2"},
 		CIDs:          []string{"cid-1", "cid-2"},
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
 	require.NoError(t, err)
 	require.NotNil(t, merged)
-	require.Equal(t, "doc-123", merged.AttestedDocId)
+	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.CIDs, 2)
 	require.Contains(t, merged.CIDs, "cid-1")
 	require.Contains(t, merged.CIDs, "cid-2")
 }
 
 func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
-	record1 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          []string{},
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+	record2 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-2"},
 		CIDs:          []string{},
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
 	require.NoError(t, err)
 	require.NotNil(t, merged)
-	require.Equal(t, "doc-123", merged.AttestedDocId)
+	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.CIDs, 0)
 }
 
@@ -420,18 +408,18 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
-	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
+	testConfig.DefraDB.P2P.Enabled = false             // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
 
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
@@ -441,7 +429,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 
 	type TestDoc struct {
 		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
+		DocID   string    `json:"_docID"`
 		Version []Version `json:"_version"`
 	}
 
@@ -489,17 +477,17 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	require.NotNil(t, doc2Result)
 
 	// Create attestation records for the same attested document but from different sources
-	attestedDocId := "view-doc-123"
+	attestedDocID := "view-doc-123"
 
-	record1 := &AttestationRecord{
-		AttestedDocId: attestedDocId,
-		SourceDocIds:   []string{doc1Result.DocId},
+	record1 := &Record{
+		AttestedDocID: attestedDocID,
+		SourceDocIDs:  []string{doc1Result.DocID},
 		CIDs:          []string{doc1Result.Version[0].CID},
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: attestedDocId,
-		SourceDocIds:   []string{doc2Result.DocId},
+	record2 := &Record{
+		AttestedDocID: attestedDocID,
+		SourceDocIDs:  []string{doc2Result.DocID},
 		CIDs:          []string{doc2Result.Version[0].CID},
 	}
 
@@ -507,7 +495,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	merged, err := MergeAttestationRecords(record1, record2)
 	require.NoError(t, err)
 	require.NotNil(t, merged)
-	require.Equal(t, attestedDocId, merged.AttestedDocId)
+	require.Equal(t, attestedDocID, merged.AttestedDocID)
 	require.Len(t, merged.CIDs, 2)
 	require.Contains(t, merged.CIDs, doc1Result.Version[0].CID)
 	require.Contains(t, merged.CIDs, doc2Result.Version[0].CID)
@@ -525,15 +513,15 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defra.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
 	storedRecord := results[0]
-	require.Equal(t, attestedDocId, storedRecord.AttestedDocId)
-	require.Len(t, storedRecord.SourceDocIds, 2)
-	require.Contains(t, storedRecord.SourceDocIds, doc1Result.DocId)
-	require.Contains(t, storedRecord.SourceDocIds, doc2Result.DocId)
+	require.Equal(t, attestedDocID, storedRecord.AttestedDocID)
+	require.Len(t, storedRecord.SourceDocIDs, 2)
+	require.Contains(t, storedRecord.SourceDocIDs, doc1Result.DocID)
+	require.Contains(t, storedRecord.SourceDocIDs, doc2Result.DocID)
 	require.Len(t, storedRecord.CIDs, 2)
 	require.Contains(t, storedRecord.CIDs, doc1Result.Version[0].CID)
 	require.Contains(t, storedRecord.CIDs, doc2Result.Version[0].CID)
@@ -549,19 +537,19 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 
 	// Create first record with many CIDs
 	cids1 := make([]string, numCIDs)
-	for i := 0; i < numCIDs; i++ {
+	for i := range numCIDs {
 		cids1[i] = fmt.Sprintf("cid-1-%d", i)
 	}
 
-	record1 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          cids1,
 	}
 
 	// Create second record with overlapping CIDs
 	cids2 := make([]string, numCIDs)
-	for i := 0; i < numCIDs; i++ {
+	for i := range numCIDs {
 		if i < numCIDs/2 {
 			// First half overlaps with record1
 			cids2[i] = fmt.Sprintf("cid-1-%d", i)
@@ -571,9 +559,9 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 		}
 	}
 
-	record2 := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"source-2"},
+	record2 := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{"source-2"},
 		CIDs:          cids2,
 	}
 
@@ -581,7 +569,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 	merged, err := MergeAttestationRecords(record1, record2)
 	require.NoError(t, err)
 	require.NotNil(t, merged)
-	require.Equal(t, "doc-123", merged.AttestedDocId)
+	require.Equal(t, testDocID, merged.AttestedDocID)
 
 	// Should have numCIDs + numCIDs/2 unique CIDs (no duplicates)
 	expectedCIDs := numCIDs + numCIDs/2
@@ -599,34 +587,22 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	ctx := context.Background()
 
 	// Define schema inline for this test
-	testSchema := `
-		type TestDoc {
-			name: String
-		}
-
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testDocAndAttestationSchema
 
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
-	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
+	testConfig.DefraDB.P2P.Enabled = false             // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
 
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
@@ -634,9 +610,9 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 
 	defraNode := client.GetNode()
 
-	record := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"doc-123"},
+	record := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{testDocID},
 		CIDs:          []string{"cid-1"},
 	}
 
@@ -645,7 +621,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 
 	query := fmt.Sprintf(`
 		query {
-			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
+			%s(filter: {attested_doc: {_eq: testDocID}}) {
 				_docID
 				attested_doc
 				source_doc
@@ -654,44 +630,32 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defra.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "doc-123", results[0].AttestedDocId)
+	require.Equal(t, testDocID, results[0].AttestedDocID)
 }
 
 func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T) {
 	ctx := context.Background()
 
 	// Define schema inline for this test
-	testSchema := `
-		type TestDoc {
-			name: String
-		}
-
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testDocAndAttestationSchema
 
 	// Create and start client using new API with test config
 	testConfig := defra.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
-	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"             // Use random available port for P2P
-	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
+	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
+	testConfig.DefraDB.P2P.Enabled = false             // Disable P2P networking for testing
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
 
 	client, err := defra.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Apply schema using the new Client method
 	err = client.ApplySchema(ctx, testSchema)
@@ -699,9 +663,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 
 	defraNode := client.GetNode()
 
-	record := &AttestationRecord{
-		AttestedDocId: "doc-123",
-		SourceDocIds:   []string{"doc-123"},
+	record := &Record{
+		AttestedDocID: testDocID,
+		SourceDocIDs:  []string{testDocID},
 		CIDs:          []string{"cid-1"},
 	}
 
@@ -712,7 +676,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 
 	query := fmt.Sprintf(`
 		query {
-			%s(filter: {attested_doc: {_eq: "doc-123"}}) {
+			%s(filter: {attested_doc: {_eq: testDocID}}) {
 				_docID
 				attested_doc
 				source_doc
@@ -721,16 +685,16 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defra.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(results), 1)
 }
 
 func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
-	records := []*AttestationRecord{
-		{AttestedDocId: "doc-123", SourceDocIds: []string{"source-1"}, CIDs: []string{"cid-1"}},
-		{AttestedDocId: "doc-123", SourceDocIds: []string{"source-2"}, CIDs: []string{"cid-2", "cid-3"}},
-		{AttestedDocId: "doc-123", SourceDocIds: []string{"source-3"}, CIDs: []string{"cid-3", "cid-4"}},
+	records := []*Record{
+		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-1"}, CIDs: []string{"cid-1"}},
+		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-2"}, CIDs: []string{"cid-2", "cid-3"}},
+		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-3"}, CIDs: []string{"cid-3", "cid-4"}},
 	}
 
 	merged := records[0]
@@ -741,34 +705,26 @@ func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
 	}
 
 	require.NotNil(t, merged)
-	require.Equal(t, "doc-123", merged.AttestedDocId)
-	require.Len(t, merged.SourceDocIds, 3)
-	require.Contains(t, merged.SourceDocIds, "source-1")
-	require.Contains(t, merged.SourceDocIds, "source-2")
-	require.Contains(t, merged.SourceDocIds, "source-3")
+	require.Equal(t, testDocID, merged.AttestedDocID)
+	require.Len(t, merged.SourceDocIDs, 3)
+	require.Contains(t, merged.SourceDocIDs, "source-1")
+	require.Contains(t, merged.SourceDocIDs, "source-2")
+	require.Contains(t, merged.SourceDocIDs, "source-3")
 	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3", "cid-4"}, merged.CIDs)
 }
 
 func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	ctx := context.Background()
 
-	schema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	schema := testAttestationRecordSchema
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(schema))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// First indexer posts attestation
-	record1 := &AttestationRecord{
-		AttestedDocId: "block:500:deadbeef",
-		SourceDocIds:  []string{"indexer-A"},
+	record1 := &Record{
+		AttestedDocID: "block:500:deadbeef",
+		SourceDocIDs:  []string{"indexer-A"},
 		CIDs:          []string{"cid-1", "cid-2"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -777,9 +733,9 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second indexer posts attestation for the same block
-	record2 := &AttestationRecord{
-		AttestedDocId: "block:500:deadbeef",
-		SourceDocIds:  []string{"indexer-B"},
+	record2 := &Record{
+		AttestedDocID: "block:500:deadbeef",
+		SourceDocIDs:  []string{"indexer-B"},
 		CIDs:          []string{"cid-1", "cid-2"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -793,29 +749,21 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	require.Len(t, records, 1, "Should have exactly one attestation record")
 
 	record := records[0]
-	require.Contains(t, record.SourceDocIds, "indexer-A", "Should contain first indexer")
-	require.Contains(t, record.SourceDocIds, "indexer-B", "Should contain second indexer")
-	require.Len(t, record.SourceDocIds, 2, "Should have exactly 2 indexer identities")
+	require.Contains(t, record.SourceDocIDs, "indexer-A", "Should contain first indexer")
+	require.Contains(t, record.SourceDocIDs, "indexer-B", "Should contain second indexer")
+	require.Len(t, record.SourceDocIDs, 2, "Should have exactly 2 indexer identities")
 }
 
 func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -823,7 +771,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -831,15 +779,15 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 	defraNode := client.GetNode()
 
 	// Step 1: Create initial attestation record with cid-1 and cid-2
-	initialRecord := &AttestationRecord{
-		AttestedDocId: "attested-doc-123",
-		SourceDocIds:   []string{"source-doc-456"},
+	initialRecord := &Record{
+		AttestedDocID: "attested-doc-123",
+		SourceDocIDs:  []string{testSourceDocID},
 		CIDs:          []string{"cid-1", "cid-2"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{initialRecord})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{initialRecord})
 	require.NoError(t, err)
 
 	// Verify initial record was created
@@ -854,26 +802,26 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.ElementsMatch(t, []string{"cid-1", "cid-2"}, results[0].CIDs)
 
 	// Step 2: Post update with new CIDs (cid-2 overlaps, cid-3 is new)
-	updateRecord := &AttestationRecord{
-		AttestedDocId: "attested-doc-123",
-		SourceDocIds:   []string{"source-doc-456"},
+	updateRecord := &Record{
+		AttestedDocID: "attested-doc-123",
+		SourceDocIDs:  []string{testSourceDocID},
 		CIDs:          []string{"cid-2", "cid-3"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{updateRecord})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{updateRecord})
 	require.NoError(t, err)
 
 	// Step 3: Verify that the batch was posted (SaveMany creates a new record;
 	// CID merging only happens via the upsert_ mutation in PostAttestationRecord)
-	results, err = defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err = defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 }
@@ -881,21 +829,13 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -903,7 +843,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -911,15 +851,15 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	defraNode := client.GetNode()
 
 	// Create a new record
-	record := &AttestationRecord{
-		AttestedDocId: "new-attested-doc",
-		SourceDocIds:   []string{"new-source-doc"},
+	record := &Record{
+		AttestedDocID: "new-attested-doc",
+		SourceDocIDs:  []string{"new-source-doc"},
 		CIDs:          []string{"cid-a", "cid-b"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{record})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{record})
 	require.NoError(t, err)
 
 	// Verify record was created
@@ -932,32 +872,24 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "new-attested-doc", results[0].AttestedDocId)
-	require.Equal(t, []string{"new-source-doc"}, results[0].SourceDocIds)
+	require.Equal(t, "new-attested-doc", results[0].AttestedDocID)
+	require.Equal(t, []string{"new-source-doc"}, results[0].SourceDocIDs)
 	require.ElementsMatch(t, []string{"cid-a", "cid-b"}, results[0].CIDs)
 }
 
 func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -965,7 +897,7 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -973,17 +905,17 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create multiple records in a single batch
-	records := []*AttestationRecord{
+	records := []*Record{
 		{
-			AttestedDocId: "doc-1",
-			SourceDocIds:   []string{"source-1"},
+			AttestedDocID: "doc-1",
+			SourceDocIDs:  []string{"source-1"},
 			CIDs:          []string{"cid-1"},
 			DocType:       "TypeA",
 			VoteCount:     1,
 		},
 		{
-			AttestedDocId: "doc-2",
-			SourceDocIds:   []string{"source-2"},
+			AttestedDocID: "doc-2",
+			SourceDocIDs:  []string{"source-2"},
 			CIDs:          []string{"cid-2", "cid-3"},
 			DocType:       "TypeB",
 			VoteCount:     1,
@@ -1003,14 +935,14 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
 	// Find each record by attested_doc
-	resultMap := make(map[string]AttestationRecord)
+	resultMap := make(map[string]Record)
 	for _, r := range results {
-		resultMap[r.AttestedDocId] = r
+		resultMap[r.AttestedDocID] = r
 	}
 
 	require.Contains(t, resultMap, "doc-1")
@@ -1022,21 +954,13 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1044,7 +968,7 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1052,16 +976,16 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Test with empty slice
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{})
 	require.NoError(t, err)
 
 	// Test with nil records in slice
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{nil, nil})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{nil, nil})
 	require.NoError(t, err)
 
 	// Test with records that have empty CIDs
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{
-		{AttestedDocId: "doc-1", SourceDocIds: []string{"source-1"}, CIDs: []string{}},
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{
+		{AttestedDocID: "doc-1", SourceDocIDs: []string{"source-1"}, CIDs: []string{}},
 	})
 	require.NoError(t, err)
 }
@@ -1069,21 +993,13 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1091,7 +1007,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1099,20 +1015,20 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create initial record
-	initialRecord := &AttestationRecord{
-		AttestedDocId: "attested-doc-mutation-test",
-		SourceDocIds:   []string{"source-doc"},
+	initialRecord := &Record{
+		AttestedDocID: "attested-doc-mutation-test",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{"cid-1"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
 	}
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{initialRecord})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{initialRecord})
 	require.NoError(t, err)
 
 	// Create update record and save original CIDs
-	updateRecord := &AttestationRecord{
-		AttestedDocId: "attested-doc-mutation-test",
-		SourceDocIds:   []string{"source-doc"},
+	updateRecord := &Record{
+		AttestedDocID: "attested-doc-mutation-test",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{"cid-2"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -1120,7 +1036,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	originalCIDs := make([]string, len(updateRecord.CIDs))
 	copy(originalCIDs, updateRecord.CIDs)
 
-	err = PostAttestationRecordsBatch(ctx, defraNode, []*AttestationRecord{updateRecord})
+	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{updateRecord})
 	require.NoError(t, err)
 
 	// Verify input record was not mutated
@@ -1162,9 +1078,9 @@ func TestExtractVersionsFromDocument_WithVersionField(t *testing.T) {
 	require.Equal(t, "es256k", versions[0].Signature.Type)
 	require.Equal(t, "identity-abc", versions[0].Signature.Identity)
 	require.Equal(t, "sig-abc", versions[0].Signature.Value)
-	require.Equal(t, "colv-1", versions[0].CollectionVersionId)
+	require.Equal(t, "colv-1", versions[0].CollectionVersionID)
 	require.Equal(t, "cid-def", versions[1].CID)
-	require.Equal(t, "colv-2", versions[1].CollectionVersionId)
+	require.Equal(t, "colv-2", versions[1].CollectionVersionID)
 }
 
 func TestExtractVersionsFromDocument_WithoutVersionField(t *testing.T) {
@@ -1310,7 +1226,7 @@ func TestExtractVersionsFromDocument_NonStringCollectionVersionId(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-1", versions[0].CID)
-	require.Equal(t, "", versions[0].CollectionVersionId)
+	require.Equal(t, "", versions[0].CollectionVersionID)
 }
 
 // ========================================
@@ -1320,7 +1236,7 @@ func TestExtractVersionsFromDocument_NonStringCollectionVersionId(t *testing.T) 
 func TestCreateAttestationRecord_DefaultMaxConcurrentVerifications(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			return nil
 		},
 	}
@@ -1350,8 +1266,8 @@ func TestCreateAttestationRecord_NilVersions(t *testing.T) {
 	record, err := CreateAttestationRecord(ctx, verifier, "doc-1", []string{"source-1"}, "TestDoc", nil, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	require.Equal(t, "doc-1", record.AttestedDocId)
-	require.Equal(t, []string{"source-1"}, record.SourceDocIds)
+	require.Equal(t, "doc-1", record.AttestedDocID)
+	require.Equal(t, []string{"source-1"}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 0)
 	require.Equal(t, 1, record.VoteCount)
 }
@@ -1372,26 +1288,18 @@ func TestHandleDocumentAttestation_EmptyVersions(t *testing.T) {
 func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
-			return fmt.Errorf("invalid signature")
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
+			return errInvalidSignature
 		},
 	}
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1399,7 +1307,7 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1422,7 +1330,7 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Empty(t, results)
 }
@@ -1430,26 +1338,18 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			return nil
 		},
 	}
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1457,7 +1357,7 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1484,10 +1384,10 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "doc-handle-1", results[0].AttestedDocId)
+	require.Equal(t, "doc-handle-1", results[0].AttestedDocID)
 	require.ElementsMatch(t, []string{"cid-1", "cid-2"}, results[0].CIDs)
 }
 
@@ -1528,8 +1428,8 @@ func TestHandleDocumentAttestationBatch_AllVersionsEmpty(t *testing.T) {
 func TestHandleDocumentAttestationBatch_AllSignaturesInvalid(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
-			return fmt.Errorf("invalid signature")
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
+			return errInvalidSignature
 		},
 	}
 
@@ -1551,26 +1451,18 @@ func TestHandleDocumentAttestationBatch_AllSignaturesInvalid(t *testing.T) {
 func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			return nil
 		},
 	}
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1578,7 +1470,7 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1615,13 +1507,13 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
-	resultMap := make(map[string]AttestationRecord)
+	resultMap := make(map[string]Record)
 	for _, r := range results {
-		resultMap[r.AttestedDocId] = r
+		resultMap[r.AttestedDocID] = r
 	}
 
 	require.Contains(t, resultMap, "batch-doc-1")
@@ -1633,26 +1525,18 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			return nil
 		},
 	}
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1660,7 +1544,7 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1694,10 +1578,10 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "batch-mixed-1", results[0].AttestedDocId)
+	require.Equal(t, "batch-mixed-1", results[0].AttestedDocID)
 }
 
 // ========================================
@@ -1707,21 +1591,13 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1729,7 +1605,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1745,21 +1621,13 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1767,7 +1635,7 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1775,9 +1643,9 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// First, create an attestation record
-	record := &AttestationRecord{
-		AttestedDocId: "check-existing-doc",
-		SourceDocIds:   []string{"source-doc"},
+	record := &Record{
+		AttestedDocID: "check-existing-doc",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{"cid-check-1"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -1790,29 +1658,21 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, records)
 	require.Len(t, records, 1)
-	require.Equal(t, "check-existing-doc", records[0].AttestedDocId)
-	require.Equal(t, []string{"source-doc"}, records[0].SourceDocIds)
+	require.Equal(t, "check-existing-doc", records[0].AttestedDocID)
+	require.Equal(t, []string{"source-doc"}, records[0].SourceDocIDs)
 	require.ElementsMatch(t, []string{"cid-check-1"}, records[0].CIDs)
 }
 
 func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1820,7 +1680,7 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1828,9 +1688,9 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create an attestation record with doc_type "TypeA"
-	record := &AttestationRecord{
-		AttestedDocId: "check-doctype-doc",
-		SourceDocIds:   []string{"source-doc"},
+	record := &Record{
+		AttestedDocID: "check-doctype-doc",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{"cid-dt-1"},
 		DocType:       "TypeA",
 		VoteCount:     1,
@@ -1851,21 +1711,13 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1873,7 +1725,7 @@ func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1889,21 +1741,13 @@ func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
 func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1911,7 +1755,7 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1919,9 +1763,9 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create a block attestation record with attested_doc = "block:42"
-	record := &AttestationRecord{
-		AttestedDocId: "block:42",
-		SourceDocIds:   []string{"block-source"},
+	record := &Record{
+		AttestedDocID: "block:42",
+		SourceDocIDs:  []string{"block-source"},
 		CIDs:          []string{"target-cid", "other-cid"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -1938,21 +1782,13 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -1960,7 +1796,7 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -1968,9 +1804,9 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create a block attestation record
-	record := &AttestationRecord{
-		AttestedDocId: "block:50",
-		SourceDocIds:   []string{"block-source"},
+	record := &Record{
+		AttestedDocID: "block:50",
+		SourceDocIDs:  []string{"block-source"},
 		CIDs:          []string{"cid-in-block"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -1991,21 +1827,13 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 func TestGetBlockAttestations_NoRecords(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2013,7 +1841,7 @@ func TestGetBlockAttestations_NoRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2028,21 +1856,13 @@ func TestGetBlockAttestations_NoRecords(t *testing.T) {
 func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2050,7 +1870,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2058,24 +1878,24 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create block attestation records with the prefix "block:100:"
-	record1 := &AttestationRecord{
-		AttestedDocId: "block:100:merkle-root-a",
-		SourceDocIds:   []string{"indexer-1"},
+	record1 := &Record{
+		AttestedDocID: "block:100:merkle-root-a",
+		SourceDocIDs:  []string{"indexer-1"},
 		CIDs:          []string{"cid-100-a"},
 		DocType:       "Block",
 		VoteCount:     1,
 	}
-	record2 := &AttestationRecord{
-		AttestedDocId: "block:100:merkle-root-b",
-		SourceDocIds:   []string{"indexer-2"},
+	record2 := &Record{
+		AttestedDocID: "block:100:merkle-root-b",
+		SourceDocIDs:  []string{"indexer-2"},
 		CIDs:          []string{"cid-100-b"},
 		DocType:       "Block",
 		VoteCount:     1,
 	}
 	// Also create a record for a different block to make sure it's not returned
-	record3 := &AttestationRecord{
-		AttestedDocId: "block:200:merkle-root-c",
-		SourceDocIds:   []string{"indexer-1"},
+	record3 := &Record{
+		AttestedDocID: "block:200:merkle-root-c",
+		SourceDocIDs:  []string{"indexer-1"},
 		CIDs:          []string{"cid-200-c"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -2095,7 +1915,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 
 	attestedDocs := make(map[string]bool)
 	for _, r := range records {
-		attestedDocs[r.AttestedDocId] = true
+		attestedDocs[r.AttestedDocID] = true
 	}
 	require.True(t, attestedDocs["block:100:merkle-root-a"])
 	require.True(t, attestedDocs["block:100:merkle-root-b"])
@@ -2123,9 +1943,9 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2133,7 +1953,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2178,7 +1998,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 
 	attestedDocs := make(map[string]bool)
 	for _, r := range records {
-		attestedDocs[r.AttestedDocId] = true
+		attestedDocs[r.AttestedDocID] = true
 	}
 	require.True(t, attestedDocs["view-doc-1"])
 	require.True(t, attestedDocs["view-doc-3"])
@@ -2200,9 +2020,9 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2210,7 +2030,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2260,9 +2080,9 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2270,7 +2090,7 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2310,9 +2130,9 @@ func TestGetAttestationRecordsByViewName_NoRecords(t *testing.T) {
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2320,7 +2140,7 @@ func TestGetAttestationRecordsByViewName_NoRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2340,21 +2160,13 @@ func TestGetAttestationRecordsByViewName_NoRecords(t *testing.T) {
 func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2362,16 +2174,16 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
 
-	record := &AttestationRecord{
-		AttestedDocId: "empty-cids-doc",
-		SourceDocIds:   []string{"source-doc"},
+	record := &Record{
+		AttestedDocID: "empty-cids-doc",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -2384,21 +2196,13 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2406,16 +2210,16 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
 
-	record := &AttestationRecord{
-		AttestedDocId: "multi-cid-doc",
-		SourceDocIds:   []string{"source-doc"},
+	record := &Record{
+		AttestedDocID: "multi-cid-doc",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{"cid-1", "cid-2", "cid-3"},
 		DocType:       "TestDoc",
 		VoteCount:     5,
@@ -2434,7 +2238,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3"}, results[0].CIDs)
@@ -2513,9 +2317,9 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 	// Create a defra node without the attestation schema applied
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2523,14 +2327,14 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Intentionally do NOT apply the schema - this will make the mutation fail
 	defraNode := client.GetNode()
 
-	record := &AttestationRecord{
-		AttestedDocId: "doc-error",
-		SourceDocIds:   []string{"source-error"},
+	record := &Record{
+		AttestedDocID: "doc-error",
+		SourceDocIDs:  []string{"source-error"},
 		CIDs:          []string{"cid-1"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -2551,9 +2355,9 @@ func TestPostAttestationRecordsBatch_MissingSchema_ReturnsError(t *testing.T) {
 	// Create a defra node without the attestation schema
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2561,15 +2365,15 @@ func TestPostAttestationRecordsBatch_MissingSchema_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Do NOT apply the attestation schema
 	defraNode := client.GetNode()
 
-	records := []*AttestationRecord{
+	records := []*Record{
 		{
-			AttestedDocId: "doc-1",
-			SourceDocIds:   []string{"source-1"},
+			AttestedDocID: "doc-1",
+			SourceDocIDs:  []string{"source-1"},
 			CIDs:          []string{"cid-1"},
 			DocType:       "TestDoc",
 			VoteCount:     1,
@@ -2587,21 +2391,13 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 
 	// All records are nil or have empty CIDs - should return early with nil
 	// after filtering produces empty attestedDocIDs
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2609,7 +2405,7 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2617,11 +2413,11 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 	defraNode := client.GetNode()
 
 	// Mix of nil records and records with empty CIDs
-	records := []*AttestationRecord{
+	records := []*Record{
 		nil,
-		{AttestedDocId: "doc-1", SourceDocIds: []string{"src-1"}, CIDs: []string{}},
+		{AttestedDocID: "doc-1", SourceDocIDs: []string{"src-1"}, CIDs: []string{}},
 		nil,
-		{AttestedDocId: "doc-2", SourceDocIds: []string{"src-2"}, CIDs: []string{}},
+		{AttestedDocID: "doc-2", SourceDocIDs: []string{"src-2"}, CIDs: []string{}},
 	}
 
 	err = PostAttestationRecordsBatch(ctx, defraNode, records)
@@ -2635,7 +2431,7 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 func TestHandleDocumentAttestation_PostAttestationRecordError(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ Signature) error {
 			return nil
 		},
 	}
@@ -2643,9 +2439,9 @@ func TestHandleDocumentAttestation_PostAttestationRecordError(t *testing.T) {
 	// Create a defra node without the attestation schema so PostAttestationRecord fails
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2653,7 +2449,7 @@ func TestHandleDocumentAttestation_PostAttestationRecordError(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Do NOT apply the attestation schema
 	defraNode := client.GetNode()
@@ -2678,29 +2474,21 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 	// combined with inputs that have valid sigs, plus empty version inputs.
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature Signature) error {
+		verifyFunc: func(_ context.Context, cid string, _ Signature) error {
 			if cid == "fail-cid" {
-				return fmt.Errorf("invalid signature")
+				return errInvalidSignature
 			}
 			return nil
 		},
 	}
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2708,7 +2496,7 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2748,10 +2536,10 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "doc-valid", results[0].AttestedDocId)
+	require.Equal(t, "doc-valid", results[0].AttestedDocID)
 }
 
 // ========================================
@@ -2761,21 +2549,13 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2783,7 +2563,7 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2792,9 +2572,9 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 
 	// Create two attestation records for same attested_doc and doc_type
 	// Using upsert, the second one will merge with the first
-	record1 := &AttestationRecord{
-		AttestedDocId: "multi-check-doc",
-		SourceDocIds:   []string{"source-1"},
+	record1 := &Record{
+		AttestedDocID: "multi-check-doc",
+		SourceDocIDs:  []string{"source-1"},
 		CIDs:          []string{"cid-1"},
 		DocType:       "TypeA",
 		VoteCount:     1,
@@ -2805,7 +2585,7 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	records, err := CheckExistingAttestation(ctx, defraNode, "multi-check-doc", "TypeA")
 	require.NoError(t, err)
 	require.NotEmpty(t, records)
-	require.Equal(t, "multi-check-doc", records[0].AttestedDocId)
+	require.Equal(t, "multi-check-doc", records[0].AttestedDocID)
 }
 
 // ========================================
@@ -2816,21 +2596,13 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	// Test that the function checks CIDs across all returned records
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2838,7 +2610,7 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2846,9 +2618,9 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create a block attestation with specific CIDs
-	record := &AttestationRecord{
-		AttestedDocId: "block:77",
-		SourceDocIds:   []string{"block-source"},
+	record := &Record{
+		AttestedDocID: "block:77",
+		SourceDocIDs:  []string{"block-source"},
 		CIDs:          []string{"cid-a", "cid-b", "target-cid-77"},
 		DocType:       "Block",
 		VoteCount:     1,
@@ -2875,21 +2647,13 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 	// Make sure filtering by block prefix works correctly
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2897,7 +2661,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -2906,9 +2670,9 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 
 	// Create block attestations for multiple blocks
 	for _, bn := range []int{300, 300, 301} {
-		record := &AttestationRecord{
-			AttestedDocId: fmt.Sprintf("block:%d:merkle-%d", bn, bn),
-			SourceDocIds:   []string{fmt.Sprintf("indexer-%d", bn)},
+		record := &Record{
+			AttestedDocID: fmt.Sprintf("block:%d:merkle-%d", bn, bn),
+			SourceDocIDs:  []string{fmt.Sprintf("indexer-%d", bn)},
 			CIDs:          []string{fmt.Sprintf("cid-%d", bn)},
 			DocType:       "Block",
 			VoteCount:     1,
@@ -2948,9 +2712,9 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 	// Create a defra node WITHOUT applying the attestation schema
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2958,7 +2722,7 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Do NOT apply the attestation schema - collection won't exist
 	defraNode := client.GetNode()
@@ -2985,9 +2749,9 @@ func TestIsDocumentAttestedViaBlock_MissingSchema_ReturnsFalseNil(t *testing.T) 
 	// Create a defra node WITHOUT applying the attestation schema
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -2995,7 +2759,7 @@ func TestIsDocumentAttestedViaBlock_MissingSchema_ReturnsFalseNil(t *testing.T) 
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Do NOT apply the attestation schema
 	defraNode := client.GetNode()
@@ -3015,9 +2779,9 @@ func TestGetBlockAttestations_MissingSchema_ReturnsNilNil(t *testing.T) {
 	// Create a defra node WITHOUT applying the attestation schema
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -3025,7 +2789,7 @@ func TestGetBlockAttestations_MissingSchema_ReturnsNilNil(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	// Do NOT apply the attestation schema
 	defraNode := client.GetNode()
@@ -3066,7 +2830,7 @@ func TestExtractVersionsFromDocument_NonStringSignatureType(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-nst", versions[0].CID)
-	require.Equal(t, "", versions[0].Signature.Type)       // Should be zero value
+	require.Equal(t, "", versions[0].Signature.Type) // Should be zero value
 	require.Equal(t, "identity-ok", versions[0].Signature.Identity)
 	require.Equal(t, "sig-ok", versions[0].Signature.Value)
 }
@@ -3178,7 +2942,7 @@ func TestExtractVersionsFromDocument_NoSignatureField(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-no-sig", versions[0].CID)
-	require.Equal(t, "colv-1", versions[0].CollectionVersionId)
+	require.Equal(t, "colv-1", versions[0].CollectionVersionID)
 	require.Equal(t, "", versions[0].Signature.Type)
 	require.Equal(t, "", versions[0].Signature.Identity)
 	require.Equal(t, "", versions[0].Signature.Value)
@@ -3198,7 +2962,7 @@ func TestExtractVersionsFromDocument_NoCIDNoSignatureNoCollectionVersionId(t *te
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "", versions[0].CID)
-	require.Equal(t, "", versions[0].CollectionVersionId)
+	require.Equal(t, "", versions[0].CollectionVersionID)
 	require.Equal(t, "", versions[0].Signature.Type)
 }
 
@@ -3212,21 +2976,13 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 	// loop (line 129) and the docs assembly loop (line 202).
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -3234,18 +2990,18 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
 
-	records := []*AttestationRecord{
+	records := []*Record{
 		nil,
-		{AttestedDocId: "nil-test-doc", SourceDocIds: []string{"src-nil"}, CIDs: []string{"cid-nil-1"}, DocType: "TestDoc", VoteCount: 1},
+		{AttestedDocID: "nil-test-doc", SourceDocIDs: []string{"src-nil"}, CIDs: []string{"cid-nil-1"}, DocType: "TestDoc", VoteCount: 1},
 		nil,
-		{AttestedDocId: "nil-test-doc-2", SourceDocIds: []string{"src-nil-2"}, CIDs: []string{}, DocType: "TestDoc", VoteCount: 1},
+		{AttestedDocID: "nil-test-doc-2", SourceDocIDs: []string{"src-nil-2"}, CIDs: []string{}, DocType: "TestDoc", VoteCount: 1},
 	}
 
 	err = PostAttestationRecordsBatch(ctx, defraNode, records)
@@ -3259,10 +3015,10 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defra.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "nil-test-doc", results[0].AttestedDocId)
+	require.Equal(t, "nil-test-doc", results[0].AttestedDocID)
 }
 
 // ========================================
@@ -3368,21 +3124,13 @@ func TestExtractDocIDFromResult_MultipleDocsReturnsFirst(t *testing.T) {
 func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -3390,7 +3138,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -3408,21 +3156,13 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 func TestLookupExistingAttestation_Found(t *testing.T) {
 	ctx := context.Background()
 
-	testSchema := `
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-		}
-	`
+	testSchema := testAttestationRecordSchema
 
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -3430,7 +3170,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	err = client.ApplySchema(ctx, testSchema)
 	require.NoError(t, err)
@@ -3438,9 +3178,9 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Create a record first
-	record := &AttestationRecord{
-		AttestedDocId: "lookup-existing-doc",
-		SourceDocIds:   []string{"source-doc"},
+	record := &Record{
+		AttestedDocID: "lookup-existing-doc",
+		SourceDocIDs:  []string{"source-doc"},
 		CIDs:          []string{"cid-lookup"},
 		DocType:       "TestDoc",
 		VoteCount:     1,
@@ -3522,9 +3262,9 @@ func TestGetAttestationRecordsByViewName_MissingViewSchema(t *testing.T) {
 	// Create a defra node without any view-specific attestation schema
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -3532,7 +3272,7 @@ func TestGetAttestationRecordsByViewName_MissingViewSchema(t *testing.T) {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	defer client.Stop(t.Context())
+	defer func() { _ = client.Stop(t.Context()) }()
 
 	defraNode := client.GetNode()
 

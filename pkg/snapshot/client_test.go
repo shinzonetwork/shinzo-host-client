@@ -30,7 +30,7 @@ func TestListSnapshots(t *testing.T) {
 		wantErr    bool
 		errContain string
 		wantLen    int
-		checkFirst func(t *testing.T, snap SnapshotInfo)
+		checkFirst func(t *testing.T, snap Info)
 	}{
 		{
 			name: "success",
@@ -39,9 +39,9 @@ func TestListSnapshots(t *testing.T) {
 				require.Equal(t, http.MethodGet, r.Method)
 
 				resp := struct {
-					Snapshots []SnapshotInfo `json:"snapshots"`
+					Snapshots []Info `json:"snapshots"`
 				}{
-					Snapshots: []SnapshotInfo{
+					Snapshots: []Info{
 						{
 							Filename:   "snapshot-0-100.gz",
 							StartBlock: 0,
@@ -49,14 +49,14 @@ func TestListSnapshots(t *testing.T) {
 							SizeBytes:  1024,
 							CreatedAt:  now,
 							Signed:     true,
-							Signature: &SnapshotSignatureData{
+							Signature: &SignatureData{
 								Version:           1,
 								SnapshotFile:      "snapshot-0-100.gz",
 								StartBlock:        0,
 								EndBlock:          100,
 								MerkleRoot:        "abcd1234",
 								BlockCount:        101,
-								SignatureType:      "Ed25519",
+								SignatureType:     "Ed25519",
 								SignatureIdentity: "pubkey123",
 								SignatureValue:    "sig456",
 								CreatedAt:         now.Format(time.RFC3339),
@@ -78,7 +78,7 @@ func TestListSnapshots(t *testing.T) {
 				require.NoError(t, err)
 			},
 			wantLen: 2,
-			checkFirst: func(t *testing.T, snap SnapshotInfo) {
+			checkFirst: func(t *testing.T, snap Info) {
 				require.Equal(t, "snapshot-0-100.gz", snap.Filename)
 				require.Equal(t, int64(0), snap.StartBlock)
 				require.Equal(t, int64(100), snap.EndBlock)
@@ -95,7 +95,7 @@ func TestListSnapshots(t *testing.T) {
 		},
 		{
 			name: "empty list",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"snapshots":[]}`))
 			},
@@ -103,7 +103,7 @@ func TestListSnapshots(t *testing.T) {
 		},
 		{
 			name: "HTTP error 500",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
 			wantErr:    true,
@@ -111,7 +111,7 @@ func TestListSnapshots(t *testing.T) {
 		},
 		{
 			name: "HTTP error 503",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 			},
 			wantErr:    true,
@@ -119,7 +119,7 @@ func TestListSnapshots(t *testing.T) {
 		},
 		{
 			name: "JSON decode error",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{not valid json`))
 			},
@@ -187,7 +187,7 @@ func TestDownloadSnapshot(t *testing.T) {
 		},
 		{
 			name: "HTTP error 404",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 			},
 			destPath: func(t *testing.T) string {
@@ -198,7 +198,7 @@ func TestDownloadSnapshot(t *testing.T) {
 		},
 		{
 			name: "HTTP error 500",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
 			destPath: func(t *testing.T) string {
@@ -209,11 +209,11 @@ func TestDownloadSnapshot(t *testing.T) {
 		},
 		{
 			name: "file creation error invalid path",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/octet-stream")
 				_, _ = w.Write(fileContent)
 			},
-			destPath: func(t *testing.T) string {
+			destPath: func(_ *testing.T) string {
 				// Path with a nonexistent parent directory.
 				return "/nonexistent-dir-abc123/nested/snap.gz"
 			},
@@ -240,7 +240,7 @@ func TestDownloadSnapshot(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.checkFile {
-				data, readErr := os.ReadFile(dest)
+				data, readErr := os.ReadFile(filepath.Clean(dest))
 				require.NoError(t, readErr)
 				require.Equal(t, fileContent, data)
 			}
@@ -260,7 +260,7 @@ func TestDownloadSnapshot_WriteFail(t *testing.T) {
 	// Trigger the io.Copy error path (line 94-96 in client.go) by advertising a
 	// Content-Length larger than the body actually sent, causing io.Copy to return
 	// an "unexpected EOF" error.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Tell the client to expect 1 MB, but only send 10 bytes.
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", 1024*1024))
 		w.WriteHeader(http.StatusOK)
@@ -288,7 +288,7 @@ func TestDownloadSnapshot_LargeFile(t *testing.T) {
 		largeContent[i] = byte(i % 256)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(largeContent)
 	}))
@@ -300,7 +300,7 @@ func TestDownloadSnapshot_LargeFile(t *testing.T) {
 	err := c.DownloadSnapshot("large.gz", dest)
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(dest)
+	data, err := os.ReadFile(filepath.Clean(dest))
 	require.NoError(t, err)
 	require.Equal(t, largeContent, data)
 }
