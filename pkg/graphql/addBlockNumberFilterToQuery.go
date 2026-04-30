@@ -32,7 +32,6 @@ func getCollectionFilterConfig(collectionName string, start, end uint64) collect
 		}
 	}
 }
-
 func spliceIntoExistingFilter(trimmed string, cfg collectionFilterConfig) (string, error) {
 	filterStart := strings.Index(trimmed, "(")
 	parenCount, filterEnd := 0, 0
@@ -52,7 +51,10 @@ func spliceIntoExistingFilter(trimmed string, cfg collectionFilterConfig) (strin
 	}
 
 	existing := strings.TrimSpace(trimmed[filterStart+1 : filterEnd])
-	newFilter := cfg.rangeFilter + ", " + cfg.orderClause
+	newFilter := cfg.rangeFilter
+	if cfg.orderClause != "" {
+		newFilter += ", " + cfg.orderClause
+	}
 	if existing != "" {
 		newFilter = existing + ", " + newFilter
 	}
@@ -64,7 +66,10 @@ func insertNewFilter(trimmed string, cfg collectionFilterConfig) (string, error)
 	if braceStart == -1 {
 		return "", ErrNoSelectionSet
 	}
-	filterAndOrder := fmt.Sprintf("(filter: { %s }, %s)", cfg.rangeFilter, cfg.orderClause)
+	filterAndOrder := fmt.Sprintf("(filter: { %s })", cfg.rangeFilter)
+	if cfg.orderClause != "" {
+		filterAndOrder = fmt.Sprintf("(filter: { %s }, %s)", cfg.rangeFilter, cfg.orderClause)
+	}
 	return trimmed[:braceStart] + filterAndOrder + trimmed[braceStart:], nil
 }
 
