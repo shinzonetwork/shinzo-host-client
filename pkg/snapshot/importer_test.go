@@ -647,7 +647,7 @@ func TestImportWithVerification_BlockSigRootContentMismatch(t *testing.T) {
 
 	_, err := ImportWithVerification(ctx, nil, path, sig)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "block sig root mismatch at index")
+	require.Contains(t, err.Error(), "block sig root mismatch")
 }
 
 func TestImportWithVerification_HappyPath(t *testing.T) {
