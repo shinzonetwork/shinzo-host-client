@@ -30,15 +30,15 @@ func main() {
 	configPath := findConfigFile()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		panic(fmt.Errorf("Unable to load config: %v", err))
+		panic(fmt.Errorf("unable to load config: %w", err))
 	}
 
 	myHost, err := host.StartHosting(cfg)
 	if err != nil {
-		panic(fmt.Errorf("Failed to start hosting: %v", err))
+		panic(fmt.Errorf("failed to start hosting: %w", err))
 	}
 
-	defer myHost.Close(context.Background())
+	defer func() { _ = myHost.Close(context.Background()) }()
 
 	for {
 		time.Sleep(1 * time.Second) // Run forever unless stopped

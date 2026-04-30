@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testMetrics implements SignatureMetrics for testing
+// testMetrics implements SignatureMetrics for testing.
 type testMetrics struct {
 	verifications atomic.Int64
 	failures      atomic.Int64
@@ -88,11 +88,11 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 	}
 }
 
-// TestCachedSignatureVerifier_MockVerifier tests the MockSignatureVerifier behavior
+// TestCachedSignatureVerifier_MockVerifier tests the MockSignatureVerifier behavior.
 func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 	// Test MockSignatureVerifier
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
+		verifyFunc: func(_ context.Context, cid string, _ constants.Signature) error {
 			if cid == "error-cid" {
 				return assert.AnError
 			}
@@ -125,7 +125,7 @@ func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 	require.Contains(t, err.Error(), "empty identity")
 }
 
-// TestDefraSignatureVerifier_NilDB tests that verification fails gracefully when DB is nil
+// TestDefraSignatureVerifier_NilDB tests that verification fails gracefully when DB is nil.
 func TestDefraSignatureVerifier_NilDB(t *testing.T) {
 	ctx := context.Background()
 	verifier := NewDefraSignatureVerifier(nil, nil)
@@ -140,11 +140,11 @@ func TestDefraSignatureVerifier_NilDB(t *testing.T) {
 	require.Contains(t, err.Error(), "defradb node or DB is not available")
 }
 
-// TestMockSignatureVerifier_ConcurrentAccess tests thread safety of MockSignatureVerifier
+// TestMockSignatureVerifier_ConcurrentAccess tests thread safety of MockSignatureVerifier.
 func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	var callCount atomic.Int64
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ constants.Signature) error {
 			callCount.Add(1)
 			return nil
 		},
@@ -163,7 +163,7 @@ func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 
 	for range numGoroutines {
 		go func() {
-			mockVerifier.Verify(ctx, "concurrent-test", signature)
+			_ = mockVerifier.Verify(ctx, "concurrent-test", signature)
 			done <- true
 		}()
 	}
@@ -175,11 +175,11 @@ func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	assert.Equal(t, int64(numGoroutines), callCount.Load())
 }
 
-// TestMockSignatureVerifier_DifferentCIDs tests that MockSignatureVerifier handles different CIDs
+// TestMockSignatureVerifier_DifferentCIDs tests that MockSignatureVerifier handles different CIDs.
 func TestMockSignatureVerifier_DifferentCIDs(t *testing.T) {
 	callCount := 0
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ constants.Signature) error {
 			callCount++
 			return nil
 		},
@@ -222,9 +222,9 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 	`
 	testConfig := defra.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
@@ -232,7 +232,7 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { client.Stop(t.Context()) })
+	t.Cleanup(func() { _ = client.Stop(t.Context()) })
 
 	err = client.ApplySchema(t.Context(), testSchema)
 	require.NoError(t, err)
@@ -333,7 +333,7 @@ func TestDefraSignatureVerifier_Verify_Success_WithMetrics(t *testing.T) {
 
 	type TestDoc struct {
 		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
+		DocID   string    `json:"_docID"`
 		Version []Version `json:"_version"`
 	}
 
@@ -377,7 +377,7 @@ func TestDefraSignatureVerifier_Verify_Success_NilMetrics(t *testing.T) {
 
 	type TestDoc struct {
 		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
+		DocID   string    `json:"_docID"`
 		Version []Version `json:"_version"`
 	}
 

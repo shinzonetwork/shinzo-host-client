@@ -33,16 +33,19 @@ type IndexerRegisteredEvent struct {
 	SourceChainID    string // attr "source_chain_id": chain ID as string (e.g., "1")
 }
 
+// ToString returns a human-readable string representation of the ViewRegisteredEvent.
 func (vre *ViewRegisteredEvent) ToString() string {
 	return fmt.Sprintf("ViewRegistered: address=%s, name=%s, creator=%s",
 		vre.ViewAddress, vre.ViewName, vre.Creator)
 }
 
+// ToString returns a human-readable string representation of the HostRegisteredEvent.
 func (hre *HostRegisteredEvent) ToString() string {
 	return fmt.Sprintf("HostRegistered: owner=%s, did=%s, conn=%s",
 		hre.Owner, hre.DID, hre.ConnectionString)
 }
 
+// ToString returns a human-readable string representation of the IndexerRegisteredEvent.
 func (ire *IndexerRegisteredEvent) ToString() string {
 	return fmt.Sprintf("IndexerRegistered: owner=%s, did=%s, conn=%s, chain=%s/%s",
 		ire.Owner, ire.DID, ire.ConnectionString, ire.SourceChain, ire.SourceChainID)

@@ -11,10 +11,10 @@ import (
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
-	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	indexerschema "github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
@@ -135,7 +135,7 @@ func TestIncrementPort(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	require.NotNil(t, DefaultConfig)
-	require.Equal(t, "localhost:9181", DefaultConfig.DefraDB.Url)
+	require.Equal(t, "localhost:9181", DefaultConfig.DefraDB.URL)
 	require.True(t, DefaultConfig.DefraDB.P2P.Enabled)
 	require.Equal(t, 1, DefaultConfig.Shinzo.MinimumAttestations)
 	require.True(t, DefaultConfig.Logger.Development)
@@ -147,7 +147,7 @@ func TestHost_IsHealthy(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
 		DefraNode:          defraNode,
@@ -171,7 +171,7 @@ func TestHost_IsHealthy_NoPipeline(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
 		DefraNode:          defraNode,
@@ -225,9 +225,9 @@ func TestHost_GetActiveViewNames(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := view.NewViewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir())
 
 	host := &Host{
 		DefraNode:   defraNode,
@@ -269,7 +269,7 @@ func TestHost_Close(t *testing.T) {
 		processingCancel: func() {
 			cancelCalled = true
 		},
-		viewManager: view.NewViewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir()),
 	}
 
 	err = host.Close(ctx)
@@ -294,11 +294,11 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 	// Create a real DefraDB instance with the indexer schema
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "localhost:9181",
+			URL: "localhost:9181",
 			Store: config.DefraDBStoreConfig{
 				Path: t.TempDir(),
 			},
@@ -308,7 +308,7 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 		},
 	}
 
-	vm := view.NewViewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+	vm := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
 
 	host := &Host{
 		DefraNode:              defraNode,
@@ -335,10 +335,10 @@ func TestHost_ViewManagerIntegration(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	host := &Host{
 		DefraNode:        defraNode,
@@ -519,8 +519,9 @@ func TestHost_Close_WithPlaygroundServer(t *testing.T) {
 
 	// Create a playground server that's not actually listening
 	playgroundServer := &http.Server{
-		Addr:    ":0",
-		Handler: http.NewServeMux(),
+		Addr:              ":0",
+		Handler:           http.NewServeMux(),
+		ReadHeaderTimeout: defaultTimeout,
 	}
 
 	host := &Host{
@@ -570,10 +571,10 @@ func TestHost_ProcessViewRegistrationEvent_MissingQuery(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewViewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir()),
 	}
 
 	// No query set (nil)
@@ -591,10 +592,10 @@ func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewViewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir()),
 	}
 
 	query := "SELECT * FROM something"
@@ -617,10 +618,10 @@ func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewViewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir()),
 	}
 
 	emptyStr := ""
@@ -643,10 +644,10 @@ func TestHost_ProcessViewRegistrationEvent_EmptySDL(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewViewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir()),
 	}
 
 	query := "SELECT * FROM something"
@@ -696,7 +697,7 @@ func TestIsPlaygroundEnabled(t *testing.T) {
 
 func TestOpenBrowser_DoesNotPanic(t *testing.T) {
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
 	defer func() { execCommand = original }()
@@ -802,11 +803,11 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NilViewManager(t *testing.T) {
 		close(done)
 	}()
 
-	query := "SELECT * FROM blocks"
+	query := testQueryBlocks
 	sdl := "type Block { hash: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 			Data: viewbundle.View{
@@ -844,7 +845,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingQuery(t *testing.T) {
 	// View with nil Query
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 		},
@@ -878,7 +879,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptyQuery(t *testing.T) {
 	emptyQuery := ""
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 			Data: viewbundle.View{
@@ -912,10 +913,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingSDL(t *testing.T) {
 		close(done)
 	}()
 
-	query := "SELECT * FROM blocks"
+	query := testQueryBlocks
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 			Data: viewbundle.View{
@@ -949,11 +950,11 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptySDL(t *testing.T) {
 		close(done)
 	}()
 
-	query := "SELECT * FROM blocks"
+	query := testQueryBlocks
 	emptySDL := ""
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 			Data: viewbundle.View{
@@ -1016,7 +1017,7 @@ func TestHost_GetPeerInfo_WithDefraDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	nh := &defra.NetworkHandler{}
 	h := &Host{
@@ -1039,10 +1040,10 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	h := &Host{
 		DefraNode:        defraNode,
@@ -1051,11 +1052,11 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 		metrics:          server.NewHostMetrics(),
 	}
 
-	query := "SELECT * FROM test"
-	sdl := "type TestView { field: String }"
+	query := testQueryTest
+	sdl := testViewSDL
 	event := shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestViewLens",
 			Data: viewbundle.View{
@@ -1081,10 +1082,10 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	h := &Host{
 		DefraNode:        defraNode,
@@ -1093,11 +1094,11 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 		metrics:          server.NewHostMetrics(),
 	}
 
-	query := "SELECT * FROM test"
-	sdl := "type TestView { field: String }"
+	query := testQueryTest
+	sdl := testViewSDL
 	event := shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 			Data: viewbundle.View{
@@ -1121,16 +1122,16 @@ func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := view.NewViewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir())
 	h := &Host{
 		DefraNode:   defraNode,
 		viewManager: vm,
 	}
 
-	query := "SELECT * FROM test"
-	sdl := "type TestView { field: String }"
+	query := testQueryTest
+	sdl := testViewSDL
 	v := view.View{
 		Name: "TestView",
 		Data: viewbundle.View{
@@ -1153,14 +1154,15 @@ func TestHost_Close_WithViewManager(t *testing.T) {
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
-	vm := view.NewViewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir())
 
 	pp := NewProcessingPipeline(context.Background(), &Host{}, 10, 1, 10, 50, false)
 	pp.Start()
 
 	playgroundServer := &http.Server{
-		Addr:    ":0",
-		Handler: http.NewServeMux(),
+		Addr:              ":0",
+		Handler:           http.NewServeMux(),
+		ReadHeaderTimeout: defaultTimeout,
 	}
 
 	h := &Host{
@@ -1182,7 +1184,7 @@ func TestHost_Close_WithViewManager(t *testing.T) {
 
 func TestOpenBrowser_ReturnsNoError(t *testing.T) {
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
 	defer func() { execCommand = original }()
@@ -1197,7 +1199,7 @@ func TestOpenBrowser_ReturnsNoError(t *testing.T) {
 
 func TestStartHosting_NilConfig_UsesDefault(t *testing.T) {
 	require.NotNil(t, DefaultConfig)
-	require.Equal(t, "localhost:9181", DefaultConfig.DefraDB.Url)
+	require.Equal(t, "localhost:9181", DefaultConfig.DefraDB.URL)
 }
 
 // ---------------------------------------------------------------------------
@@ -1210,7 +1212,7 @@ func TestHost_GetPeerInfo_WithP2PEnabled(t *testing.T) {
 	// Start a DefraDB instance that includes P2P
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	nh := &defra.NetworkHandler{}
 	h := &Host{
@@ -1236,7 +1238,7 @@ func TestHost_SignMessages_WithRealDefraDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -1264,7 +1266,7 @@ func TestHost_GetNodePublicKey_WithRealDefraDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -1285,7 +1287,7 @@ func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -1379,10 +1381,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1399,12 +1401,12 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 		close(done)
 	}()
 
-	query := "SELECT * FROM blocks"
+	query := testQueryBlocks
 	sdl := "type TestView { hash: String }"
 	// View with lenses that have invalid WASM (will fail PostWasmToFile but exercises the path)
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestViewWithLenses",
 			Data: viewbundle.View{
@@ -1436,10 +1438,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1456,11 +1458,11 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 		close(done)
 	}()
 
-	query := "SELECT * FROM blocks"
+	query := testQueryBlocks
 	sdl := "type TestView { hash: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestView",
 			Data: viewbundle.View{
@@ -1490,7 +1492,7 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 	// Start with mock schema applier (no schema applied yet)
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// First call should succeed (adding schema)
 	err = applySchema(ctx, defraNode)
@@ -1510,7 +1512,7 @@ func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Should succeed quickly since DefraDB is already ready
 	err = waitForDefraDB(ctx, defraNode)
@@ -1597,10 +1599,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1622,7 +1624,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	// Use valid base64 (tiny fake WASM) so PostWasmToFile succeeds
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey1",
-		Creator: "creator1",
+		Creator:     "creator1",
 		View: view.View{
 			Name: "TestLensView",
 			Data: viewbundle.View{
@@ -1658,10 +1660,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewViewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1682,7 +1684,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 	sdl := "type NoLensView { address: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ViewAddress: "0xkey2",
-		Creator: "creator2",
+		Creator:     "creator2",
 		View: view.View{
 			Name: "NoLensView",
 			Data: viewbundle.View{
@@ -1720,7 +1722,7 @@ func TestHost_Close_Full(t *testing.T) {
 	}
 
 	h.processingPipeline.Start()
-	go h.healthServer.Start()
+	go func() { _ = h.healthServer.Start() }()
 	time.Sleep(50 * time.Millisecond)
 
 	err = h.Close(ctx)

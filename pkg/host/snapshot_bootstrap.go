@@ -17,25 +17,39 @@ import (
 	hostConfig "github.com/shinzonetwork/shinzo-host-client/config"
 )
 
-// bootstrapFromSnapshots downloads and imports historical snapshots before P2P starts.
+// bootstrapFromSnapshots imports historical snapshots from an indexer to seed the local DB.
 func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, snapCfg hostConfig.SnapshotConfig) {
 	logger.Sugar.Infof("Bootstrapping from snapshots (indexer: %s, ranges: %d)",
 		snapCfg.IndexerURL, len(snapCfg.HistoricalRanges))
 
+	needed, client, err := resolveNeededSnapshots(ctx, defraNode, snapCfg)
+	if err != nil || len(needed) == 0 {
+		return
+	}
+
+	imported := importSnapshots(ctx, defraNode, client, needed)
+
+	if imported > 0 {
+		rebuildIndexes(ctx, defraNode)
+	}
+
+	logger.Sugar.Infof("Snapshot bootstrap complete: %d/%d snapshots imported", imported, len(needed))
+}
+
+// resolveNeededSnapshots lists available snapshots and filters to those not yet imported.
+func resolveNeededSnapshots(ctx context.Context, defraNode *node.Node, snapCfg hostConfig.SnapshotConfig) ([]snapshot.Info, *snapshot.Client, error) {
 	client := snapshot.NewClient(snapCfg.IndexerURL)
 
 	available, err := client.ListSnapshots()
 	if err != nil {
 		logger.Sugar.Warnf("Failed to list snapshots from indexer: %v", err)
-		return
+		return nil, nil, err
 	}
-
 	if len(available) == 0 {
 		logger.Sugar.Info("No snapshots available from indexer")
-		return
+		return nil, nil, nil
 	}
 
-	// Query existing block range to skip already-imported snapshots.
 	existingMin, existingMax := getExistingBlockRange(ctx, defraNode)
 	if existingMax > 0 {
 		logger.Sugar.Infof("Existing blocks in DB: %d-%d", existingMin, existingMax)
@@ -44,57 +58,66 @@ func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, snapCfg h
 	needed := findCoveringSnapshots(available, snapCfg.HistoricalRanges, existingMin, existingMax)
 	if len(needed) == 0 {
 		logger.Sugar.Info("No new snapshots needed (all ranges already covered or no signed snapshots)")
-		return
+		return nil, nil, nil
 	}
 
 	logger.Sugar.Infof("Found %d snapshots to import (skipped already-imported ranges)", len(needed))
+	return needed, client, nil
+}
 
+// importSnapshots downloads and imports each snapshot, returning the count of successful imports.
+func importSnapshots(ctx context.Context, defraNode *node.Node, client *snapshot.Client, needed []snapshot.Info) int {
 	tmpDir := os.TempDir()
 	var imported int
 
 	for _, snap := range needed {
-		sig := snap.Signature
-		if sig == nil {
-			logger.Sugar.Warnf("Snapshot %s is marked signed but has no signature data", snap.Filename)
-			continue
-		}
-
-		tmpPath := filepath.Join(tmpDir, snap.Filename)
-		logger.Sugar.Infof("Downloading snapshot %s (%d bytes)...", snap.Filename, snap.SizeBytes)
-		if err := client.DownloadSnapshot(snap.Filename, tmpPath); err != nil {
-			logger.Sugar.Warnf("Failed to download snapshot %s: %v", snap.Filename, err)
-			continue
-		}
-
-		result, err := snapshot.ImportWithVerification(ctx, defraNode, tmpPath, sig)
-		os.Remove(tmpPath)
-		if err != nil {
+		if err := importSingleSnapshot(ctx, defraNode, client, snap, tmpDir); err != nil {
 			logger.Sugar.Warnf("Failed to import snapshot %s: %v", snap.Filename, err)
 			continue
 		}
-
-		logger.Sugar.Infof("Imported snapshot %s: blocks %d-%d",
-			snap.Filename, result.StartBlock, result.EndBlock)
-
-		createSnapshotAttestation(ctx, defraNode, sig)
 		imported++
 	}
 
-	// Rebuild indexes once after all snapshots are imported (not per-snapshot).
-	if imported > 0 {
-		logger.Sugar.Infof("Rebuilding indexes for %d collections...", len(constants.AllCollections))
-		if err := snapshot.RebuildAllIndexes(ctx, defraNode, constants.AllCollections); err != nil {
-			logger.Sugar.Warnf("Failed to rebuild indexes after snapshot import: %v", err)
-		}
+	return imported
+}
+
+// importSingleSnapshot downloads, verifies, and imports one snapshot.
+func importSingleSnapshot(ctx context.Context, defraNode *node.Node, client *snapshot.Client, snap snapshot.Info, tmpDir string) error {
+	if snap.Signature == nil {
+		logger.Sugar.Warnf("Snapshot %s is marked signed but has no signature data", snap.Filename)
+		return fmt.Errorf("missing signature") // nolint:err113
 	}
 
-	logger.Sugar.Infof("Snapshot bootstrap complete: %d/%d snapshots imported", imported, len(needed))
+	tmpPath := filepath.Join(tmpDir, snap.Filename)
+	logger.Sugar.Infof("Downloading snapshot %s (%d bytes)...", snap.Filename, snap.SizeBytes)
+	if err := client.DownloadSnapshot(snap.Filename, tmpPath); err != nil {
+		return fmt.Errorf("download: %w", err) // nolint:err113
+	}
+
+	result, err := snapshot.ImportWithVerification(ctx, defraNode, tmpPath, snap.Signature)
+	_ = os.Remove(tmpPath)
+	if err != nil {
+		return fmt.Errorf("import: %w", err) // nolint:err113
+	}
+
+	logger.Sugar.Infof("Imported snapshot %s: blocks %d-%d", snap.Filename, result.StartBlock, result.EndBlock)
+	createSnapshotAttestation(ctx, defraNode, snap.Signature)
+
+	return nil
+}
+
+// rebuildIndexes rebuilds all collection indexes after snapshot import.
+func rebuildIndexes(ctx context.Context, defraNode *node.Node) {
+	logger.Sugar.Infof("Rebuilding indexes for %d collections...", len(constants.AllCollections))
+	if err := snapshot.RebuildAllIndexes(ctx, defraNode, constants.AllCollections); err != nil {
+		logger.Sugar.Warnf("Failed to rebuild indexes after snapshot import: %v", err)
+	}
 }
 
 // findCoveringSnapshots returns signed snapshots overlapping the requested ranges,
 // skipping snapshots whose block range is already fully present in the DB.
-func findCoveringSnapshots(available []snapshot.SnapshotInfo, ranges []hostConfig.BlockRange, existingMin, existingMax int64) []snapshot.SnapshotInfo {
-	var needed []snapshot.SnapshotInfo
+func findCoveringSnapshots(available []snapshot.Info, ranges []hostConfig.BlockRange, existingMin, existingMax int64) []snapshot.Info {
+	var needed []snapshot.Info
 	seen := make(map[string]bool)
 
 	for _, r := range ranges {
@@ -168,7 +191,7 @@ func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, in
 }
 
 // createSnapshotAttestation records an attestation for an imported snapshot.
-func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *snapshot.SnapshotSignatureData) {
+func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *snapshot.SignatureData) {
 	if len(sig.BlockSigMerkleRoots) == 0 {
 		logger.Sugar.Warnf("Skipping attestation for snapshot %d-%d: no block sig merkle roots",
 			sig.StartBlock, sig.EndBlock)
@@ -176,8 +199,8 @@ func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *s
 	}
 
 	record := &constants.AttestationRecord{
-		AttestedDocId: fmt.Sprintf("snapshot:%d-%d", sig.StartBlock, sig.EndBlock),
-		SourceDocIds:  []string{sig.SignatureIdentity},
+		AttestedDocID: fmt.Sprintf("snapshot:%d-%d", sig.StartBlock, sig.EndBlock),
+		SourceDocIDs:  []string{sig.SignatureIdentity},
 		CIDs:          sig.BlockSigMerkleRoots,
 		DocType:       "Snapshot",
 		VoteCount:     1,
@@ -188,6 +211,6 @@ func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *s
 			sig.StartBlock, sig.EndBlock, err)
 	} else {
 		logger.Sugar.Infof("Created attestation for snapshot %d-%d (signer: %s)",
-			sig.StartBlock, sig.EndBlock, truncateString(sig.SignatureIdentity, 16))
+			sig.StartBlock, sig.EndBlock, truncateString(sig.SignatureIdentity, identityTruncateLength))
 	}
 }

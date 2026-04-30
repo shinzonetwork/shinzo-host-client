@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,7 +24,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
@@ -33,7 +33,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// parseTimeoutOrDefault parses a duration string or returns a default value
+// parseTimeoutOrDefault parses a duration string or returns a default value.
 func parseTimeoutOrDefault(timeoutStr string, defaultDuration time.Duration) time.Duration {
 	if timeoutStr == "" {
 		return defaultDuration
@@ -48,7 +48,7 @@ func parseTimeoutOrDefault(timeoutStr string, defaultDuration time.Duration) tim
 	return duration
 }
 
-// maxInt returns the maximum of two integers
+// maxInt returns the maximum of two integers.
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -56,18 +56,19 @@ func maxInt(a, b int) int {
 	return b
 }
 
-var DefaultConfig *config.Config = func() *config.Config {
+// DefaultConfig provides a template for host configuration with sensible defaults.
+var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglobals
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url:           "localhost:9181",
+			URL:           "localhost:9181",
 			KeyringSecret: "test-keyring-secret-for-testing",
 			P2P: config.DefraDBP2PConfig{
 				Enabled:             true,
 				BootstrapPeers:      []string{},
 				ListenAddr:          "/ip4/0.0.0.0/tcp/9171",
-				MaxRetries:          5,
-				RetryBaseDelayMs:    1000,
-				ReconnectIntervalMs: 60000,
+				MaxRetries:          defaultMaxP2PRetries,
+				RetryBaseDelayMs:    defaultRetryBaseDelayMs,
+				ReconnectIntervalMs: defaultReconnectIntervalMs,
 				EnableAutoReconnect: true,
 			},
 			Store: config.DefraDBStoreConfig{
@@ -87,6 +88,7 @@ var DefaultConfig *config.Config = func() *config.Config {
 	return cfg
 }()
 
+// Host represents the main application state and components of the Shinzo host. It manages the DefraDB node, P2P network, view manager, processing pipeline, health server, and other core functionalities of the host application.
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defra.NetworkHandler // P2P network control
@@ -106,23 +108,25 @@ type Host struct {
 	processingPipeline *ProcessingPipeline // Complete message processing pipeline
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
-	viewManager *view.ViewManager // Manages view lifecycle and processing
+	viewManager *view.Manager // Manages view lifecycle and processing
 
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
 
-	mostRecentBlockReceived uint64
+	// mostRecentBlockReceived uint64
 
-	pruner         *pruner.Pruner     // Document pruner for removing old blocks
-	pruneQueue     *pruner.EventQueue // FIFO queue tracking replicated docIDs
-	pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
+	pruner     *pruner.Pruner     // Document pruner for removing old blocks
+	pruneQueue *pruner.EventQueue // FIFO queue tracking replicated docIDs
+	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
+// StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the processing pipeline, view manager, and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
 func StartHosting(cfg *config.Config) (*Host, error) {
 	return StartHostingWithEventSubscription(cfg)
 }
 
-func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
+// StartHostingWithEventSubscription starts the host with optional event subscription to ShinzoHub for view registrations and other events. This is the main entry point for starting the host application.
+func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //nolint:funlen // TODO: fix funlen
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
@@ -147,7 +151,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		constants.AllCollections...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error starting defra instance: %v", err)
+		return nil, fmt.Errorf("error starting defra instance: %w", err)
 	}
 
 	// P2P peers will be added after ViewManager is initialized (see below)
@@ -183,12 +187,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	if isPlaygroundEnabled() && defraNode.APIURL != "" {
 		playgroundHandler, err := playgroundserver.NewServer(defraNode.APIURL)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create playground server: %v", err)
+			return nil, fmt.Errorf("failed to create playground server: %w", err)
 		}
 
 		// Start playground server on a different port (defradb port + 1)
 		// Parse the defradb URL to get the port and increment it
-		playgroundAddr := cfg.DefraDB.Url
+		playgroundAddr := cfg.DefraDB.URL
 		if defraNode.APIURL != "" {
 			playgroundAddr = defraNode.APIURL
 		}
@@ -198,12 +202,13 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 
 		playgroundServer = &http.Server{
-			Addr:    playgroundAddr,
-			Handler: playgroundHandler,
+			Addr:              playgroundAddr,
+			Handler:           playgroundHandler,
+			ReadHeaderTimeout: defaultTimeout,
 		}
 
 		go func() {
-			if err := playgroundServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := playgroundServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				logger.Sugar.Errorf("Playground server error: %v", err)
 			}
 		}()
@@ -225,7 +230,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	// Initialize ViewManager and load persisted views
 	// This handles: 1) Fetch views from ShinzoHub, 2) Load local views, 3) Download WASM files, 4) Register views
-	newHost.viewManager = view.NewViewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+	newHost.viewManager = view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
 
 	// Hook up metrics callback for view tracking
 	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
@@ -324,7 +329,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("error starting event subscription: %v", err)
+			return nil, fmt.Errorf("error starting event subscription: %w", err)
 		}
 	}
 
@@ -338,15 +343,15 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	// Initialize and start health server
 	var healthDefraURL string
-	if cfg.DefraDB.Url != "" {
-		healthDefraURL = cfg.DefraDB.Url
+	if cfg.DefraDB.URL != "" {
+		healthDefraURL = cfg.DefraDB.URL
 	} else if defraNode != nil && defraNode.APIURL != "" {
 		healthDefraURL = defraNode.APIURL
 	}
 
 	if defraNode != nil {
 		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
-		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(10000) // Cache last 10000 blocks
+		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(blockSignatureCacheSize)
 		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
 		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with block signature support)")
 	}
@@ -395,7 +400,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 
 	if cfg.HostConfig.OpenBrowserOnStart {
 		go func() {
-			time.Sleep(2 * time.Second)
+			time.Sleep(openBrowserDelaySecs * time.Second)
 			if err := openBrowser(metricsURL); err != nil {
 				logger.Sugar.Debugf("Could not open browser automatically: %v", err)
 			} else {
@@ -413,36 +418,37 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) {
 	return newHost, nil
 }
 
-// HealthChecker interface implementation for Host
+// IsHealthy returns check for defra + processing pipeline health. This is used by the health server to determine if the host is healthy and ready to serve requests.
 func (h *Host) IsHealthy() bool {
 	// Check if DefraDB is accessible and processing pipeline is running
 	return h.DefraNode != nil && h.processingPipeline != nil
 }
 
+// GetCurrentBlock returns the most recent block height that the host has processed, based on the host's metrics. This is used for monitoring the progress of block processing and data freshness.
 func (h *Host) GetCurrentBlock() int64 {
 	if h.metrics != nil {
-		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock))
+		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock)) //nolint:gosec // block numbers won't exceed int64 max
 	}
 	return 0
 }
 
-// ProcessViewRegistrationEvent processes a view registration event
+// ProcessViewRegistrationEvent processes a view registration event.
 func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub.ViewRegisteredEvent) error {
 	if h.viewManager == nil {
-		return fmt.Errorf("ViewManager not initialized")
+		return ErrViewManagerNil
 	}
 
 	// Validate view has required fields
 	if event.View.Data.Query == "" {
-		return fmt.Errorf("view %s missing query", event.View.Name)
+		return fmt.Errorf("view %s: %w", event.View.Name, ErrViewMissingQuery)
 	}
 	if event.View.Data.Sdl == "" {
-		return fmt.Errorf("view %s missing SDL", event.View.Name)
+		return fmt.Errorf("view %s: %w", event.View.Name, ErrViewMissingSDL)
 	}
 
 	// Write WASM to disk
 	if len(event.View.Data.Transform.Lenses) > 0 {
-		if err := event.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
+		if err := event.View.PostWasmToFile(h.LensRegistryPath); err != nil {
 			return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
 		}
 	}
@@ -460,6 +466,7 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	return nil
 }
 
+// GetLastProcessedTime returns the timestamp of the most recently processed block, based on the host's metrics. This is used for monitoring the freshness of the data being processed by the host.
 func (h *Host) GetLastProcessedTime() time.Time {
 	if h.metrics != nil {
 		return h.metrics.LastDocumentTime
@@ -467,6 +474,7 @@ func (h *Host) GetLastProcessedTime() time.Time {
 	return time.Time{}
 }
 
+// GetPeerInfo returns information about the host's P2P network status, including whether P2P is enabled, the host's own peer ID and addresses, and a list of currently connected peers. This is used for monitoring and debugging the P2P network status of the host.
 func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 	p2pInfo := &server.P2PInfo{
 		Enabled:  h.NetworkHandler != nil,
@@ -524,6 +532,7 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 	return p2pInfo, nil
 }
 
+// SignMessages signs a message using both DefraDB node keys and P2P keys, returning the signed messages for attestation registration and peer ID registration. This is used for proving ownership of the host in the attestation system and P2P network.
 func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.PeerIDRegistration, error) {
 	// Use the signer package approach like the indexer
 	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ToAppConfig())
@@ -557,14 +566,17 @@ func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.
 		}, nil
 }
 
+// GetNodePublicKey retrieves the public key of the DefraDB node using the signer package. This is used for attestation registration and verification.
 func (h *Host) GetNodePublicKey() (string, error) {
 	return signer.GetDefraPublicKey(h.DefraNode, h.config.ToAppConfig())
 }
 
+// GetPeerPublicKey retrieves the P2P public key of the host using the signer package. This is used for peer ID registration and verification in the P2P network.
 func (h *Host) GetPeerPublicKey() (string, error) {
 	return signer.GetP2PPublicKey(h.DefraNode, h.config.ToAppConfig())
 }
 
+// incrementPort takes a URL string, parses it, increments the port by 1, and returns the modified URL string. It handles URLs with or without protocols and returns an error if the URL is invalid or the port cannot be parsed.
 func incrementPort(apiURL string) (string, error) {
 	// Ensure URL has protocol
 	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
@@ -573,22 +585,23 @@ func incrementPort(apiURL string) (string, error) {
 
 	parsed, err := url.Parse(apiURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL %s: %v", apiURL, err)
+		return "", fmt.Errorf("invalid URL %s: %w", apiURL, err)
 	}
 
 	host, portStr, err := net.SplitHostPort(parsed.Host)
 	if err != nil {
-		return "", fmt.Errorf("invalid host:port %s: %v", parsed.Host, err)
+		return "", fmt.Errorf("invalid host:port %s: %w", parsed.Host, err)
 	}
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return "", fmt.Errorf("invalid port %s: %v", portStr, err)
+		return "", fmt.Errorf("invalid port %s: %w", portStr, err)
 	}
 
 	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
+// Close gracefully shuts down the host, including the DefraDB node, processing pipeline, health server, playground server, and pruner. It ensures all resources are cleaned up properly.
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
@@ -624,19 +637,19 @@ func (h *Host) Close(ctx context.Context) error {
 	return nil
 }
 
-// GetMetricsHandler returns an HTTP handler for the metrics endpoint
+// GetMetricsHandler returns an HTTP handler for the metrics endpoint.
 func (h *Host) GetMetricsHandler() http.Handler {
 	if h.metrics == nil {
 		// Return a handler that returns empty metrics if not initialized
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"error": "metrics not initialized"}`))
+			_, _ = w.Write([]byte(`{"error": "metrics not initialized"}`))
 		})
 	}
 	return h.metrics
 }
 
-// waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle
+// waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle.
 func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Waiting for defra...")
 	maxAttempts := 30
@@ -645,7 +658,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := defra.QuerySingle[map[string]interface{}](ctx, defraNode, query)
+		_, err := defra.QuerySingle[map[string]any](ctx, defraNode, query)
 		if err == nil {
 			fmt.Println("Defra is responsive!")
 			return nil
@@ -657,7 +670,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 		}
 	}
 
-	return fmt.Errorf("DefraDB failed to become ready after %d retry attempts", maxAttempts)
+	return fmt.Errorf("after %d retry attempts: %w", maxAttempts, ErrDefraDBNotReady)
 }
 
 func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohub.ShinzoEvent) {
@@ -692,7 +705,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
 				if len(registeredEvent.View.Data.Transform.Lenses) > 0 {
-					if err := registeredEvent.View.PostWasmToFile(ctx, h.LensRegistryPath); err != nil {
+					if err := registeredEvent.View.PostWasmToFile(h.LensRegistryPath); err != nil {
 						logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
 						continue
 					}
@@ -717,9 +730,9 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					hostEvent.Owner, hostEvent.DID, hostEvent.ConnectionString)
 
 				if h.NetworkHandler != nil && hostEvent.ConnectionString != "" {
-					resolved := resolveBootstrapPeers(context.Background(),
+					resolved := resolveBootstrapPeers(ctx,
 						[]string{hostEvent.ConnectionString},
-						5*time.Second,
+						peerResolutionTimeoutSecs*time.Second,
 					)
 					for _, addr := range resolved {
 						if err := h.NetworkHandler.AddPeer(addr); err != nil {
@@ -736,9 +749,9 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					indexerEvent.SourceChainID, indexerEvent.ConnectionString)
 
 				if h.NetworkHandler != nil && indexerEvent.ConnectionString != "" {
-					resolved := resolveBootstrapPeers(context.Background(),
+					resolved := resolveBootstrapPeers(ctx,
 						[]string{indexerEvent.ConnectionString},
-						5*time.Second,
+						peerResolutionTimeoutSecs*time.Second,
 					)
 					for _, addr := range resolved {
 						if err := h.NetworkHandler.AddPeer(addr); err != nil {
@@ -759,10 +772,11 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 // monitorHighestBlockNumber has been removed - block monitoring is now handled
 // by the event-driven processAllViews goroutine for better efficiency
 
+// StartHostingWithTestConfig starts the host with a test configuration, including a temporary DefraDB store path and dynamic health server port. This is used for testing to avoid conflicts with existing instances and to ensure isolation.
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig := DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.Url = "127.0.0.1:0"
+	testConfig.DefraDB.URL = "127.0.0.1:0"
 
 	// Set start height to 0 for tests to process all documents
 	testConfig.Shinzo.StartHeight = 0
@@ -776,22 +790,22 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	// Override health server with dynamic port for tests
 	if host.healthServer != nil {
 		// Stop the configured health server
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), healthServerShutdownTimeoutSecs*time.Second)
 		defer cancel()
-		host.healthServer.Stop(ctx)
+		_ = host.healthServer.Stop(ctx)
 
 		// Find an available port
-		listener, err := net.Listen("tcp", ":0")
+		listener, err := net.Listen("tcp", ":0") //nolint:gosec
 		if err != nil {
 			return nil, fmt.Errorf("failed to find available port: %w", err)
 		}
 		port := listener.Addr().(*net.TCPAddr).Port
-		listener.Close()
+		_ = listener.Close()
 
 		// Create new health server with dynamic port
 		healthDefraURL := ""
-		if testConfig.DefraDB.Url != "" {
-			healthDefraURL = "http://" + testConfig.DefraDB.Url
+		if testConfig.DefraDB.URL != "" {
+			healthDefraURL = "http://" + testConfig.DefraDB.URL
 		}
 		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics)
 
@@ -808,15 +822,16 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	return host, nil
 }
 
+// isPlaygroundEnabled checks the environment variable to determine if the GraphQL Playground should be enabled. This allows for dynamic control over the playground feature without changing code, which is useful for testing and different deployment environments.
 func isPlaygroundEnabled() bool {
 	return playgroundEnabled
 }
 
-// applySchema applies the GraphQL schema to DefraDB node
+// applySchema applies the GraphQL schema to DefraDB node.
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchemaForBuild())
+	_, err := defraNode.DB.AddSchema(ctx, localschema.GetSchemaForBuild())
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
@@ -830,15 +845,15 @@ func applySchema(ctx context.Context, defraNode *node.Node) error {
 	return err
 }
 
-// RegisterViewWithManager registers a view and manages its lifecycle
+// RegisterViewWithManager registers a view and manages its lifecycle.
 func (h *Host) RegisterViewWithManager(ctx context.Context, v view.View) error {
 	if h.viewManager == nil {
-		return fmt.Errorf("ViewManager not initialized")
+		return ErrViewManagerNil
 	}
 	return h.viewManager.RegisterView(ctx, &v)
 }
 
-// GetActiveViewNames returns names of all active views
+// GetActiveViewNames returns names of all active views.
 func (h *Host) GetActiveViewNames() []string {
 	if h.viewManager == nil {
 		return []string{}
@@ -848,10 +863,10 @@ func (h *Host) GetActiveViewNames() []string {
 
 // execCommand is the function used to create exec.Cmd instances.
 // Overridden in tests to avoid actually opening browsers.
-var execCommand = exec.Command
+var execCommand = exec.Command //nolint:gochecknoglobals
 
 // openBrowser opens the specified URL in the default browser
-// Works on macOS, Linux, and Windows
+// Works on macOS, Linux, and Windows.
 func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -862,7 +877,7 @@ func openBrowser(url string) error {
 	case "linux":
 		cmd = execCommand("xdg-open", url)
 	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+		return fmt.Errorf("platform %s: %w", runtime.GOOS, ErrUnsupportedPlatform)
 	}
 	return cmd.Start()
 }

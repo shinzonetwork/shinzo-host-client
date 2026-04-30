@@ -16,10 +16,10 @@ func TestNewViewManager(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := NewViewManager(defraNode, registryPath)
+	vm := NewManager(defraNode, registryPath)
 
 	require.NotNil(t, vm)
 	require.NotNil(t, vm.activeViews)
@@ -33,9 +33,9 @@ func TestViewManager_GetActiveViewNames_Empty(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 	names := vm.GetActiveViewNames()
 
 	require.Empty(t, names)
@@ -46,9 +46,9 @@ func TestViewManager_GetViewCount_Empty(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 	count := vm.GetViewCount()
 
 	require.Equal(t, 0, count)
@@ -59,9 +59,9 @@ func TestViewManager_LoadAndRegisterViews_NoViews(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 	err = vm.LoadAndRegisterViews(ctx, nil)
 
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestView_BuildLensConfig(t *testing.T) {
 
 	require.Equal(t, query, config.SourceCollectionVersionID)
 	require.Equal(t, sdl, config.DestinationCollectionVersionID)
-	require.Len(t, config.Lens.Lenses, 1)
+	require.Len(t, config.Lenses, 1)
 	require.Equal(t, "file://"+"filter_transaction.wasm", config.Lens.Lenses[0].Path)
 	require.Equal(t, map[string]any{}, config.Lens.Lenses[0].Arguments) // Arguments are empty
 }
@@ -186,9 +186,9 @@ func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Manually add a view to activeViews
 	vm.activeViews["TestView"] = nil
@@ -207,7 +207,7 @@ func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	require.Contains(t, err.Error(), "already registered")
 }
 
-// MockWASMRegistry provides a mock implementation for testing
+// MockWASMRegistry provides a mock implementation for testing.
 type MockWASMRegistry struct {
 	downloadedFiles map[string]string
 	downloadError   error
@@ -219,7 +219,7 @@ func NewMockWASMRegistry() *MockWASMRegistry {
 	}
 }
 
-func (m *MockWASMRegistry) EnsureAllWASM(ctx context.Context, urls []string) ([]string, error) {
+func (m *MockWASMRegistry) EnsureAllWASM(_ context.Context, urls []string) ([]string, error) {
 	if m.downloadError != nil {
 		return nil, m.downloadError
 	}
@@ -239,23 +239,23 @@ func (m *MockWASMRegistry) SetDownloadError(err error) {
 	m.downloadError = err
 }
 
-// MockViewManager creates a ViewManager with mocked dependencies to avoid WASM operations
-func MockViewManager(defraNode *node.Node, registryPath string) *ViewManager {
-	vm := NewViewManager(defraNode, registryPath)
+// MockViewManager creates a ViewManager with mocked dependencies to avoid WASM operations.
+func MockViewManager(defraNode *node.Node, registryPath string) *Manager {
+	vm := NewManager(defraNode, registryPath)
 	// Replace WASM registry with mock to avoid any downloads
 	vm.wasmRegistry = nil
 	return vm
 }
 
-// TestViewManager_SetMetricsCallback tests setting metrics callback
+// TestViewManager_SetMetricsCallback tests setting metrics callback.
 func TestViewManager_SetMetricsCallback(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Initially nil
 	require.Nil(t, vm.metricsCallback)
@@ -276,46 +276,15 @@ func TestViewManager_SetMetricsCallback(t *testing.T) {
 	require.True(t, callbackCalled)
 }
 
-// TestViewManager_QueueView tests queuing views for processing
-func TestViewManager_QueueView(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer defraNode.Close(ctx)
-
-	vm := NewViewManager(defraNode, t.TempDir())
-
-	v := View{
-		Name: "TestView",
-		Data: viewbundle.View{
-			Query: "Log { address }",
-			Sdl:   "type TestView { address: String }",
-		},
-	}
-
-	// Queue the view
-	vm.QueueView(v)
-
-	// Check that item was added to queue
-	select {
-	case item := <-vm.processingQueue:
-		require.Equal(t, "TestView", item.viewName)
-		require.Equal(t, "TestView", item.activeViewKey)
-	default:
-		t.Fatal("Expected item in processing queue")
-	}
-}
-
-// TestViewManager_LoadAndRegisterViews_ExternalViews tests loading external views
+// TestViewManager_LoadAndRegisterViews_ExternalViews tests loading external views.
 func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Create source collections first
 	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
@@ -351,15 +320,15 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	require.Contains(t, names, "ExternalView2")
 }
 
-// TestViewManager_LoadAndRegisterViews_ViewWithoutLenses tests loading views without lenses (GitHub Actions compatible)
+// TestViewManager_LoadAndRegisterViews_ViewWithoutLenses tests loading views without lenses (GitHub Actions compatible).
 func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Disable WASM registry completely to avoid any downloads
 	vm.wasmRegistry = nil
@@ -386,15 +355,15 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	require.Equal(t, 1, vm.GetViewCount())
 }
 
-// TestViewManager_RegisterView_ValidationFailure tests view validation
+// TestViewManager_RegisterView_ValidationFailure tests view validation.
 func TestViewManager_RegisterView_ValidationFailure(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Test invalid view (missing name)
 	v := View{
@@ -410,15 +379,15 @@ func TestViewManager_RegisterView_ValidationFailure(t *testing.T) {
 	require.Contains(t, err.Error(), "view validation failed")
 }
 
-// TestViewManager_RegisterView_QueryCorrection tests inputData -> input correction
+// TestViewManager_RegisterView_QueryCorrection tests inputData -> input correction.
 func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	v := &View{
 		Name: "CorrectionView",
@@ -440,7 +409,7 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	require.Contains(t, v.Data.Query, "input")
 }
 
-// TestSuggestCorrectCollection tests collection name correction
+// TestSuggestCorrectCollection tests collection name correction.
 func TestSuggestCorrectCollection(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -471,28 +440,28 @@ func TestSuggestCorrectCollection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vm := &ViewManager{}
+			vm := &Manager{}
 			result := vm.suggestCorrectCollection(tt.input)
 			require.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-// TestViewManager_SubscribeToSourceCollection tests subscription functionality
+// TestViewManager_SubscribeToSourceCollection tests subscription functionality.
 func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	err = vm.subscribeToSourceCollection(ctx, "Ethereum__Mainnet__Log", "TestView")
 	require.NoError(t, err)
 }
 
-// TestExtractWasmURLsFromViews_MixedURLs tests extracting HTTP URLs from mixed lens paths
+// TestExtractWasmURLsFromViews_MixedURLs tests extracting HTTP URLs from mixed lens paths.
 func TestExtractWasmURLsFromViews_MixedURLs(t *testing.T) {
 	views := []View{
 		{
@@ -517,15 +486,15 @@ func TestExtractWasmURLsFromViews_MixedURLs(t *testing.T) {
 	require.Contains(t, urls, "http://example.com/lens2.wasm")
 }
 
-// TestViewManager_LoadAndRegisterViews_Deduplication tests view deduplication
+// TestViewManager_LoadAndRegisterViews_Deduplication tests view deduplication.
 func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Create source collections first
 	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
@@ -570,16 +539,16 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	require.Contains(t, names, "UniqueView")
 }
 
-// TestViewManager_RegisterView_WithBase64WASM tests registration with base64 WASM (completely mocked)
+// TestViewManager_RegisterView_WithBase64WASM tests registration with base64 WASM (completely mocked).
 func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Use regular view manager but disable WASM registry to avoid downloads
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 	vm.wasmRegistry = nil
 
 	// Test with a view that has no lenses to avoid WASM complications
@@ -602,15 +571,15 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	require.Equal(t, 1, vm.GetViewCount())
 }
 
-// TestViewManager_RegisterView_CollectionNameCorrection tests automatic collection name fixing
+// TestViewManager_RegisterView_CollectionNameCorrection tests automatic collection name fixing.
 func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	v := &View{
 		Name: "CollectionTestView",
@@ -632,15 +601,15 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	require.NotEqual(t, "Log { address }", v.Data.Query) // Should not be the original uncorrected form
 }
 
-// TestViewManager_Integration_CompleteFlow tests a complete view registration flow without WASM
+// TestViewManager_Integration_CompleteFlow tests a complete view registration flow without WASM.
 func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Set up metrics callback
 	metricsCallCount := 0
@@ -674,7 +643,7 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	require.Greater(t, metricsCallCount, 0)
 }
 
-// TestExtractCollectionFromQuery_ComplexQueries tests collection extraction from various query formats
+// TestExtractCollectionFromQuery_ComplexQueries tests collection extraction from various query formats.
 func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -726,15 +695,15 @@ func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 	}
 }
 
-// TestViewManager_RegisterView_NoLenses tests view registration without any lenses
+// TestViewManager_RegisterView_NoLenses tests view registration without any lenses.
 func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	v := &View{
 		Name: "NoLensesView",
@@ -759,15 +728,15 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	require.Contains(t, vm.GetActiveViewNames(), "NoLensesView")
 }
 
-// TestViewManager_RegisterView_WithFileURLs tests view registration with file:// URLs (no downloads)
+// TestViewManager_RegisterView_WithFileURLs tests view registration with file:// URLs (no downloads).
 func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	v := &View{
 		Name: "FileURLView",
@@ -788,15 +757,15 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	require.Equal(t, 1, vm.GetViewCount())
 }
 
-// TestViewManager_LoadAndRegisterViews_LocalRegistryError tests handling of local registry errors
+// TestViewManager_LoadAndRegisterViews_LocalRegistryError tests handling of local registry errors.
 func TestViewManager_LoadAndRegisterViews_LocalRegistryError(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Use an invalid registry path that should cause loading to fail
 	vm.registryPath = "/invalid/path/that/does/not/exist"
@@ -807,19 +776,19 @@ func TestViewManager_LoadAndRegisterViews_LocalRegistryError(t *testing.T) {
 	require.Equal(t, 0, vm.GetViewCount())
 }
 
-// TestViewManager_ConcurrentAccess tests thread safety of view manager operations
+// TestViewManager_ConcurrentAccess tests thread safety of view manager operations.
 func TestViewManager_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Test concurrent access to getters
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			// These should be thread-safe
 			_ = vm.GetViewCount()
@@ -829,7 +798,7 @@ func TestViewManager_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		select {
 		case <-done:
 		case <-ctx.Done():
@@ -838,15 +807,15 @@ func TestViewManager_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestViewManager_MetricsCallbackError tests metrics callback error handling
+// TestViewManager_MetricsCallbackError tests metrics callback error handling.
 func TestViewManager_MetricsCallbackError(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewViewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir())
 
 	// Set a callback that returns nil (error case)
 	vm.SetMetricsCallback(func() *server.HostMetrics {
@@ -870,7 +839,7 @@ func TestViewManager_MetricsCallbackError(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestDeduplicateViews_ComplexScenarios tests deduplication with edge cases
+// TestDeduplicateViews_ComplexScenarios tests deduplication with edge cases.
 func TestDeduplicateViews_ComplexScenarios(t *testing.T) {
 	tests := []struct {
 		name     string

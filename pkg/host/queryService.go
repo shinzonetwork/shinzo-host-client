@@ -8,13 +8,13 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
-// QueryService provides dynamic query building capabilities for different collection types
+// QueryService provides dynamic query building capabilities for different collection types.
 type QueryService struct {
 	// Cache of field mappings for each collection type
 	fieldCache map[string][]string
 }
 
-// NewQueryService creates a new instance of QueryService
+// NewQueryService creates a new instance of QueryService.
 func NewQueryService() *QueryService {
 	qs := &QueryService{
 		fieldCache: make(map[string][]string),
@@ -23,9 +23,10 @@ func NewQueryService() *QueryService {
 	return qs
 }
 
-// CollectionType represents the different attestation collection types
+// CollectionType represents the different attestation collection types.
 type CollectionType string
 
+// Collection type constants define the available collection types for querying.
 const (
 	CollectionBlock           CollectionType = "Block"
 	CollectionTransaction     CollectionType = "Transaction"
@@ -33,7 +34,7 @@ const (
 	CollectionAccessListEntry CollectionType = "AccessListEntry"
 )
 
-// initializeFieldMappings extracts field names from attestation types using reflection
+// initializeFieldMappings extracts field names from attestation types using reflection.
 func (qs *QueryService) initializeFieldMappings() {
 	// Block fields
 	blockFields := qs.extractFields(constants.Block{})
@@ -52,8 +53,8 @@ func (qs *QueryService) initializeFieldMappings() {
 	qs.fieldCache[string(CollectionAccessListEntry)] = accessListFields
 }
 
-// extractFields uses reflection to extract field names from a struct
-func (qs *QueryService) extractFields(model interface{}) []string {
+// extractFields uses reflection to extract field names from a struct.
+func (qs *QueryService) extractFields(model any) []string {
 	t := reflect.TypeOf(model)
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -84,7 +85,7 @@ func (qs *QueryService) extractFields(model interface{}) []string {
 	return fields
 }
 
-// extractNestedFields extracts fields from nested struct types
+// extractNestedFields extracts fields from nested struct types.
 func (qs *QueryService) extractNestedFields(t reflect.Type) []string {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -102,7 +103,7 @@ func (qs *QueryService) extractNestedFields(t reflect.Type) []string {
 	return fields
 }
 
-// GetFieldsForCollection returns all available fields for a given collection type
+// GetFieldsForCollection returns all available fields for a given collection type.
 func (qs *QueryService) GetFieldsForCollection(collectionType CollectionType) []string {
 	fields, exists := qs.fieldCache[string(collectionType)]
 	if !exists {
@@ -113,8 +114,8 @@ func (qs *QueryService) GetFieldsForCollection(collectionType CollectionType) []
 	return append([]string{"_docID", "_version"}, fields...)
 }
 
-// BuildDynamicQuery creates a query for the specified collection type with optional filters
-func (qs *QueryService) BuildDynamicQuery(collectionType CollectionType, filters map[string]interface{}) string {
+// BuildDynamicQuery creates a query for the specified collection type with optional filters.
+func (qs *QueryService) BuildDynamicQuery(collectionType CollectionType, filters map[string]any) string {
 	fields := qs.GetFieldsForCollection(collectionType)
 	fieldsStr := strings.Join(fields, " ")
 
@@ -132,8 +133,8 @@ func (qs *QueryService) BuildDynamicQuery(collectionType CollectionType, filters
 	return fmt.Sprintf("%s(filter: %s) { %s }", collectionName, filterStr, fieldsStr)
 }
 
-// BuildNestedQuery creates a query that includes nested relationships
-func (qs *QueryService) BuildNestedQuery(primaryCollection CollectionType, nestedCollections []CollectionType, filters map[string]interface{}) string {
+// BuildNestedQuery creates a query that includes nested relationships.
+func (qs *QueryService) BuildNestedQuery(primaryCollection CollectionType, nestedCollections []CollectionType, filters map[string]any) string {
 	// Start with primary collection
 	query := qs.BuildDynamicQuery(primaryCollection, filters)
 
@@ -150,7 +151,7 @@ func (qs *QueryService) BuildNestedQuery(primaryCollection CollectionType, neste
 	return query
 }
 
-// getCollectionName maps collection types to their actual DefraDB collection names
+// getCollectionName maps collection types to their actual DefraDB collection names.
 func (qs *QueryService) getCollectionName(collectionType CollectionType) string {
 	switch collectionType {
 	case CollectionBlock:
@@ -166,8 +167,8 @@ func (qs *QueryService) getCollectionName(collectionType CollectionType) string 
 	}
 }
 
-// buildFilterString converts a filter map to GraphQL filter syntax
-func (qs *QueryService) buildFilterString(filters map[string]interface{}) string {
+// buildFilterString converts a filter map to GraphQL filter syntax.
+func (qs *QueryService) buildFilterString(filters map[string]any) string {
 	if len(filters) == 0 {
 		return ""
 	}
@@ -192,7 +193,7 @@ func (qs *QueryService) buildFilterString(filters map[string]interface{}) string
 	return fmt.Sprintf("{ %s }", strings.Join(filterPairs, " "))
 }
 
-// GetCollectionHierarchy returns the natural nesting relationships between collections
+// GetCollectionHierarchy returns the natural nesting relationships between collections.
 func (qs *QueryService) GetCollectionHierarchy() map[CollectionType][]CollectionType {
 	return map[CollectionType][]CollectionType{
 		CollectionBlock:           {CollectionTransaction},
@@ -202,8 +203,8 @@ func (qs *QueryService) GetCollectionHierarchy() map[CollectionType][]Collection
 	}
 }
 
-// BuildHierarchicalQuery creates a query that respects the natural hierarchy of collections
-func (qs *QueryService) BuildHierarchicalQuery(rootCollection CollectionType, filters map[string]interface{}) string {
+// BuildHierarchicalQuery creates a query that respects the natural hierarchy of collections.
+func (qs *QueryService) BuildHierarchicalQuery(rootCollection CollectionType, filters map[string]any) string {
 	hierarchy := qs.GetCollectionHierarchy()
 
 	// Start with root collection (without nested collections first)

@@ -1,6 +1,6 @@
 package constants
 
-// DefraDB Collection Names - matches schema.graphql types
+// DefraDB Collection Names - matches schema.graphql types.
 const (
 	CollectionBlock             = "Ethereum__Mainnet__Block"
 	CollectionTransaction       = "Ethereum__Mainnet__Transaction"
@@ -14,7 +14,9 @@ const (
 
 // Collection name slice for bulk operations (used for P2P replication subscriptions).
 // AttestationRecord is excluded — each host builds its own attestation state independently.
-var AllCollections = []string{
+
+// AllCollections is a list of DefraDB collection names.
+var AllCollections = []string{ //nolint:gochecknoglobals
 	CollectionBlock,
 	CollectionTransaction,
 	CollectionAccessListEntry,

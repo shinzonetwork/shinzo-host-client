@@ -6,22 +6,23 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
-// SnapshotInfo describes a snapshot file available on the indexer.
-type SnapshotInfo struct {
-	Filename   string                 `json:"filename"`
-	StartBlock int64                  `json:"start_block"`
-	EndBlock   int64                  `json:"end_block"`
-	SizeBytes  int64                  `json:"size_bytes"`
-	CreatedAt  time.Time              `json:"created_at"`
-	Signed     bool                   `json:"signed"`
-	Signature  *SnapshotSignatureData `json:"signature,omitempty"`
+// Info describes a snapshot file available on the indexer.
+type Info struct {
+	Filename   string         `json:"filename"`
+	StartBlock int64          `json:"start_block"`
+	EndBlock   int64          `json:"end_block"`
+	SizeBytes  int64          `json:"size_bytes"`
+	CreatedAt  time.Time      `json:"created_at"`
+	Signed     bool           `json:"signed"`
+	Signature  *SignatureData `json:"signature,omitempty"`
 }
 
-// SnapshotSignatureData holds the cryptographic signature for a snapshot file.
-type SnapshotSignatureData struct {
+// SignatureData holds the cryptographic signature for a snapshot file.
+type SignatureData struct {
 	Version             int      `json:"version"`
 	SnapshotFile        string   `json:"snapshot_file"`
 	StartBlock          int64    `json:"start_block"`
@@ -46,25 +47,25 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 5 * time.Minute, // snapshot downloads can be large
+			Timeout: httpClientTimeoutMins * time.Minute,
 		},
 	}
 }
 
 // ListSnapshots queries the indexer for available snapshots with inline signature data.
-func (c *Client) ListSnapshots() ([]SnapshotInfo, error) {
+func (c *Client) ListSnapshots() ([]Info, error) {
 	resp, err := c.httpClient.Get(c.baseURL + "/snapshots")
 	if err != nil {
 		return nil, fmt.Errorf("list snapshots: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list snapshots: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("list snapshots status %d: %w", resp.StatusCode, ErrListSnapshotsStatus)
 	}
 
 	var result struct {
-		Snapshots []SnapshotInfo `json:"snapshots"`
+		Snapshots []Info `json:"snapshots"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode snapshots list: %w", err)
@@ -79,20 +80,20 @@ func (c *Client) DownloadSnapshot(filename, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("download snapshot: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download snapshot: status %d", resp.StatusCode)
+		return fmt.Errorf("download snapshot status %d: %w", resp.StatusCode, ErrDownloadSnapshotStatus)
 	}
 
-	f, err := os.Create(destPath)
+	f, err := os.Create(filepath.Clean(destPath)) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
-		os.Remove(destPath)
+		_ = os.Remove(destPath)
 		return fmt.Errorf("write snapshot: %w", err)
 	}
 

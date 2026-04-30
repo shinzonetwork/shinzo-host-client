@@ -21,6 +21,9 @@ type RPCClient struct {
 	httpClient *http.Client
 }
 
+// defaultHTTPClientTimeout is the default timeout for HTTP client requests.
+const defaultHTTPClientTimeout = 30 * time.Second
+
 // NewRPCClient creates a new RPC client for querying Shinzo Hub.
 // defraNode is used to persist the last processed page number.
 func NewRPCClient(rpcURL string, defraNode *node.Node) *RPCClient {
@@ -28,59 +31,59 @@ func NewRPCClient(rpcURL string, defraNode *node.Node) *RPCClient {
 		rpcURL:    rpcURL,
 		defraNode: defraNode,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: defaultHTTPClientTimeout,
 		},
 	}
 }
 
-// queryResult wraps the GraphQL response for JSON unmarshaling
+// queryResult wraps the GraphQL response for JSON unmarshaling.
 type queryResult struct {
-	Config__LastProcessedPage []struct {
+	ConfigLastProcessedPage []struct {
 		Page     int `json:"page"`
 		PageSize int `json:"pageSize"`
-	} `json:"Config__LastProcessedPage"`
+	} `json:"ConfigLastProcessedPage"`
 }
 
 // getLastProcessedPage reads the last processed page from DefraDB.
 func (c *RPCClient) getLastProcessedPage(ctx context.Context) (int, int) {
 	if c.defraNode == nil {
-		return 0, 5
+		return 0, defaultPageSize
 	}
 
 	query := `query { Config__LastProcessedPage { page pageSize } }`
 	result := c.defraNode.DB.ExecRequest(ctx, query)
 	if result.GQL.Errors != nil {
 		logger.Sugar.Debugf("📡 getLastProcessedPage error: %v", result.GQL.Errors)
-		return 0, 5
+		return 0, defaultPageSize
 	}
 
 	// Marshal to JSON then unmarshal to struct
 	jsonBytes, err := json.Marshal(result.GQL.Data)
 	if err != nil {
 		logger.Sugar.Debugf("📡 getLastProcessedPage marshal error: %v", err)
-		return 0, 5
+		return 0, defaultPageSize
 	}
 
 	var qr queryResult
 	if err := json.Unmarshal(jsonBytes, &qr); err != nil {
 		logger.Sugar.Debugf("📡 getLastProcessedPage unmarshal error: %v", err)
-		return 0, 5
+		return 0, defaultPageSize
 	}
 
-	if len(qr.Config__LastProcessedPage) == 0 {
+	if len(qr.ConfigLastProcessedPage) == 0 {
 		logger.Sugar.Debugf("📡 getLastProcessedPage: no records")
-		return 0, 5
+		return 0, defaultPageSize
 	}
 
 	// Find max page
 	maxPage := 0
-	for _, rec := range qr.Config__LastProcessedPage {
+	for _, rec := range qr.ConfigLastProcessedPage {
 		if rec.Page > maxPage {
 			maxPage = rec.Page
 		}
 	}
 	maxPageSize := 0
-	for _, rec := range qr.Config__LastProcessedPage {
+	for _, rec := range qr.ConfigLastProcessedPage {
 		if rec.PageSize > maxPageSize {
 			maxPageSize = rec.PageSize
 		}
@@ -202,20 +205,31 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 
 // fetchRegisteredViewsPage fetches a single page of Registered events with retry logic.
 func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage int) ([]view.View, int, error) {
-	// Build the query URL
-	// Query: ViewRegistered.view_address EXISTS
 	query := url.QueryEscape(`ViewRegistered.view_address EXISTS`)
 	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"asc\"",
 		c.rpcURL, query, page, perPage)
 
-	var body []byte
+	body, err := c.fetchWithRetry(ctx, endpoint)
+	if err != nil {
+		return []view.View{}, 0, err
+	}
+
+	var txResp TxSearchResponse
+	if err := json.Unmarshal(body, &txResp); err != nil {
+		logger.Sugar.Warnf("📡 Failed to parse response: %v", err)
+		return []view.View{}, 0, nil
+	}
+
+	return parseViewsFromTxResponse(txResp)
+}
+
+func (c *RPCClient) fetchWithRetry(ctx context.Context, endpoint string) ([]byte, error) {
 	var lastErr error
 
-	// Retry up to 3 times for transient errors like EOF
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 
 		resp, err := c.httpClient.Do(req)
@@ -227,57 +241,51 @@ func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage 
 
 		if resp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return nil, 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("HTTP %d %s: %w", resp.StatusCode, string(respBody), ErrHTTPErrorResponse)
 		}
 
-		body, err = io.ReadAll(resp.Body)
-		resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = err
 			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
 			continue
 		}
 
-		// Success
-		lastErr = nil
-		break
+		return body, nil
 	}
 
-	if lastErr != nil {
-		// Return empty results instead of failing completely
-		return []view.View{}, 0, nil
-	}
+	return nil, lastErr
+}
 
-	var txResp TxSearchResponse
-	if err := json.Unmarshal(body, &txResp); err != nil {
-		logger.Sugar.Warnf("📡 Failed to parse response: %v", err)
-		return []view.View{}, 0, nil
-	}
-
-	// Extract views from events
+// parseViewsFromTxResponse is self explainatory.
+func parseViewsFromTxResponse(txResp TxSearchResponse) ([]view.View, int, error) {
 	var views []view.View
-	var skippedNoLenses int
-	var skippedMalformed int
+	var skippedNoLenses, skippedMalformed int
+
 	logger.Sugar.Debugf("📡 Processing %d transactions", len(txResp.Result.Txs))
 
 	for _, tx := range txResp.Result.Txs {
 		for _, event := range tx.TxResult.Events {
-			if event.Type == "ViewRegistered" {
-				v, err := extractViewFromEvent(event)
-				if err != nil {
-					skippedMalformed++
-					logger.Sugar.Debugf("📡 Skipping malformed event: %v", err)
-					continue
-				}
-				logger.Sugar.Debugf("📡 Found view with lenses: %s", v.Name)
-				views = append(views, v)
+			if event.Type != "ViewRegistered" {
+				continue
 			}
+			v, err := extractViewFromEvent(event)
+			if err != nil {
+				skippedMalformed++
+				logger.Sugar.Debugf("📡 Skipping malformed event: %v", err)
+				continue
+			}
+			logger.Sugar.Debugf("📡 Found view with lenses: %s", v.Name)
+			views = append(views, v)
 		}
 	}
 
 	var total int
-	fmt.Sscanf(txResp.Result.TotalCount, "%d", &total)
+	if _, err := fmt.Sscanf(txResp.Result.TotalCount, "%d", &total); err != nil {
+		return nil, 0, fmt.Errorf("failed to parse total count %q: %w", txResp.Result.TotalCount, err)
+	}
 
 	logger.Sugar.Debugf("📡 Page results: %d views with lenses, %d skipped (no lenses), %d malformed, total_count=%d",
 		len(views), skippedNoLenses, skippedMalformed, total)
@@ -290,14 +298,11 @@ func extractViewFromEvent(event Event) (view.View, error) {
 	var v view.View
 
 	for _, attr := range event.Attributes {
-		switch attr.Key {
-		case "data":
-			// Process view from wire format
+		if attr.Key == "data" {
 			newView, err := ProcessViewFromWireFormat(attr.Value)
 			if err != nil {
 				return v, fmt.Errorf("failed to process view from wire: %w", err)
 			}
-
 			v = newView
 		}
 	}
@@ -308,7 +313,7 @@ func extractViewFromEvent(event Event) (view.View, error) {
 	}
 
 	if v.Data.Query == "" {
-		return v, fmt.Errorf("view has no query")
+		return v, ErrViewHasNoQuery
 	}
 
 	return v, nil

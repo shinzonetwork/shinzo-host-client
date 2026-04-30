@@ -9,7 +9,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/rs/zerolog v1.34.0
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260324214239-d756a4069836
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260430194334-0d2dccd5c632
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.8

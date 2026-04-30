@@ -15,7 +15,7 @@ type IndexerManager interface {
 	RemoveIndexer(owner string) error
 }
 
-// Indexer represents a blockchain indexer
+// Indexer represents a blockchain indexer.
 type Indexer struct {
 	Owner            string
 	DID              string
@@ -25,19 +25,19 @@ type Indexer struct {
 	Active           bool
 }
 
-// RegistrationHandler manages indexer registration from IndexerRegistered events
+// RegistrationHandler manages indexer registration from IndexerRegistered events.
 type RegistrationHandler struct {
 	indexerManager IndexerManager
 }
 
-// NewRegistrationHandler creates a new registration handler
+// NewRegistrationHandler creates a new registration handler.
 func NewRegistrationHandler(indexerManager IndexerManager) *RegistrationHandler {
 	return &RegistrationHandler{
 		indexerManager: indexerManager,
 	}
 }
 
-// ProcessIndexerRegisteredEvent handles an IndexerRegistered event from ShinzoHub
+// ProcessIndexerRegisteredEvent handles an IndexerRegistered event from ShinzoHub.
 func (rh *RegistrationHandler) ProcessIndexerRegisteredEvent(ctx context.Context, event IndexerRegisteredEvent) error {
 	fmt.Printf("Processing IndexerRegistered event for indexer: %s\n", event.Owner)
 
@@ -58,20 +58,21 @@ func (rh *RegistrationHandler) ProcessIndexerRegisteredEvent(ctx context.Context
 	return nil
 }
 
-// MockIndexerManager is a mock implementation of IndexerManager for testing
+// MockIndexerManager is a mock implementation of IndexerManager for testing.
 type MockIndexerManager struct {
 	indexers map[string]Indexer
 }
 
-// NewMockIndexerManager creates a new mock indexer manager
+// NewMockIndexerManager creates a new mock indexer manager.
 func NewMockIndexerManager() *MockIndexerManager {
 	return &MockIndexerManager{
 		indexers: make(map[string]Indexer),
 	}
 }
 
-// AddIndexer adds a new indexer
-func (mim *MockIndexerManager) AddIndexer(ctx context.Context, owner string, did string, connectionString string, sourceChain string, sourceChainID string) error {
+// AddIndexer adds a new indexer.
+// replaced ctx with _ since it's not used in this mock implementation.
+func (mim *MockIndexerManager) AddIndexer(_ context.Context, owner string, did string, connectionString string, sourceChain string, sourceChainID string) error {
 	mim.indexers[owner] = Indexer{
 		Owner:            owner,
 		DID:              did,
@@ -83,24 +84,24 @@ func (mim *MockIndexerManager) AddIndexer(ctx context.Context, owner string, did
 	return nil
 }
 
-// GetIndexer retrieves an indexer by owner address
+// GetIndexer retrieves an indexer by owner address.
 func (mim *MockIndexerManager) GetIndexer(owner string) (Indexer, bool) {
 	indexer, exists := mim.indexers[owner]
 	return indexer, exists
 }
 
-// RemoveIndexer removes an indexer by owner address
+// RemoveIndexer removes an indexer by owner address.
 func (mim *MockIndexerManager) RemoveIndexer(owner string) error {
 	delete(mim.indexers, owner)
 	return nil
 }
 
-// GetIndexerCount returns the number of indexers
+// GetIndexerCount returns the number of indexers.
 func (mim *MockIndexerManager) GetIndexerCount() int {
 	return len(mim.indexers)
 }
 
-// ListIndexers returns all indexers
+// ListIndexers returns all indexers.
 func (mim *MockIndexerManager) ListIndexers() []Indexer {
 	indexers := make([]Indexer, 0, len(mim.indexers))
 	for _, indexer := range mim.indexers {

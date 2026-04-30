@@ -10,13 +10,13 @@ import (
 )
 
 // ViewProcessor orchestrates DefraDB setup for views (lens, migration, configuration)
-// For viewbundle operations (decode, validate), use the view package directly
+// For viewbundle operations (decode, validate), use the view package directly.
 type ViewProcessor struct {
 	defraNode     *node.Node
 	schemaService *view.SchemaService
 }
 
-// NewViewProcessor creates a new ViewProcessor for setting up views in DefraDB
+// NewViewProcessor creates a new ViewProcessor for setting up views in DefraDB.
 func NewViewProcessor(defraNode *node.Node) *ViewProcessor {
 	return &ViewProcessor{
 		defraNode:     defraNode,
@@ -24,7 +24,7 @@ func NewViewProcessor(defraNode *node.Node) *ViewProcessor {
 	}
 }
 
-// ProcessViewFromWireFormat decodes, unbundles, and validates a view from base64 wire format
+// ProcessViewFromWireFormat decodes, unbundles, and validates a view from base64 wire format.
 func ProcessViewFromWireFormat(wireBase64 string) (view.View, error) {
 	// Decode base64 wire format
 	wire, err := base64.StdEncoding.DecodeString(wireBase64)
@@ -46,7 +46,7 @@ func ProcessViewFromWireFormat(wireBase64 string) (view.View, error) {
 	return *newView, nil
 }
 
-// SetupViewInDefraDB sets up the view in DefraDB
+// SetupViewInDefraDB sets up the view in DefraDB.
 func (svp *ViewProcessor) SetupViewInDefraDB(ctx context.Context, newView *view.View) error {
 	// Set up lens and migration if needed
 	lensCID, err := view.SetupLensInDefraDB(ctx, svp.defraNode, newView)
@@ -55,7 +55,7 @@ func (svp *ViewProcessor) SetupViewInDefraDB(ctx context.Context, newView *view.
 	}
 
 	// Configure the view in DefraDB with the lens transform CID
-	err = newView.ConfigureLens(ctx, svp.defraNode, svp.schemaService, lensCID)
+	err = newView.ConfigureLens(ctx, svp.defraNode, lensCID)
 	if err != nil {
 		return fmt.Errorf("failed to configure view: %w", err)
 	}

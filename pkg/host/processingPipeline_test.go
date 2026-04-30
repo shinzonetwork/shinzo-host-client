@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -94,22 +93,22 @@ func TestIsTransactionConflict(t *testing.T) {
 		},
 		{
 			name: "transaction conflict",
-			err:  errors.New("transaction conflict: cannot write"),
+			err:  errTransactionConflict,
 			want: true,
 		},
 		{
 			name: "please retry",
-			err:  errors.New("operation failed: Please retry"),
+			err:  errOperationFailedRetry,
 			want: true,
 		},
 		{
 			name: "unrelated error",
-			err:  errors.New("connection refused"),
+			err:  errConnectionRefused,
 			want: false,
 		},
 		{
 			name: "empty error message",
-			err:  errors.New(""),
+			err:  errEmptyMessage,
 			want: false,
 		},
 	}
@@ -126,7 +125,7 @@ func TestIsTransactionConflict(t *testing.T) {
 // Start / Stop lifecycle
 // ---------------------------------------------------------------------------
 
-func TestProcessingPipeline_StartStop(t *testing.T) {
+func TestProcessingPipeline_StartStop(_ *testing.T) {
 	pp := NewProcessingPipeline(context.Background(), &Host{}, 10, 2, 10, 50, false)
 
 	// Start should not panic
@@ -136,12 +135,12 @@ func TestProcessingPipeline_StartStop(t *testing.T) {
 	pp.Stop()
 }
 
-func TestProcessingPipeline_StopWithPendingJobs(t *testing.T) {
+func TestProcessingPipeline_StopWithPendingJobs(_ *testing.T) {
 	pp := NewProcessingPipeline(context.Background(), &Host{}, 100, 1, 10, 50, true)
 	pp.Start()
 
 	// Enqueue some jobs before stopping
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		pp.jobQueue <- DocumentJob{
 			docID:       "doc-" + string(rune('a'+i)),
 			docType:     "Block",
@@ -176,7 +175,7 @@ func TestDocumentJob_Fields(t *testing.T) {
 // processBatch
 // ---------------------------------------------------------------------------
 
-func TestProcessBatch_EmptyJobs(t *testing.T) {
+func TestProcessBatch_EmptyJobs(_ *testing.T) {
 	pp := NewProcessingPipeline(context.Background(), &Host{}, 10, 1, 10, 50, false)
 	defer pp.cancel()
 
@@ -184,7 +183,7 @@ func TestProcessBatch_EmptyJobs(t *testing.T) {
 	pp.processBatch(0, []DocumentJob{})
 }
 
-func TestProcessBatch_NilJobs(t *testing.T) {
+func TestProcessBatch_NilJobs(_ *testing.T) {
 	pp := NewProcessingPipeline(context.Background(), &Host{}, 10, 1, 10, 50, false)
 	defer pp.cancel()
 
@@ -400,7 +399,7 @@ func TestBatchWriter_QueueClosed(t *testing.T) {
 // Stop with pending attestations
 // ---------------------------------------------------------------------------
 
-func TestProcessingPipeline_StopWithPendingAttestations(t *testing.T) {
+func TestProcessingPipeline_StopWithPendingAttestations(_ *testing.T) {
 	host := &Host{
 		metrics: server.NewHostMetrics(),
 		config:  DefaultConfig,
@@ -795,7 +794,7 @@ func TestProcessBatch_WithBlockSignatures_MostRecentBlock(t *testing.T) {
 // Full end-to-end pipeline - context cancellation during processing
 // ---------------------------------------------------------------------------
 
-func TestProcessingPipeline_ContextCancellation(t *testing.T) {
+func TestProcessingPipeline_ContextCancellation(_ *testing.T) {
 	metrics := server.NewHostMetrics()
 	host := &Host{
 		metrics: metrics,

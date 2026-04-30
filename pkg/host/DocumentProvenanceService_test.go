@@ -31,7 +31,7 @@ func TestInitializeMetadata(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-123",
 				Type: "Transaction",
-				Data: map[string]interface{}{"from": "0xabc"},
+				Data: map[string]any{"from": "0xabc"},
 				Metadata: DocumentMetadata{
 					ProcessingDepth: 0,
 				},
@@ -50,7 +50,7 @@ func TestInitializeMetadata(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-456",
 				Type: "Block",
-				Data: map[string]interface{}{"hash": "0xdef"},
+				Data: map[string]any{"hash": "0xdef"},
 				Metadata: DocumentMetadata{
 					SourceCollection: "Transaction",
 					IsViewOutput:     true,
@@ -101,7 +101,7 @@ func TestConvertToPrimitiveDocument(t *testing.T) {
 				ID:          "bae-abc",
 				Type:        "Transaction",
 				BlockNumber: 100,
-				Data:        map[string]interface{}{"from": "0x1", "to": "0x2"},
+				Data:        map[string]any{"from": "0x1", "to": "0x2"},
 				Metadata:    DocumentMetadata{},
 			},
 		},
@@ -145,7 +145,7 @@ func TestShouldProcessDocument(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-1",
 				Type: "Transaction",
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth: 0,
 				},
@@ -162,10 +162,10 @@ func TestShouldProcessDocument(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-2",
 				Type: "Transaction",
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
-					ProcessingDepth: 5,
-					ProcessingChain: "v1,v2,v3,v4,v5",
+					ProcessingDepth:  5,
+					ProcessingChain:  "v1,v2,v3,v4,v5",
 					SourceCollection: "Transaction",
 					DocumentType:     "Transaction",
 					OriginalDocID:    "bae-2",
@@ -183,7 +183,7 @@ func TestShouldProcessDocument(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-3",
 				Type: "Transaction",
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  1,
 					ViewID:           "view-A",
@@ -206,7 +206,7 @@ func TestShouldProcessDocument(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-4",
 				Type: "Transaction",
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  2,
 					ViewID:           "view-B",
@@ -229,7 +229,7 @@ func TestShouldProcessDocument(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-5",
 				Type: "Transaction",
-				Data: map[string]interface{}{},
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  1,
 					ViewID:           "view-A",
@@ -264,7 +264,7 @@ func TestCreateViewOutputDocument(t *testing.T) {
 		name       string
 		sourceDoc  PrimitiveDocument
 		viewID     string
-		outputData map[string]interface{}
+		outputData map[string]any
 		expected   PrimitiveDocument
 	}{
 		{
@@ -273,7 +273,7 @@ func TestCreateViewOutputDocument(t *testing.T) {
 				ID:          "bae-src1",
 				Type:        "Transaction",
 				BlockNumber: 42,
-				Data:        map[string]interface{}{"from": "0x1"},
+				Data:        map[string]any{"from": "0x1"},
 				Metadata: DocumentMetadata{
 					SourceCollection: "Transaction",
 					ProcessingDepth:  0,
@@ -283,12 +283,12 @@ func TestCreateViewOutputDocument(t *testing.T) {
 				},
 			},
 			viewID:     "WASMView_myview",
-			outputData: map[string]interface{}{"result": "processed"},
+			outputData: map[string]any{"result": "processed"},
 			expected: PrimitiveDocument{
 				ID:          "src1-myview",
 				Type:        "Transaction",
 				BlockNumber: 42,
-				Data:        map[string]interface{}{"result": "processed"},
+				Data:        map[string]any{"result": "processed"},
 				Metadata: DocumentMetadata{
 					SourceCollection: "Transaction",
 					IsViewOutput:     true,
@@ -306,7 +306,7 @@ func TestCreateViewOutputDocument(t *testing.T) {
 				ID:          "bae-src2",
 				Type:        "Log",
 				BlockNumber: 99,
-				Data:        map[string]interface{}{"address": "0xabc"},
+				Data:        map[string]any{"address": "0xabc"},
 				Metadata: DocumentMetadata{
 					SourceCollection: "Log",
 					IsViewOutput:     true,
@@ -318,12 +318,12 @@ func TestCreateViewOutputDocument(t *testing.T) {
 				},
 			},
 			viewID:     "view-B",
-			outputData: map[string]interface{}{"enriched": true},
+			outputData: map[string]any{"enriched": true},
 			expected: PrimitiveDocument{
 				ID:          "src2-view-B",
 				Type:        "Log",
 				BlockNumber: 99,
-				Data:        map[string]interface{}{"enriched": true},
+				Data:        map[string]any{"enriched": true},
 				Metadata: DocumentMetadata{
 					SourceCollection: "Log",
 					IsViewOutput:     true,
@@ -350,38 +350,38 @@ func TestPreserveFilterFields(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		sourceData     map[string]interface{}
-		outputData     map[string]interface{}
+		sourceData     map[string]any
+		outputData     map[string]any
 		requiredFields []string
-		expected       map[string]interface{}
+		expected       map[string]any
 	}{
 		{
 			name:           "preserves missing required fields from source",
-			sourceData:     map[string]interface{}{"from": "0x1", "to": "0x2", "hash": "0xabc"},
-			outputData:     map[string]interface{}{"result": "done"},
+			sourceData:     map[string]any{"from": "0x1", "to": "0x2", "hash": "0xabc"},
+			outputData:     map[string]any{"result": "done"},
 			requiredFields: []string{"from", "to"},
-			expected:       map[string]interface{}{"result": "done", "from": "0x1", "to": "0x2"},
+			expected:       map[string]any{"result": "done", "from": "0x1", "to": "0x2"},
 		},
 		{
 			name:           "does not overwrite existing output fields",
-			sourceData:     map[string]interface{}{"from": "0x1", "to": "0x2"},
-			outputData:     map[string]interface{}{"from": "0xoverride", "result": "done"},
+			sourceData:     map[string]any{"from": "0x1", "to": "0x2"},
+			outputData:     map[string]any{"from": "0xoverride", "result": "done"},
 			requiredFields: []string{"from", "to"},
-			expected:       map[string]interface{}{"from": "0xoverride", "result": "done", "to": "0x2"},
+			expected:       map[string]any{"from": "0xoverride", "result": "done", "to": "0x2"},
 		},
 		{
 			name:           "handles field missing from both source and output",
-			sourceData:     map[string]interface{}{"from": "0x1"},
-			outputData:     map[string]interface{}{"result": "done"},
+			sourceData:     map[string]any{"from": "0x1"},
+			outputData:     map[string]any{"result": "done"},
 			requiredFields: []string{"from", "to", "hash"},
-			expected:       map[string]interface{}{"result": "done", "from": "0x1"},
+			expected:       map[string]any{"result": "done", "from": "0x1"},
 		},
 		{
 			name:           "empty required fields returns copy of output",
-			sourceData:     map[string]interface{}{"from": "0x1"},
-			outputData:     map[string]interface{}{"result": "done"},
+			sourceData:     map[string]any{"from": "0x1"},
+			outputData:     map[string]any{"result": "done"},
 			requiredFields: []string{},
-			expected:       map[string]interface{}{"result": "done"},
+			expected:       map[string]any{"result": "done"},
 		},
 	}
 
@@ -469,7 +469,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-1",
 				Type: "Transaction",
-				Data: map[string]interface{}{"from": "0xabc", "to": "0xdef"},
+				Data: map[string]any{"from": "0xabc", "to": "0xdef"},
 			},
 			viewID:      "view-1",
 			expectError: false,
@@ -479,7 +479,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-2",
 				Type: "Block",
-				Data: map[string]interface{}{"number": int(42)},
+				Data: map[string]any{"number": int(42)},
 			},
 			viewID:      "view-2",
 			expectError: false,
@@ -489,7 +489,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-3",
 				Type: "Block",
-				Data: map[string]interface{}{"number": uint64(100)},
+				Data: map[string]any{"number": uint64(100)},
 			},
 			viewID:      "view-3",
 			expectError: false,
@@ -499,7 +499,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-4",
 				Type: "Transaction",
-				Data: map[string]interface{}{"unrelated": "value"},
+				Data: map[string]any{"unrelated": "value"},
 			},
 			viewID:      "view-4",
 			expectError: true,
@@ -509,7 +509,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-5",
 				Type: "Transaction",
-				Data: map[string]interface{}{"from": "", "to": ""},
+				Data: map[string]any{"from": "", "to": ""},
 			},
 			viewID:      "view-5",
 			expectError: true,
@@ -519,7 +519,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-6",
 				Type: "Transaction",
-				Data: map[string]interface{}{"from": nil},
+				Data: map[string]any{"from": nil},
 			},
 			viewID:      "view-6",
 			expectError: true,
@@ -529,7 +529,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-7",
 				Type: "UnknownType",
-				Data: map[string]interface{}{"address": "0x123"},
+				Data: map[string]any{"address": "0x123"},
 			},
 			viewID:      "view-7",
 			expectError: false,
@@ -539,7 +539,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-8",
 				Type: "UnknownType",
-				Data: map[string]interface{}{"unrelated": "value"},
+				Data: map[string]any{"unrelated": "value"},
 			},
 			viewID:      "view-8",
 			expectError: true,
@@ -608,7 +608,7 @@ func TestGetProcessingStats(t *testing.T) {
 	tests := []struct {
 		name     string
 		doc      PrimitiveDocument
-		expected map[string]interface{}
+		expected map[string]any
 	}{
 		{
 			name: "zero depth source document",
@@ -624,7 +624,7 @@ func TestGetProcessingStats(t *testing.T) {
 					OriginalDocID:    "bae-1",
 				},
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"processing_depth":  0,
 				"is_view_output":    false,
 				"source_collection": "Transaction",
@@ -648,7 +648,7 @@ func TestGetProcessingStats(t *testing.T) {
 					OriginalDocID:    "bae-orig",
 				},
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"processing_depth":  3,
 				"is_view_output":    true,
 				"source_collection": "Transaction",

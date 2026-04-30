@@ -1196,7 +1196,7 @@ func TestGroupMatches_LogMultipleTopicFilters(t *testing.T) {
 	group := config.FilterGroup{
 		Enabled: true,
 		Topics: []config.TopicFilter{
-			{Topic0: "0xApproval"},  // Won't match
+			{Topic0: "0xApproval"}, // Won't match
 			{Topic0: "0xTransfer"}, // Will match
 		},
 	}

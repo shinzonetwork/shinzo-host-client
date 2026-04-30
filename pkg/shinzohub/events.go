@@ -22,25 +22,29 @@ func log() *zap.SugaredLogger {
 }
 
 type RPCResponse struct {
-	JsonRpcVersion string    `json:"jsonrpc"`
+	JSONRPCVersion string    `json:"jsonrpc"`
 	ID             int       `json:"id"`
 	Result         RPCResult `json:"result"`
 }
 
+// RPCResult represents the structure of a Tendermint event received from the WebSocket.
 type RPCResult struct {
 	Query string  `json:"query"`
 	Data  RPCData `json:"data"`
 }
 
+// RPCData represents the data structure of a Tendermint event received from the WebSocket.
 type RPCData struct {
 	Type  string   `json:"type"`
 	Value TxResult `json:"value"`
 }
 
+// TxResult represents the structure of a transaction result received from Tendermint.
 type TxResult struct {
 	TxResult TxResultData `json:"TxResult"`
 }
 
+// TxResultData represents the data structure of a transaction result in Tendermint.
 type TxResultData struct {
 	Height string         `json:"height"`
 	Tx     string         `json:"tx"`
@@ -48,6 +52,7 @@ type TxResultData struct {
 	Events []Event        `json:"events"`
 }
 
+// TxResultResult represents the result of a transaction execution in Tendermint.
 type TxResultResult struct {
 	Data      string  `json:"data"`
 	Events    []Event `json:"events"`
@@ -55,17 +60,20 @@ type TxResultResult struct {
 	GasWanted string  `json:"gas_wanted"`
 }
 
+// Event represents a Tendermint event with a type and attributes.
 type Event struct {
 	Type       string           `json:"type"`
 	Attributes []EventAttribute `json:"attributes"`
 }
 
+// EventAttribute represents a key-value pair attribute of a Tendermint event, with an index flag.
 type EventAttribute struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 	Index bool   `json:"index"`
 }
 
+// ShinzoEvent is an interface that all Shinzo events implement, allowing them to be processed uniformly.
 type ShinzoEvent interface {
 	ToString() string
 }
@@ -274,13 +282,13 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 	return pingCancel
 }
 
-// extractShinzoEvents extracts ViewRegistered, HostRegistered, and IndexerRegistered events from an RPC message.
+// extractShinzoEvents extracts typed events from an RPC response.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 	if msg.JsonRpcVersion != "2.0" ||
 		msg.Result.Data.Type != "tendermint/event/Tx" ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {
-		return events
+		return nil
 	}
 
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
