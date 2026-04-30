@@ -145,7 +145,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	defraNode, networkHandler, err := defra.StartDefraInstance(
 		cfg.ToAppConfig(),
-		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()),
+		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
 		nil,
 		replicationFilter,
 		constants.AllCollections...,
@@ -831,7 +831,7 @@ func isPlaygroundEnabled() bool {
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, localschema.GetSchemaForBuild())
+	_, err := defraNode.DB.AddSchema(ctx, localschema.GetSchema())
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
