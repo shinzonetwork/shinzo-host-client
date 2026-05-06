@@ -86,7 +86,7 @@ func (c *Client) DownloadSnapshot(filename, destPath string) error {
 		return fmt.Errorf("download snapshot status %d: %w", resp.StatusCode, ErrDownloadSnapshotStatus)
 	}
 
-	f, err := os.Create(filepath.Clean(destPath)) //nolint:gosec
+	f, err := os.Create(filepath.Clean(destPath))
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
