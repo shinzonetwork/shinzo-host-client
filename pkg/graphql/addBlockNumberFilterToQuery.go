@@ -32,6 +32,7 @@ func getCollectionFilterConfig(collectionName string, start, end uint64) collect
 		}
 	}
 }
+
 func spliceIntoExistingFilter(trimmed string, cfg collectionFilterConfig) (string, error) {
 	filterStart := strings.Index(trimmed, "(")
 	parenCount, filterEnd := 0, 0

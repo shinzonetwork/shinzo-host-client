@@ -202,7 +202,7 @@ func lookupExistingAttestation(ctx context.Context, defraNode *node.Node, col cl
 
 	docIDStr := extractDocIDFromResult(result.GQL.Data, constants.CollectionAttestationRecord)
 	if docIDStr == "" {
-		return nil, nil // was &client.Document{} — this caused the bug
+		return nil, ErrDocumentNotFound
 	}
 
 	docID, err := client.NewDocIDFromString(docIDStr)

@@ -61,8 +61,7 @@ func (qs *QueryService) extractFields(model any) []string {
 	}
 
 	var fields []string
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		jsonTag := field.Tag.Get("json")
 		if jsonTag != "" && jsonTag != "-" {
 			// Handle nested structs by including their fields too
@@ -92,8 +91,7 @@ func (qs *QueryService) extractNestedFields(t reflect.Type) []string {
 	}
 
 	var fields []string
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		jsonTag := field.Tag.Get("json")
 		if jsonTag != "" && jsonTag != "-" {
 			fields = append(fields, jsonTag)

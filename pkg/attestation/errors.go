@@ -11,4 +11,5 @@ var ( //nolint:revive
 	ErrInvalidSignatureType     = errors.New("invalid signature type")                                         //nolint:revive
 	ErrDefraDBUnavailable       = errors.New("defradb node or DB is not available for signature verification") //nolint:revive
 	ErrDifferentAttestedDocIDs  = errors.New("cannot merge records with different attested document IDs")      //nolint:revive
+	ErrDocumentNotFound         = errors.New("document not found")                                             //nolint:revive
 )
