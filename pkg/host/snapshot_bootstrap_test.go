@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	hostConfig "github.com/shinzonetwork/shinzo-host-client/config"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/snapshot"
@@ -230,7 +230,7 @@ func TestBootstrapFromSnapshots_NoSnapshotsAvailable(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -254,7 +254,7 @@ func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -286,7 +286,7 @@ func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -318,7 +318,7 @@ func TestBootstrapFromSnapshots_NilSignature(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -362,7 +362,7 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -385,7 +385,7 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 func TestGetExistingBlockRange_EmptyDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -401,7 +401,7 @@ func TestGetExistingBlockRange_EmptyDB(t *testing.T) {
 func TestCreateSnapshotAttestation_NoBlockSigMerkleRoots(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -419,7 +419,7 @@ func TestCreateSnapshotAttestation_NoBlockSigMerkleRoots(t *testing.T) {
 func TestCreateSnapshotAttestation_WithMerkleRoots(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -455,7 +455,7 @@ func TestCreateSnapshotAttestation_RecordFormat(t *testing.T) {
 func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -482,7 +482,7 @@ func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -511,7 +511,7 @@ func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 func TestCreateSnapshotAttestation_SuccessVerifyRecord(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -577,7 +577,7 @@ func TestFindCoveringSnapshots_MixedSignedAndExisting(t *testing.T) {
 func TestCreateSnapshotAttestation_NilBlockSigMerkleRoots(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -625,7 +625,7 @@ func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
 	defer svr.Close()
 
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 

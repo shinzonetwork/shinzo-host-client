@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
@@ -145,7 +145,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestHost_IsHealthy(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -169,7 +169,7 @@ func TestHost_IsHealthy_NoDefraNode(t *testing.T) {
 func TestHost_IsHealthy_NoPipeline(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -223,7 +223,7 @@ func TestHost_GetLastProcessedTime_NoMetrics(t *testing.T) {
 func TestHost_GetActiveViewNames(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -255,7 +255,7 @@ func TestHost_GetPeerInfo(t *testing.T) {
 func TestHost_Close(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	cleanupCalled := false
@@ -292,7 +292,7 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a real DefraDB instance with the indexer schema
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -333,7 +333,7 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 func TestHost_ViewManagerIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -388,7 +388,7 @@ func TestView_HasLenses_Integration(t *testing.T) {
 
 func TestHost_GetPeerInfo_NetworkHandlerNonNilDefraNodeNil(t *testing.T) {
 	host := &Host{
-		NetworkHandler: &defra.NetworkHandler{},
+		NetworkHandler: &defradb.NetworkHandler{},
 		DefraNode:      nil,
 	}
 
@@ -568,7 +568,7 @@ func TestHost_ProcessViewRegistrationEvent_NilViewManager_ReturnsError(t *testin
 func TestHost_ProcessViewRegistrationEvent_MissingQuery(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -589,7 +589,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingQuery(t *testing.T) {
 func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -615,7 +615,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -641,7 +641,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 func TestHost_ProcessViewRegistrationEvent_EmptySDL(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1014,11 +1014,11 @@ func TestHost_GetPeerPublicKey_NilDefraNode(t *testing.T) {
 func TestHost_GetPeerInfo_WithDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
-	nh := &defra.NetworkHandler{}
+	nh := &defradb.NetworkHandler{}
 	h := &Host{
 		DefraNode:      defraNode,
 		NetworkHandler: nh,
@@ -1037,7 +1037,7 @@ func TestHost_GetPeerInfo_WithDefraDB(t *testing.T) {
 func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1079,7 +1079,7 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1119,7 +1119,7 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1150,7 +1150,7 @@ func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 func TestHost_Close_WithViewManager(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	vm := view.NewViewManager(defraNode, t.TempDir())
@@ -1208,11 +1208,11 @@ func TestHost_GetPeerInfo_WithP2PEnabled(t *testing.T) {
 	ctx := context.Background()
 
 	// Start a DefraDB instance that includes P2P
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
-	nh := &defra.NetworkHandler{}
+	nh := &defradb.NetworkHandler{}
 	h := &Host{
 		DefraNode:      defraNode,
 		NetworkHandler: nh,
@@ -1234,7 +1234,7 @@ func TestHost_GetPeerInfo_WithP2PEnabled(t *testing.T) {
 func TestHost_SignMessages_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1262,7 +1262,7 @@ func TestHost_SignMessages_WithRealDefraDB(t *testing.T) {
 func TestHost_GetNodePublicKey_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1283,7 +1283,7 @@ func TestHost_GetNodePublicKey_WithRealDefraDB(t *testing.T) {
 func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(indexerschema.GetSchema()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1307,7 +1307,7 @@ func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 
 func TestHandleIncomingEvents_HostRegisteredEvent_WithoutNetworkHandler(t *testing.T) {
 	// NetworkHandler is nil — exercises the entity event parsing and nil-check branch
-	// (cannot use bare &defra.NetworkHandler{} because AddPeer panics on uninitialized maps)
+	// (cannot use bare &defradb.NetworkHandler{} because AddPeer panics on uninitialized maps)
 	h := &Host{}
 	ch := make(chan shinzohub.ShinzoEvent, 1)
 
@@ -1377,7 +1377,7 @@ func TestHandleIncomingEvents_UnknownEventType(t *testing.T) {
 func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1434,7 +1434,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1488,7 +1488,7 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
 	// Start with mock schema applier (no schema applied yet)
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1508,7 +1508,7 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1595,7 +1595,7 @@ func TestStartHosting_NilConfig(t *testing.T) {
 func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1656,7 +1656,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -1706,7 +1706,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 func TestHost_Close_Full(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
 	require.NoError(t, err)
 
 	metrics := server.NewHostMetrics()

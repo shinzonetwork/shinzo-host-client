@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/stretchr/testify/require"
 )
@@ -184,7 +184,7 @@ func TestPostAttestationRecord(t *testing.T) {
 	`
 
 	// Create and start client using new API with test config
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
 	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
@@ -192,7 +192,7 @@ func TestPostAttestationRecord(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		}
 	`
 
-	testDocResult, err := defra.PostMutation[TestDoc](t.Context(), defraNode, createTestDocMutation)
+	testDocResult, err := defradb.PostMutation[TestDoc](t.Context(), defraNode, createTestDocMutation)
 	require.NoError(t, err)
 	require.NotNil(t, testDocResult)
 	require.Greater(t, len(testDocResult.DocId), 0)
@@ -261,7 +261,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -419,7 +419,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	`
 
 	// Create and start client using new API with test config
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
 	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
@@ -427,7 +427,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -480,11 +480,11 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 		}
 	`
 
-	doc1Result, err := defra.PostMutation[TestDoc](t.Context(), defraNode, createDoc1Mutation)
+	doc1Result, err := defradb.PostMutation[TestDoc](t.Context(), defraNode, createDoc1Mutation)
 	require.NoError(t, err)
 	require.NotNil(t, doc1Result)
 
-	doc2Result, err := defra.PostMutation[TestDoc](t.Context(), defraNode, createDoc2Mutation)
+	doc2Result, err := defradb.PostMutation[TestDoc](t.Context(), defraNode, createDoc2Mutation)
 	require.NoError(t, err)
 	require.NotNil(t, doc2Result)
 
@@ -525,7 +525,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
@@ -614,7 +614,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	`
 
 	// Create and start client using new API with test config
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
 	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
@@ -622,7 +622,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -654,7 +654,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "doc-123", results[0].AttestedDocId)
@@ -679,7 +679,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	`
 
 	// Create and start client using new API with test config
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()                          // Use temp directory for test data
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing" // Set test keyring secret
 	testConfig.DefraDB.Url = "localhost:0"                               // Use random available port for API
@@ -687,7 +687,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	testConfig.DefraDB.P2P.Enabled = false                               // Disable P2P networking for testing
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}                   // No bootstrap peers
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -721,7 +721,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](t.Context(), defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(results), 1)
 }
@@ -761,7 +761,7 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, defra.NewSchemaApplierFromProvidedSchema(schema))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(schema))
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -811,7 +811,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -819,7 +819,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -854,7 +854,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.ElementsMatch(t, []string{"cid-1", "cid-2"}, results[0].CIDs)
@@ -873,7 +873,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 
 	// Step 3: Verify that the batch was posted (SaveMany creates a new record;
 	// CID merging only happens via the upsert_ mutation in PostAttestationRecord)
-	results, err = defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err = defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 }
@@ -891,7 +891,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -899,7 +899,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -932,7 +932,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "new-attested-doc", results[0].AttestedDocId)
@@ -953,7 +953,7 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -961,7 +961,7 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1003,7 +1003,7 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
@@ -1032,7 +1032,7 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1040,7 +1040,7 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1079,7 +1079,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1087,7 +1087,7 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1387,7 +1387,7 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1395,7 +1395,7 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1422,7 +1422,7 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Empty(t, results)
 }
@@ -1445,7 +1445,7 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1453,7 +1453,7 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1484,7 +1484,7 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "doc-handle-1", results[0].AttestedDocId)
@@ -1566,7 +1566,7 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1574,7 +1574,7 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1615,7 +1615,7 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
@@ -1648,7 +1648,7 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1656,7 +1656,7 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1694,7 +1694,7 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "batch-mixed-1", results[0].AttestedDocId)
@@ -1717,7 +1717,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1725,7 +1725,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1755,7 +1755,7 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1763,7 +1763,7 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1808,7 +1808,7 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1816,7 +1816,7 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1861,7 +1861,7 @@ func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1869,7 +1869,7 @@ func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1899,7 +1899,7 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1907,7 +1907,7 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -1948,7 +1948,7 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -1956,7 +1956,7 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2001,7 +2001,7 @@ func TestGetBlockAttestations_NoRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2009,7 +2009,7 @@ func TestGetBlockAttestations_NoRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2038,7 +2038,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2046,7 +2046,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2121,7 +2121,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 		}
 	`, collectionName)
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2129,7 +2129,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2148,7 +2148,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 			}
 		}
 	`, collectionName)
-	_, err = defra.PostMutation[map[string]any](ctx, defraNode, createMutation)
+	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation)
 	require.NoError(t, err)
 
 	createMutation2 := fmt.Sprintf(`
@@ -2158,7 +2158,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 			}
 		}
 	`, collectionName)
-	_, err = defra.PostMutation[map[string]any](ctx, defraNode, createMutation2)
+	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation2)
 	require.NoError(t, err)
 
 	createMutation3 := fmt.Sprintf(`
@@ -2168,7 +2168,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 			}
 		}
 	`, collectionName)
-	_, err = defra.PostMutation[map[string]any](ctx, defraNode, createMutation3)
+	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation3)
 	require.NoError(t, err)
 
 	// Query with specific doc IDs
@@ -2198,7 +2198,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 		}
 	`, collectionName)
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2206,7 +2206,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2225,7 +2225,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 			}
 		}
 	`, collectionName)
-	_, err = defra.PostMutation[map[string]any](ctx, defraNode, createMutation)
+	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation)
 	require.NoError(t, err)
 
 	createMutation2 := fmt.Sprintf(`
@@ -2235,7 +2235,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 			}
 		}
 	`, collectionName)
-	_, err = defra.PostMutation[map[string]any](ctx, defraNode, createMutation2)
+	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation2)
 	require.NoError(t, err)
 
 	// Query all records (no specific doc IDs)
@@ -2258,7 +2258,7 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 		}
 	`, collectionName)
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2266,7 +2266,7 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2285,7 +2285,7 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 			}
 		}
 	`, collectionName)
-	_, err = defra.PostMutation[map[string]any](ctx, defraNode, createMutation)
+	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation)
 	require.NoError(t, err)
 
 	// Empty doc IDs list (not nil) - takes the else branch in the function
@@ -2308,7 +2308,7 @@ func TestGetAttestationRecordsByViewName_NoRecords(t *testing.T) {
 		}
 	`, collectionName)
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2316,7 +2316,7 @@ func TestGetAttestationRecordsByViewName_NoRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2350,7 +2350,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2358,7 +2358,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2394,7 +2394,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2402,7 +2402,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2434,7 +2434,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3"}, results[0].CIDs)
@@ -2511,7 +2511,7 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a defra node without the attestation schema applied
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2519,7 +2519,7 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2549,7 +2549,7 @@ func TestPostAttestationRecordsBatch_MissingSchema_ReturnsError(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a defra node without the attestation schema
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2557,7 +2557,7 @@ func TestPostAttestationRecordsBatch_MissingSchema_ReturnsError(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2597,7 +2597,7 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2605,7 +2605,7 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2641,7 +2641,7 @@ func TestHandleDocumentAttestation_PostAttestationRecordError(t *testing.T) {
 	}
 
 	// Create a defra node without the attestation schema so PostAttestationRecord fails
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2649,7 +2649,7 @@ func TestHandleDocumentAttestation_PostAttestationRecordError(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2696,7 +2696,7 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2704,7 +2704,7 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2748,7 +2748,7 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "doc-valid", results[0].AttestedDocId)
@@ -2771,7 +2771,7 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2779,7 +2779,7 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2826,7 +2826,7 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2834,7 +2834,7 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2885,7 +2885,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2893,7 +2893,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2938,7 +2938,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 // ========================================
 // These tests call CheckExistingAttestation, IsDocumentAttestedViaBlock, and
 // GetBlockAttestations against a DefraDB instance that has NO attestation
-// schema applied. When the collection doesn't exist, defra.QueryArray returns
+// schema applied. When the collection doesn't exist, defradb.QueryArray returns
 // an error whose message contains "No attestation records found" (or similar),
 // and the functions under test should treat this as a non-error (return nil/false).
 
@@ -2946,7 +2946,7 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a defra node WITHOUT applying the attestation schema
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2954,7 +2954,7 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -2983,7 +2983,7 @@ func TestIsDocumentAttestedViaBlock_MissingSchema_ReturnsFalseNil(t *testing.T) 
 	ctx := context.Background()
 
 	// Create a defra node WITHOUT applying the attestation schema
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -2991,7 +2991,7 @@ func TestIsDocumentAttestedViaBlock_MissingSchema_ReturnsFalseNil(t *testing.T) 
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -3013,7 +3013,7 @@ func TestGetBlockAttestations_MissingSchema_ReturnsNilNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a defra node WITHOUT applying the attestation schema
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -3021,7 +3021,7 @@ func TestGetBlockAttestations_MissingSchema_ReturnsNilNil(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -3222,7 +3222,7 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -3230,7 +3230,7 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -3259,7 +3259,7 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 		}
 	`, constants.CollectionAttestationRecord)
 
-	results, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	results, err := defradb.QueryArray[AttestationRecord](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "nil-test-doc", results[0].AttestedDocId)
@@ -3378,7 +3378,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -3386,7 +3386,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -3418,7 +3418,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 		}
 	`
 
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -3426,7 +3426,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -3520,7 +3520,7 @@ func TestGetAttestationRecordsByViewName_MissingViewSchema(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a defra node without any view-specific attestation schema
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
 	testConfig.DefraDB.Url = "localhost:0"
@@ -3528,7 +3528,7 @@ func TestGetAttestationRecordsByViewName_MissingViewSchema(t *testing.T) {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
