@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/sourcenetwork/defradb/node"
@@ -14,7 +14,7 @@ import (
 func TestNewViewManager(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -31,7 +31,7 @@ func TestNewViewManager(t *testing.T) {
 func TestViewManager_GetActiveViewNames_Empty(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -44,7 +44,7 @@ func TestViewManager_GetActiveViewNames_Empty(t *testing.T) {
 func TestViewManager_GetViewCount_Empty(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -57,7 +57,7 @@ func TestViewManager_GetViewCount_Empty(t *testing.T) {
 func TestViewManager_LoadAndRegisterViews_NoViews(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -184,7 +184,7 @@ func TestView_BuildLensConfig(t *testing.T) {
 func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -251,7 +251,7 @@ func MockViewManager(defraNode *node.Node, registryPath string) *ViewManager {
 func TestViewManager_SetMetricsCallback(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -280,7 +280,7 @@ func TestViewManager_SetMetricsCallback(t *testing.T) {
 func TestViewManager_QueueView(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -311,7 +311,7 @@ func TestViewManager_QueueView(t *testing.T) {
 func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -355,7 +355,7 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -390,7 +390,7 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 func TestViewManager_RegisterView_ValidationFailure(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -414,7 +414,7 @@ func TestViewManager_RegisterView_ValidationFailure(t *testing.T) {
 func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -482,7 +482,7 @@ func TestSuggestCorrectCollection(t *testing.T) {
 func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -521,7 +521,7 @@ func TestExtractWasmURLsFromViews_MixedURLs(t *testing.T) {
 func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -574,7 +574,7 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -606,7 +606,7 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -636,7 +636,7 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -730,7 +730,7 @@ func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -763,7 +763,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -792,7 +792,7 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 func TestViewManager_LoadAndRegisterViews_LocalRegistryError(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -811,7 +811,7 @@ func TestViewManager_LoadAndRegisterViews_LocalRegistryError(t *testing.T) {
 func TestViewManager_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -842,7 +842,7 @@ func TestViewManager_ConcurrentAccess(t *testing.T) {
 func TestViewManager_MetricsCallbackError(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
