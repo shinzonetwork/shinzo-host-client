@@ -161,7 +161,7 @@ type BlockRange struct {
 // LoadConfig loads configuration from a YAML file.
 func LoadConfig(path string) (*Config, error) {
 	// Load YAML config
-	data, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
