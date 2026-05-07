@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
@@ -283,7 +283,7 @@ func (m *Manager) updateMetrics() {
 // subscribeToSourceCollection subscribes to a source collection for real-time document updates.
 // ctx was replaced with _ because the current implementation is a stub and does not use the context, but it may be needed for future implementations that involve long-running subscriptions or need to handle cancellation.
 func (m *Manager) subscribeToSourceCollection(_ context.Context, collectionName, viewName string) error {
-	// Implementation would use defra.Subscribe to listen for new documents
+	// Implementation would use defradb.Subscribe to listen for new documents
 	// and trigger view processing when source documents arrive
 	logger.Sugar.Infof("View %s subscribed to source collection %s", viewName, collectionName)
 	return nil

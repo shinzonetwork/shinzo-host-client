@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -407,7 +407,7 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 		}
 	`, constants.CollectionAttestationRecord, docID, docType)
 
-	existing, err := defra.QueryArray[Record](ctx, defraNode, query)
+	existing, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return nil, nil // No existing attestation, not an error
@@ -547,7 +547,7 @@ func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, block
 		}
 	`, constants.CollectionAttestationRecord, blockAttestedID)
 
-	records, err := defra.QueryArray[Record](ctx, defraNode, query)
+	records, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return false, nil
@@ -586,7 +586,7 @@ func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber
 		}
 	`, constants.CollectionAttestationRecord, blockPrefix)
 
-	records, err := defra.QueryArray[Record](ctx, defraNode, query)
+	records, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return nil, nil
@@ -624,7 +624,7 @@ func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, 
 			}
 		`, collectionName, inList)
 
-		return defra.QueryArray[Record](ctx, defraNode, query)
+		return defradb.QueryArray[Record](ctx, defraNode, query)
 	}
 	// Query all records for this view
 	query := fmt.Sprintf(`
@@ -638,5 +638,5 @@ func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, 
 		}
 	`, collectionName)
 
-	return defra.QueryArray[Record](ctx, defraNode, query)
+	return defradb.QueryArray[Record](ctx, defraNode, query)
 }

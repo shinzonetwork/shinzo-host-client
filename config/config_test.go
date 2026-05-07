@@ -129,7 +129,7 @@ shinzo:
 	}
 }
 
-func TestToAppConfig(t *testing.T) {
+func TestToInternalConfig(t *testing.T) {
 	cfg := &Config{
 		DefraDB: DefraDBConfig{
 			URL:           "localhost:9181",
@@ -159,7 +159,7 @@ func TestToAppConfig(t *testing.T) {
 		},
 	}
 
-	appCfg := cfg.ToAppConfig()
+	appCfg := cfg.ToInternalConfig()
 	require.NotNil(t, appCfg)
 	require.Equal(t, "localhost:9181", appCfg.DefraDB.URL)
 	require.Equal(t, "secret123", appCfg.DefraDB.KeyringSecret)
@@ -182,9 +182,9 @@ func TestToAppConfig(t *testing.T) {
 	require.True(t, appCfg.Logger.Development)
 }
 
-func TestToAppConfig_Nil(t *testing.T) {
+func TestToInternalConfig_Nil(t *testing.T) {
 	var cfg *Config
-	appCfg := cfg.ToAppConfig()
+	appCfg := cfg.ToInternalConfig()
 	require.Nil(t, appCfg)
 }
 

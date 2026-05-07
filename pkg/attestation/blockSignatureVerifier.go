@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	gocid "github.com/ipfs/go-cid"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/crypto"
 )
 

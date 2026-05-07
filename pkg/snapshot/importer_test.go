@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/require"
@@ -667,7 +667,7 @@ func TestImportWithVerification_HappyPath(t *testing.T) {
 		BlockSigMerkleRoots: headerRoots,
 	})
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	result, err := ImportWithVerification(ctx, defraNode, path, sig)
@@ -697,7 +697,7 @@ func TestImportWithVerification_HappyPathWithMatchingSigBlockRoots(t *testing.T)
 		BlockSigMerkleRoots: headerRoots,
 	})
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	result, err := ImportWithVerification(ctx, defraNode, path, sig)
@@ -731,7 +731,7 @@ func TestImportWithVerification_HappyPathWithFieldMappings(t *testing.T) {
 		},
 	})
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	result, err := ImportWithVerification(ctx, defraNode, path, sig)
@@ -810,7 +810,7 @@ func TestComputeSnapshotMerkleRoot_FiveRoots(t *testing.T) {
 func TestRebuildAllIndexes_EmptyCollections(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	// Empty collections list should succeed without doing anything.
@@ -821,7 +821,7 @@ func TestRebuildAllIndexes_EmptyCollections(t *testing.T) {
 func TestRebuildAllIndexes_NonexistentCollection(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
 	err = RebuildAllIndexes(ctx, defraNode, []string{"nonexistent_collection"})

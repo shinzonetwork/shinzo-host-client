@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
@@ -91,7 +91,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 // Host represents the main application state and components of the Shinzo host. It manages the DefraDB node, P2P network, view manager, processing pipeline, health server, and other core functionalities of the host application.
 type Host struct {
 	DefraNode      *node.Node
-	NetworkHandler *defra.NetworkHandler // P2P network control
+	NetworkHandler *defradb.NetworkHandler // P2P network control
 
 	// signature verifier as a service
 	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
@@ -143,9 +143,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		replicationFilter = f
 	}
 
-	defraNode, networkHandler, err := defra.StartDefraInstance(
-		cfg.ToAppConfig(),
-		defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
+	defraNode, networkHandler, err := defradb.StartDefraInstance(
+		cfg.ToInternalConfig(),
+		defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
 		nil,
 		replicationFilter,
 		constants.AllCollections...,
@@ -493,7 +493,7 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 		logger.Sugar.Warnf("Failed to get peer info from DefraDB: %v", err)
 		return p2pInfo, nil
 	}
-	ownPeers, _ := defra.BootstrapIntoPeers(ownAddresses)
+	ownPeers, _ := defradb.BootstrapIntoPeers(ownAddresses)
 
 	if len(ownPeers) > 0 {
 		var addresses []string
@@ -511,7 +511,7 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 	if err != nil {
 		activePeerStrings = nil // P2P not ready, treat as no peers
 	}
-	activePeers, _ := defra.BootstrapIntoPeers(activePeerStrings)
+	activePeers, _ := defradb.BootstrapIntoPeers(activePeerStrings)
 
 	// Deduplicate peers by ID and merge addresses
 	peerMap := make(map[string]*server.PeerInfo)
@@ -535,13 +535,13 @@ func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 // SignMessages signs a message using both DefraDB node keys and P2P keys, returning the signed messages for attestation registration and peer ID registration. This is used for proving ownership of the host in the attestation system and P2P network.
 func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.PeerIDRegistration, error) {
 	// Use the signer package approach like the indexer
-	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ToAppConfig())
+	signedMsg, err := signer.SignWithDefraKeys(message, h.DefraNode, h.config.ToInternalConfig())
 	if err != nil {
 		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
 	}
 
 	// Sign with peer ID
-	peerSignedMsg, err := signer.SignWithP2PKeys(message, h.DefraNode, h.config.ToAppConfig())
+	peerSignedMsg, err := signer.SignWithP2PKeys(message, h.DefraNode, h.config.ToInternalConfig())
 	if err != nil {
 		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
 	}
@@ -568,12 +568,12 @@ func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.
 
 // GetNodePublicKey retrieves the public key of the DefraDB node using the signer package. This is used for attestation registration and verification.
 func (h *Host) GetNodePublicKey() (string, error) {
-	return signer.GetDefraPublicKey(h.DefraNode, h.config.ToAppConfig())
+	return signer.GetDefraPublicKey(h.DefraNode, h.config.ToInternalConfig())
 }
 
 // GetPeerPublicKey retrieves the P2P public key of the host using the signer package. This is used for peer ID registration and verification in the P2P network.
 func (h *Host) GetPeerPublicKey() (string, error) {
-	return signer.GetP2PPublicKey(h.DefraNode, h.config.ToAppConfig())
+	return signer.GetP2PPublicKey(h.DefraNode, h.config.ToInternalConfig())
 }
 
 // incrementPort takes a URL string, parses it, increments the port by 1, and returns the modified URL string. It handles URLs with or without protocols and returns an error if the URL is invalid or the port cannot be parsed.
@@ -649,7 +649,9 @@ func (h *Host) GetMetricsHandler() http.Handler {
 	return h.metrics
 }
 
-// waitForDefraDB waits for a DefraDB instance to be ready by using app-sdk's QuerySingle.
+// waitForDefraDB polls the embedded DefraDB node until a trivial schema query
+// succeeds. Returns an error after maxAttempts seconds if the node never
+// responds, e.g. because schema setup failed upstream.
 func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Waiting for defra...")
 	maxAttempts := 30
@@ -658,7 +660,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := defra.QuerySingle[map[string]any](ctx, defraNode, query)
+		_, err := defradb.QuerySingle[map[string]interface{}](ctx, defraNode, query)
 		if err == nil {
 			fmt.Println("Defra is responsive!")
 			return nil

@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
@@ -91,7 +91,7 @@ func TestViewProcessor_ProcessViewFromWire_InvalidView(t *testing.T) {
 func TestViewProcessor_SetupViewInDefraDB(t *testing.T) {
 	// Create temporary DefraDB instance
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -124,7 +124,7 @@ func TestViewProcessor_SetupViewInDefraDB(t *testing.T) {
 func TestViewProcessor_SetupViewInDefraDB_WithoutLenses(t *testing.T) {
 	// Create temporary DefraDB instance
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -158,7 +158,7 @@ func TestViewProcessor_SetupViewInDefraDB_WithoutLenses(t *testing.T) {
 func TestViewProcessor_SetupViewInDefraDB_InvalidView(t *testing.T) {
 	// Create temporary DefraDB instance
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 

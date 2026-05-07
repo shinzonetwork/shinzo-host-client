@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 const (

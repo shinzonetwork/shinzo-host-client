@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
@@ -147,7 +147,7 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 	testView, err := view.NewViewFromBundle(bundledView)
 	require.NoError(t, err)
 
-	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	myDefra, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = myDefra.Close(ctx) }()
 
@@ -170,7 +170,7 @@ func TestSubscribeToInvalidViewFails(t *testing.T) {
 	testView, err := view.NewViewFromBundle(bundledView)
 	require.NoError(t, err)
 
-	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	myDefra, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	err = testView.SubscribeTo(context.Background(), myDefra)
 	require.Error(t, err)

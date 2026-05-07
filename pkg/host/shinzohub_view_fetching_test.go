@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,8 +89,8 @@ func TestHostIntegration_ShinzoHubViewFetching(t *testing.T) {
 
 		t.Logf("🔍 Executing known query for %s", viewName)
 		t.Logf("📄 Query: %s", query)
-
-		results, err := defra.QueryArray[map[string]any](ctx, h.DefraNode, query)
+		
+		results, err := defradb.QueryArray[map[string]interface{}](ctx, h.DefraNode, query)
 		if err != nil {
 			t.Logf("⚠️ %s query error: %v", viewName, err)
 			continue

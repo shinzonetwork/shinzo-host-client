@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -187,17 +187,18 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// ToAppConfig converts the host config to an app-sdk config.
-func (c *Config) ToAppConfig() *appConfig.Config {
+// ToInternalConfig converts the host config to the pkg/defradb internal config
+// shape consumed by StartDefraInstance and signer helpers.
+func (c *Config) ToInternalConfig() *defradb.Config {
 	if c == nil {
 		return nil
 	}
 
-	return &appConfig.Config{
+	return &defradb.Config{
 		DefraDB: appConfig.DefraDBConfig{
 			URL:           c.DefraDB.URL,
 			KeyringSecret: c.DefraDB.KeyringSecret,
-			P2P: appConfig.DefraP2PConfig{
+			P2P: defradb.DefraP2PConfig{
 				Enabled:             c.DefraDB.P2P.Enabled,
 				BootstrapPeers:      []string{}, // Empty - peers added after ViewManager init
 				ListenAddr:          c.DefraDB.P2P.ListenAddr,
@@ -206,7 +207,7 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 				ReconnectIntervalMs: c.DefraDB.P2P.ReconnectIntervalMs,
 				EnableAutoReconnect: c.DefraDB.P2P.EnableAutoReconnect,
 			},
-			Store: appConfig.DefraStoreConfig{
+			Store: defradb.DefraStoreConfig{
 				Path:                    c.DefraDB.Store.Path,
 				BlockCacheMB:            c.DefraDB.Store.BlockCacheMB,
 				MemTableMB:              c.DefraDB.Store.MemTableMB,
@@ -217,7 +218,7 @@ func (c *Config) ToAppConfig() *appConfig.Config {
 				ValueLogFileSizeMB:      c.DefraDB.Store.ValueLogFileSizeMB,
 			},
 		},
-		Logger: appConfig.LoggerConfig{
+		Logger: defradb.LoggerConfig{
 			Development: c.Logger.Development,
 		},
 	}

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 //go:embed health_status_page.html

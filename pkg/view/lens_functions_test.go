@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +16,7 @@ import (
 // TestSetupLensInDefraDB_NoLenses tests when view has no lenses.
 func TestSetupLensInDefraDB_NoLenses(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -39,7 +39,7 @@ func TestSetupLensInDefraDB_NoLenses(t *testing.T) {
 // TestSetupLensInDefraDB_WithLenses tests lens setup with valid lenses.
 func TestSetupLensInDefraDB_WithLenses(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -403,7 +403,7 @@ func TestIsValidWASM_TooShort(t *testing.T) {
 // TestConfigureLens_WithoutLensCID tests view configuration without lens CID.
 func TestConfigureLens_WithoutLensCID(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -426,7 +426,7 @@ func TestConfigureLens_WithoutLensCID(t *testing.T) {
 // TestConfigureLens_WithLensCID tests view configuration with lens CID.
 func TestConfigureLens_WithLensCID(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 

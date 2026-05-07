@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
@@ -206,7 +206,7 @@ func TestMockSignatureVerifier_DifferentCIDs(t *testing.T) {
 // ========================================
 
 // setupDefraForVerifier creates a defra client with the attestation schema and returns the node.
-func setupDefraForVerifier(t *testing.T) *defra.Client {
+func setupDefraForVerifier(t *testing.T) *defradb.Client {
 	t.Helper()
 	testSchema := `
 		type TestDoc {
@@ -220,7 +220,7 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 	testConfig.DefraDB.URL = testListenAddrLocal
@@ -228,7 +228,7 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
@@ -354,7 +354,7 @@ func TestDefraSignatureVerifier_Verify_Success_WithMetrics(t *testing.T) {
 		}
 	`
 
-	docResult, err := defra.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
+	docResult, err := defradb.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
 	require.NoError(t, err)
 	require.NotNil(t, docResult)
 	require.Len(t, docResult.Version, 1)
@@ -398,7 +398,7 @@ func TestDefraSignatureVerifier_Verify_Success_NilMetrics(t *testing.T) {
 		}
 	`
 
-	docResult, err := defra.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
+	docResult, err := defradb.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
 	require.NoError(t, err)
 	require.NotNil(t, docResult)
 	require.Len(t, docResult.Version, 1)
