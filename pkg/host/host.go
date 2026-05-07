@@ -30,6 +30,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -143,10 +144,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		replicationFilter = f
 	}
 
+	// wazero runs lens transforms in pure Go. wasmtime is the upstream default,
+	// but a wasm trap inside wasmtime crosses cgo as a Rust panic and Go cannot
+	// recover from it, so the host process dies. wazero returns traps as Go errors.
+	nodeOpts := options.Node()
+	nodeOpts.DB().SetLensRuntime("wazero")
+
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		cfg.ToInternalConfig(),
 		defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
-		nil,
+		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		constants.AllCollections...,
 	)
