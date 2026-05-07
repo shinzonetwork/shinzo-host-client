@@ -16,17 +16,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
@@ -660,7 +660,7 @@ func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
 	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := defradb.QuerySingle[map[string]interface{}](ctx, defraNode, query)
+		_, err := defradb.QuerySingle[map[string]any](ctx, defraNode, query)
 		if err == nil {
 			fmt.Println("Defra is responsive!")
 			return nil

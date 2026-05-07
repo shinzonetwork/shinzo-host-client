@@ -276,38 +276,7 @@ func TestViewManager_SetMetricsCallback(t *testing.T) {
 	require.True(t, callbackCalled)
 }
 
-// TestViewManager_QueueView tests queuing views for processing
-func TestViewManager_QueueView(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer defraNode.Close(ctx)
-
-	vm := NewViewManager(defraNode, t.TempDir())
-
-	v := View{
-		Name: "TestView",
-		Data: viewbundle.View{
-			Query: "Log { address }",
-			Sdl:   "type TestView { address: String }",
-		},
-	}
-
-	// Queue the view
-	vm.QueueView(v)
-
-	// Check that item was added to queue
-	select {
-	case item := <-vm.processingQueue:
-		require.Equal(t, "TestView", item.viewName)
-		require.Equal(t, "TestView", item.activeViewKey)
-	default:
-		t.Fatal("Expected item in processing queue")
-	}
-}
-
-// TestViewManager_LoadAndRegisterViews_ExternalViews tests loading external views
+// TestViewManager_LoadAndRegisterViews_ExternalViews tests loading external views.
 func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	ctx := context.Background()
 

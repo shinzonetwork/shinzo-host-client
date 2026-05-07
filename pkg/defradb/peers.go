@@ -9,14 +9,17 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// BootstrapIntoPeers parses a list of bootstrap peer multiaddr strings into PeerInfo structs.
+// Each peer string is expected to be in the format "<multiaddr>/p2p/<peerID>".
+// Invalid entries are skipped and their errors are returned alongside the valid peers.
 func BootstrapIntoPeers(configuredBootstrapPeers []string) ([]client.PeerInfo, []error) {
 	peers := []client.PeerInfo{}
 	errors := []error{}
 
-	for i, peer := range configuredBootstrapPeers {
+	for _, peer := range configuredBootstrapPeers {
 		parts := strings.Split(peer, "/p2p/")
-		if len(parts) != 2 {
-			errors = append(errors, fmt.Errorf("peer at index %d is invalid and will be skipped. Given: %v", i, configuredBootstrapPeers))
+		if len(parts) != 2 { //nolint:mnd
+			errors = append(errors, ErrInvalidBootstrapPeer)
 			continue
 		}
 		address := parts[0]
@@ -32,18 +35,21 @@ func BootstrapIntoPeers(configuredBootstrapPeers []string) ([]client.PeerInfo, [
 	return peers, errors
 }
 
+// PeersIntoBootstrap converts a list of PeerInfo structs into bootstrap peer multiaddr strings.
+// Each resulting string is in the format "<multiaddr>/p2p/<peerID>".
+// Peers missing an ID or addresses are skipped and their errors are returned alongside the valid peers.
 func PeersIntoBootstrap(peers []client.PeerInfo) ([]string, []error) {
 	bootstrapPeers := []string{}
 	errors := []error{}
 
-	for i, peer := range peers {
+	for _, peer := range peers {
 		if peer.ID == "" {
-			errors = append(errors, fmt.Errorf("peer at index %d has empty ID and will be skipped", i))
+			errors = append(errors, ErrPeerEmptyID)
 			continue
 		}
 
 		if len(peer.Addresses) == 0 {
-			errors = append(errors, fmt.Errorf("peer at index %d has no addresses and will be skipped", i))
+			errors = append(errors, ErrPeerNoAddresses)
 			continue
 		}
 
@@ -56,6 +62,8 @@ func PeersIntoBootstrap(peers []client.PeerInfo) ([]string, []error) {
 	return bootstrapPeers, errors
 }
 
+// connectToPeers connects the given DefraDB node to the provided list of peer multiaddr strings.
+// Returns nil if the peers list is empty. Returns an error if the connection attempt fails.
 func connectToPeers(ctx context.Context, defraNode *node.Node, peers []string) error {
 	if len(peers) == 0 {
 		return nil
@@ -63,7 +71,7 @@ func connectToPeers(ctx context.Context, defraNode *node.Node, peers []string) e
 
 	err := defraNode.DB.Connect(ctx, peers)
 	if err != nil {
-		return fmt.Errorf("error connecting to peer: %v", err)
+		return fmt.Errorf("error connecting to peer: %w", err)
 	}
 
 	return nil

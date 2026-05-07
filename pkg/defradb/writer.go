@@ -9,19 +9,20 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// PostMutation executes a GraphQL mutation against the DefraDB node and unmarshals the result into type T.
 func PostMutation[T any](ctx context.Context, defraNode *node.Node, query string) (*T, error) {
 	if !strings.Contains(query, "mutation") {
-		return nil, fmt.Errorf("Query must be a mutation, given: %s", query)
+		return nil, ErrNotMutation
 	}
 
 	result := defraNode.DB.ExecRequest(ctx, query)
 	gqlResult := result.GQL
 	if gqlResult.Data == nil {
-		return nil, fmt.Errorf("Encountered errors posting mutation: %v", gqlResult.Errors)
+		return nil, fmt.Errorf("encountered errors posting mutation: %v", gqlResult.Errors) // nolint:err113
 	}
 
 	if len(gqlResult.Errors) > 0 {
-		err := fmt.Errorf("Error posting mutation %s", query)
+		err := ErrPostingMutation
 		for _, gqlError := range gqlResult.Errors {
 			err = fmt.Errorf("%w: %w", err, gqlError)
 		}
@@ -30,16 +31,16 @@ func PostMutation[T any](ctx context.Context, defraNode *node.Node, query string
 
 	// The GraphQL response data is a map[string]interface{} containing the mutation result
 	// We need to find the first array in the data and extract the first element
-	data, ok := gqlResult.Data.(map[string]interface{})
+	data, ok := gqlResult.Data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("unexpected data format: %T", gqlResult.Data)
+		return nil, ErrUnexpectedDataFormat
 	}
 
 	// Find the first array in the data (mutation results are typically arrays)
 	for _, value := range data {
 
 		// Try different array types
-		if array, ok := value.([]interface{}); ok && len(array) > 0 {
+		if array, ok := value.([]any); ok && len(array) > 0 {
 			// Convert the first element to JSON and unmarshal into result
 			firstElementBytes, err := json.Marshal(array[0])
 			if err != nil {
@@ -56,7 +57,7 @@ func PostMutation[T any](ctx context.Context, defraNode *node.Node, query string
 		}
 
 		// Try []map[string]interface{} type
-		if array, ok := value.([]map[string]interface{}); ok && len(array) > 0 {
+		if array, ok := value.([]map[string]any); ok && len(array) > 0 {
 			// Convert the first element to JSON and unmarshal into result
 			firstElementBytes, err := json.Marshal(array[0])
 			if err != nil {
@@ -73,5 +74,5 @@ func PostMutation[T any](ctx context.Context, defraNode *node.Node, query string
 		}
 	}
 
-	return nil, fmt.Errorf("no array data found in mutation result")
+	return nil, ErrNoArrayData
 }

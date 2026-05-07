@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	hostConfig "github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
-	hostConfig "github.com/shinzonetwork/shinzo-host-client/config"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/snapshot"
 	"github.com/stretchr/testify/require"

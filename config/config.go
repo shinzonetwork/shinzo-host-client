@@ -195,7 +195,7 @@ func (c *Config) ToInternalConfig() *defradb.Config {
 	}
 
 	return &defradb.Config{
-		DefraDB: appConfig.DefraDBConfig{
+		DefraDB: defradb.DefraDBConfig{
 			URL:           c.DefraDB.URL,
 			KeyringSecret: c.DefraDB.KeyringSecret,
 			P2P: defradb.DefraP2PConfig{

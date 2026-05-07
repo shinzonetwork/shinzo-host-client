@@ -6,7 +6,7 @@ import (
 )
 
 // dialFunc abstracts net.Dial for testability.
-var dialFunc = net.Dial
+var dialFunc = net.Dial // nolint:gochecknoglobals
 
 // getLANIP returns the local LAN IP by opening a UDP "connection" to a public
 // address. The dial does not actually transmit; the kernel selects the egress
@@ -15,9 +15,9 @@ var dialFunc = net.Dial
 func getLANIP() (string, error) {
 	conn, err := dialFunc("udp", "8.8.8.8:80")
 	if err != nil {
-		return "", fmt.Errorf("Error retrieving ip address: %v", err)
+		return "", fmt.Errorf("error retrieving ip address: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 

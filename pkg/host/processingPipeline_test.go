@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/stretchr/testify/require"
 )

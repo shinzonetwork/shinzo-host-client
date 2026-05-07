@@ -11,8 +11,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 //go:embed metrics_client_page.html

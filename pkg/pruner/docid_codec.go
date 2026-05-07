@@ -2,7 +2,6 @@ package pruner
 
 import (
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"sync"
 )
@@ -17,8 +16,8 @@ const uuidSize = 16
 
 // docIDPrefix is the constant version prefix shared by all DefraDB document IDs.
 var (
-	docIDPrefix     string
-	docIDPrefixOnce sync.Once
+	docIDPrefix     string    //nolint:gochecknoglobals
+	docIDPrefixOnce sync.Once //nolint:gochecknoglobals
 )
 
 // extractUUID extracts the 16-byte UUID from a docID string. Captures the
@@ -26,7 +25,7 @@ var (
 func extractUUID(docID string) ([uuidSize]byte, error) {
 	idx := strings.IndexByte(docID, '-')
 	if idx < 0 {
-		return [uuidSize]byte{}, fmt.Errorf("invalid docID format: %s", docID)
+		return [uuidSize]byte{}, ErrInvalidDocIDFormat
 	}
 	docIDPrefixOnce.Do(func() {
 		docIDPrefix = docID[:idx]
@@ -37,8 +36,8 @@ func extractUUID(docID string) ([uuidSize]byte, error) {
 // parseUUIDHex parses a UUID string (with hyphens) into 16 raw bytes.
 func parseUUIDHex(uuidStr string) ([uuidSize]byte, error) {
 	clean := strings.ReplaceAll(uuidStr, "-", "")
-	if len(clean) != 32 {
-		return [uuidSize]byte{}, fmt.Errorf("invalid UUID: %s", uuidStr)
+	if len(clean) != 32 { //nolint:mnd
+		return [uuidSize]byte{}, ErrInvalidUUID
 	}
 	var result [uuidSize]byte
 	_, err := hex.Decode(result[:], []byte(clean))

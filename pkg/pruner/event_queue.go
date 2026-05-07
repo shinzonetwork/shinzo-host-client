@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -48,7 +49,7 @@ type EventQueue struct {
 // blockCollection is the name of the Block collection (used to identify block entries).
 func NewEventQueue(collections CollectionConfig) *EventQueue {
 	q := &EventQueue{
-		entries:         make([]eventEntry, 0, 1024),
+		entries:         make([]eventEntry, 0, 1024), //nolint:mnd
 		collectionNames: make(map[byte]string),
 		collectionEnums: make(map[string]byte),
 	}
@@ -218,14 +219,14 @@ func (q *EventQueue) BlockCount() int {
 func (q *EventQueue) LoadFromFile(path string) (int, error) {
 	q.filePath = path
 
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("failed to open queue file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var snap eventQueueSnapshot
 	if err := gob.NewDecoder(f).Decode(&snap); err != nil {
@@ -270,29 +271,29 @@ func (q *EventQueue) Save() error {
 	q.mu.Unlock()
 
 	if len(snap.Entries) == 0 {
-		os.Remove(q.filePath)
+		_ = os.Remove(q.filePath)
 		return nil
 	}
 
 	tmpPath := q.filePath + ".tmp"
-	f, err := os.Create(tmpPath)
+	f, err := os.Create(filepath.Clean(tmpPath))
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 
 	if err := gob.NewEncoder(f).Encode(snap); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to encode queue: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, q.filePath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
