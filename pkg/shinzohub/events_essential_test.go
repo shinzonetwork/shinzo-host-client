@@ -436,3 +436,80 @@ func TestExtractShinzoEvents_ViewViewRegistrationFailed(t *testing.T) {
 		require.Len(t, events, 0, "%s should not be emitted as a ShinzoEvent", eventType)
 	}
 }
+
+// A single Cosmos tx routinely carries many events: the registry event we care
+// about plus the ICA bookkeeping and any unrelated module emissions on the
+// same tx. The parser must walk the full Events list and return exactly the
+// matching well-formed registry events, regardless of order or interleaving.
+//
+// What this catches: a parser that short-circuits on the first matching event
+// and ignores the rest; a parser that fails to drop a malformed
+// view.view_registered (incomplete attributes); a panic on an unrelated event
+// type; a regression where view.view_registration_failed accidentally lands
+// on the channel instead of being logged-and-dropped.
+func TestExtractShinzoEvents_MultiEventTx(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: "2.0",
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: "tendermint/event/Tx",
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								// Unrelated event — should be skipped, not crash.
+								{
+									Type: "transfer",
+									Attributes: []EventAttribute{
+										{Key: "amount", Value: "1000ushinzo"},
+									},
+								},
+								// Well-formed view.view_registered — the only event
+								// we expect to see emitted.
+								{
+									Type: "view.view_registered",
+									Attributes: []EventAttribute{
+										{Key: "view_id", Value: "good-view-id"},
+										{Key: "contract_address", Value: testContractAddress1},
+										{Key: "creator", Value: testViewCreator},
+									},
+								},
+								// Malformed view.view_registered — missing
+								// contract_address. Hydration would fail later
+								// anyway; the parser should drop it now.
+								{
+									Type: "view.view_registered",
+									Attributes: []EventAttribute{
+										{Key: "view_id", Value: "bad-view-id"},
+										{Key: "creator", Value: testViewCreator},
+									},
+								},
+								// Terminal failure event — must be logged but
+								// not emitted; the host has no pending state to
+								// roll back.
+								{
+									Type: "view.view_registration_failed",
+									Attributes: []EventAttribute{
+										{Key: "view_id", Value: "failed-view-id"},
+										{Key: "contract_address", Value: testContractAddress2},
+										{Key: "error", Value: "ack returned FAILURE"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 1, "exactly one well-formed view.view_registered should pass")
+
+	vre, ok := events[0].(*ViewRegisteredEvent)
+	require.True(t, ok, "expected *ViewRegisteredEvent, got %T", events[0])
+	require.Equal(t, "good-view-id", vre.ViewID)
+	require.Equal(t, testContractAddress1, vre.ContractAddress)
+	require.Equal(t, testViewCreator, vre.Creator)
+}
