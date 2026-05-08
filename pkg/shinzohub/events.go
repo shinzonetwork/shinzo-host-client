@@ -96,7 +96,11 @@ func getSubscriptionQueries() []string {
 // connection is re-established automatically on drops with exponential
 // backoff (1s, 2s, 4s, ..., capped at 60s). The channel stays open across
 // reconnections; it is only closed when ctx is cancelled.
-func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
+//
+// lcd is used to hydrate view-registration events with the bundle wire bytes
+// the CometBFT event payload doesn't carry. Pass nil to disable hydration;
+// any view-registration events received then get dropped with a warning.
+func StartEventSubscription(tendermintURL string, lcd *RPCClient) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	eventChan := make(chan ShinzoEvent, 16) //nolint:mnd
 
@@ -109,7 +113,7 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		return cancel, nil, fmt.Errorf("initial WebSocket connection failed: %w", err)
 	}
 
-	go eventLoop(ctx, tendermintURL, conn, eventChan)
+	go eventLoop(ctx, tendermintURL, conn, eventChan, lcd)
 
 	return cancel, eventChan, nil
 }
@@ -158,7 +162,10 @@ func dialAndSubscribe(url string) (*websocket.Conn, error) {
 // owns the connection lifecycle: when a read fails, it closes the old
 // connection, waits with backoff, dials a new one, re-subscribes, and
 // resumes reading. The channel is closed only when ctx is cancelled.
-func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<- ShinzoEvent) {
+//
+// lcd is consulted to hydrate view-registration events before they're pushed
+// onto the channel; see hydrateViewBundle. nil disables hydration.
+func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<- ShinzoEvent, lcd *RPCClient) {
 	defer close(out)
 	defer recoverPanic()
 
@@ -174,7 +181,7 @@ func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<-
 		}
 
 		conn, pingStop, connectedAt, backoff = processNextMessage(
-			ctx, url, conn, out, pingStop, connectedAt, backoff, maxBackoff,
+			ctx, url, conn, out, lcd, pingStop, connectedAt, backoff, maxBackoff,
 		)
 		if conn == nil {
 			return
@@ -202,6 +209,7 @@ func processNextMessage(
 	url string,
 	conn *websocket.Conn,
 	out chan<- ShinzoEvent,
+	lcd *RPCClient,
 	pingStop func(),
 	connectedAt time.Time,
 	backoff, maxBackoff time.Duration,
@@ -221,7 +229,7 @@ func processNextMessage(
 		backoff = time.Second
 	}
 
-	conn = dispatchEvents(ctx, conn, out, message)
+	conn = dispatchEvents(ctx, conn, out, lcd, message)
 	return conn, pingStop, connectedAt, backoff
 }
 
@@ -251,13 +259,21 @@ func handleReadError(
 	return conn, startPing(ctx, conn), time.Now(), backoff
 }
 
-// dispatchEvents from event loop.
-func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- ShinzoEvent, message []byte) *websocket.Conn {
+// dispatchEvents decodes the WebSocket message, hydrates any view-registration
+// events from the hub's REST gateway, and pushes them onto out. Events whose
+// hydration fails are dropped with a warn log; the loop continues.
+func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- ShinzoEvent, lcd *RPCClient, message []byte) *websocket.Conn {
 	var msg RPCResponse
 	if err := json.Unmarshal(message, &msg); err != nil {
 		return conn
 	}
 	for _, ev := range extractShinzoEvents(msg) {
+		if vre, ok := ev.(*ViewRegisteredEvent); ok && vre.View.Data.Query == "" {
+			if err := hydrateViewBundle(ctx, lcd, vre); err != nil {
+				log().Warnf("dropping view.view_registered for contract %s: %v", vre.ContractAddress, err)
+				continue
+			}
+		}
 		select {
 		case out <- ev:
 		case <-ctx.Done():
@@ -266,6 +282,31 @@ func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- Shinzo
 		}
 	}
 	return conn
+}
+
+// hydrateViewBundle fetches the wire bundle from the hub's view-registry REST
+// endpoint and decodes it onto vre.View. CometBFT event payloads carry only
+// identifiers (view_id, contract_address, creator); the bundle has to be
+// resolved separately before the consumer can register the view in DefraDB.
+func hydrateViewBundle(ctx context.Context, lcd *RPCClient, vre *ViewRegisteredEvent) error {
+	if lcd == nil {
+		return fmt.Errorf("LCD client not configured")
+	}
+	if vre.ContractAddress == "" {
+		return fmt.Errorf("event has no contract_address")
+	}
+
+	wireBase64, err := lcd.GetViewBundle(ctx, vre.ContractAddress)
+	if err != nil {
+		return fmt.Errorf("fetch bundle: %w", err)
+	}
+
+	v, err := ProcessViewFromWireFormat(wireBase64)
+	if err != nil {
+		return fmt.Errorf("decode bundle: %w", err)
+	}
+	vre.View = v
+	return nil
 }
 
 // isTimeoutError checks whether the error is a read deadline timeout.

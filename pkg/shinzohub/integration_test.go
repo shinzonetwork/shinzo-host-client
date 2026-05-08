@@ -16,7 +16,7 @@ func TestIndexerRegisteredToIntegrationFlow(t *testing.T) {
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
 
-	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL())
+	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL(), nil)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -103,7 +103,7 @@ func TestMultipleIndexerRegisteredEvents(t *testing.T) {
 	mockServer := NewMockWebSocketServer()
 	defer mockServer.Close()
 
-	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL())
+	cancel, eventChan, err := StartEventSubscription(mockServer.WebsocketURL(), nil)
 	require.NoError(t, err)
 	defer cancel()
 

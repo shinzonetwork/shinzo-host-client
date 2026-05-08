@@ -244,19 +244,27 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		return newHost.metrics
 	})
 
-	// Build RPC and WebSocket URLs from base URL (e.g., "shinzohub-rpc.infra.source.network:26657")
-	var rpcURL, wsURL string
+	// Build RPC, WebSocket, and LCD URLs from the hub base URL
+	// (e.g., "shinzohub-rpc.infra.source.network:26657"). The Cosmos LCD listens
+	// on a separate port (1317 by convention) on the same host.
+	var rpcURL, wsURL, lcdURL string
 	if cfg.Shinzo.HubBaseURL != "" {
 		rpcURL = "http://" + cfg.Shinzo.HubBaseURL
 		wsURL = "ws://" + cfg.Shinzo.HubBaseURL + "/websocket"
+		lcdURL = "http://" + strings.Replace(cfg.Shinzo.HubBaseURL, ":26657", ":1317", 1)
+	}
+
+	// One client serves both the startup backfill and the live-event hydration.
+	var rpcClient *shinzohub.RPCClient
+	if rpcURL != "" {
+		rpcClient = shinzohub.NewRPCClient(lcdURL, defraNode)
 	}
 
 	// Fetch views from ShinzoHub if RPC URL is configured
 	var hubViews []view.View
 	logger.Sugar.Infof("ShinzoHub base URL: %s", rpcURL)
-	if rpcURL != "" {
+	if rpcClient != nil {
 		logger.Sugar.Infof("🔍 Querying ShinzoHub for registered views: %s", rpcURL)
-		rpcClient := shinzohub.NewRPCClient(rpcURL, defraNode)
 		fetchedViews, totalCount, err := rpcClient.FetchAllRegisteredViews(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("⚠️ Failed to fetch views from ShinzoHub: %v", err)
@@ -325,7 +333,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	newHost.processingPipeline.Start()
 
 	if wsURL != "" {
-		cancel, channel, err := shinzohub.StartEventSubscription(wsURL)
+		cancel, channel, err := shinzohub.StartEventSubscription(wsURL, rpcClient)
 
 		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
 		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
