@@ -79,19 +79,15 @@ type ShinzoEvent interface {
 	ToString() string
 }
 
-// subscriptionQueries are the CometBFT event queries the host subscribes to.
+// getSubscriptionQueries returns the CometBFT event queries the host subscribes to.
 // Tendermint doesn't support OR logic, so each event type gets its own subscription.
-// var subscriptionQueries = []string{
-// 	"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
-// 	"tm.event='Tx' AND HostRegistered.owner EXISTS",
-// 	"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
-// }
-
+// CometBFT's EXISTS clause requires an attribute key (<event_type>.<attribute_key>),
+// not just the type; view_id is always present on these events.
 func getSubscriptionQueries() []string {
 	return []string{
-		"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
-		"tm.event='Tx' AND HostRegistered.owner EXISTS",
-		"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+		"tm.event='Tx' AND view.view_registered.view_id EXISTS",
+		"tm.event='Tx' AND view.view_registration_failed.view_id EXISTS",
+		"tm.event='Tx' AND view.view_registration_timed_out.view_id EXISTS",
 	}
 }
 
