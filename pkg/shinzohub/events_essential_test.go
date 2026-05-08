@@ -19,21 +19,22 @@ const (
 	testIndexerConnString = "/ip4/10.0.0.50/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
 
 	testViewCreator  = "shinzo1cg7rssfan6duymqrvhhce2ldyycwvqll0z338z"
-	testViewAddress1 = "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
-	testViewAddress2 = "0xf00DFed28B5304251f271c6474dF260067ee6BDa"
+	testContractAddress1 = "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
+	testContractAddress2 = "0xf00DFed28B5304251f271c6474dF260067ee6BDa"
 )
 
 func TestViewRegisteredEvent_ToString(t *testing.T) {
 	event := ViewRegisteredEvent{
-		ViewAddress: testViewAddress2,
-		ViewName:    "StablecoinEvent",
-		Creator:     testViewCreator,
+		ViewID:          "view-abc123",
+		ContractAddress: testContractAddress2,
+		ViewName:        "StablecoinEvent",
+		Creator:         testViewCreator,
 		View: view.View{
 			Name: "StablecoinEvent",
 		},
 	}
 
-	expected := "ViewRegistered: address=" + testViewAddress2 + ", name=StablecoinEvent, creator=" + testViewCreator
+	expected := "ViewRegistered: id=view-abc123, address=" + testContractAddress2 + ", creator=" + testViewCreator
 	actual := event.ToString()
 
 	require.Equal(t, expected, actual)
@@ -69,7 +70,7 @@ func TestIndexerRegisteredEvent_ToString(t *testing.T) {
 
 func TestExtractViewFromEvent(t *testing.T) {
 	event := ViewRegisteredEvent{
-		ViewAddress: testViewAddress1,
+		ContractAddress: testContractAddress1,
 		ViewName:    "SimpleLog",
 		Creator:     testViewCreator,
 		View: view.View{
@@ -81,7 +82,7 @@ func TestExtractViewFromEvent(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, testViewAddress1, event.ViewAddress)
+	require.Equal(t, testContractAddress1, event.ContractAddress)
 	require.Equal(t, "SimpleLog", event.ViewName)
 	require.Equal(t, testViewCreator, event.Creator)
 	require.Equal(t, "SimpleLog", event.View.Name)
@@ -90,7 +91,7 @@ func TestExtractViewFromEvent(t *testing.T) {
 
 func TestEventStructures(t *testing.T) {
 	viewEvent := ViewRegisteredEvent{
-		ViewAddress: testViewAddress2,
+		ContractAddress: testContractAddress2,
 		ViewName:    "StablecoinEvent",
 		Creator:     testViewCreator,
 		View: view.View{
@@ -102,7 +103,7 @@ func TestEventStructures(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, testViewAddress2, viewEvent.ViewAddress)
+	require.Equal(t, testContractAddress2, viewEvent.ContractAddress)
 	require.Equal(t, "StablecoinEvent", viewEvent.ViewName)
 	require.Equal(t, testViewCreator, viewEvent.Creator)
 
@@ -133,7 +134,7 @@ func TestEventStructures(t *testing.T) {
 
 func TestEventInterface(t *testing.T) {
 	var viewEvent ShinzoEvent = &ViewRegisteredEvent{
-		ViewAddress: testViewAddress1,
+		ContractAddress: testContractAddress1,
 		Creator:     testViewCreator,
 		View:        view.View{Name: "SimpleLog"},
 	}
@@ -153,6 +154,8 @@ func TestEventInterface(t *testing.T) {
 	require.NotPanics(t, func() { _ = indexerEvent.ToString() })
 }
 
+// Covers the legacy single-word ViewRegistered case the parser still matches.
+// See the TODO in events.go for cleanup context.
 func TestExtractShinzoEvents_ViewRegistered(t *testing.T) {
 	msg := RPCResponse{
 		JSONRPCVersion: "2.0",
@@ -167,10 +170,10 @@ func TestExtractShinzoEvents_ViewRegistered(t *testing.T) {
 								{
 									Type: "ViewRegistered",
 									Attributes: []EventAttribute{
-										{Key: "view_address", Value: testViewAddress1},
+										{Key: "view_address", Value: testContractAddress1},
 										{Key: "view_name", Value: "SimpleLog"},
 										{Key: "creator", Value: testViewCreator},
-										// "data" omitted: wire format would need real viewbundle
+										// "data" omitted: wire format would need a real viewbundle
 									},
 								},
 							},
@@ -320,4 +323,116 @@ func TestExtractShinzoEvents_IgnoresUnknownEvents(t *testing.T) {
 
 	events := extractShinzoEvents(msg)
 	require.Len(t, events, 0)
+}
+
+// view.view_registered fills view_id, contract_address, creator on the
+// emitted event. View stays empty; downstream hydration populates it.
+func TestExtractShinzoEvents_ViewViewRegistered(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: "2.0",
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: "tendermint/event/Tx",
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								{
+									Type: "view.view_registered",
+									Attributes: []EventAttribute{
+										{Key: "view_id", Value: "view-id-abc"},
+										{Key: "contract_address", Value: testContractAddress1},
+										{Key: "creator", Value: testViewCreator},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 1)
+
+	vre, ok := events[0].(*ViewRegisteredEvent)
+	require.True(t, ok, "event should be ViewRegisteredEvent")
+	require.Equal(t, "view-id-abc", vre.ViewID)
+	require.Equal(t, testContractAddress1, vre.ContractAddress)
+	require.Equal(t, testViewCreator, vre.Creator)
+	require.Empty(t, vre.View.Data.Query, "View bundle is hydrated downstream, not in the event")
+}
+
+// A view.view_registered event missing contract_address can't be hydrated,
+// so the parser drops it.
+func TestExtractShinzoEvents_ViewViewRegistered_Incomplete(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: "2.0",
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: "tendermint/event/Tx",
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								{
+									Type: "view.view_registered",
+									Attributes: []EventAttribute{
+										{Key: "view_id", Value: "view-id-abc"},
+										// contract_address omitted
+										{Key: "creator", Value: testViewCreator},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 0)
+}
+
+// view.view_registration_failed and _timed_out are logged and not emitted
+// onto the channel.
+func TestExtractShinzoEvents_ViewViewRegistrationFailed(t *testing.T) {
+	for _, eventType := range []string{
+		"view.view_registration_failed",
+		"view.view_registration_timed_out",
+	} {
+		msg := RPCResponse{
+			JSONRPCVersion: "2.0",
+			ID:             1,
+			Result: RPCResult{
+				Data: RPCData{
+					Type: "tendermint/event/Tx",
+					Value: TxResult{
+						TxResult: TxResultData{
+							Result: TxResultResult{
+								Events: []Event{
+									{
+										Type: eventType,
+										Attributes: []EventAttribute{
+											{Key: "view_id", Value: "view-id-failed"},
+											{Key: "contract_address", Value: testContractAddress1},
+											{Key: "creator", Value: testViewCreator},
+											{Key: "error", Value: "ack returned with status FAILURE"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		events := extractShinzoEvents(msg)
+		require.Len(t, events, 0, "%s should not be emitted as a ShinzoEvent", eventType)
+	}
 }

@@ -235,7 +235,7 @@ func TestMixedEventSubscription(t *testing.T) {
 			switch e := event.(type) {
 			case *ViewRegisteredEvent:
 				if !receivedView {
-					require.Equal(t, "0xf00DFed28B5304251f271c6474dF260067ee6BDa", e.ViewAddress)
+					require.Equal(t, "0xf00DFed28B5304251f271c6474dF260067ee6BDa", e.ContractAddress)
 					require.Equal(t, "shinzo140fehngcrxvhdt84x729p3f0qmkmea8nq3rk92", e.Creator)
 					require.Equal(t, expectedView.Data.Query, e.View.Data.Query)
 					receivedView = true

@@ -334,7 +334,10 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 	return pingCancel
 }
 
-// extractShinzoEvents extracts typed events from an RPC response.
+// extractShinzoEvents converts the CometBFT tx events in msg into typed
+// registry events. The view-registration cases (view.view_registered and the
+// terminal-failure counterparts) carry view_id and contract_address; the
+// bundle wire bytes are fetched separately by downstream hydration.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
 	if msg.JSONRPCVersion != "2.0" ||
@@ -345,6 +348,48 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
+		case "view.view_registered":
+			registeredEvent := ViewRegisteredEvent{}
+
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case "view_id":
+					registeredEvent.ViewID = attr.Value
+				case "contract_address":
+					registeredEvent.ContractAddress = attr.Value
+				case "creator":
+					registeredEvent.Creator = attr.Value
+				}
+			}
+
+			if registeredEvent.ViewID != "" && registeredEvent.ContractAddress != "" && registeredEvent.Creator != "" {
+				log().Infof("view.view_registered event received: id=%s contract=%s creator=%s",
+					registeredEvent.ViewID, registeredEvent.ContractAddress, registeredEvent.Creator)
+				events = append(events, &registeredEvent)
+			} else {
+				log().Debugf("incomplete view.view_registered event: %+v", registeredEvent)
+			}
+
+		case "view.view_registration_failed", "view.view_registration_timed_out":
+			// Logged for visibility and dropped: the host keeps no pending-view state
+			// locally, so there is nothing to roll back.
+			var viewID, contractAddr, errMsg string
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case "view_id":
+					viewID = attr.Value
+				case "contract_address":
+					contractAddr = attr.Value
+				case "error":
+					errMsg = attr.Value
+				}
+			}
+			log().Warnf("%s: id=%s contract=%s error=%q", event.Type, viewID, contractAddr, errMsg)
+
+		// TODO: dead code. None of these event types are in subscriptionQueries,
+		// so nothing reaches them at runtime. Remove together with the consumer
+		// branches in pkg/host/host.go and the HostRegisteredEvent /
+		// IndexerRegisteredEvent structs in view.go.
 		case "ViewRegistered":
 			if e := parseViewRegisteredEvent(event); e != nil {
 				events = append(events, e)
@@ -363,13 +408,15 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	return events
 }
 
-// parseViewRegisteredEvent parses view registration events.
+// parseViewRegisteredEvent parses the legacy single-word ViewRegistered event.
+// The legacy attribute name is "view_address" (mapped to the renamed
+// ContractAddress field on ViewRegisteredEvent).
 func parseViewRegisteredEvent(event Event) ShinzoEvent {
 	e := ViewRegisteredEvent{}
 	for _, attr := range event.Attributes {
 		switch attr.Key {
 		case "view_address":
-			e.ViewAddress = attr.Value
+			e.ContractAddress = attr.Value
 		case "view_name":
 			e.ViewName = attr.Value
 		case "creator":
@@ -383,7 +430,7 @@ func parseViewRegisteredEvent(event Event) ShinzoEvent {
 			e.View = newView
 		}
 	}
-	if e.ViewAddress != "" && e.Creator != "" && e.View.Data.Query != "" {
+	if e.ContractAddress != "" && e.Creator != "" && e.View.Data.Query != "" {
 		log().Infof("ViewRegistered event received: %s", e.View.Name)
 		return &e
 	}
