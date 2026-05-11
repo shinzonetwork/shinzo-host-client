@@ -22,6 +22,10 @@ type RPCClient struct {
 	httpClient *http.Client
 }
 
+// httpClientTimeout is the per-request timeout for LCD calls. Higher than
+// typical Cosmos LCD latency so a single slow page doesn't kill backfill.
+const httpClientTimeout = 30 * time.Second
+
 // NewRPCClient creates a client against the hub's Cosmos LCD. An empty
 // lcdURL disables backfill and hydration; the caller in that case is
 // responsible for not invoking the methods below.
@@ -30,7 +34,7 @@ func NewRPCClient(lcdURL string, defraNode *node.Node) *RPCClient {
 		lcdURL:    lcdURL,
 		defraNode: defraNode,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: httpClientTimeout,
 		},
 	}
 }
@@ -51,26 +55,30 @@ type LCDView struct {
 // ProcessViewFromWireFormat to get a view.View.
 func (c *RPCClient) GetViewBundle(ctx context.Context, contractAddress string) (string, error) {
 	if c.lcdURL == "" {
-		return "", fmt.Errorf("LCD URL not configured")
+		return "", ErrLCDNotConfigured
 	}
 	endpoint := fmt.Sprintf("%s/shinzonetwork/view/v1/views/%s?include_data=true", c.lcdURL, contractAddress)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build LCD request: %w", err)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("LCD GET %s: %w", endpoint, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log().Warnf("close LCD response body: %v", cerr)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("read LCD response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("LCD %s returned HTTP %d: %s", endpoint, resp.StatusCode, string(body))
+		return "", fmt.Errorf("%w: %s returned HTTP %d: %s", ErrLCDHTTPStatus, endpoint, resp.StatusCode, string(body))
 	}
 
 	var wrap struct {
@@ -80,7 +88,7 @@ func (c *RPCClient) GetViewBundle(ctx context.Context, contractAddress string) (
 		return "", fmt.Errorf("decode LCD response: %w", err)
 	}
 	if wrap.View.Data == "" {
-		return "", fmt.Errorf("LCD response for %s carries empty data field", contractAddress)
+		return "", fmt.Errorf("%w: contract %s", ErrLCDEmptyData, contractAddress)
 	}
 	return wrap.View.Data, nil
 }
@@ -92,7 +100,7 @@ func (c *RPCClient) GetViewBundle(ctx context.Context, contractAddress string) (
 // return value duplicates len(views) for caller convenience.
 func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, int, error) {
 	if c.lcdURL == "" {
-		return nil, 0, fmt.Errorf("LCD URL not configured")
+		return nil, 0, ErrLCDNotConfigured
 	}
 
 	const pageLimit = 100
@@ -108,19 +116,21 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return views, len(views), err
+			return views, len(views), fmt.Errorf("build LCD request: %w", err)
 		}
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
 			return views, len(views), fmt.Errorf("LCD GET %s: %w", endpoint, err)
 		}
 		body, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		if cerr := resp.Body.Close(); cerr != nil {
+			log().Warnf("close LCD response body: %v", cerr)
+		}
 		if readErr != nil {
 			return views, len(views), fmt.Errorf("read LCD response: %w", readErr)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return views, len(views), fmt.Errorf("LCD %s returned HTTP %d: %s", endpoint, resp.StatusCode, string(body))
+			return views, len(views), fmt.Errorf("%w: %s returned HTTP %d: %s", ErrLCDHTTPStatus, endpoint, resp.StatusCode, string(body))
 		}
 
 		var page struct {

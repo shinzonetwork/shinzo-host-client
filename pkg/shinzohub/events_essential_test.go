@@ -18,7 +18,7 @@ const (
 	testIndexerDID        = "did:key:z7r8op4kfY1gpaF3x3uPBT2VJEsCEJiMGq8EG9u9DXzKzRv2jzG2T4d8ictygKyMCVDSsYSwNreSyiepJfeajFfZSkRQb"
 	testIndexerConnString = "/ip4/10.0.0.50/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
 
-	testViewCreator  = "shinzo1cg7rssfan6duymqrvhhce2ldyycwvqll0z338z"
+	testViewCreator      = "shinzo1cg7rssfan6duymqrvhhce2ldyycwvqll0z338z"
 	testContractAddress1 = "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
 	testContractAddress2 = "0xf00DFed28B5304251f271c6474dF260067ee6BDa"
 )
@@ -71,8 +71,8 @@ func TestIndexerRegisteredEvent_ToString(t *testing.T) {
 func TestExtractViewFromEvent(t *testing.T) {
 	event := ViewRegisteredEvent{
 		ContractAddress: testContractAddress1,
-		ViewName:    "SimpleLog",
-		Creator:     testViewCreator,
+		ViewName:        "SimpleLog",
+		Creator:         testViewCreator,
 		View: view.View{
 			Name: "SimpleLog",
 			Data: viewbundle.View{
@@ -92,8 +92,8 @@ func TestExtractViewFromEvent(t *testing.T) {
 func TestEventStructures(t *testing.T) {
 	viewEvent := ViewRegisteredEvent{
 		ContractAddress: testContractAddress2,
-		ViewName:    "StablecoinEvent",
-		Creator:     testViewCreator,
+		ViewName:        "StablecoinEvent",
+		Creator:         testViewCreator,
 		View: view.View{
 			Name: "StablecoinEvent",
 			Data: viewbundle.View{
@@ -135,8 +135,8 @@ func TestEventStructures(t *testing.T) {
 func TestEventInterface(t *testing.T) {
 	var viewEvent ShinzoEvent = &ViewRegisteredEvent{
 		ContractAddress: testContractAddress1,
-		Creator:     testViewCreator,
-		View:        view.View{Name: "SimpleLog"},
+		Creator:         testViewCreator,
+		View:            view.View{Name: "SimpleLog"},
 	}
 	require.NotPanics(t, func() { _ = viewEvent.ToString() })
 

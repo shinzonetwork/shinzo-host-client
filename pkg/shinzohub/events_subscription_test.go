@@ -122,7 +122,7 @@ func TestEventSubscription_HydratesAndEmits(t *testing.T) {
 func TestEventSubscription_HydrationFailure_DropsEvent(t *testing.T) {
 	const contract = "0xf00DFed28B5304251f271c6474dF260067ee6BDa"
 
-	lcdSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	lcdSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"code":5,"message":"view not found"}`))
 	}))

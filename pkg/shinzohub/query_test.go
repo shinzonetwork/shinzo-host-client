@@ -62,7 +62,7 @@ func TestGetViewBundle_Success(t *testing.T) {
 }
 
 func TestGetViewBundle_NotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"code":5,"message":"view not found","details":[]}`))
@@ -83,7 +83,7 @@ func TestGetViewBundle_LCDNotConfigured(t *testing.T) {
 }
 
 func TestGetViewBundle_EmptyData(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"view": LCDView{
@@ -98,8 +98,7 @@ func TestGetViewBundle_EmptyData(t *testing.T) {
 
 	c := NewRPCClient(srv.URL, nil)
 	_, err := c.GetViewBundle(context.Background(), "0xabc")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "empty data field")
+	require.ErrorIs(t, err, ErrLCDEmptyData)
 }
 
 func TestFetchAllRegisteredViews_SinglePage(t *testing.T) {
@@ -168,7 +167,7 @@ func TestFetchAllRegisteredViews_Paginated(t *testing.T) {
 func TestFetchAllRegisteredViews_SkipsMalformedEntries(t *testing.T) {
 	good := makeTestBundle(t, "GoodView")
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"views": []LCDView{
@@ -197,7 +196,7 @@ func TestFetchAllRegisteredViews_LCDNotConfigured(t *testing.T) {
 }
 
 func TestFetchAllRegisteredViews_HTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("upstream busted"))
 	}))

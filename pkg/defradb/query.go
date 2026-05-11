@@ -100,7 +100,7 @@ func (c *queryClient) queryDataInto(ctx context.Context, query string, result an
 
 	// Check if result is expecting a slice (array) or single object
 	resultValue := reflect.ValueOf(result)
-	if resultValue.Kind() != reflect.Ptr {
+	if resultValue.Kind() != reflect.Pointer {
 		return ErrResultNotPointer
 	}
 

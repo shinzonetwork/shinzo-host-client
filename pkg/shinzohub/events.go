@@ -290,10 +290,10 @@ func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- Shinzo
 // resolved separately before the consumer can register the view in DefraDB.
 func hydrateViewBundle(ctx context.Context, lcd *RPCClient, vre *ViewRegisteredEvent) error {
 	if lcd == nil {
-		return fmt.Errorf("LCD client not configured")
+		return ErrLCDNotConfigured
 	}
 	if vre.ContractAddress == "" {
-		return fmt.Errorf("event has no contract_address")
+		return ErrEventNoContract
 	}
 
 	wireBase64, err := lcd.GetViewBundle(ctx, vre.ContractAddress)

@@ -56,7 +56,7 @@ func (qs *QueryService) initializeFieldMappings() {
 // extractFields uses reflection to extract field names from a struct.
 func (qs *QueryService) extractFields(model any) []string {
 	t := reflect.TypeOf(model)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -86,7 +86,7 @@ func (qs *QueryService) extractFields(model any) []string {
 
 // extractNestedFields extracts fields from nested struct types.
 func (qs *QueryService) extractNestedFields(t reflect.Type) []string {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
