@@ -754,40 +754,6 @@ func TestHandleIncomingEvents_ChannelClosed(t *testing.T) {
 	}
 }
 
-func TestHandleIncomingEvents_IndexerRegisteredEvent_NoNetworkHandler(t *testing.T) {
-	h := &Host{
-		NetworkHandler: nil,
-	}
-	ch := make(chan shinzohub.ShinzoEvent, 1)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		h.handleIncomingEvents(ctx, ch)
-		close(done)
-	}()
-
-	// Send entity event
-	ch <- &shinzohub.IndexerRegisteredEvent{
-		Owner:            "owner1",
-		DID:              "did1",
-		ConnectionString: "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
-		SourceChain:      "ethereum",
-		SourceChainID:    "1",
-	}
-
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("handleIncomingEvents did not return")
-	}
-}
-
 func TestHandleIncomingEvents_ViewRegisteredEvent_NilViewManager(t *testing.T) {
 	h := &Host{
 		viewManager: nil,
@@ -1301,41 +1267,6 @@ func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 		return
 	}
 	require.NotEmpty(t, peerKey)
-}
-
-// ---------------------------------------------------------------------------
-// handleIncomingEvents - entity event with real NetworkHandler
-// ---------------------------------------------------------------------------
-
-func TestHandleIncomingEvents_HostRegisteredEvent_WithoutNetworkHandler(t *testing.T) {
-	// NetworkHandler is nil — exercises the entity event parsing and nil-check branch
-	// (cannot use bare &defradb.NetworkHandler{} because AddPeer panics on uninitialized maps)
-	h := &Host{}
-	ch := make(chan shinzohub.ShinzoEvent, 1)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		h.handleIncomingEvents(ctx, ch)
-		close(done)
-	}()
-
-	ch <- &shinzohub.HostRegisteredEvent{
-		Owner:            "owner1",
-		DID:              "did1",
-		ConnectionString: "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
-	}
-
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("handleIncomingEvents did not return")
-	}
 }
 
 // ---------------------------------------------------------------------------

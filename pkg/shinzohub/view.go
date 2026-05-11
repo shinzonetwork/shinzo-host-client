@@ -18,38 +18,8 @@ type ViewRegisteredEvent struct {
 	View            view.View // bundle decoded from the hub registry; populated by downstream hydration
 }
 
-// HostRegisteredEvent represents a host registration event from ShinzoHub.
-// Emitted by HostRegistry precompile (0x211) as Cosmos SDK event "HostRegistered".
-type HostRegisteredEvent struct {
-	Owner            string
-	DID              string
-	ConnectionString string
-}
-
-// IndexerRegisteredEvent represents an indexer registration event from ShinzoHub.
-// Emitted by IndexerRegistry precompile (0x212) as Cosmos SDK event "IndexerRegistered".
-type IndexerRegisteredEvent struct {
-	Owner            string
-	DID              string
-	ConnectionString string
-	SourceChain      string
-	SourceChainID    string
-}
-
 // ToString returns a human-readable string representation of the ViewRegisteredEvent.
 func (vre *ViewRegisteredEvent) ToString() string {
 	return fmt.Sprintf("ViewRegistered: id=%s, address=%s, creator=%s",
 		vre.ViewID, vre.ContractAddress, vre.Creator)
-}
-
-// ToString returns a human-readable string representation of the HostRegisteredEvent.
-func (hre *HostRegisteredEvent) ToString() string {
-	return fmt.Sprintf("HostRegistered: owner=%s, did=%s, conn=%s",
-		hre.Owner, hre.DID, hre.ConnectionString)
-}
-
-// ToString returns a human-readable string representation of the IndexerRegisteredEvent.
-func (ire *IndexerRegisteredEvent) ToString() string {
-	return fmt.Sprintf("IndexerRegistered: owner=%s, did=%s, conn=%s, chain=%s/%s",
-		ire.Owner, ire.DID, ire.ConnectionString, ire.SourceChain, ire.SourceChainID)
 }

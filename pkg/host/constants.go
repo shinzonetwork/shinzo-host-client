@@ -13,8 +13,6 @@ const (
 	blockSignatureCacheSize = 10000
 	// openBrowserDelaySecs is a delay for opening the browser.
 	openBrowserDelaySecs = 2
-	// peerResolutionTimeoutSecs is a const for resolution timeout in s.
-	peerResolutionTimeoutSecs = 5
 	// healthServerShutdownTimeoutSecs is a const for shutdown timeout in s.
 	healthServerShutdownTimeoutSecs = 5
 	// defaultMaxProcessingDepth is a const for max processing depth.

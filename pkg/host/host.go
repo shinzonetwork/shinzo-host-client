@@ -742,43 +742,6 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				} else {
 					logger.Sugar.Warn("ViewManager not initialized - cannot register view")
 				}
-			} else if hostEvent, ok := event.(*shinzohub.HostRegisteredEvent); ok {
-				logger.Sugar.Infof("Received host registration: owner=%s, did=%s, conn=%s",
-					hostEvent.Owner, hostEvent.DID, hostEvent.ConnectionString)
-
-				if h.NetworkHandler != nil && hostEvent.ConnectionString != "" {
-					resolved := resolveBootstrapPeers(ctx,
-						[]string{hostEvent.ConnectionString},
-						peerResolutionTimeoutSecs*time.Second,
-					)
-					for _, addr := range resolved {
-						if err := h.NetworkHandler.AddPeer(addr); err != nil {
-							logger.Sugar.Errorf("Failed to add host peer %s: %v", addr, err)
-						} else {
-							logger.Sugar.Infof("Added host as P2P peer: %s", addr)
-						}
-					}
-				}
-
-			} else if indexerEvent, ok := event.(*shinzohub.IndexerRegisteredEvent); ok {
-				logger.Sugar.Infof("Received indexer registration: owner=%s, did=%s, chain=%s/%s, conn=%s",
-					indexerEvent.Owner, indexerEvent.DID, indexerEvent.SourceChain,
-					indexerEvent.SourceChainID, indexerEvent.ConnectionString)
-
-				if h.NetworkHandler != nil && indexerEvent.ConnectionString != "" {
-					resolved := resolveBootstrapPeers(ctx,
-						[]string{indexerEvent.ConnectionString},
-						peerResolutionTimeoutSecs*time.Second,
-					)
-					for _, addr := range resolved {
-						if err := h.NetworkHandler.AddPeer(addr); err != nil {
-							logger.Sugar.Errorf("Failed to add indexer peer %s: %v", addr, err)
-						} else {
-							logger.Sugar.Infof("Added indexer as P2P peer: %s", addr)
-						}
-					}
-				}
-
 			} else {
 				logger.Sugar.Debugf("Received unknown event type: %+v", event)
 			}
