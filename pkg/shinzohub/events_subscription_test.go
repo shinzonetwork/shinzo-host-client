@@ -25,7 +25,7 @@ func stubLCDForBundle(t *testing.T, contract, bundleBase64 string) *httptest.Ser
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"view": LCDView{
+			lcdFieldView: LCDView{
 				Name:            "stub",
 				Creator:         testViewCreator,
 				ContractAddress: contract,
@@ -40,11 +40,11 @@ func stubLCDForBundle(t *testing.T, contract, bundleBase64 string) *httptest.Ser
 // envelope the host's eventLoop expects.
 func txResponseFor(events ...Event) RPCResponse {
 	return RPCResponse{
-		JSONRPCVersion: "2.0",
+		JSONRPCVersion: jsonRPCVersion,
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint/event/Tx",
+				Type: tmEventTxType,
 				Value: TxResult{
 					TxResult: TxResultData{
 						Height: "100",
@@ -83,11 +83,11 @@ func TestEventSubscription_HydratesAndEmits(t *testing.T) {
 	defer cancel()
 
 	wsSrv.SendEvent(txResponseFor(Event{
-		Type: "view.view_registered",
+		Type: eventTypeViewRegistered,
 		Attributes: []EventAttribute{
-			{Key: "view_id", Value: "TestHydration_" + contract},
-			{Key: "contract_address", Value: contract},
-			{Key: "creator", Value: testViewCreator},
+			{Key: attrViewID, Value: "TestHydration_" + contract},
+			{Key: attrContractAddress, Value: contract},
+			{Key: attrCreator, Value: testViewCreator},
 		},
 	}))
 
@@ -137,11 +137,11 @@ func TestEventSubscription_HydrationFailure_DropsEvent(t *testing.T) {
 	defer cancel()
 
 	wsSrv.SendEvent(txResponseFor(Event{
-		Type: "view.view_registered",
+		Type: eventTypeViewRegistered,
 		Attributes: []EventAttribute{
-			{Key: "view_id", Value: "Missing_" + contract},
-			{Key: "contract_address", Value: contract},
-			{Key: "creator", Value: testViewCreator},
+			{Key: attrViewID, Value: "Missing_" + contract},
+			{Key: attrContractAddress, Value: contract},
+			{Key: attrCreator, Value: testViewCreator},
 		},
 	}))
 

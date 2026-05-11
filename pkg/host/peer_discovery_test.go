@@ -203,7 +203,7 @@ func TestResolveBootstrapPeers_InvalidAddresses(t *testing.T) {
 
 func TestResolveBootstrapPeers_PreservesOrder(t *testing.T) {
 	peers := []string{
-		"/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
+		testPeerMultiaddr,
 		"/ip4/10.0.0.2/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF",
 	}
 
@@ -216,7 +216,7 @@ func TestResolveBootstrapPeers_PreservesOrder(t *testing.T) {
 func TestResolveBootstrapPeers_DefaultTimeout(t *testing.T) {
 	// Passing 0 should use DefaultPeerDiscoveryTimeout (not panic)
 	peers := []string{
-		"/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
+		testPeerMultiaddr,
 	}
 
 	resolved := resolveBootstrapPeers(context.Background(), peers, 0)
@@ -242,10 +242,10 @@ func TestResolveBootstrapPeers_UnreachablePeerFallsBack(t *testing.T) {
 
 func TestResolveBootstrapPeers_MixedPeers(t *testing.T) {
 	peers := []string{
-		"/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r", // Full multiaddr
-		"",           // Empty (skip)
-		"  ",         // Whitespace (skip)
-		"not-valid!", // Invalid (skip)
+		testPeerMultiaddr, // Full multiaddr
+		"",                // Empty (skip)
+		"  ",              // Whitespace (skip)
+		"not-valid!",      // Invalid (skip)
 	}
 
 	resolved := resolveBootstrapPeers(context.Background(), peers, DefaultPeerDiscoveryTimeout)
@@ -261,7 +261,7 @@ func TestResolveBootstrapPeers_NilPeers(t *testing.T) {
 func TestResolveBootstrapPeers_NegativeTimeout(t *testing.T) {
 	// Negative timeout should use default
 	peers := []string{
-		"/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
+		testPeerMultiaddr,
 	}
 	resolved := resolveBootstrapPeers(context.Background(), peers, -1*time.Second)
 	require.Len(t, resolved, 1)

@@ -23,40 +23,40 @@ func TestCreateAttestationRecord_AllSignaturesValid(t *testing.T) {
 	sourceDocID := testSourceDocID
 	versions := []Version{
 		{
-			CID: "cid-1",
+			CID: testCID1,
 			Signature: Signature{
-				Type:     "es256k",
-				Identity: "identity-1",
-				Value:    "signature-1",
+				Type:     sigTypeES256KLowerHex,
+				Identity: testIdentity1,
+				Value:    testSignature1,
 			},
 		},
 		{
-			CID: "cid-2",
+			CID: testCID2,
 			Signature: Signature{
-				Type:     "es256k",
-				Identity: "identity-2",
-				Value:    "signature-2",
+				Type:     sigTypeES256KLowerHex,
+				Identity: testIdentity2,
+				Value:    testSignature2,
 			},
 		},
 		{
-			CID: "cid-3",
+			CID: testCID3,
 			Signature: Signature{
-				Type:     "es256k",
+				Type:     sigTypeES256KLowerHex,
 				Identity: "identity-3",
 				Value:    "signature-3",
 			},
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, testDocType, versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docID, record.AttestedDocID)
 	require.Equal(t, []string{sourceDocID}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 3)
-	require.Contains(t, record.CIDs, "cid-1")
-	require.Contains(t, record.CIDs, "cid-2")
-	require.Contains(t, record.CIDs, "cid-3")
+	require.Contains(t, record.CIDs, testCID1)
+	require.Contains(t, record.CIDs, testCID2)
+	require.Contains(t, record.CIDs, testCID3)
 }
 
 func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
@@ -64,7 +64,7 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 	verifier := &MockSignatureVerifier{
 		verifyFunc: func(_ context.Context, cid string, _ Signature) error {
 			// Only cid-1 and cid-3 are valid
-			if cid == "cid-2" {
+			if cid == testCID2 {
 				return errInvalidSignature
 			}
 			return nil
@@ -75,40 +75,40 @@ func TestCreateAttestationRecord_SomeSignaturesInvalid(t *testing.T) {
 	sourceDocID := testSourceDocID
 	versions := []Version{
 		{
-			CID: "cid-1",
+			CID: testCID1,
 			Signature: Signature{
-				Type:     "es256k",
-				Identity: "identity-1",
-				Value:    "signature-1",
+				Type:     sigTypeES256KLowerHex,
+				Identity: testIdentity1,
+				Value:    testSignature1,
 			},
 		},
 		{
-			CID: "cid-2",
+			CID: testCID2,
 			Signature: Signature{
-				Type:     "es256k",
-				Identity: "identity-2",
-				Value:    "signature-2",
+				Type:     sigTypeES256KLowerHex,
+				Identity: testIdentity2,
+				Value:    testSignature2,
 			},
 		},
 		{
-			CID: "cid-3",
+			CID: testCID3,
 			Signature: Signature{
-				Type:     "es256k",
+				Type:     sigTypeES256KLowerHex,
 				Identity: "identity-3",
 				Value:    "signature-3",
 			},
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, testDocType, versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docID, record.AttestedDocID)
 	require.Equal(t, []string{sourceDocID}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 2)
-	require.Contains(t, record.CIDs, "cid-1")
-	require.NotContains(t, record.CIDs, "cid-2")
-	require.Contains(t, record.CIDs, "cid-3")
+	require.Contains(t, record.CIDs, testCID1)
+	require.NotContains(t, record.CIDs, testCID2)
+	require.Contains(t, record.CIDs, testCID3)
 }
 
 func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
@@ -124,24 +124,24 @@ func TestCreateAttestationRecord_AllSignaturesInvalid(t *testing.T) {
 	sourceDocID := testSourceDocID
 	versions := []Version{
 		{
-			CID: "cid-1",
+			CID: testCID1,
 			Signature: Signature{
-				Type:     "es256k",
-				Identity: "identity-1",
-				Value:    "signature-1",
+				Type:     sigTypeES256KLowerHex,
+				Identity: testIdentity1,
+				Value:    testSignature1,
 			},
 		},
 		{
-			CID: "cid-2",
+			CID: testCID2,
 			Signature: Signature{
-				Type:     "es256k",
-				Identity: "identity-2",
-				Value:    "signature-2",
+				Type:     sigTypeES256KLowerHex,
+				Identity: testIdentity2,
+				Value:    testSignature2,
 			},
 		},
 	}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, testDocType, versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docID, record.AttestedDocID)
@@ -157,7 +157,7 @@ func TestCreateAttestationRecord_EmptyVersions(t *testing.T) {
 	sourceDocID := testSourceDocID
 	versions := []Version{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, "TestDoc", versions, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, docID, []string{sourceDocID}, testDocType, versions, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Equal(t, docID, record.AttestedDocID)
@@ -224,7 +224,7 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	testVersions := testDocResult.Version
 
-	attestedDocID := "attested-doc-123" // This would be the View doc created after processing the view
+	attestedDocID := testAttestedDocID // This would be the View doc created after processing the view
 	sourceDocID := testDocResult.DocID
 
 	// Manually create attestation record with the necessary data - we don't use CreateAttestationRecord because we don't want any validation
@@ -267,14 +267,14 @@ func TestPostAttestationRecord(t *testing.T) {
 func TestMergeAttestationRecords_SameDocument(t *testing.T) {
 	record1 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-1"},
-		CIDs:          []string{"cid-1", "cid-2"},
+		SourceDocIDs:  []string{testSource1},
+		CIDs:          []string{testCID1, testCID2},
 	}
 
 	record2 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-2"},
-		CIDs:          []string{"cid-3", "cid-4"},
+		SourceDocIDs:  []string{testSource2},
+		CIDs:          []string{testCID3, testCID4},
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
@@ -282,26 +282,26 @@ func TestMergeAttestationRecords_SameDocument(t *testing.T) {
 	require.NotNil(t, merged)
 	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.SourceDocIDs, 2)
-	require.Contains(t, merged.SourceDocIDs, "source-1")
-	require.Contains(t, merged.SourceDocIDs, "source-2")
+	require.Contains(t, merged.SourceDocIDs, testSource1)
+	require.Contains(t, merged.SourceDocIDs, testSource2)
 	require.Len(t, merged.CIDs, 4)
-	require.Contains(t, merged.CIDs, "cid-1")
-	require.Contains(t, merged.CIDs, "cid-2")
-	require.Contains(t, merged.CIDs, "cid-3")
-	require.Contains(t, merged.CIDs, "cid-4")
+	require.Contains(t, merged.CIDs, testCID1)
+	require.Contains(t, merged.CIDs, testCID2)
+	require.Contains(t, merged.CIDs, testCID3)
+	require.Contains(t, merged.CIDs, testCID4)
 }
 
 func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
 	record1 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-1"},
-		CIDs:          []string{"cid-1", "cid-2", "cid-3"},
+		SourceDocIDs:  []string{testSource1},
+		CIDs:          []string{testCID1, testCID2, testCID3},
 	}
 
 	record2 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-2"},
-		CIDs:          []string{"cid-2", "cid-3", "cid-4"}, // cid-2 and cid-3 are duplicates
+		SourceDocIDs:  []string{testSource2},
+		CIDs:          []string{testCID2, testCID3, testCID4}, // cid-2 and cid-3 are duplicates
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
@@ -309,10 +309,10 @@ func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
 	require.NotNil(t, merged)
 	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.CIDs, 4) // Should deduplicate
-	require.Contains(t, merged.CIDs, "cid-1")
-	require.Contains(t, merged.CIDs, "cid-2")
-	require.Contains(t, merged.CIDs, "cid-3")
-	require.Contains(t, merged.CIDs, "cid-4")
+	require.Contains(t, merged.CIDs, testCID1)
+	require.Contains(t, merged.CIDs, testCID2)
+	require.Contains(t, merged.CIDs, testCID3)
+	require.Contains(t, merged.CIDs, testCID4)
 
 	// Verify no duplicates
 	cidCount := make(map[string]int)
@@ -327,14 +327,14 @@ func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
 func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
 	record1 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-1"},
-		CIDs:          []string{"cid-1", "cid-2"},
+		SourceDocIDs:  []string{testSource1},
+		CIDs:          []string{testCID1, testCID2},
 	}
 
 	record2 := &Record{
 		AttestedDocID: "doc-456", // Different document
-		SourceDocIDs:  []string{"source-2"},
-		CIDs:          []string{"cid-3", "cid-4"},
+		SourceDocIDs:  []string{testSource2},
+		CIDs:          []string{testCID3, testCID4},
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
@@ -346,14 +346,14 @@ func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
 func TestMergeAttestationRecords_EmptyRecords(t *testing.T) {
 	record1 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-1"},
+		SourceDocIDs:  []string{testSource1},
 		CIDs:          []string{},
 	}
 
 	record2 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-2"},
-		CIDs:          []string{"cid-1", "cid-2"},
+		SourceDocIDs:  []string{testSource2},
+		CIDs:          []string{testCID1, testCID2},
 	}
 
 	merged, err := MergeAttestationRecords(record1, record2)
@@ -361,20 +361,20 @@ func TestMergeAttestationRecords_EmptyRecords(t *testing.T) {
 	require.NotNil(t, merged)
 	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.CIDs, 2)
-	require.Contains(t, merged.CIDs, "cid-1")
-	require.Contains(t, merged.CIDs, "cid-2")
+	require.Contains(t, merged.CIDs, testCID1)
+	require.Contains(t, merged.CIDs, testCID2)
 }
 
 func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
 	record1 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-1"},
+		SourceDocIDs:  []string{testSource1},
 		CIDs:          []string{},
 	}
 
 	record2 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-2"},
+		SourceDocIDs:  []string{testSource2},
 		CIDs:          []string{},
 	}
 
@@ -543,7 +543,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 
 	record1 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-1"},
+		SourceDocIDs:  []string{testSource1},
 		CIDs:          cids1,
 	}
 
@@ -561,7 +561,7 @@ func TestMergeAttestationRecords_Performance(t *testing.T) {
 
 	record2 := &Record{
 		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{"source-2"},
+		SourceDocIDs:  []string{testSource2},
 		CIDs:          cids2,
 	}
 
@@ -613,7 +613,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 	record := &Record{
 		AttestedDocID: testDocID,
 		SourceDocIDs:  []string{testDocID},
-		CIDs:          []string{"cid-1"},
+		CIDs:          []string{testCID1},
 	}
 
 	err = PostAttestationRecord(t.Context(), defraNode, record)
@@ -666,7 +666,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 	record := &Record{
 		AttestedDocID: testDocID,
 		SourceDocIDs:  []string{testDocID},
-		CIDs:          []string{"cid-1"},
+		CIDs:          []string{testCID1},
 	}
 
 	err = PostAttestationRecord(t.Context(), defraNode, record)
@@ -692,9 +692,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 
 func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
 	records := []*Record{
-		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-1"}, CIDs: []string{"cid-1"}},
-		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-2"}, CIDs: []string{"cid-2", "cid-3"}},
-		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-3"}, CIDs: []string{"cid-3", "cid-4"}},
+		{AttestedDocID: testDocID, SourceDocIDs: []string{testSource1}, CIDs: []string{testCID1}},
+		{AttestedDocID: testDocID, SourceDocIDs: []string{testSource2}, CIDs: []string{testCID2, testCID3}},
+		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-3"}, CIDs: []string{testCID3, testCID4}},
 	}
 
 	merged := records[0]
@@ -707,10 +707,10 @@ func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
 	require.NotNil(t, merged)
 	require.Equal(t, testDocID, merged.AttestedDocID)
 	require.Len(t, merged.SourceDocIDs, 3)
-	require.Contains(t, merged.SourceDocIDs, "source-1")
-	require.Contains(t, merged.SourceDocIDs, "source-2")
+	require.Contains(t, merged.SourceDocIDs, testSource1)
+	require.Contains(t, merged.SourceDocIDs, testSource2)
 	require.Contains(t, merged.SourceDocIDs, "source-3")
-	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3", "cid-4"}, merged.CIDs)
+	require.ElementsMatch(t, []string{testCID1, testCID2, testCID3, testCID4}, merged.CIDs)
 }
 
 func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
@@ -725,8 +725,8 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	record1 := &Record{
 		AttestedDocID: "block:500:deadbeef",
 		SourceDocIDs:  []string{"indexer-A"},
-		CIDs:          []string{"cid-1", "cid-2"},
-		DocType:       "Block",
+		CIDs:          []string{testCID1, testCID2},
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record1)
@@ -736,15 +736,15 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	record2 := &Record{
 		AttestedDocID: "block:500:deadbeef",
 		SourceDocIDs:  []string{"indexer-B"},
-		CIDs:          []string{"cid-1", "cid-2"},
-		DocType:       "Block",
+		CIDs:          []string{testCID1, testCID2},
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record2)
 	require.NoError(t, err)
 
 	// Query and verify both indexer identities are preserved
-	records, err := CheckExistingAttestation(ctx, defraNode, "block:500:deadbeef", "Block")
+	records, err := CheckExistingAttestation(ctx, defraNode, "block:500:deadbeef", testDocTypeBlock)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record")
 
@@ -780,10 +780,10 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 
 	// Step 1: Create initial attestation record with cid-1 and cid-2
 	initialRecord := &Record{
-		AttestedDocID: "attested-doc-123",
+		AttestedDocID: testAttestedDocID,
 		SourceDocIDs:  []string{testSourceDocID},
-		CIDs:          []string{"cid-1", "cid-2"},
-		DocType:       "TestDoc",
+		CIDs:          []string{testCID1, testCID2},
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 
@@ -792,7 +792,7 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 
 	// Verify initial record was created
 	query := fmt.Sprintf(`
-		%s(filter: {attested_doc: {_eq: "attested-doc-123"}}) {
+		%s(filter: {attested_doc: {_eq: %q}}) {
 			_docID
 			attested_doc
 			source_doc
@@ -800,19 +800,19 @@ func TestPostAttestationRecordsBatch_UpdatesExistingRecord_AppendsCIDs(t *testin
 			doc_type
 			vote_count
 		}
-	`, constants.CollectionAttestationRecord)
+	`, constants.CollectionAttestationRecord, testAttestedDocID)
 
 	results, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.ElementsMatch(t, []string{"cid-1", "cid-2"}, results[0].CIDs)
+	require.ElementsMatch(t, []string{testCID1, testCID2}, results[0].CIDs)
 
 	// Step 2: Post update with new CIDs (cid-2 overlaps, cid-3 is new)
 	updateRecord := &Record{
-		AttestedDocID: "attested-doc-123",
+		AttestedDocID: testAttestedDocID,
 		SourceDocIDs:  []string{testSourceDocID},
-		CIDs:          []string{"cid-2", "cid-3"},
-		DocType:       "TestDoc",
+		CIDs:          []string{testCID2, testCID3},
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 
@@ -854,8 +854,8 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	record := &Record{
 		AttestedDocID: "new-attested-doc",
 		SourceDocIDs:  []string{"new-source-doc"},
-		CIDs:          []string{"cid-a", "cid-b"},
-		DocType:       "TestDoc",
+		CIDs:          []string{testCIDA, testCIDB},
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 
@@ -877,7 +877,7 @@ func TestPostAttestationRecordsBatch_CreatesNewRecord_WhenNotExists(t *testing.T
 	require.Len(t, results, 1)
 	require.Equal(t, "new-attested-doc", results[0].AttestedDocID)
 	require.Equal(t, []string{"new-source-doc"}, results[0].SourceDocIDs)
-	require.ElementsMatch(t, []string{"cid-a", "cid-b"}, results[0].CIDs)
+	require.ElementsMatch(t, []string{testCIDA, testCIDB}, results[0].CIDs)
 }
 
 func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
@@ -907,17 +907,17 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 	// Create multiple records in a single batch
 	records := []*Record{
 		{
-			AttestedDocID: "doc-1",
-			SourceDocIDs:  []string{"source-1"},
-			CIDs:          []string{"cid-1"},
-			DocType:       "TypeA",
+			AttestedDocID: testDocID1,
+			SourceDocIDs:  []string{testSource1},
+			CIDs:          []string{testCID1},
+			DocType:       testDocTypeA,
 			VoteCount:     1,
 		},
 		{
-			AttestedDocID: "doc-2",
-			SourceDocIDs:  []string{"source-2"},
-			CIDs:          []string{"cid-2", "cid-3"},
-			DocType:       "TypeB",
+			AttestedDocID: testDocID2,
+			SourceDocIDs:  []string{testSource2},
+			CIDs:          []string{testCID2, testCID3},
+			DocType:       testDocTypeB,
 			VoteCount:     1,
 		},
 	}
@@ -945,10 +945,10 @@ func TestPostAttestationRecordsBatch_MultipleBatchRecords(t *testing.T) {
 		resultMap[r.AttestedDocID] = r
 	}
 
-	require.Contains(t, resultMap, "doc-1")
-	require.Contains(t, resultMap, "doc-2")
-	require.ElementsMatch(t, []string{"cid-1"}, resultMap["doc-1"].CIDs)
-	require.ElementsMatch(t, []string{"cid-2", "cid-3"}, resultMap["doc-2"].CIDs)
+	require.Contains(t, resultMap, testDocID1)
+	require.Contains(t, resultMap, testDocID2)
+	require.ElementsMatch(t, []string{testCID1}, resultMap[testDocID1].CIDs)
+	require.ElementsMatch(t, []string{testCID2, testCID3}, resultMap[testDocID2].CIDs)
 }
 
 func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
@@ -985,7 +985,7 @@ func TestPostAttestationRecordsBatch_EmptyRecords_ReturnsNil(t *testing.T) {
 
 	// Test with records that have empty CIDs
 	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{
-		{AttestedDocID: "doc-1", SourceDocIDs: []string{"source-1"}, CIDs: []string{}},
+		{AttestedDocID: testDocID1, SourceDocIDs: []string{testSource1}, CIDs: []string{}},
 	})
 	require.NoError(t, err)
 }
@@ -1017,9 +1017,9 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	// Create initial record
 	initialRecord := &Record{
 		AttestedDocID: "attested-doc-mutation-test",
-		SourceDocIDs:  []string{"source-doc"},
-		CIDs:          []string{"cid-1"},
-		DocType:       "TestDoc",
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
+		CIDs:          []string{testCID1},
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecordsBatch(ctx, defraNode, []*Record{initialRecord})
@@ -1028,9 +1028,9 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 	// Create update record and save original CIDs
 	updateRecord := &Record{
 		AttestedDocID: "attested-doc-mutation-test",
-		SourceDocIDs:  []string{"source-doc"},
-		CIDs:          []string{"cid-2"},
-		DocType:       "TestDoc",
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
+		CIDs:          []string{testCID2},
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 	originalCIDs := make([]string, len(updateRecord.CIDs))
@@ -1049,24 +1049,24 @@ func TestPostAttestationRecordsBatch_DoesNotMutateInputRecords(t *testing.T) {
 
 func TestExtractVersionsFromDocument_WithVersionField(t *testing.T) {
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid": "cid-abc",
-				"signature": map[string]any{
-					"type":     "es256k",
-					"identity": "identity-abc",
-					"value":    "sig-abc",
+				jsonFieldCID: testCIDABC,
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     sigTypeES256KLowerHex,
+					jsonFieldIdentity: testIdentityABC,
+					jsonFieldValue:    "sig-abc",
 				},
-				"collectionVersionId": "colv-1",
+				jsonFieldCollectionVer: testCollVersionID,
 			},
 			map[string]any{
-				"cid": "cid-def",
-				"signature": map[string]any{
-					"type":     "ES256K",
-					"identity": "identity-def",
-					"value":    "sig-def",
+				jsonFieldCID: "cid-def",
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     sigTypeES256K,
+					jsonFieldIdentity: "identity-def",
+					jsonFieldValue:    "sig-def",
 				},
-				"collectionVersionId": "colv-2",
+				jsonFieldCollectionVer: "colv-2",
 			},
 		},
 	}
@@ -1074,19 +1074,19 @@ func TestExtractVersionsFromDocument_WithVersionField(t *testing.T) {
 	versions, err := ExtractVersionsFromDocument(docData)
 	require.NoError(t, err)
 	require.Len(t, versions, 2)
-	require.Equal(t, "cid-abc", versions[0].CID)
-	require.Equal(t, "es256k", versions[0].Signature.Type)
-	require.Equal(t, "identity-abc", versions[0].Signature.Identity)
+	require.Equal(t, testCIDABC, versions[0].CID)
+	require.Equal(t, sigTypeES256KLowerHex, versions[0].Signature.Type)
+	require.Equal(t, testIdentityABC, versions[0].Signature.Identity)
 	require.Equal(t, "sig-abc", versions[0].Signature.Value)
-	require.Equal(t, "colv-1", versions[0].CollectionVersionID)
+	require.Equal(t, testCollVersionID, versions[0].CollectionVersionID)
 	require.Equal(t, "cid-def", versions[1].CID)
 	require.Equal(t, "colv-2", versions[1].CollectionVersionID)
 }
 
 func TestExtractVersionsFromDocument_WithoutVersionField(t *testing.T) {
 	docData := map[string]any{
-		"name":  "test-document",
-		"value": 42,
+		"name":         "test-document",
+		jsonFieldValue: 42,
 	}
 
 	versions, err := ExtractVersionsFromDocument(docData)
@@ -1097,7 +1097,7 @@ func TestExtractVersionsFromDocument_WithoutVersionField(t *testing.T) {
 func TestExtractVersionsFromDocument_VersionFieldNotArray(t *testing.T) {
 	// _version is a string instead of []any
 	docData := map[string]any{
-		"_version": "not-an-array",
+		jsonFieldVersion: "not-an-array",
 	}
 
 	versions, err := ExtractVersionsFromDocument(docData)
@@ -1108,7 +1108,7 @@ func TestExtractVersionsFromDocument_VersionFieldNotArray(t *testing.T) {
 func TestExtractVersionsFromDocument_VersionFieldIsNumber(t *testing.T) {
 	// _version is a number instead of []any
 	docData := map[string]any{
-		"_version": 123,
+		jsonFieldVersion: 123,
 	}
 
 	versions, err := ExtractVersionsFromDocument(docData)
@@ -1118,7 +1118,7 @@ func TestExtractVersionsFromDocument_VersionFieldIsNumber(t *testing.T) {
 
 func TestExtractVersionsFromDocument_VersionFieldIsNil(t *testing.T) {
 	docData := map[string]any{
-		"_version": nil,
+		jsonFieldVersion: nil,
 	}
 
 	versions, err := ExtractVersionsFromDocument(docData)
@@ -1129,15 +1129,15 @@ func TestExtractVersionsFromDocument_VersionFieldIsNil(t *testing.T) {
 func TestExtractVersionsFromDocument_VersionArrayWithNonMapElements(t *testing.T) {
 	// Some elements in the _version array are not maps
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			"not-a-map",
 			42,
 			map[string]any{
-				"cid": "cid-valid",
-				"signature": map[string]any{
-					"type":     "es256k",
-					"identity": "identity-valid",
-					"value":    "sig-valid",
+				jsonFieldCID: "cid-valid",
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     sigTypeES256KLowerHex,
+					jsonFieldIdentity: "identity-valid",
+					jsonFieldValue:    "sig-valid",
 				},
 			},
 		},
@@ -1152,10 +1152,10 @@ func TestExtractVersionsFromDocument_VersionArrayWithNonMapElements(t *testing.T
 func TestExtractVersionsFromDocument_PartialSignatureData(t *testing.T) {
 	// Version map where signature is not a map but something else
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid":       "cid-partial",
-				"signature": "not-a-map-signature",
+				jsonFieldCID:       "cid-partial",
+				jsonFieldSignature: "not-a-map-signature",
 			},
 		},
 	}
@@ -1172,7 +1172,7 @@ func TestExtractVersionsFromDocument_PartialSignatureData(t *testing.T) {
 
 func TestExtractVersionsFromDocument_EmptyVersionArray(t *testing.T) {
 	docData := map[string]any{
-		"_version": []any{},
+		jsonFieldVersion: []any{},
 	}
 
 	versions, err := ExtractVersionsFromDocument(docData)
@@ -1191,15 +1191,15 @@ func TestExtractVersionsFromDocument_EmptyDocument(t *testing.T) {
 func TestExtractVersionsFromDocument_MissingCIDField(t *testing.T) {
 	// Version map where cid is not a string
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid": 12345, // Not a string
-				"signature": map[string]any{
-					"type":     "es256k",
-					"identity": "identity-1",
-					"value":    "sig-1",
+				jsonFieldCID: 12345, // Not a string
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     sigTypeES256KLowerHex,
+					jsonFieldIdentity: testIdentity1,
+					jsonFieldValue:    testSig1,
 				},
-				"collectionVersionId": "colv-1",
+				jsonFieldCollectionVer: testCollVersionID,
 			},
 		},
 	}
@@ -1209,15 +1209,15 @@ func TestExtractVersionsFromDocument_MissingCIDField(t *testing.T) {
 	require.Len(t, versions, 1)
 	// CID should be empty since it was not a string
 	require.Equal(t, "", versions[0].CID)
-	require.Equal(t, "es256k", versions[0].Signature.Type)
+	require.Equal(t, sigTypeES256KLowerHex, versions[0].Signature.Type)
 }
 
 func TestExtractVersionsFromDocument_NonStringCollectionVersionId(t *testing.T) {
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid":                 "cid-1",
-				"collectionVersionId": 999, // Not a string
+				jsonFieldCID:           testCID1,
+				jsonFieldCollectionVer: 999, // Not a string
 			},
 		},
 	}
@@ -1225,7 +1225,7 @@ func TestExtractVersionsFromDocument_NonStringCollectionVersionId(t *testing.T) 
 	versions, err := ExtractVersionsFromDocument(docData)
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
-	require.Equal(t, "cid-1", versions[0].CID)
+	require.Equal(t, testCID1, versions[0].CID)
 	require.Equal(t, "", versions[0].CollectionVersionID)
 }
 
@@ -1242,18 +1242,18 @@ func TestCreateAttestationRecord_DefaultMaxConcurrentVerifications(t *testing.T)
 	}
 
 	versions := []Version{
-		{CID: "cid-1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+		{CID: testCID1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 	}
 
 	// maxConcurrentVerifications <= 0 should default to 50
-	record, err := CreateAttestationRecord(ctx, verifier, "doc-1", []string{"source-1"}, "TestDoc", versions, 0)
+	record, err := CreateAttestationRecord(ctx, verifier, testDocID1, []string{testSource1}, testDocType, versions, 0)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Len(t, record.CIDs, 1)
-	require.Contains(t, record.CIDs, "cid-1")
+	require.Contains(t, record.CIDs, testCID1)
 
 	// Negative value
-	record, err = CreateAttestationRecord(ctx, verifier, "doc-2", []string{"source-2"}, "TestDoc", versions, -10)
+	record, err = CreateAttestationRecord(ctx, verifier, testDocID2, []string{testSource2}, testDocType, versions, -10)
 	require.NoError(t, err)
 	require.NotNil(t, record)
 	require.Len(t, record.CIDs, 1)
@@ -1263,11 +1263,11 @@ func TestCreateAttestationRecord_NilVersions(t *testing.T) {
 	ctx := context.Background()
 	verifier := &MockSignatureVerifier{}
 
-	record, err := CreateAttestationRecord(ctx, verifier, "doc-1", []string{"source-1"}, "TestDoc", nil, 50)
+	record, err := CreateAttestationRecord(ctx, verifier, testDocID1, []string{testSource1}, testDocType, nil, 50)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	require.Equal(t, "doc-1", record.AttestedDocID)
-	require.Equal(t, []string{"source-1"}, record.SourceDocIDs)
+	require.Equal(t, testDocID1, record.AttestedDocID)
+	require.Equal(t, []string{testSource1}, record.SourceDocIDs)
 	require.Len(t, record.CIDs, 0)
 	require.Equal(t, 1, record.VoteCount)
 }
@@ -1281,7 +1281,7 @@ func TestHandleDocumentAttestation_EmptyVersions(t *testing.T) {
 	verifier := &MockSignatureVerifier{}
 
 	// Should return nil when no versions provided
-	err := HandleDocumentAttestation(ctx, verifier, nil, "doc-1", "TestDoc", []Version{}, 50)
+	err := HandleDocumentAttestation(ctx, verifier, nil, testDocID1, testDocType, []Version{}, 50)
 	require.NoError(t, err)
 }
 
@@ -1315,11 +1315,11 @@ func TestHandleDocumentAttestation_AllSignaturesInvalid_NoCIDsPosted(t *testing.
 	defraNode := client.GetNode()
 
 	versions := []Version{
-		{CID: "cid-1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+		{CID: testCID1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 	}
 
 	// All signatures fail, so no CIDs and returns nil (early return)
-	err = HandleDocumentAttestation(ctx, verifier, defraNode, "doc-1", "TestDoc", versions, 50)
+	err = HandleDocumentAttestation(ctx, verifier, defraNode, testDocID1, testDocType, versions, 50)
 	require.NoError(t, err)
 
 	// Verify nothing was posted
@@ -1365,11 +1365,11 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 	defraNode := client.GetNode()
 
 	versions := []Version{
-		{CID: "cid-1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
-		{CID: "cid-2", Signature: Signature{Type: "es256k", Identity: "id-2", Value: "sig-2"}},
+		{CID: testCID1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
+		{CID: testCID2, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDTwo, Value: testSig2}},
 	}
 
-	err = HandleDocumentAttestation(ctx, verifier, defraNode, "doc-handle-1", "TestDoc", versions, 50)
+	err = HandleDocumentAttestation(ctx, verifier, defraNode, "doc-handle-1", testDocType, versions, 50)
 	require.NoError(t, err)
 
 	// Verify record was posted
@@ -1388,7 +1388,7 @@ func TestHandleDocumentAttestation_ValidSignatures_PostsRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "doc-handle-1", results[0].AttestedDocID)
-	require.ElementsMatch(t, []string{"cid-1", "cid-2"}, results[0].CIDs)
+	require.ElementsMatch(t, []string{testCID1, testCID2}, results[0].CIDs)
 }
 
 // ========================================
@@ -1416,8 +1416,8 @@ func TestHandleDocumentAttestationBatch_AllVersionsEmpty(t *testing.T) {
 	verifier := &MockSignatureVerifier{}
 
 	inputs := []DocumentAttestationInput{
-		{DocID: "doc-1", DocType: "TestDoc", Versions: []Version{}},
-		{DocID: "doc-2", DocType: "TestDoc", Versions: nil},
+		{DocID: testDocID1, DocType: testDocType, Versions: []Version{}},
+		{DocID: testDocID2, DocType: testDocType, Versions: nil},
 	}
 
 	// All inputs have empty versions, so no records to post, returns nil
@@ -1435,10 +1435,10 @@ func TestHandleDocumentAttestationBatch_AllSignaturesInvalid(t *testing.T) {
 
 	inputs := []DocumentAttestationInput{
 		{
-			DocID:   "doc-1",
-			DocType: "TestDoc",
+			DocID:   testDocID1,
+			DocType: testDocType,
 			Versions: []Version{
-				{CID: "cid-1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+				{CID: testCID1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 			},
 		},
 	}
@@ -1480,17 +1480,17 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 	inputs := []DocumentAttestationInput{
 		{
 			DocID:   "batch-doc-1",
-			DocType: "TypeA",
+			DocType: testDocTypeA,
 			Versions: []Version{
-				{CID: "cid-a1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+				{CID: testCIDA1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 			},
 		},
 		{
 			DocID:   "batch-doc-2",
-			DocType: "TypeB",
+			DocType: testDocTypeB,
 			Versions: []Version{
-				{CID: "cid-b1", Signature: Signature{Type: "es256k", Identity: "id-2", Value: "sig-2"}},
-				{CID: "cid-b2", Signature: Signature{Type: "es256k", Identity: "id-3", Value: "sig-3"}},
+				{CID: testCIDB1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDTwo, Value: testSig2}},
+				{CID: "cid-b2", Signature: Signature{Type: sigTypeES256KLowerHex, Identity: "id-3", Value: "sig-3"}},
 			},
 		},
 	}
@@ -1518,8 +1518,8 @@ func TestHandleDocumentAttestationBatch_ValidInputs_PostsRecords(t *testing.T) {
 
 	require.Contains(t, resultMap, "batch-doc-1")
 	require.Contains(t, resultMap, "batch-doc-2")
-	require.ElementsMatch(t, []string{"cid-a1"}, resultMap["batch-doc-1"].CIDs)
-	require.ElementsMatch(t, []string{"cid-b1", "cid-b2"}, resultMap["batch-doc-2"].CIDs)
+	require.ElementsMatch(t, []string{testCIDA1}, resultMap["batch-doc-1"].CIDs)
+	require.ElementsMatch(t, []string{testCIDB1, "cid-b2"}, resultMap["batch-doc-2"].CIDs)
 }
 
 func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.T) {
@@ -1554,15 +1554,15 @@ func TestHandleDocumentAttestationBatch_MixedValidAndInvalidVersions(t *testing.
 	inputs := []DocumentAttestationInput{
 		{
 			DocID:   "batch-mixed-1",
-			DocType: "TypeA",
+			DocType: testDocTypeA,
 			Versions: []Version{
-				{CID: "cid-m1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+				{CID: "cid-m1", Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 			},
 		},
 		{
 			// This one has no versions, should be skipped
 			DocID:    "batch-mixed-2",
-			DocType:  "TypeB",
+			DocType:  testDocTypeB,
 			Versions: []Version{},
 		},
 	}
@@ -1613,7 +1613,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Check for non-existent attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, "non-existent-doc", "TestDoc")
+	records, err := CheckExistingAttestation(ctx, defraNode, "non-existent-doc", testDocType)
 	require.NoError(t, err)
 	require.Empty(t, records)
 }
@@ -1645,16 +1645,16 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 	// First, create an attestation record
 	record := &Record{
 		AttestedDocID: "check-existing-doc",
-		SourceDocIDs:  []string{"source-doc"},
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
 		CIDs:          []string{"cid-check-1"},
-		DocType:       "TestDoc",
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record)
 	require.NoError(t, err)
 
 	// Now check for existing attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, "check-existing-doc", "TestDoc")
+	records, err := CheckExistingAttestation(ctx, defraNode, "check-existing-doc", testDocType)
 	require.NoError(t, err)
 	require.NotNil(t, records)
 	require.Len(t, records, 1)
@@ -1687,19 +1687,19 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 
 	defraNode := client.GetNode()
 
-	// Create an attestation record with doc_type "TypeA"
+	// Create an attestation record with doc_type testDocTypeA
 	record := &Record{
 		AttestedDocID: "check-doctype-doc",
-		SourceDocIDs:  []string{"source-doc"},
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
 		CIDs:          []string{"cid-dt-1"},
-		DocType:       "TypeA",
+		DocType:       testDocTypeA,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record)
 	require.NoError(t, err)
 
 	// Query with wrong doc_type should find nothing
-	records, err := CheckExistingAttestation(ctx, defraNode, "check-doctype-doc", "TypeB")
+	records, err := CheckExistingAttestation(ctx, defraNode, "check-doctype-doc", testDocTypeB)
 	require.NoError(t, err)
 	require.Empty(t, records)
 }
@@ -1765,9 +1765,9 @@ func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
 	// Create a block attestation record with attested_doc = "block:42"
 	record := &Record{
 		AttestedDocID: "block:42",
-		SourceDocIDs:  []string{"block-source"},
+		SourceDocIDs:  []string{testBlockSource},
 		CIDs:          []string{"target-cid", "other-cid"},
-		DocType:       "Block",
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record)
@@ -1806,9 +1806,9 @@ func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
 	// Create a block attestation record
 	record := &Record{
 		AttestedDocID: "block:50",
-		SourceDocIDs:  []string{"block-source"},
+		SourceDocIDs:  []string{testBlockSource},
 		CIDs:          []string{"cid-in-block"},
-		DocType:       "Block",
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record)
@@ -1882,14 +1882,14 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 		AttestedDocID: "block:100:merkle-root-a",
 		SourceDocIDs:  []string{"indexer-1"},
 		CIDs:          []string{"cid-100-a"},
-		DocType:       "Block",
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	record2 := &Record{
 		AttestedDocID: "block:100:merkle-root-b",
 		SourceDocIDs:  []string{"indexer-2"},
 		CIDs:          []string{"cid-100-b"},
-		DocType:       "Block",
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	// Also create a record for a different block to make sure it's not returned
@@ -1897,7 +1897,7 @@ func TestGetBlockAttestations_WithRecords(t *testing.T) {
 		AttestedDocID: "block:200:merkle-root-c",
 		SourceDocIDs:  []string{"indexer-1"},
 		CIDs:          []string{"cid-200-c"},
-		DocType:       "Block",
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 
@@ -2040,11 +2040,11 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 	// Create some records
 	createMutation := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "all-doc-1", source_doc: ["src-1"], CIDs: ["cid-a1"]}) {
+			create_%s(input: {attested_doc: "all-doc-1", source_doc: ["src-1"], CIDs: [%q]}) {
 				_docID
 			}
 		}
-	`, collectionName)
+	`, collectionName, testCIDA1)
 	_, err = defradb.PostMutation[map[string]any](ctx, defraNode, createMutation)
 	require.NoError(t, err)
 
@@ -2183,9 +2183,9 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 
 	record := &Record{
 		AttestedDocID: "empty-cids-doc",
-		SourceDocIDs:  []string{"source-doc"},
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
 		CIDs:          []string{},
-		DocType:       "TestDoc",
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 
@@ -2219,9 +2219,9 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 
 	record := &Record{
 		AttestedDocID: "multi-cid-doc",
-		SourceDocIDs:  []string{"source-doc"},
-		CIDs:          []string{"cid-1", "cid-2", "cid-3"},
-		DocType:       "TestDoc",
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
+		CIDs:          []string{testCID1, testCID2, testCID3},
+		DocType:       testDocType,
 		VoteCount:     5,
 	}
 
@@ -2241,7 +2241,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 	results, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	require.ElementsMatch(t, []string{"cid-1", "cid-2", "cid-3"}, results[0].CIDs)
+	require.ElementsMatch(t, []string{testCID1, testCID2, testCID3}, results[0].CIDs)
 }
 
 // ========================================
@@ -2254,9 +2254,9 @@ func TestDefraSignatureVerifier_Verify_NilNode(t *testing.T) {
 
 	// Valid signature type and identity, but nil node
 	err := verifier.Verify(ctx, "test-cid", Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: "0x1234567890abcdef",
-		Value:    "sig-value",
+		Value:    testSigValue,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "defradb node or DB is not available")
@@ -2268,9 +2268,9 @@ func TestDefraSignatureVerifier_Verify_LowercaseSignatureType(t *testing.T) {
 
 	// Lowercase es256k should be rejected (the code checks ToUpper)
 	err := verifier.Verify(ctx, "test-cid", Signature{
-		Type:     "es256k",
+		Type:     sigTypeES256KLowerHex,
 		Identity: "0x1234567890abcdef",
-		Value:    "sig-value",
+		Value:    testSigValue,
 	})
 	// es256k uppercased is ES256K, so it passes the type check, but fails at nil node
 	require.Error(t, err)
@@ -2282,9 +2282,9 @@ func TestDefraSignatureVerifier_Verify_EmptyCIDAndEmptyIdentity(t *testing.T) {
 	verifier := NewDefraSignatureVerifier(nil, nil)
 
 	err := verifier.Verify(ctx, "", Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: "",
-		Value:    "sig-value",
+		Value:    testSigValue,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "empty identity")
@@ -2300,7 +2300,7 @@ func TestMockSignatureVerifier_NilVerifyFunc(t *testing.T) {
 	ctx := context.Background()
 
 	err := mockVerifier.Verify(ctx, "any-cid", Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: "id",
 		Value:    "sig",
 	})
@@ -2335,8 +2335,8 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 	record := &Record{
 		AttestedDocID: "doc-error",
 		SourceDocIDs:  []string{"source-error"},
-		CIDs:          []string{"cid-1"},
-		DocType:       "TestDoc",
+		CIDs:          []string{testCID1},
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 
@@ -2372,10 +2372,10 @@ func TestPostAttestationRecordsBatch_MissingSchema_ReturnsError(t *testing.T) {
 
 	records := []*Record{
 		{
-			AttestedDocID: "doc-1",
-			SourceDocIDs:  []string{"source-1"},
-			CIDs:          []string{"cid-1"},
-			DocType:       "TestDoc",
+			AttestedDocID: testDocID1,
+			SourceDocIDs:  []string{testSource1},
+			CIDs:          []string{testCID1},
+			DocType:       testDocType,
 			VoteCount:     1,
 		},
 	}
@@ -2415,9 +2415,9 @@ func TestPostAttestationRecordsBatch_AllNilOrEmptyCIDs_ReturnsNil(t *testing.T) 
 	// Mix of nil records and records with empty CIDs
 	records := []*Record{
 		nil,
-		{AttestedDocID: "doc-1", SourceDocIDs: []string{"src-1"}, CIDs: []string{}},
+		{AttestedDocID: testDocID1, SourceDocIDs: []string{"src-1"}, CIDs: []string{}},
 		nil,
-		{AttestedDocID: "doc-2", SourceDocIDs: []string{"src-2"}, CIDs: []string{}},
+		{AttestedDocID: testDocID2, SourceDocIDs: []string{"src-2"}, CIDs: []string{}},
 	}
 
 	err = PostAttestationRecordsBatch(ctx, defraNode, records)
@@ -2455,12 +2455,12 @@ func TestHandleDocumentAttestation_PostAttestationRecordError(t *testing.T) {
 	defraNode := client.GetNode()
 
 	versions := []Version{
-		{CID: "cid-1", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+		{CID: testCID1, Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 	}
 
 	// CreateAttestationRecord will succeed (it uses mock verifier),
 	// but PostAttestationRecord will fail because the collection doesn't exist
-	err = HandleDocumentAttestation(ctx, verifier, defraNode, "doc-1", "TestDoc", versions, 50)
+	err = HandleDocumentAttestation(ctx, verifier, defraNode, testDocID1, testDocType, versions, 50)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to post attestation record for document")
 }
@@ -2506,21 +2506,21 @@ func TestHandleDocumentAttestationBatch_MixedEmptyAndValidAndInvalidSigs(t *test
 	inputs := []DocumentAttestationInput{
 		{
 			DocID:    "doc-empty",
-			DocType:  "TypeA",
+			DocType:  testDocTypeA,
 			Versions: []Version{}, // empty versions, skipped
 		},
 		{
 			DocID:   "doc-all-fail",
-			DocType: "TypeB",
+			DocType: testDocTypeB,
 			Versions: []Version{
-				{CID: "fail-cid", Signature: Signature{Type: "es256k", Identity: "id-1", Value: "sig-1"}},
+				{CID: "fail-cid", Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDOne, Value: testSig1}},
 			},
 		},
 		{
 			DocID:   "doc-valid",
 			DocType: "TypeC",
 			Versions: []Version{
-				{CID: "good-cid", Signature: Signature{Type: "es256k", Identity: "id-2", Value: "sig-2"}},
+				{CID: "good-cid", Signature: Signature{Type: sigTypeES256KLowerHex, Identity: testIDTwo, Value: testSig2}},
 			},
 		},
 	}
@@ -2574,15 +2574,15 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 	// Using upsert, the second one will merge with the first
 	record1 := &Record{
 		AttestedDocID: "multi-check-doc",
-		SourceDocIDs:  []string{"source-1"},
-		CIDs:          []string{"cid-1"},
-		DocType:       "TypeA",
+		SourceDocIDs:  []string{testSource1},
+		CIDs:          []string{testCID1},
+		DocType:       testDocTypeA,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record1)
 	require.NoError(t, err)
 
-	records, err := CheckExistingAttestation(ctx, defraNode, "multi-check-doc", "TypeA")
+	records, err := CheckExistingAttestation(ctx, defraNode, "multi-check-doc", testDocTypeA)
 	require.NoError(t, err)
 	require.NotEmpty(t, records)
 	require.Equal(t, "multi-check-doc", records[0].AttestedDocID)
@@ -2620,9 +2620,9 @@ func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
 	// Create a block attestation with specific CIDs
 	record := &Record{
 		AttestedDocID: "block:77",
-		SourceDocIDs:  []string{"block-source"},
-		CIDs:          []string{"cid-a", "cid-b", "target-cid-77"},
-		DocType:       "Block",
+		SourceDocIDs:  []string{testBlockSource},
+		CIDs:          []string{testCIDA, testCIDB, "target-cid-77"},
+		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record)
@@ -2674,7 +2674,7 @@ func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
 			AttestedDocID: fmt.Sprintf("block:%d:merkle-%d", bn, bn),
 			SourceDocIDs:  []string{fmt.Sprintf("indexer-%d", bn)},
 			CIDs:          []string{fmt.Sprintf("cid-%d", bn)},
-			DocType:       "Block",
+			DocType:       testDocTypeBlock,
 			VoteCount:     1,
 		}
 		err = PostAttestationRecord(ctx, defraNode, record)
@@ -2729,7 +2729,7 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 
 	// This should trigger the strings.Contains(err.Error(), "No attestation records found") branch
 	// or return an error if the branch doesn't match
-	records, err := CheckExistingAttestation(ctx, defraNode, "nonexistent-doc", "TestDoc")
+	records, err := CheckExistingAttestation(ctx, defraNode, "nonexistent-doc", testDocType)
 	// The function should either return nil, nil (branch matched) or an error
 	// If the collection doesn't exist, the error may or may not contain "No attestation records found"
 	// In either case, it should not panic
@@ -2814,13 +2814,13 @@ func TestGetBlockAttestations_MissingSchema_ReturnsNilNil(t *testing.T) {
 func TestExtractVersionsFromDocument_NonStringSignatureType(t *testing.T) {
 	// Signature is a map but the "type" field is not a string
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid": "cid-nst",
-				"signature": map[string]any{
-					"type":     12345, // Not a string
-					"identity": "identity-ok",
-					"value":    "sig-ok",
+				jsonFieldCID: "cid-nst",
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     12345, // Not a string
+					jsonFieldIdentity: "identity-ok",
+					jsonFieldValue:    "sig-ok",
 				},
 			},
 		},
@@ -2838,13 +2838,13 @@ func TestExtractVersionsFromDocument_NonStringSignatureType(t *testing.T) {
 func TestExtractVersionsFromDocument_NonStringSignatureIdentity(t *testing.T) {
 	// Signature is a map but the "identity" field is not a string
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid": "cid-nsi",
-				"signature": map[string]any{
-					"type":     "es256k",
-					"identity": 999, // Not a string
-					"value":    "sig-ok",
+				jsonFieldCID: "cid-nsi",
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     sigTypeES256KLowerHex,
+					jsonFieldIdentity: 999, // Not a string
+					jsonFieldValue:    "sig-ok",
 				},
 			},
 		},
@@ -2854,7 +2854,7 @@ func TestExtractVersionsFromDocument_NonStringSignatureIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-nsi", versions[0].CID)
-	require.Equal(t, "es256k", versions[0].Signature.Type)
+	require.Equal(t, sigTypeES256KLowerHex, versions[0].Signature.Type)
 	require.Equal(t, "", versions[0].Signature.Identity) // Should be zero value
 	require.Equal(t, "sig-ok", versions[0].Signature.Value)
 }
@@ -2862,13 +2862,13 @@ func TestExtractVersionsFromDocument_NonStringSignatureIdentity(t *testing.T) {
 func TestExtractVersionsFromDocument_NonStringSignatureValue(t *testing.T) {
 	// Signature is a map but the "value" field is not a string
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid": "cid-nsv",
-				"signature": map[string]any{
-					"type":     "es256k",
-					"identity": "identity-ok",
-					"value":    true, // Not a string
+				jsonFieldCID: "cid-nsv",
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     sigTypeES256KLowerHex,
+					jsonFieldIdentity: "identity-ok",
+					jsonFieldValue:    true, // Not a string
 				},
 			},
 		},
@@ -2878,7 +2878,7 @@ func TestExtractVersionsFromDocument_NonStringSignatureValue(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-nsv", versions[0].CID)
-	require.Equal(t, "es256k", versions[0].Signature.Type)
+	require.Equal(t, sigTypeES256KLowerHex, versions[0].Signature.Type)
 	require.Equal(t, "identity-ok", versions[0].Signature.Identity)
 	require.Equal(t, "", versions[0].Signature.Value) // Should be zero value
 }
@@ -2886,13 +2886,13 @@ func TestExtractVersionsFromDocument_NonStringSignatureValue(t *testing.T) {
 func TestExtractVersionsFromDocument_AllNonStringSignatureFields(t *testing.T) {
 	// Signature is a map but none of the fields are strings
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid": "cid-allns",
-				"signature": map[string]any{
-					"type":     42,
-					"identity": []int{1, 2, 3},
-					"value":    false,
+				jsonFieldCID: "cid-allns",
+				jsonFieldSignature: map[string]any{
+					jsonFieldType:     42,
+					jsonFieldIdentity: []int{1, 2, 3},
+					jsonFieldValue:    false,
 				},
 			},
 		},
@@ -2910,10 +2910,10 @@ func TestExtractVersionsFromDocument_AllNonStringSignatureFields(t *testing.T) {
 func TestExtractVersionsFromDocument_SignatureMapMissingFields(t *testing.T) {
 	// Signature is a map but has no fields at all
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid":       "cid-empty-sig",
-				"signature": map[string]any{},
+				jsonFieldCID:       "cid-empty-sig",
+				jsonFieldSignature: map[string]any{},
 			},
 		},
 	}
@@ -2930,10 +2930,10 @@ func TestExtractVersionsFromDocument_SignatureMapMissingFields(t *testing.T) {
 func TestExtractVersionsFromDocument_NoSignatureField(t *testing.T) {
 	// Version map without a signature field at all
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
-				"cid":                 "cid-no-sig",
-				"collectionVersionId": "colv-1",
+				jsonFieldCID:           "cid-no-sig",
+				jsonFieldCollectionVer: testCollVersionID,
 			},
 		},
 	}
@@ -2942,7 +2942,7 @@ func TestExtractVersionsFromDocument_NoSignatureField(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, "cid-no-sig", versions[0].CID)
-	require.Equal(t, "colv-1", versions[0].CollectionVersionID)
+	require.Equal(t, testCollVersionID, versions[0].CollectionVersionID)
 	require.Equal(t, "", versions[0].Signature.Type)
 	require.Equal(t, "", versions[0].Signature.Identity)
 	require.Equal(t, "", versions[0].Signature.Value)
@@ -2951,7 +2951,7 @@ func TestExtractVersionsFromDocument_NoSignatureField(t *testing.T) {
 func TestExtractVersionsFromDocument_NoCIDNoSignatureNoCollectionVersionId(t *testing.T) {
 	// Version map with none of the expected fields
 	docData := map[string]any{
-		"_version": []any{
+		jsonFieldVersion: []any{
 			map[string]any{
 				"unrelated_field": "some_value",
 			},
@@ -2999,9 +2999,9 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 
 	records := []*Record{
 		nil,
-		{AttestedDocID: "nil-test-doc", SourceDocIDs: []string{"src-nil"}, CIDs: []string{"cid-nil-1"}, DocType: "TestDoc", VoteCount: 1},
+		{AttestedDocID: "nil-test-doc", SourceDocIDs: []string{"src-nil"}, CIDs: []string{"cid-nil-1"}, DocType: testDocType, VoteCount: 1},
 		nil,
-		{AttestedDocID: "nil-test-doc-2", SourceDocIDs: []string{"src-nil-2"}, CIDs: []string{}, DocType: "TestDoc", VoteCount: 1},
+		{AttestedDocID: "nil-test-doc-2", SourceDocIDs: []string{"src-nil-2"}, CIDs: []string{}, DocType: testDocType, VoteCount: 1},
 	}
 
 	err = PostAttestationRecordsBatch(ctx, defraNode, records)
@@ -3027,32 +3027,32 @@ func TestPostAttestationRecordsBatch_NilRecordsInSlice_SkipNilOnly(t *testing.T)
 
 func TestExtractDocIDFromResult_ValidResult(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []any{
+		testCollectionName: []any{
 			map[string]any{
-				"_docID": "bae-abc123",
+				jsonFieldDocID: "bae-abc123",
 			},
 		},
 	}
 
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "bae-abc123", result)
 }
 
 func TestExtractDocIDFromResult_NilData(t *testing.T) {
-	result := extractDocIDFromResult(nil, "MyCollection")
+	result := extractDocIDFromResult(nil, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_DataNotMap(t *testing.T) {
-	result := extractDocIDFromResult("not-a-map", "MyCollection")
+	result := extractDocIDFromResult("not-a-map", testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_CollectionNotSlice(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": "not-a-slice",
+		testCollectionName: "not-a-slice",
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
@@ -3060,60 +3060,60 @@ func TestExtractDocIDFromResult_CollectionMissing(t *testing.T) {
 	data := map[string]any{
 		"OtherCollection": []any{},
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_EmptyCollection(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []any{},
+		testCollectionName: []any{},
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_FirstDocNotMap(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []any{
+		testCollectionName: []any{
 			"not-a-map",
 		},
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_DocIDNotString(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []any{
+		testCollectionName: []any{
 			map[string]any{
-				"_docID": 12345,
+				jsonFieldDocID: 12345,
 			},
 		},
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_DocIDMissing(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []any{
+		testCollectionName: []any{
 			map[string]any{
 				"other_field": "value",
 			},
 		},
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_MultipleDocsReturnsFirst(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []any{
-			map[string]any{"_docID": "first-doc"},
-			map[string]any{"_docID": "second-doc"},
+		testCollectionName: []any{
+			map[string]any{jsonFieldDocID: "first-doc"},
+			map[string]any{jsonFieldDocID: "second-doc"},
 		},
 	}
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "first-doc", result)
 }
 
@@ -3180,9 +3180,9 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	// Create a record first
 	record := &Record{
 		AttestedDocID: "lookup-existing-doc",
-		SourceDocIDs:  []string{"source-doc"},
+		SourceDocIDs:  []string{jsonFieldSourceDoc},
 		CIDs:          []string{"cid-lookup"},
-		DocType:       "TestDoc",
+		DocType:       testDocType,
 		VoteCount:     1,
 	}
 	err = PostAttestationRecord(ctx, defraNode, record)
@@ -3204,55 +3204,55 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 func TestExtractDocIDFromResult_MapSliceType(t *testing.T) {
 	// Test the []map[string]any branch which is distinct from []any
 	data := map[string]any{
-		"MyCollection": []map[string]any{
-			{"_docID": "bae-from-map-slice"},
+		testCollectionName: []map[string]any{
+			{jsonFieldDocID: "bae-from-map-slice"},
 		},
 	}
 
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "bae-from-map-slice", result)
 }
 
 func TestExtractDocIDFromResult_MapSliceType_EmptySlice(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []map[string]any{},
+		testCollectionName: []map[string]any{},
 	}
 
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_MapSliceType_MissingDocID(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []map[string]any{
+		testCollectionName: []map[string]any{
 			{"other_field": "value"},
 		},
 	}
 
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
 func TestExtractDocIDFromResult_MapSliceType_MultipleDocsReturnsFirst(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []map[string]any{
-			{"_docID": "first-map-doc"},
-			{"_docID": "second-map-doc"},
+		testCollectionName: []map[string]any{
+			{jsonFieldDocID: "first-map-doc"},
+			{jsonFieldDocID: "second-map-doc"},
 		},
 	}
 
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "first-map-doc", result)
 }
 
 func TestExtractDocIDFromResult_MapSliceType_DocIDNotString(t *testing.T) {
 	data := map[string]any{
-		"MyCollection": []map[string]any{
-			{"_docID": 999},
+		testCollectionName: []map[string]any{
+			{jsonFieldDocID: 999},
 		},
 	}
 
-	result := extractDocIDFromResult(data, "MyCollection")
+	result := extractDocIDFromResult(data, testCollectionName)
 	require.Equal(t, "", result)
 }
 
@@ -3277,7 +3277,7 @@ func TestGetAttestationRecordsByViewName_MissingViewSchema(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Query a non-existent view attestation collection with doc IDs
-	_, err = GetAttestationRecordsByViewName(ctx, defraNode, "NonExistentView", []string{"doc-1"})
+	_, err = GetAttestationRecordsByViewName(ctx, defraNode, "NonExistentView", []string{testDocID1})
 	// Should return an error because the collection doesn't exist
 	require.Error(t, err)
 

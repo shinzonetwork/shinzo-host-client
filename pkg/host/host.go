@@ -61,7 +61,7 @@ func maxInt(a, b int) int {
 var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglobals
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "localhost:9181",
+			URL:           defaultDefraURL,
 			KeyringSecret: "test-keyring-secret-for-testing",
 			P2P: config.DefraDBP2PConfig{
 				Enabled:             true,

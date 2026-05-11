@@ -23,7 +23,7 @@ func TestSetupLensInDefraDB_NoLenses(t *testing.T) {
 	v := &View{
 		Name: "NoLensView",
 		Data: viewbundle.View{
-			Query: "Log { address }",
+			Query: queryLogAddr,
 			Sdl:   "type NoLensView { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{},
@@ -46,7 +46,7 @@ func TestSetupLensInDefraDB_WithLenses(t *testing.T) {
 	v := &View{
 		Name: "LensView",
 		Data: viewbundle.View{
-			Query: "Log { address topics }",
+			Query: queryLogAddrTopics,
 			Sdl:   "type LensView { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -72,7 +72,7 @@ func TestSetupLensInDefraDB_WithLenses(t *testing.T) {
 func TestBuildLensConfig_SingleLens(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
-			Query: "Log { address topics }",
+			Query: queryLogAddrTopics,
 			Sdl:   "type FilteredLog { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -134,7 +134,7 @@ func TestBuildLensConfig_MultipleLenses(t *testing.T) {
 func TestBuildLensConfig_EmptyArguments(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
-			Query: "Log { address }",
+			Query: queryLogAddr,
 			Sdl:   "type SimpleLog { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -157,7 +157,7 @@ func TestBuildLensConfig_EmptyArguments(t *testing.T) {
 func TestBuildLensConfig_InvalidJSON(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
-			Query: "Log { address }",
+			Query: queryLogAddr,
 			Sdl:   "type BadLog { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -414,7 +414,7 @@ func TestConfigureLens_WithoutLensCID(t *testing.T) {
 	v := &View{
 		Name: "SimpleView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: queryEthLogAddr,
 			Sdl:   "type SimpleView { address: String }",
 		},
 	}
@@ -437,7 +437,7 @@ func TestConfigureLens_WithLensCID(t *testing.T) {
 	v := &View{
 		Name: "LensedView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Transaction { hash }",
+			Query: queryEthTransactionHash,
 			Sdl:   "type LensedView { hash: String }",
 		},
 	}
@@ -455,11 +455,11 @@ func TestBuildLensConfig_ComplexArguments(t *testing.T) {
 	complexArgs := map[string]any{
 		"events": []any{
 			map[string]any{
-				"name": "Transfer",
+				gqlFieldName: "Transfer",
 				"inputs": []any{
-					map[string]any{"type": "address", "name": "from"},
-					map[string]any{"type": "address", "name": "to"},
-					map[string]any{"type": "uint256", "name": "value"},
+					map[string]any{gqlFieldType: "address", gqlFieldName: "from"},
+					map[string]any{gqlFieldType: "address", gqlFieldName: "to"},
+					map[string]any{gqlFieldType: "uint256", gqlFieldName: "value"},
 				},
 			},
 		},
@@ -506,10 +506,10 @@ func TestSaveViewToRegistry(t *testing.T) {
 	tempDir := t.TempDir()
 
 	v := View{
-		Name: "TestView",
+		Name: testViewName,
 		Data: viewbundle.View{
-			Query: "Log { address }",
-			Sdl:   "type TestView { address: String }",
+			Query: queryLogAddr,
+			Sdl:   sdlTestView,
 		},
 	}
 
@@ -529,7 +529,7 @@ func TestSaveViewToRegistry(t *testing.T) {
 	err = json.Unmarshal(data, &views)
 	require.NoError(t, err)
 	require.Len(t, views, 1)
-	require.Equal(t, "TestView", views[0].Name)
+	require.Equal(t, testViewName, views[0].Name)
 }
 
 // TestAddViewsFromLensRegistry tests loading views from registry.
@@ -539,14 +539,14 @@ func TestAddViewsFromLensRegistry(t *testing.T) {
 	// Create views.json
 	views := []View{
 		{
-			Name: "View1",
+			Name: testViewNameOne,
 			Data: viewbundle.View{
-				Query: "Log { address }",
+				Query: queryLogAddr,
 				Sdl:   "type View1 { address: String }",
 			},
 		},
 		{
-			Name: "View2",
+			Name: testViewNameTwo,
 			Data: viewbundle.View{
 				Query: "Transaction { hash }",
 				Sdl:   "type View2 { hash: String }",
@@ -565,8 +565,8 @@ func TestAddViewsFromLensRegistry(t *testing.T) {
 	loadedViews, err := AddViewsFromLensRegistry(tempDir)
 	require.NoError(t, err)
 	require.Len(t, loadedViews, 2)
-	require.Equal(t, "View1", loadedViews[0].Name)
-	require.Equal(t, "View2", loadedViews[1].Name)
+	require.Equal(t, testViewNameOne, loadedViews[0].Name)
+	require.Equal(t, testViewNameTwo, loadedViews[1].Name)
 }
 
 // TestAddViewsFromLensRegistry_NoFile tests loading when file doesn't exist.

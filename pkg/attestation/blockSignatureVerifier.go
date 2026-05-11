@@ -113,9 +113,9 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error
 
 	var keyType crypto.KeyType
 	switch sig.SignatureType {
-	case "ES256K", "ecdsa-256k":
+	case sigTypeES256K, sigTypeES256KLower:
 		keyType = crypto.KeyTypeSecp256k1
-	case "Ed25519", "ed25519":
+	case sigTypeEd25519, sigTypeEd25519Lower:
 		keyType = crypto.KeyTypeEd25519
 	default:
 		return fmt.Errorf("%w: %v", ErrUnsupportedSignatureType, sig.SignatureType)

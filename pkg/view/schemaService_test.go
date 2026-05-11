@@ -30,10 +30,10 @@ func TestNormalizeSDL(t *testing.T) {
 	}{
 		{
 			name:     "empty typeName does not rename",
-			sdl:      "type Foo {\n  id: ID\n}",
+			sdl:      sdlFooBase,
 			typeName: "",
 			options:  SDLOptions{Materialized: false},
-			want:     "type Foo @materialized(if: false) {\n  id: ID\n}",
+			want:     sdlFooMaterialized,
 		},
 		{
 			name:     "with typeName renames the type",
@@ -44,25 +44,25 @@ func TestNormalizeSDL(t *testing.T) {
 		},
 		{
 			name:     "materialized true",
-			sdl:      "type Foo {\n  id: ID\n}",
+			sdl:      sdlFooBase,
 			typeName: "",
 			options:  SDLOptions{Materialized: true},
-			want:     "type Foo @materialized(if: true) {\n  id: ID\n}",
+			want:     sdlFooMatTrue,
 		},
 		{
 			name:     "materialized false",
-			sdl:      "type Foo {\n  id: ID\n}",
+			sdl:      sdlFooBase,
 			typeName: "",
 			options:  SDLOptions{Materialized: false},
-			want:     "type Foo @materialized(if: false) {\n  id: ID\n}",
+			want:     sdlFooMaterialized,
 		},
 		{
 			name:     "required fields added",
-			sdl:      "type Foo {\n  id: ID\n}",
+			sdl:      sdlFooBase,
 			typeName: "",
 			options: SDLOptions{
 				Materialized:   false,
-				RequiredFields: []FieldDef{{Name: "createdAt", Type: "String"}},
+				RequiredFields: []FieldDef{{Name: testFieldCreatedAt, Type: gqlScalarString}},
 			},
 			want: "type Foo @materialized(if: false) {\n  id: ID\n  createdAt: String\n}",
 		},
@@ -72,7 +72,7 @@ func TestNormalizeSDL(t *testing.T) {
 			typeName: "New",
 			options: SDLOptions{
 				Materialized:   true,
-				RequiredFields: []FieldDef{{Name: "ts", Type: "Int"}},
+				RequiredFields: []FieldDef{{Name: "ts", Type: gqlScalarInt}},
 			},
 			want: "type New @materialized(if: true) {\n  id: ID\n  ts: Int\n}",
 		},
@@ -99,27 +99,27 @@ func TestEnsureMaterializedDirective(t *testing.T) {
 	}{
 		{
 			name:         "replace existing directive with true",
-			sdl:          "type Foo @materialized(if: false) {\n  id: ID\n}",
+			sdl:          sdlFooMaterialized,
 			materialized: true,
-			want:         "type Foo @materialized(if: true) {\n  id: ID\n}",
+			want:         sdlFooMatTrue,
 		},
 		{
 			name:         "replace existing directive with false",
-			sdl:          "type Foo @materialized(if: true) {\n  id: ID\n}",
+			sdl:          sdlFooMatTrue,
 			materialized: false,
-			want:         "type Foo @materialized(if: false) {\n  id: ID\n}",
+			want:         sdlFooMaterialized,
 		},
 		{
 			name:         "add directive to type with braces",
-			sdl:          "type Foo {\n  id: ID\n}",
+			sdl:          sdlFooBase,
 			materialized: true,
-			want:         "type Foo @materialized(if: true) {\n  id: ID\n}",
+			want:         sdlFooMatTrue,
 		},
 		{
 			name:         "no type block returns unchanged",
-			sdl:          "scalar DateTime",
+			sdl:          gqlScalarDateTime,
 			materialized: true,
-			want:         "scalar DateTime",
+			want:         gqlScalarDateTime,
 		},
 	}
 	for _, tt := range tests {
@@ -143,17 +143,17 @@ func TestParseMaterializedFromSDL(t *testing.T) {
 	}{
 		{
 			name: "materialized true",
-			sdl:  "type Foo @materialized(if: true) {\n  id: ID\n}",
+			sdl:  sdlFooMatTrue,
 			want: true,
 		},
 		{
 			name: "materialized false",
-			sdl:  "type Foo @materialized(if: false) {\n  id: ID\n}",
+			sdl:  sdlFooMaterialized,
 			want: false,
 		},
 		{
 			name: "no directive returns false",
-			sdl:  "type Foo {\n  id: ID\n}",
+			sdl:  sdlFooBase,
 			want: false,
 		},
 	}
@@ -179,12 +179,12 @@ func TestEnsureMaterializedDirective_ExistingDirectiveWithoutParens(t *testing.T
 
 func TestNormalizeSDL_MultipleRequiredFields(t *testing.T) {
 	ss := NewSchemaService()
-	sdl := "type Foo {\n  id: ID\n}"
+	sdl := sdlFooBase
 	opts := SDLOptions{
 		Materialized: false,
 		RequiredFields: []FieldDef{
-			{Name: "createdAt", Type: "String"},
-			{Name: "blockNumber", Type: "Int"},
+			{Name: testFieldCreatedAt, Type: gqlScalarString},
+			{Name: "blockNumber", Type: gqlScalarInt},
 		},
 	}
 	got := ss.NormalizeSDL(sdl, "", opts)
@@ -199,7 +199,7 @@ func TestNormalizeSDL_RequiredFieldAlreadyExists(t *testing.T) {
 	opts := SDLOptions{
 		Materialized: false,
 		RequiredFields: []FieldDef{
-			{Name: "blockNumber", Type: "Int"},
+			{Name: "blockNumber", Type: gqlScalarInt},
 		},
 	}
 	got := ss.NormalizeSDL(sdl, "", opts)
@@ -217,24 +217,24 @@ func TestAddFieldIfMissing(t *testing.T) {
 	}{
 		{
 			name:      "field missing is added before last }",
-			sdl:       "type Foo {\n  id: ID\n}",
-			fieldName: "createdAt",
-			fieldType: "String",
-			want:      "type Foo {\n  id: ID\n  createdAt: String\n}",
+			sdl:       sdlFooBase,
+			fieldName: testFieldCreatedAt,
+			fieldType: gqlScalarString,
+			want:      sdlFooBaseWithCreatedAtStr,
 		},
 		{
 			name:      "field already present is unchanged",
-			sdl:       "type Foo {\n  id: ID\n  createdAt: String\n}",
-			fieldName: "createdAt",
-			fieldType: "String",
-			want:      "type Foo {\n  id: ID\n  createdAt: String\n}",
+			sdl:       sdlFooBaseWithCreatedAtStr,
+			fieldName: testFieldCreatedAt,
+			fieldType: gqlScalarString,
+			want:      sdlFooBaseWithCreatedAtStr,
 		},
 		{
 			name:      "no closing brace returns unchanged",
-			sdl:       "scalar DateTime",
-			fieldName: "createdAt",
-			fieldType: "String",
-			want:      "scalar DateTime",
+			sdl:       gqlScalarDateTime,
+			fieldName: testFieldCreatedAt,
+			fieldType: gqlScalarString,
+			want:      gqlScalarDateTime,
 		},
 	}
 	for _, tt := range tests {

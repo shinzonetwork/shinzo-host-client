@@ -13,6 +13,10 @@ const (
 	testViewCreator      = "shinzo1cg7rssfan6duymqrvhhce2ldyycwvqll0z338z"
 	testContractAddress1 = "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
 	testContractAddress2 = "0xf00DFed28B5304251f271c6474dF260067ee6BDa"
+
+	testViewName  = "TestView"
+	testViewNameA = "ViewA"
+	testViewNameB = "ViewB"
 )
 
 func TestViewRegisteredEvent_ToString(t *testing.T) {
@@ -55,11 +59,11 @@ func TestExtractViewFromEvent(t *testing.T) {
 
 func TestExtractShinzoEvents_IgnoresUnknownEvents(t *testing.T) {
 	msg := RPCResponse{
-		JSONRPCVersion: "2.0",
+		JSONRPCVersion: jsonRPCVersion,
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint/event/Tx",
+				Type: tmEventTxType,
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
@@ -86,21 +90,21 @@ func TestExtractShinzoEvents_IgnoresUnknownEvents(t *testing.T) {
 // emitted event. View stays empty; downstream hydration populates it.
 func TestExtractShinzoEvents_ViewViewRegistered(t *testing.T) {
 	msg := RPCResponse{
-		JSONRPCVersion: "2.0",
+		JSONRPCVersion: jsonRPCVersion,
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint/event/Tx",
+				Type: tmEventTxType,
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
 							Events: []Event{
 								{
-									Type: "view.view_registered",
+									Type: eventTypeViewRegistered,
 									Attributes: []EventAttribute{
-										{Key: "view_id", Value: "view-id-abc"},
-										{Key: "contract_address", Value: testContractAddress1},
-										{Key: "creator", Value: testViewCreator},
+										{Key: attrViewID, Value: "view-id-abc"},
+										{Key: attrContractAddress, Value: testContractAddress1},
+										{Key: attrCreator, Value: testViewCreator},
 									},
 								},
 							},
@@ -126,21 +130,21 @@ func TestExtractShinzoEvents_ViewViewRegistered(t *testing.T) {
 // so the parser drops it.
 func TestExtractShinzoEvents_ViewViewRegistered_Incomplete(t *testing.T) {
 	msg := RPCResponse{
-		JSONRPCVersion: "2.0",
+		JSONRPCVersion: jsonRPCVersion,
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint/event/Tx",
+				Type: tmEventTxType,
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
 							Events: []Event{
 								{
-									Type: "view.view_registered",
+									Type: eventTypeViewRegistered,
 									Attributes: []EventAttribute{
-										{Key: "view_id", Value: "view-id-abc"},
+										{Key: attrViewID, Value: "view-id-abc"},
 										// contract_address omitted
-										{Key: "creator", Value: testViewCreator},
+										{Key: attrCreator, Value: testViewCreator},
 									},
 								},
 							},
@@ -159,15 +163,15 @@ func TestExtractShinzoEvents_ViewViewRegistered_Incomplete(t *testing.T) {
 // onto the channel.
 func TestExtractShinzoEvents_ViewViewRegistrationFailed(t *testing.T) {
 	for _, eventType := range []string{
-		"view.view_registration_failed",
-		"view.view_registration_timed_out",
+		eventTypeViewRegistrationFailed,
+		eventTypeViewRegistrationTimedOut,
 	} {
 		msg := RPCResponse{
-			JSONRPCVersion: "2.0",
+			JSONRPCVersion: jsonRPCVersion,
 			ID:             1,
 			Result: RPCResult{
 				Data: RPCData{
-					Type: "tendermint/event/Tx",
+					Type: tmEventTxType,
 					Value: TxResult{
 						TxResult: TxResultData{
 							Result: TxResultResult{
@@ -175,10 +179,10 @@ func TestExtractShinzoEvents_ViewViewRegistrationFailed(t *testing.T) {
 									{
 										Type: eventType,
 										Attributes: []EventAttribute{
-											{Key: "view_id", Value: "view-id-failed"},
-											{Key: "contract_address", Value: testContractAddress1},
-											{Key: "creator", Value: testViewCreator},
-											{Key: "error", Value: "ack returned with status FAILURE"},
+											{Key: attrViewID, Value: "view-id-failed"},
+											{Key: attrContractAddress, Value: testContractAddress1},
+											{Key: attrCreator, Value: testViewCreator},
+											{Key: attrError, Value: "ack returned with status FAILURE"},
 										},
 									},
 								},
@@ -206,11 +210,11 @@ func TestExtractShinzoEvents_ViewViewRegistrationFailed(t *testing.T) {
 // on the channel instead of being logged-and-dropped.
 func TestExtractShinzoEvents_MultiEventTx(t *testing.T) {
 	msg := RPCResponse{
-		JSONRPCVersion: "2.0",
+		JSONRPCVersion: jsonRPCVersion,
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
-				Type: "tendermint/event/Tx",
+				Type: tmEventTxType,
 				Value: TxResult{
 					TxResult: TxResultData{
 						Result: TxResultResult{
@@ -225,32 +229,32 @@ func TestExtractShinzoEvents_MultiEventTx(t *testing.T) {
 								// Well-formed view.view_registered — the only event
 								// we expect to see emitted.
 								{
-									Type: "view.view_registered",
+									Type: eventTypeViewRegistered,
 									Attributes: []EventAttribute{
-										{Key: "view_id", Value: "good-view-id"},
-										{Key: "contract_address", Value: testContractAddress1},
-										{Key: "creator", Value: testViewCreator},
+										{Key: attrViewID, Value: "good-view-id"},
+										{Key: attrContractAddress, Value: testContractAddress1},
+										{Key: attrCreator, Value: testViewCreator},
 									},
 								},
 								// Malformed view.view_registered — missing
 								// contract_address. Hydration would fail later
 								// anyway; the parser should drop it now.
 								{
-									Type: "view.view_registered",
+									Type: eventTypeViewRegistered,
 									Attributes: []EventAttribute{
-										{Key: "view_id", Value: "bad-view-id"},
-										{Key: "creator", Value: testViewCreator},
+										{Key: attrViewID, Value: "bad-view-id"},
+										{Key: attrCreator, Value: testViewCreator},
 									},
 								},
 								// Terminal failure event — must be logged but
 								// not emitted; the host has no pending state to
 								// roll back.
 								{
-									Type: "view.view_registration_failed",
+									Type: eventTypeViewRegistrationFailed,
 									Attributes: []EventAttribute{
-										{Key: "view_id", Value: "failed-view-id"},
-										{Key: "contract_address", Value: testContractAddress2},
-										{Key: "error", Value: "ack returned FAILURE"},
+										{Key: attrViewID, Value: "failed-view-id"},
+										{Key: attrContractAddress, Value: testContractAddress2},
+										{Key: attrError, Value: "ack returned FAILURE"},
 									},
 								},
 							},

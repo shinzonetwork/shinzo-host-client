@@ -85,9 +85,9 @@ type ShinzoEvent interface {
 // not just the type; view_id is always present on these events.
 func getSubscriptionQueries() []string {
 	return []string{
-		"tm.event='Tx' AND view.view_registered.view_id EXISTS",
-		"tm.event='Tx' AND view.view_registration_failed.view_id EXISTS",
-		"tm.event='Tx' AND view.view_registration_timed_out.view_id EXISTS",
+		"tm.event='Tx' AND " + eventTypeViewRegistered + "." + attrViewID + " EXISTS",
+		"tm.event='Tx' AND " + eventTypeViewRegistrationFailed + "." + attrViewID + " EXISTS",
+		"tm.event='Tx' AND " + eventTypeViewRegistrationTimedOut + "." + attrViewID + " EXISTS",
 	}
 }
 
@@ -133,10 +133,10 @@ func dialAndSubscribe(url string) (*websocket.Conn, error) {
 
 	for i, query := range getSubscriptionQueries() {
 		msg := map[string]any{
-			"jsonrpc": "2.0",
-			"method":  "subscribe",
-			"id":      i + 1,
-			"params":  map[string]any{"query": query},
+			jsonRPCMsgKey: jsonRPCVersion,
+			"method":      "subscribe",
+			"id":          i + 1,
+			"params":      map[string]any{"query": query},
 		}
 		if err := conn.WriteJSON(msg); err != nil {
 			if err := conn.Close(); err != nil {
@@ -361,10 +361,10 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 				return
 			case <-ticker.C:
 				msg := map[string]any{
-					"jsonrpc": "2.0",
-					"method":  "status",
-					"id":      999, // nolint:mnd
-					"params":  map[string]any{},
+					jsonRPCMsgKey: jsonRPCVersion,
+					"method":      "status",
+					"id":          pingMessageID,
+					"params":      map[string]any{},
 				}
 				if err := conn.WriteJSON(msg); err != nil {
 					return
@@ -381,24 +381,24 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 // bundle wire bytes are fetched separately by downstream hydration.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
-	if msg.JSONRPCVersion != "2.0" ||
-		msg.Result.Data.Type != "tendermint/event/Tx" ||
+	if msg.JSONRPCVersion != jsonRPCVersion ||
+		msg.Result.Data.Type != tmEventTxType ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {
 		return nil
 	}
 
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
-		case "view.view_registered":
+		case eventTypeViewRegistered:
 			registeredEvent := ViewRegisteredEvent{}
 
 			for _, attr := range event.Attributes {
 				switch attr.Key {
-				case "view_id":
+				case attrViewID:
 					registeredEvent.ViewID = attr.Value
-				case "contract_address":
+				case attrContractAddress:
 					registeredEvent.ContractAddress = attr.Value
-				case "creator":
+				case attrCreator:
 					registeredEvent.Creator = attr.Value
 				}
 			}
@@ -411,17 +411,17 @@ func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 				log().Debugf("incomplete view.view_registered event: %+v", registeredEvent)
 			}
 
-		case "view.view_registration_failed", "view.view_registration_timed_out":
+		case eventTypeViewRegistrationFailed, eventTypeViewRegistrationTimedOut:
 			// Logged for visibility and dropped: the host keeps no pending-view state
 			// locally, so there is nothing to roll back.
 			var viewID, contractAddr, errMsg string
 			for _, attr := range event.Attributes {
 				switch attr.Key {
-				case "view_id":
+				case attrViewID:
 					viewID = attr.Value
-				case "contract_address":
+				case attrContractAddress:
 					contractAddr = attr.Value
-				case "error":
+				case attrError:
 					errMsg = attr.Value
 				}
 			}

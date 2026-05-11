@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 // ProcessingDecision represents whether a document should be processed.
@@ -173,14 +175,14 @@ func (dps *DocumentProvenanceService) PreserveFilterFields(sourceData, outputDat
 // GetRequiredFieldsByType returns the required filter fields for each document type.
 func (dps *DocumentProvenanceService) GetRequiredFieldsByType() map[string][]string {
 	return map[string][]string{
-		"Ethereum__Mainnet__Transaction":     {"from", "to", "hash", "blockNumber"},
-		"Ethereum__Mainnet__Block":           {"hash", "number"},
-		"Ethereum__Mainnet__Log":             {"address", "topics", "blockNumber"},
-		"Ethereum__Mainnet__AccessListEntry": {"address", "storageKeys"},
-		"Transaction":                        {"from", "to", "hash", "blockNumber"},
-		"Block":                              {"hash", "number"},
-		"Log":                                {"address", "topics", "blockNumber"},
-		"AccessListEntry":                    {"address", "storageKeys"},
+		constants.CollectionTransaction:     {gqlFieldFrom, gqlFieldTo, gqlFieldHash, gqlFieldBlockNumber},
+		constants.CollectionBlock:           {gqlFieldHash, gqlFieldNumber},
+		constants.CollectionLog:             {gqlFieldAddress, gqlFieldTopics, gqlFieldBlockNumber},
+		constants.CollectionAccessListEntry: {gqlFieldAddress, gqlFieldStorageKeys},
+		docTypeTransaction:                  {gqlFieldFrom, gqlFieldTo, gqlFieldHash, gqlFieldBlockNumber},
+		docTypeBlock:                        {gqlFieldHash, gqlFieldNumber},
+		docTypeLog:                          {gqlFieldAddress, gqlFieldTopics, gqlFieldBlockNumber},
+		docTypeAccessListEntry:              {gqlFieldAddress, gqlFieldStorageKeys},
 	}
 }
 
@@ -191,7 +193,7 @@ func (dps *DocumentProvenanceService) ValidateDocumentForView(doc PrimitiveDocum
 	fields, exists := requiredFields[doc.Type]
 	if !exists {
 		// Default to common fields if type not found
-		fields = []string{"from", "to", "hash", "address"}
+		fields = []string{gqlFieldFrom, gqlFieldTo, gqlFieldHash, gqlFieldAddress}
 	}
 
 	// Check if document has at least one required field
@@ -221,12 +223,12 @@ func (dps *DocumentProvenanceService) generateOutputID(sourceID, viewID string) 
 // GetProcessingStats returns statistics about document processing.
 func (dps *DocumentProvenanceService) GetProcessingStats(doc PrimitiveDocument) map[string]any {
 	return map[string]any{
-		"processing_depth":  doc.Metadata.ProcessingDepth,
-		"is_view_output":    doc.Metadata.IsViewOutput,
-		"source_collection": doc.Metadata.SourceCollection,
-		"view_id":           doc.Metadata.ViewID,
-		"processing_chain":  doc.Metadata.ProcessingChain,
-		"chain_length":      len(strings.Split(doc.Metadata.ProcessingChain, ",")),
-		"original_doc_id":   doc.Metadata.OriginalDocID,
+		provenanceFieldProcessingDepth: doc.Metadata.ProcessingDepth,
+		provenanceFieldIsViewOutput:    doc.Metadata.IsViewOutput,
+		provenanceFieldSourceColl:      doc.Metadata.SourceCollection,
+		provenanceFieldViewID:          doc.Metadata.ViewID,
+		provenanceFieldProcessingChain: doc.Metadata.ProcessingChain,
+		provenanceFieldChainLength:     len(strings.Split(doc.Metadata.ProcessingChain, ",")),
+		provenanceFieldOriginalDocID:   doc.Metadata.OriginalDocID,
 	}
 }

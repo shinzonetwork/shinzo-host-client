@@ -54,9 +54,9 @@ func TestListSnapshots(t *testing.T) {
 								SnapshotFile:      "snapshot-0-100.gz",
 								StartBlock:        0,
 								EndBlock:          100,
-								MerkleRoot:        "abcd1234",
+								MerkleRoot:        testHexMerkleRoot,
 								BlockCount:        101,
-								SignatureType:     "Ed25519",
+								SignatureType:     sigTypeEd25519,
 								SignatureIdentity: "pubkey123",
 								SignatureValue:    "sig456",
 								CreatedAt:         now.Format(time.RFC3339),
@@ -85,8 +85,8 @@ func TestListSnapshots(t *testing.T) {
 				require.Equal(t, int64(1024), snap.SizeBytes)
 				require.True(t, snap.Signed)
 				require.NotNil(t, snap.Signature)
-				require.Equal(t, "Ed25519", snap.Signature.SignatureType)
-				require.Equal(t, "abcd1234", snap.Signature.MerkleRoot)
+				require.Equal(t, sigTypeEd25519, snap.Signature.SignatureType)
+				require.Equal(t, testHexMerkleRoot, snap.Signature.MerkleRoot)
 				require.Equal(t, 1, snap.Signature.Version)
 				require.Equal(t, "pubkey123", snap.Signature.SignatureIdentity)
 				require.Equal(t, "sig456", snap.Signature.SignatureValue)

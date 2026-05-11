@@ -129,8 +129,8 @@ func (m *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 			if method, ok := msg["method"].(string); ok && method == "subscribe" {
 				m.connMu.Lock()
 				response := map[string]any{
-					"jsonrpc": "2.0",
-					"id":      msg["id"],
+					jsonRPCMsgKey: jsonRPCVersion,
+					"id":          msg["id"],
 					"result": map[string]any{
 						"query": "tm.event='Tx' AND (Registered.key EXISTS OR EntityRegistered.key EXISTS)",
 					},

@@ -143,7 +143,7 @@ func TestProcessingPipeline_StopWithPendingJobs(_ *testing.T) {
 	for i := range 5 {
 		pp.jobQueue <- DocumentJob{
 			docID:       "doc-" + string(rune('a'+i)),
-			docType:     "Block",
+			docType:     docTypeBlock,
 			blockNumber: uint64(i),
 			docData:     map[string]any{},
 		}
@@ -160,15 +160,15 @@ func TestProcessingPipeline_StopWithPendingJobs(_ *testing.T) {
 func TestDocumentJob_Fields(t *testing.T) {
 	job := DocumentJob{
 		docID:       "test-doc-id",
-		docType:     "Transaction",
+		docType:     docTypeTransaction,
 		blockNumber: 42,
-		docData:     map[string]any{"key": "value"},
+		docData:     map[string]any{"key": testValue},
 	}
 
 	require.Equal(t, "test-doc-id", job.docID)
-	require.Equal(t, "Transaction", job.docType)
+	require.Equal(t, docTypeTransaction, job.docType)
 	require.Equal(t, uint64(42), job.blockNumber)
-	require.Equal(t, "value", job.docData["key"])
+	require.Equal(t, testValue, job.docData["key"])
 }
 
 // ---------------------------------------------------------------------------
@@ -200,9 +200,9 @@ func TestProcessBatch_WithBlockSignatures(t *testing.T) {
 	defer pp.cancel()
 
 	jobs := []DocumentJob{
-		{docID: "doc1", docType: "Block", blockNumber: 100, docData: map[string]any{}},
-		{docID: "doc2", docType: "Transaction", blockNumber: 100, docData: map[string]any{}},
-		{docID: "doc3", docType: "Log", blockNumber: 101, docData: map[string]any{}},
+		{docID: testDoc1, docType: docTypeBlock, blockNumber: 100, docData: map[string]any{}},
+		{docID: testDoc2, docType: docTypeTransaction, blockNumber: 100, docData: map[string]any{}},
+		{docID: testDoc3, docType: docTypeLog, blockNumber: 101, docData: map[string]any{}},
 	}
 
 	pp.processBatch(0, jobs)
@@ -222,7 +222,7 @@ func TestProcessBatch_WithoutBlockSignatures_NoAttestationData(t *testing.T) {
 	defer pp.cancel()
 
 	jobs := []DocumentJob{
-		{docID: "doc1", docType: "Block", blockNumber: 100, docData: map[string]any{}},
+		{docID: testDoc1, docType: docTypeBlock, blockNumber: 100, docData: map[string]any{}},
 	}
 
 	pp.processBatch(0, jobs)
@@ -243,7 +243,7 @@ func TestProcessBatch_NilMetrics(t *testing.T) {
 	defer pp.cancel()
 
 	jobs := []DocumentJob{
-		{docID: "doc1", docType: "Block", blockNumber: 100, docData: map[string]any{}},
+		{docID: testDoc1, docType: docTypeBlock, blockNumber: 100, docData: map[string]any{}},
 	}
 
 	// Should not panic with nil metrics
@@ -265,7 +265,7 @@ func TestProcessAttestationAsync_ContextCancelled(t *testing.T) {
 	pp := NewProcessingPipeline(ctx, host, 10, 1, 10, 50, false)
 
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
 	}
 
 	pp.attestationWg.Add(1)
@@ -290,7 +290,7 @@ func TestProcessAttestationAsync_SuccessfulProcessing(t *testing.T) {
 
 	// Documents with no version data will result in nil error (empty inputs)
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
 	}
 
 	pp.attestationWg.Add(1)
@@ -314,7 +314,7 @@ func TestProcessAttestationAsync_NilMetrics(t *testing.T) {
 	defer pp.cancel()
 
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
 	}
 
 	pp.attestationWg.Add(1)
@@ -343,8 +343,8 @@ func TestBatchWriter_FlushOnBatchSize(t *testing.T) {
 	go pp.batchWriter(0)
 
 	// Send 2 jobs to trigger batch flush (batchSize=2)
-	pp.jobQueue <- DocumentJob{docID: "doc1", docType: "Block", blockNumber: 1}
-	pp.jobQueue <- DocumentJob{docID: "doc2", docType: "Block", blockNumber: 2}
+	pp.jobQueue <- DocumentJob{docID: testDoc1, docType: docTypeBlock, blockNumber: 1}
+	pp.jobQueue <- DocumentJob{docID: testDoc2, docType: docTypeBlock, blockNumber: 2}
 
 	// Give time for processing
 	time.Sleep(200 * time.Millisecond)
@@ -366,7 +366,7 @@ func TestBatchWriter_FlushOnTimer(t *testing.T) {
 	go pp.batchWriter(0)
 
 	// Send 1 job (won't fill batch)
-	pp.jobQueue <- DocumentJob{docID: "doc1", docType: "Block", blockNumber: 1}
+	pp.jobQueue <- DocumentJob{docID: testDoc1, docType: docTypeBlock, blockNumber: 1}
 
 	// Wait for timer flush (50ms + some buffer)
 	time.Sleep(200 * time.Millisecond)
@@ -386,7 +386,7 @@ func TestBatchWriter_QueueClosed(t *testing.T) {
 	pp.wg.Add(1)
 	go pp.batchWriter(0)
 
-	pp.jobQueue <- DocumentJob{docID: "doc1", docType: "Block", blockNumber: 1}
+	pp.jobQueue <- DocumentJob{docID: testDoc1, docType: docTypeBlock, blockNumber: 1}
 
 	// Close queue to trigger cleanup
 	close(pp.jobQueue)
@@ -442,7 +442,7 @@ func TestProcessingPipeline_EndToEnd_BlockSignatures(t *testing.T) {
 	for i := range 10 {
 		pp.jobQueue <- DocumentJob{
 			docID:       fmt.Sprintf("doc-%d", i),
-			docType:     "Block",
+			docType:     docTypeBlock,
 			blockNumber: uint64(i),
 			docData:     map[string]any{},
 		}
@@ -470,7 +470,7 @@ func TestProcessingPipeline_EndToEnd_PerDocumentAttestation(t *testing.T) {
 	for i := range 3 {
 		pp.jobQueue <- DocumentJob{
 			docID:       fmt.Sprintf("doc-%d", i),
-			docType:     "Block",
+			docType:     docTypeBlock,
 			blockNumber: uint64(i),
 			docData:     map[string]any{},
 		}
@@ -499,8 +499,8 @@ func TestBatchWriter_UpdatesProcessingTime(t *testing.T) {
 	go pp.batchWriter(0)
 
 	// Fill a batch to trigger flush with timing
-	pp.jobQueue <- DocumentJob{docID: "d1", docType: "Block", blockNumber: 1}
-	pp.jobQueue <- DocumentJob{docID: "d2", docType: "Block", blockNumber: 2}
+	pp.jobQueue <- DocumentJob{docID: "d1", docType: docTypeBlock, blockNumber: 1}
+	pp.jobQueue <- DocumentJob{docID: "d2", docType: docTypeBlock, blockNumber: 2}
 
 	time.Sleep(200 * time.Millisecond)
 	pp.Stop()
@@ -530,16 +530,16 @@ func TestProcessAttestationAsync_WithVersionDataNoVerifier(t *testing.T) {
 	docs := []Document{
 		{
 			ID:          "doc-with-version",
-			Type:        "Transaction",
+			Type:        docTypeTransaction,
 			BlockNumber: 10,
 			Data: map[string]any{
-				"_version": []any{
+				defraFieldVersion: []any{
 					map[string]any{
-						"cid": "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4",
-						"signature": map[string]any{
-							"type":     "ES256K",
-							"identity": "testpubkey",
-							"value":    "testsig",
+						testJSONFieldCID: testSnapshotCID,
+						testJSONFieldSignature: map[string]any{
+							testJSONFieldType:     testSigTypeES256K,
+							testJSONFieldIdentity: testIdentityPubkey,
+							testValue:             testSigValue,
 						},
 					},
 				},
@@ -575,16 +575,16 @@ func TestProcessAttestationAsync_ErrorWithMetrics(t *testing.T) {
 	docs := []Document{
 		{
 			ID:          "doc-error",
-			Type:        "Transaction",
+			Type:        docTypeTransaction,
 			BlockNumber: 10,
 			Data: map[string]any{
-				"_version": []any{
+				defraFieldVersion: []any{
 					map[string]any{
-						"cid": "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4",
-						"signature": map[string]any{
-							"type":     "ES256K",
-							"identity": "testpubkey",
-							"value":    "testsig",
+						testJSONFieldCID: testSnapshotCID,
+						testJSONFieldSignature: map[string]any{
+							testJSONFieldType:     testSigTypeES256K,
+							testJSONFieldIdentity: testIdentityPubkey,
+							testValue:             testSigValue,
 						},
 					},
 				},
@@ -592,16 +592,16 @@ func TestProcessAttestationAsync_ErrorWithMetrics(t *testing.T) {
 		},
 		{
 			ID:          "doc-error2",
-			Type:        "Block",
+			Type:        docTypeBlock,
 			BlockNumber: 11,
 			Data: map[string]any{
-				"_version": []any{
+				defraFieldVersion: []any{
 					map[string]any{
-						"cid": "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4",
-						"signature": map[string]any{
-							"type":     "ES256K",
-							"identity": "testpubkey2",
-							"value":    "testsig2",
+						testJSONFieldCID: testSnapshotCID,
+						testJSONFieldSignature: map[string]any{
+							testJSONFieldType: testSigTypeES256K,
+							"identity":        "testpubkey2",
+							"value":           "testsig2",
 						},
 					},
 				},
@@ -638,8 +638,8 @@ func TestProcessAttestationAsync_TransactionConflictError(t *testing.T) {
 
 	// Docs with no version data will return nil from processDocumentAttestationBatch (success)
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
-		{ID: "doc2", Type: "Block", BlockNumber: 2, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc2, Type: docTypeBlock, BlockNumber: 2, Data: map[string]any{}},
 	}
 
 	pp.attestationWg.Add(1)
@@ -674,7 +674,7 @@ func TestProcessAttestationAsync_SemaphoreFullThenContextCancel(t *testing.T) {
 	}
 
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
 	}
 
 	pp.attestationWg.Add(1)
@@ -709,17 +709,17 @@ func TestProcessBatch_WithoutBlockSignatures_WithVersionData(t *testing.T) {
 
 	jobs := []DocumentJob{
 		{
-			docID:       "doc1",
-			docType:     "Transaction",
+			docID:       testDoc1,
+			docType:     docTypeTransaction,
 			blockNumber: 100,
 			docData: map[string]any{
-				"_version": []any{
+				defraFieldVersion: []any{
 					map[string]any{
-						"cid": "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4",
-						"signature": map[string]any{
-							"type":     "ES256K",
-							"identity": "testpubkey",
-							"value":    "testsig",
+						testJSONFieldCID: testSnapshotCID,
+						testJSONFieldSignature: map[string]any{
+							testJSONFieldType:     testSigTypeES256K,
+							testJSONFieldIdentity: testIdentityPubkey,
+							testValue:             testSigValue,
 						},
 					},
 				},
@@ -753,9 +753,9 @@ func TestProcessBatch_WithoutBlockSignatures_WithMetrics(t *testing.T) {
 	defer pp.cancel()
 
 	jobs := []DocumentJob{
-		{docID: "doc1", docType: "Block", blockNumber: 100, docData: map[string]any{}},
-		{docID: "doc2", docType: "Transaction", blockNumber: 101, docData: map[string]any{}},
-		{docID: "doc3", docType: "Log", blockNumber: 102, docData: map[string]any{}},
+		{docID: testDoc1, docType: docTypeBlock, blockNumber: 100, docData: map[string]any{}},
+		{docID: testDoc2, docType: docTypeTransaction, blockNumber: 101, docData: map[string]any{}},
+		{docID: testDoc3, docType: docTypeLog, blockNumber: 102, docData: map[string]any{}},
 	}
 
 	pp.processBatch(0, jobs)
@@ -780,9 +780,9 @@ func TestProcessBatch_WithBlockSignatures_MostRecentBlock(t *testing.T) {
 	defer pp.cancel()
 
 	jobs := []DocumentJob{
-		{docID: "doc1", docType: "Block", blockNumber: 50, docData: map[string]any{}},
-		{docID: "doc2", docType: "Block", blockNumber: 100, docData: map[string]any{}},
-		{docID: "doc3", docType: "Block", blockNumber: 75, docData: map[string]any{}},
+		{docID: testDoc1, docType: docTypeBlock, blockNumber: 50, docData: map[string]any{}},
+		{docID: testDoc2, docType: docTypeBlock, blockNumber: 100, docData: map[string]any{}},
+		{docID: testDoc3, docType: docTypeBlock, blockNumber: 75, docData: map[string]any{}},
 	}
 
 	pp.processBatch(0, jobs)
@@ -808,7 +808,7 @@ func TestProcessingPipeline_ContextCancellation(_ *testing.T) {
 	for i := range 3 {
 		pp.jobQueue <- DocumentJob{
 			docID:       fmt.Sprintf("doc-%d", i),
-			docType:     "Block",
+			docType:     docTypeBlock,
 			blockNumber: uint64(i),
 			docData:     map[string]any{},
 		}

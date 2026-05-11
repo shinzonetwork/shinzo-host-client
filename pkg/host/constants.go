@@ -32,3 +32,58 @@ const (
 	// defaultTimeout is a const for the default timeout in s.
 	defaultTimeout = 5 * time.Second
 )
+
+// Short document-type aliases. The provenance + processing pipelines
+// recognise both the fully-qualified Ethereum__Mainnet__* form and the
+// short suffix; both map to the same required-field list and replication
+// behaviour.
+const (
+	docTypeTransaction     = "Transaction"
+	docTypeBlock           = "Block"
+	docTypeLog             = "Log"
+	docTypeAccessListEntry = "AccessListEntry"
+
+	// Lowercase forms used by replication filter as collection-type tags.
+	colTypeTransaction     = "transaction"
+	colTypeLog             = "log"
+	colTypeAccessListEntry = "accessListEntry"
+)
+
+// Replication filter modes.
+const (
+	filterModeAllowlist = "allowlist"
+	filterModeBlocklist = "blocklist"
+)
+
+// Provenance-tracking metadata field names stored on processed documents.
+const (
+	provenanceFieldProcessingDepth = "processing_depth"
+	provenanceFieldIsViewOutput    = "is_view_output"
+	provenanceFieldSourceColl      = "source_collection"
+	provenanceFieldViewID          = "view_id"
+	provenanceFieldProcessingChain = "processing_chain"
+	provenanceFieldChainLength     = "chain_length"
+	provenanceFieldOriginalDocID   = "original_doc_id"
+)
+
+// DefraDB JSON metadata field names referenced from the host's GraphQL
+// query builders and tests.
+const (
+	defraFieldDocID   = "_docID"
+	defraFieldVersion = "_version"
+)
+
+// defaultDefraURL is the DefraDB endpoint baked into DefaultConfig.
+const defaultDefraURL = "localhost:9181"
+
+// Common GraphQL field names referenced by the query builder and tests.
+const (
+	gqlFieldAddress     = "address"
+	gqlFieldFrom        = "from"
+	gqlFieldTo          = "to"
+	gqlFieldHash        = "hash"
+	gqlFieldBlockNumber = "blockNumber"
+	gqlFieldNumber      = "number"
+	gqlFieldTopics      = "topics"
+	gqlFieldStorageKeys = "storageKeys"
+)

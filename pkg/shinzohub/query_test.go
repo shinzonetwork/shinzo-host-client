@@ -35,7 +35,7 @@ func makeTestBundle(t *testing.T, name string) string {
 }
 
 func TestGetViewBundle_Success(t *testing.T) {
-	wantBundle := makeTestBundle(t, "TestView")
+	wantBundle := makeTestBundle(t, testViewName)
 	wantContract := "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +44,8 @@ func TestGetViewBundle_Success(t *testing.T) {
 		require.Equal(t, "true", r.URL.Query().Get("include_data"))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"view": LCDView{
-				Name:            "TestView",
+			lcdFieldView: LCDView{
+				Name:            testViewName,
 				Creator:         "shinzo1abc",
 				ContractAddress: wantContract,
 				Data:            wantBundle,
@@ -86,8 +86,8 @@ func TestGetViewBundle_EmptyData(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"view": LCDView{
-				Name:            "TestView",
+			lcdFieldView: LCDView{
+				Name:            testViewName,
 				ContractAddress: "0xabc",
 				// Data deliberately empty
 				Height: "1",
@@ -102,19 +102,19 @@ func TestGetViewBundle_EmptyData(t *testing.T) {
 }
 
 func TestFetchAllRegisteredViews_SinglePage(t *testing.T) {
-	bundleA := makeTestBundle(t, "ViewA")
-	bundleB := makeTestBundle(t, "ViewB")
+	bundleA := makeTestBundle(t, testViewNameA)
+	bundleB := makeTestBundle(t, testViewNameB)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/shinzonetwork/view/v1/views", r.URL.Path)
 		require.Equal(t, "true", r.URL.Query().Get("include_data"))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"views": []LCDView{
-				{Name: "ViewA", Creator: "shinzo1a", ContractAddress: "0xA", Data: bundleA, Height: "1"},
-				{Name: "ViewB", Creator: "shinzo1b", ContractAddress: "0xB", Data: bundleB, Height: "2"},
+			lcdFieldViews: []LCDView{
+				{Name: testViewNameA, Creator: "shinzo1a", ContractAddress: "0xA", Data: bundleA, Height: "1"},
+				{Name: testViewNameB, Creator: "shinzo1b", ContractAddress: "0xB", Data: bundleB, Height: "2"},
 			},
-			"pagination": map[string]any{"next_key": nil, "total": "0"},
+			lcdFieldPagination: map[string]any{lcdFieldNextKey: nil, "total": "0"},
 		})
 	}))
 	defer srv.Close()
@@ -124,13 +124,13 @@ func TestFetchAllRegisteredViews_SinglePage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, count)
 	require.Len(t, views, 2)
-	require.Equal(t, "ViewA", views[0].Name)
-	require.Equal(t, "ViewB", views[1].Name)
+	require.Equal(t, testViewNameA, views[0].Name)
+	require.Equal(t, testViewNameB, views[1].Name)
 }
 
 func TestFetchAllRegisteredViews_Paginated(t *testing.T) {
-	bundleA := makeTestBundle(t, "ViewA")
-	bundleB := makeTestBundle(t, "ViewB")
+	bundleA := makeTestBundle(t, testViewNameA)
+	bundleB := makeTestBundle(t, testViewNameB)
 	bundleC := makeTestBundle(t, "ViewC")
 	const pageOneNextKey = "cursor-AAA"
 
@@ -139,16 +139,16 @@ func TestFetchAllRegisteredViews_Paginated(t *testing.T) {
 		switch r.URL.Query().Get("pagination.key") {
 		case "":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"views":      []LCDView{{Name: "ViewA", ContractAddress: "0xA", Data: bundleA}},
-				"pagination": map[string]any{"next_key": pageOneNextKey},
+				lcdFieldViews:      []LCDView{{Name: testViewNameA, ContractAddress: "0xA", Data: bundleA}},
+				lcdFieldPagination: map[string]any{lcdFieldNextKey: pageOneNextKey},
 			})
 		case pageOneNextKey:
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"views": []LCDView{
-					{Name: "ViewB", ContractAddress: "0xB", Data: bundleB},
+				lcdFieldViews: []LCDView{
+					{Name: testViewNameB, ContractAddress: "0xB", Data: bundleB},
 					{Name: "ViewC", ContractAddress: "0xC", Data: bundleC},
 				},
-				"pagination": map[string]any{"next_key": nil},
+				lcdFieldPagination: map[string]any{lcdFieldNextKey: nil},
 			})
 		default:
 			t.Errorf("unexpected pagination.key: %s", r.URL.Query().Get("pagination.key"))
@@ -161,7 +161,7 @@ func TestFetchAllRegisteredViews_Paginated(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, count)
 	require.Len(t, views, 3)
-	require.Equal(t, []string{"ViewA", "ViewB", "ViewC"}, []string{views[0].Name, views[1].Name, views[2].Name})
+	require.Equal(t, []string{testViewNameA, testViewNameB, "ViewC"}, []string{views[0].Name, views[1].Name, views[2].Name})
 }
 
 func TestFetchAllRegisteredViews_SkipsMalformedEntries(t *testing.T) {
@@ -170,12 +170,12 @@ func TestFetchAllRegisteredViews_SkipsMalformedEntries(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"views": []LCDView{
+			lcdFieldViews: []LCDView{
 				{Name: "EmptyData", ContractAddress: "0x1", Data: ""},
 				{Name: "GoodView", ContractAddress: "0x2", Data: good},
 				{Name: "BadBase64", ContractAddress: "0x3", Data: "not valid base64!!!"},
 			},
-			"pagination": map[string]any{"next_key": nil},
+			lcdFieldPagination: map[string]any{lcdFieldNextKey: nil},
 		})
 	}))
 	defer srv.Close()
