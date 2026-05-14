@@ -98,8 +98,8 @@ func TestComputeSnapshotMerkleRoot_DifferentInputs(t *testing.T) {
 }
 
 func TestVerifySignature_UnsupportedType(t *testing.T) {
-	sig := &SnapshotSignatureData{
-		MerkleRoot:    "abcd1234",
+	sig := &SignatureData{
+		MerkleRoot:     "abcd1234",
 		SignatureValue: "abcd1234",
 		SignatureType:  "RSA",
 	}
@@ -109,8 +109,8 @@ func TestVerifySignature_UnsupportedType(t *testing.T) {
 }
 
 func TestVerifySignature_InvalidMerkleRootHex(t *testing.T) {
-	sig := &SnapshotSignatureData{
-		MerkleRoot:    "not-hex!!!",
+	sig := &SignatureData{
+		MerkleRoot:     "not-hex!!!",
 		SignatureValue: "abcd",
 		SignatureType:  "Ed25519",
 	}
@@ -120,8 +120,8 @@ func TestVerifySignature_InvalidMerkleRootHex(t *testing.T) {
 }
 
 func TestVerifySignature_InvalidSignatureHex(t *testing.T) {
-	sig := &SnapshotSignatureData{
-		MerkleRoot:    "abcd1234",
+	sig := &SignatureData{
+		MerkleRoot:     "abcd1234",
 		SignatureValue: "not-hex!!!",
 		SignatureType:  "Ed25519",
 	}
@@ -131,7 +131,7 @@ func TestVerifySignature_InvalidSignatureHex(t *testing.T) {
 }
 
 func TestVerifySignature_InvalidPublicKey(t *testing.T) {
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        "abcd1234",
 		SignatureValue:    "abcd1234",
 		SignatureType:     "Ed25519",
@@ -143,7 +143,7 @@ func TestVerifySignature_InvalidPublicKey(t *testing.T) {
 }
 
 func TestVerifySignature_ES256K_InvalidPublicKey(t *testing.T) {
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        "abcd1234",
 		SignatureValue:    "abcd1234",
 		SignatureType:     "ES256K",
@@ -155,7 +155,7 @@ func TestVerifySignature_ES256K_InvalidPublicKey(t *testing.T) {
 }
 
 func TestVerifySignature_Ecdsa256k_InvalidPublicKey(t *testing.T) {
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        "abcd1234",
 		SignatureValue:    "abcd1234",
 		SignatureType:     "ecdsa-256k",
@@ -167,7 +167,7 @@ func TestVerifySignature_Ecdsa256k_InvalidPublicKey(t *testing.T) {
 }
 
 func TestVerifySignature_Ed25519Lowercase_InvalidPublicKey(t *testing.T) {
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        "abcd1234",
 		SignatureValue:    "abcd1234",
 		SignatureType:     "ed25519",
@@ -198,7 +198,7 @@ func TestVerifySignature_ValidEd25519(t *testing.T) {
 	merkleRoot := []byte("test-merkle-root-data-for-signing")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -212,7 +212,7 @@ func TestVerifySignature_ValidEd25519Lowercase(t *testing.T) {
 	merkleRoot := []byte("test-merkle-root-lowercase")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "ed25519",
@@ -232,7 +232,7 @@ func TestVerifySignature_InvalidSignature_Ed25519(t *testing.T) {
 	sigBytes, err := privKey.Sign([]byte("different-data"))
 	require.NoError(t, err)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        hex.EncodeToString(merkleRoot),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		SignatureType:     "Ed25519",
@@ -251,7 +251,7 @@ func TestVerifySignature_ValidSecp256k1(t *testing.T) {
 	sigBytes, err := privKey.Sign(merkleRoot)
 	require.NoError(t, err)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        hex.EncodeToString(merkleRoot),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		SignatureType:     "ES256K",
@@ -269,7 +269,7 @@ func TestVerifySignature_ValidSecp256k1_EcdsaAlias(t *testing.T) {
 	sigBytes, err := privKey.Sign(merkleRoot)
 	require.NoError(t, err)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        hex.EncodeToString(merkleRoot),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		SignatureType:     "ecdsa-256k",
@@ -288,7 +288,7 @@ func TestVerifySignature_InvalidSignature_Secp256k1(t *testing.T) {
 	sigBytes, err := privKey.Sign([]byte("wrong-data"))
 	require.NoError(t, err)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        hex.EncodeToString(merkleRoot),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		SignatureType:     "ES256K",
@@ -311,7 +311,7 @@ func buildTestSnapshot(t *testing.T, header kvSnapshotHeader) string {
 	gw := gzip.NewWriter(&buf)
 
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec // header length fits in uint32
 	_, err = gw.Write(lenBuf[:])
 	require.NoError(t, err)
 	_, err = gw.Write(headerBytes)
@@ -321,13 +321,13 @@ func buildTestSnapshot(t *testing.T, header kvSnapshotHeader) string {
 	require.NoError(t, gw.Close())
 
 	path := filepath.Join(t.TempDir(), "test-snapshot.gz")
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
 	return path
 }
 
 // buildValidSigForBlockRoots creates a valid Ed25519 signature that signs the
 // computed merkle root of the given block sig merkle root hex strings.
-func buildValidSigForBlockRoots(t *testing.T, blockSigRootHexes []string) *SnapshotSignatureData {
+func buildValidSigForBlockRoots(t *testing.T, blockSigRootHexes []string) *SignatureData {
 	t.Helper()
 
 	roots := make([][]byte, 0, len(blockSigRootHexes))
@@ -346,7 +346,7 @@ func buildValidSigForBlockRoots(t *testing.T, blockSigRootHexes []string) *Snaps
 	sigBytes, err := privKey.Sign(computedRoot)
 	require.NoError(t, err)
 
-	return &SnapshotSignatureData{
+	return &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		SignatureType:     "Ed25519",
@@ -356,8 +356,8 @@ func buildValidSigForBlockRoots(t *testing.T, blockSigRootHexes []string) *Snaps
 
 func TestImportWithVerification_SignatureVerificationFail(t *testing.T) {
 	ctx := context.Background()
-	sig := &SnapshotSignatureData{
-		MerkleRoot:    "not-hex!!!",
+	sig := &SignatureData{
+		MerkleRoot:     "not-hex!!!",
 		SignatureValue: "abcd",
 		SignatureType:  "Ed25519",
 	}
@@ -372,7 +372,7 @@ func TestImportWithVerification_FileOpenError(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -388,7 +388,7 @@ func TestImportWithVerification_GzipReaderError(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -397,7 +397,7 @@ func TestImportWithVerification_GzipReaderError(t *testing.T) {
 
 	// Write a file that is NOT gzip compressed.
 	path := filepath.Join(t.TempDir(), "not-gzip.gz")
-	require.NoError(t, os.WriteFile(path, []byte("this is not gzip data"), 0644))
+	require.NoError(t, os.WriteFile(path, []byte("this is not gzip data"), 0o600))
 
 	_, err := ImportWithVerification(ctx, nil, path, sig)
 	require.Error(t, err)
@@ -409,7 +409,7 @@ func TestImportWithVerification_ReadHeaderLengthError(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -424,7 +424,7 @@ func TestImportWithVerification_ReadHeaderLengthError(t *testing.T) {
 	require.NoError(t, gw.Close())
 
 	path := filepath.Join(t.TempDir(), "short-header.gz")
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
 
 	_, err = ImportWithVerification(ctx, nil, path, sig)
 	require.Error(t, err)
@@ -436,7 +436,7 @@ func TestImportWithVerification_ReadHeaderError(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -455,7 +455,7 @@ func TestImportWithVerification_ReadHeaderError(t *testing.T) {
 	require.NoError(t, gw.Close())
 
 	path := filepath.Join(t.TempDir(), "truncated-header.gz")
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
 
 	_, err = ImportWithVerification(ctx, nil, path, sig)
 	require.Error(t, err)
@@ -467,7 +467,7 @@ func TestImportWithVerification_InvalidHeaderJSON(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -479,7 +479,7 @@ func TestImportWithVerification_InvalidHeaderJSON(t *testing.T) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec // header size is always small
 	_, err := gw.Write(lenBuf[:])
 	require.NoError(t, err)
 	_, err = gw.Write(headerBytes)
@@ -487,7 +487,7 @@ func TestImportWithVerification_InvalidHeaderJSON(t *testing.T) {
 	require.NoError(t, gw.Close())
 
 	path := filepath.Join(t.TempDir(), "bad-json-header.gz")
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
 
 	_, err = ImportWithVerification(ctx, nil, path, sig)
 	require.Error(t, err)
@@ -499,7 +499,7 @@ func TestImportWithVerification_InvalidMagic(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -523,7 +523,7 @@ func TestImportWithVerification_NoBlockSigMerkleRoots(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -548,7 +548,7 @@ func TestImportWithVerification_InvalidBlockSigRootHex(t *testing.T) {
 	merkleRoot := []byte("some-root")
 	pubKeyStr, merkleRootHex, sigHex := generateEd25519TestSig(t, merkleRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        merkleRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -579,7 +579,7 @@ func TestImportWithVerification_MerkleRootMismatch(t *testing.T) {
 	differentRoot := []byte("completely-different-root")
 	pubKeyStr, differentRootHex, sigHex := generateEd25519TestSig(t, differentRoot)
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        differentRootHex,
 		SignatureValue:    sigHex,
 		SignatureType:     "Ed25519",
@@ -647,7 +647,7 @@ func TestImportWithVerification_BlockSigRootContentMismatch(t *testing.T) {
 
 	_, err := ImportWithVerification(ctx, nil, path, sig)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "block sig root mismatch at index")
+	require.Contains(t, err.Error(), "block sig root mismatch")
 }
 
 func TestImportWithVerification_HappyPath(t *testing.T) {
@@ -750,7 +750,7 @@ func TestVerifySignature_VerifyReturnsError(t *testing.T) {
 
 	merkleRoot := []byte("test-merkle-root")
 
-	sig := &SnapshotSignatureData{
+	sig := &SignatureData{
 		MerkleRoot:        hex.EncodeToString(merkleRoot),
 		SignatureValue:    hex.EncodeToString([]byte("too-short")), // wrong length for Ed25519 sig
 		SignatureType:     "Ed25519",

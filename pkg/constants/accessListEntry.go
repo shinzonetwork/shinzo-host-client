@@ -1,11 +1,11 @@
 package constants
 
-// AccessListEntry represents an access list entry from Ethereum
+// AccessListEntry represents an access list entry from Ethereum.
 type AccessListEntry struct {
 	Address     string      `json:"address"`
 	StorageKeys []string    `json:"storageKeys"`
 	Transaction Transaction `json:"transaction"`
 
 	Version []Version `json:"_version"`
-	DocId   string    `json:"_docID"`
+	DocID   string    `json:"_docID"`
 }

@@ -32,7 +32,7 @@ type DocumentJob struct {
 // ProcessingPipeline coordinates document processing with bounded workers and queue.
 type ProcessingPipeline struct {
 	host   *Host
-	ctx    context.Context
+	ctx    context.Context // nolint:containedctx
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -50,7 +50,7 @@ type ProcessingPipeline struct {
 	useBlockSignatures bool
 
 	// Metrics for monitoring
-	queuedCount              int64
+	// queuedCount              int64
 	processedCount           int64
 	droppedCount             int64
 	pendingAttestationsCount int64
@@ -138,7 +138,7 @@ func (pp *ProcessingPipeline) batchWriter(writerID int) {
 		processingTime := time.Since(startTime)
 
 		if pp.host.metrics != nil {
-			avgProcessingTimeMs := float64(processingTime.Nanoseconds()) / float64(len(batch)) / 1000000.0
+			avgProcessingTimeMs := float64(processingTime.Nanoseconds()) / float64(len(batch)) / nanosecondsPerMillisecond
 			pp.host.metrics.UpdateLastProcessingTime(avgProcessingTimeMs)
 		}
 
@@ -167,7 +167,7 @@ func (pp *ProcessingPipeline) batchWriter(writerID int) {
 
 		case <-pp.ctx.Done():
 			flushBatch()
-			logger.Sugar.Debugf("BatchWriter %d stopped (context cancelled)", writerID)
+			logger.Sugar.Debugf("BatchWriter %d stopped (context canceled)", writerID)
 			return
 		}
 	}
@@ -261,7 +261,7 @@ func (pp *ProcessingPipeline) processAttestationAsync(docs []Document) {
 		}
 
 		delay := min(baseDelay*time.Duration(1<<attempt), maxDelay)
-		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64()))
+		jitter := time.Duration(float64(delay) * (0.5 + rand.Float64())) //nolint:gosec,mnd // weak random is acceptable for jitter calculation
 		if attempt < maxRetries-1 {
 			select {
 			case <-time.After(jitter):

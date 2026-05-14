@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -11,9 +12,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CollectionName is the name of the collection where we store Shinzo-specific documents in DefraDB.
 const CollectionName = "shinzo"
 
-// DefraDBP2PConfig represents P2P configuration for DefraDB
+// DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	Enabled                bool     `yaml:"enabled"`
 	BootstrapPeers         []string `yaml:"bootstrap_peers"`
@@ -25,7 +27,7 @@ type DefraDBP2PConfig struct {
 	PeerDiscoveryTimeoutMs int      `yaml:"peer_discovery_timeout_ms"` // Timeout for auto-discovering peer IDs (default: 10000)
 }
 
-// DefraDBStoreConfig represents store configuration for DefraDB
+// DefraDBStoreConfig represents store configuration for DefraDB.
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
 	// Badger memory configuration
@@ -40,19 +42,20 @@ type DefraDBStoreConfig struct {
 	ValueLogFileSizeMB int64 `yaml:"value_log_file_size_mb"`
 }
 
-// DefraDBConfig represents DefraDB configuration
+// DefraDBConfig represents DefraDB configuration.
 type DefraDBConfig struct {
-	Url           string             `yaml:"url"`
+	URL           string             `yaml:"url"`
 	KeyringSecret string             `yaml:"keyring_secret"`
 	P2P           DefraDBP2PConfig   `yaml:"p2p"`
 	Store         DefraDBStoreConfig `yaml:"store"`
 }
 
-// LoggerConfig represents logger configuration
+// LoggerConfig represents logger configuration.
 type LoggerConfig struct {
 	Development bool `yaml:"development"`
 }
 
+// Config represents the overall configuration for the Shinzo host application, including DefraDB, Shinzo-specific settings, logging, hosting, and pruning.
 type Config struct {
 	DefraDB    DefraDBConfig `yaml:"defradb"`
 	Shinzo     ShinzoConfig  `yaml:"shinzo"`
@@ -61,6 +64,7 @@ type Config struct {
 	Pruner     pruner.Config `yaml:"pruner"`
 }
 
+// ShinzoConfig represents configuration specific to the Shinzo host application.
 type ShinzoConfig struct {
 	MinimumAttestations int    `yaml:"minimum_attestations"`
 	HubBaseURL          string `yaml:"hub_base_url"`
@@ -130,6 +134,7 @@ type BlockRangeFilter struct {
 	MaxBlock uint64 `yaml:"max_block"` // Maximum block number (inclusive), 0 = no upper limit
 }
 
+// HostConfig represents configuration specific to the Shinzo host application.
 type HostConfig struct {
 	LensRegistryPath   string         `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
 	HealthServerPort   int            `yaml:"health_server_port"`    // Port for the health server (default: 8080)
@@ -153,10 +158,10 @@ type BlockRange struct {
 	End   int64 `yaml:"end"`
 }
 
-// LoadConfig loads configuration from a YAML file
+// LoadConfig loads configuration from a YAML file.
 func LoadConfig(path string) (*Config, error) {
 	// Load YAML config
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -191,7 +196,7 @@ func (c *Config) ToInternalConfig() *defradb.Config {
 
 	return &defradb.Config{
 		DefraDB: defradb.DefraDBConfig{
-			Url:           c.DefraDB.Url,
+			URL:           c.DefraDB.URL,
 			KeyringSecret: c.DefraDB.KeyringSecret,
 			P2P: defradb.DefraP2PConfig{
 				Enabled:             c.DefraDB.P2P.Enabled,

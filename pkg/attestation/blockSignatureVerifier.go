@@ -2,7 +2,6 @@ package attestation
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -14,7 +13,7 @@ import (
 	"github.com/sourcenetwork/defradb/crypto"
 )
 
-// BlockSignature represents a block signature from an indexer
+// BlockSignature represents a block signature from an indexer.
 type BlockSignature struct {
 	BlockNumber       int64    `json:"blockNumber"`
 	BlockHash         string   `json:"blockHash"`
@@ -27,14 +26,14 @@ type BlockSignature struct {
 	CreatedAt         string   `json:"createdAt"`
 }
 
-// BlockSignatureCache stores block signatures indexed by block number
+// BlockSignatureCache stores block signatures indexed by block number.
 type BlockSignatureCache struct {
 	mu         sync.RWMutex
 	signatures map[int64]*BlockSignature
 	maxSize    int
 }
 
-// NewBlockSignatureCache creates a new block signature cache
+// NewBlockSignatureCache creates a new block signature cache.
 func NewBlockSignatureCache(maxSize int) *BlockSignatureCache {
 	if maxSize <= 0 {
 		maxSize = 10000
@@ -45,7 +44,7 @@ func NewBlockSignatureCache(maxSize int) *BlockSignatureCache {
 	}
 }
 
-// Add adds a block signature to the cache
+// Add adds a block signature to the cache.
 func (c *BlockSignatureCache) Add(sig *BlockSignature) {
 	if sig == nil {
 		return
@@ -66,7 +65,7 @@ func (c *BlockSignatureCache) Add(sig *BlockSignature) {
 	}
 }
 
-// Get retrieves a block signature by block number
+// Get retrieves a block signature by block number.
 func (c *BlockSignatureCache) Get(blockNumber int64) (*BlockSignature, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -74,32 +73,32 @@ func (c *BlockSignatureCache) Get(blockNumber int64) (*BlockSignature, bool) {
 	return sig, ok
 }
 
-// BlockSignatureVerifier verifies block signatures and their CIDs
+// BlockSignatureVerifier verifies block signatures and their CIDs.
 type BlockSignatureVerifier struct {
 	cache *BlockSignatureCache
 }
 
-// NewBlockSignatureVerifier creates a new block signature verifier
+// NewBlockSignatureVerifier creates a new block signature verifier.
 func NewBlockSignatureVerifier(cacheSize int) *BlockSignatureVerifier {
 	return &BlockSignatureVerifier{
 		cache: NewBlockSignatureCache(cacheSize),
 	}
 }
 
-// AddBlockSignature adds a block signature to the verifier's cache
+// AddBlockSignature adds a block signature to the verifier's cache.
 func (v *BlockSignatureVerifier) AddBlockSignature(sig *BlockSignature) {
 	v.cache.Add(sig)
 }
 
-// GetBlockSignature retrieves a block signature by block number
+// GetBlockSignature retrieves a block signature by block number.
 func (v *BlockSignatureVerifier) GetBlockSignature(blockNumber int64) (*BlockSignature, bool) {
 	return v.cache.Get(blockNumber)
 }
 
-// VerifyBlockSignature verifies that a block signature is valid
-func (v *BlockSignatureVerifier) VerifyBlockSignature(ctx context.Context, sig *BlockSignature) error {
+// VerifyBlockSignature verifies that a block signature is valid.
+func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error {
 	if sig == nil {
-		return fmt.Errorf("block signature is nil")
+		return ErrBlockSignatureNil
 	}
 
 	merkleRoot, err := hex.DecodeString(sig.MerkleRoot)
@@ -119,7 +118,7 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(ctx context.Context, sig *
 	case "Ed25519", "ed25519":
 		keyType = crypto.KeyTypeEd25519
 	default:
-		return fmt.Errorf("unsupported signature type: %s", sig.SignatureType)
+		return fmt.Errorf("%w: %v", ErrUnsupportedSignatureType, sig.SignatureType)
 	}
 
 	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)
@@ -132,21 +131,21 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(ctx context.Context, sig *
 		return fmt.Errorf("signature verification error: %w", err)
 	}
 	if !valid {
-		return fmt.Errorf("block signature verification failed for block %d", sig.BlockNumber)
+		return fmt.Errorf("block %d: %w", sig.BlockNumber, ErrBlockSigVerifyFailed)
 	}
 
 	return nil
 }
 
-// VerifyCIDsAgainstBlockSignature verifies that a list of CIDs matches a block signature's merkle root
+// VerifyCIDsAgainstBlockSignature verifies that a list of CIDs matches a block signature's merkle root.
 func (v *BlockSignatureVerifier) VerifyCIDsAgainstBlockSignature(cids []string, sig *BlockSignature) (bool, error) {
 	if sig == nil {
-		return false, fmt.Errorf("block signature is nil")
+		return false, ErrBlockSignatureNil
 	}
 
 	computedRoot := ComputeMerkleRootFromStrings(cids)
 	if computedRoot == nil {
-		return false, fmt.Errorf("failed to compute merkle root from CIDs")
+		return false, ErrComputeMerkleRoot
 	}
 
 	expectedRoot, err := hex.DecodeString(sig.MerkleRoot)
@@ -176,7 +175,7 @@ func (v *BlockSignatureVerifier) VerifyCIDListAgainstMerkleRoot(sig *BlockSignat
 }
 
 // ComputeMerkleRootFromStrings computes a merkle root from CID strings
-// This must match defradb/internal/core/block/block_signing.go
+// This must match defradb/internal/core/block/block_signing.go.
 func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	if len(cidStrings) == 0 {
 		return nil
@@ -210,12 +209,14 @@ func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 		var newHashes [][]byte
 		for i := 0; i < len(hashes); i += 2 {
 			if i+1 < len(hashes) {
-				combined := append(hashes[i], hashes[i+1]...)
+				combined := make([]byte, 0, len(hashes[i])+len(hashes[i+1]))
+				combined = append(combined, hashes[i]...)
+				combined = append(combined, hashes[i+1]...)
 				hash := sha256.Sum256(combined)
 				newHashes = append(newHashes, hash[:])
-			} else {
-				newHashes = append(newHashes, hashes[i])
+				continue
 			}
+			newHashes = append(newHashes, hashes[i])
 		}
 		hashes = newHashes
 	}
@@ -223,7 +224,7 @@ func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	return hashes[0]
 }
 
-// BlockCIDCollector collects CIDs for documents in a block for block signature verification
+// BlockCIDCollector collects CIDs for documents in a block for block signature verification.
 type BlockCIDCollector struct {
 	mu        sync.Mutex
 	blockCIDs map[int64][]string
@@ -231,7 +232,7 @@ type BlockCIDCollector struct {
 	docTypes  map[string]string
 }
 
-// NewBlockCIDCollector creates a new block CID collector
+// NewBlockCIDCollector creates a new block CID collector.
 func NewBlockCIDCollector() *BlockCIDCollector {
 	return &BlockCIDCollector{
 		blockCIDs: make(map[int64][]string),
@@ -240,7 +241,7 @@ func NewBlockCIDCollector() *BlockCIDCollector {
 	}
 }
 
-// AddDocumentCID adds a document's CID to the collector
+// AddDocumentCID adds a document's CID to the collector.
 func (c *BlockCIDCollector) AddDocumentCID(blockNumber int64, docID string, docType string, cid string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -249,7 +250,7 @@ func (c *BlockCIDCollector) AddDocumentCID(blockNumber int64, docID string, docT
 	c.docTypes[docID] = docType
 }
 
-// GetBlockCIDs returns all CIDs collected for a block
+// GetBlockCIDs returns all CIDs collected for a block.
 func (c *BlockCIDCollector) GetBlockCIDs(blockNumber int64) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -262,7 +263,7 @@ func (c *BlockCIDCollector) GetBlockCIDs(blockNumber int64) []string {
 	return result
 }
 
-// ClearBlock removes all collected data for a block (call after processing)
+// ClearBlock removes all collected data for a block (call after processing).
 func (c *BlockCIDCollector) ClearBlock(blockNumber int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

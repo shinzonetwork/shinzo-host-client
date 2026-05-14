@@ -21,26 +21,31 @@ func log() *zap.SugaredLogger {
 	return zap.NewNop().Sugar()
 }
 
+// RPCResponse represents the structure of a RPCResponse.
 type RPCResponse struct {
-	JsonRpcVersion string    `json:"jsonrpc"`
+	JSONRPCVersion string    `json:"jsonrpc"`
 	ID             int       `json:"id"`
 	Result         RPCResult `json:"result"`
 }
 
+// RPCResult represents the structure of a Tendermint event received from the WebSocket.
 type RPCResult struct {
 	Query string  `json:"query"`
 	Data  RPCData `json:"data"`
 }
 
+// RPCData represents the data structure of a Tendermint event received from the WebSocket.
 type RPCData struct {
 	Type  string   `json:"type"`
 	Value TxResult `json:"value"`
 }
 
+// TxResult represents the structure of a transaction result received from Tendermint.
 type TxResult struct {
 	TxResult TxResultData `json:"TxResult"`
 }
 
+// TxResultData represents the data structure of a transaction result in Tendermint.
 type TxResultData struct {
 	Height string         `json:"height"`
 	Tx     string         `json:"tx"`
@@ -48,6 +53,7 @@ type TxResultData struct {
 	Events []Event        `json:"events"`
 }
 
+// TxResultResult represents the result of a transaction execution in Tendermint.
 type TxResultResult struct {
 	Data      string  `json:"data"`
 	Events    []Event `json:"events"`
@@ -55,27 +61,38 @@ type TxResultResult struct {
 	GasWanted string  `json:"gas_wanted"`
 }
 
+// Event represents a Tendermint event with a type and attributes.
 type Event struct {
 	Type       string           `json:"type"`
 	Attributes []EventAttribute `json:"attributes"`
 }
 
+// EventAttribute represents a key-value pair attribute of a Tendermint event, with an index flag.
 type EventAttribute struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 	Index bool   `json:"index"`
 }
 
+// ShinzoEvent is an interface that all Shinzo events implement, allowing them to be processed uniformly.
 type ShinzoEvent interface {
 	ToString() string
 }
 
 // subscriptionQueries are the CometBFT event queries the host subscribes to.
 // Tendermint doesn't support OR logic, so each event type gets its own subscription.
-var subscriptionQueries = []string{
-	"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
-	"tm.event='Tx' AND HostRegistered.owner EXISTS",
-	"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+// var subscriptionQueries = []string{
+// 	"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
+// 	"tm.event='Tx' AND HostRegistered.owner EXISTS",
+// 	"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+// }
+
+func getSubscriptionQueries() []string {
+	return []string{
+		"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
+		"tm.event='Tx' AND HostRegistered.owner EXISTS",
+		"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+	}
 }
 
 // StartEventSubscription connects to the CometBFT WebSocket, subscribes to
@@ -85,7 +102,7 @@ var subscriptionQueries = []string{
 // reconnections; it is only closed when ctx is cancelled.
 func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	eventChan := make(chan ShinzoEvent, 16)
+	eventChan := make(chan ShinzoEvent, 16) //nolint:mnd
 
 	// Verify the URL is reachable before returning to the caller. This
 	// catches typos and DNS failures at startup instead of silently
@@ -104,31 +121,40 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 // dialAndSubscribe opens a WebSocket to the CometBFT node and sends all
 // subscription requests. Returns the live connection or an error.
 func dialAndSubscribe(url string) (*websocket.Conn, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log().Warnf("failed to close dial response body: %v", cerr)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", url, err)
 	}
 
-	for i, query := range subscriptionQueries {
-		msg := map[string]interface{}{
+	for i, query := range getSubscriptionQueries() {
+		msg := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "subscribe",
 			"id":      i + 1,
-			"params":  map[string]interface{}{"query": query},
+			"params":  map[string]any{"query": query},
 		}
 		if err := conn.WriteJSON(msg); err != nil {
-			conn.Close()
+			if err := conn.Close(); err != nil {
+				log().Warnf("failed to close websocket connection: %v", err)
+			}
 			return nil, fmt.Errorf("subscribe query %d: %w", i, err)
 		}
 		_, resp, err := conn.ReadMessage()
 		if err != nil {
-			conn.Close()
+			if err := conn.Close(); err != nil {
+				log().Warnf("failed to close websocket connection: %v", err)
+			}
 			return nil, fmt.Errorf("subscribe response %d: %w", i, err)
 		}
 		log().Debugf("subscription %d accepted: %s", i+1, string(resp))
 	}
 
-	log().Infof("WebSocket connected to %s with %d subscriptions", url, len(subscriptionQueries))
+	log().Infof("WebSocket connected to %s with %d subscriptions", url, len(getSubscriptionQueries()))
 	return conn, nil
 }
 
@@ -138,74 +164,112 @@ func dialAndSubscribe(url string) (*websocket.Conn, error) {
 // resumes reading. The channel is closed only when ctx is cancelled.
 func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<- ShinzoEvent) {
 	defer close(out)
-	defer func() {
-		if r := recover(); r != nil {
-			log().Errorf("WebSocket event loop recovered from panic: %v", r)
-		}
-	}()
+	defer recoverPanic()
 
 	backoff := time.Second
 	const maxBackoff = 60 * time.Second
-
 	pingStop := startPing(ctx, conn)
 	connectedAt := time.Now()
 
-	// ReadMessage blocks until data arrives. A read deadline lets the loop
-	// wake up periodically to check ctx cancellation during graceful shutdown.
-	const readTimeout = 30 * time.Second
-
 	for {
 		if ctx.Err() != nil {
-			conn.Close()
+			closeConn(conn)
 			return
 		}
 
-		conn.SetReadDeadline(time.Now().Add(readTimeout))
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			if ctx.Err() != nil {
-				conn.Close()
-				return
-			}
-			if isTimeoutError(err) {
-				continue
-			}
-
-			// Connection failure (reset by peer, server close, etc). Reconnect.
-			pingStop()
-			conn.Close()
-			log().Warnf("WebSocket read failed: %v; reconnecting in ~%v", err, backoff)
-
-			conn = reconnect(ctx, url, &backoff, maxBackoff)
-			if conn == nil {
-				return
-			}
-			pingStop = startPing(ctx, conn)
-			connectedAt = time.Now()
-			continue
-		}
-
-		// Reset backoff only after the connection has been stable for a while.
-		// This prevents a flapping connection from resetting to 1s on every
-		// brief reconnect.
-		if time.Since(connectedAt) > 60*time.Second {
-			backoff = time.Second
-		}
-
-		var msg RPCResponse
-		if err := json.Unmarshal(message, &msg); err != nil {
-			continue
-		}
-
-		for _, ev := range extractShinzoEvents(msg) {
-			select {
-			case out <- ev:
-			case <-ctx.Done():
-				conn.Close()
-				return
-			}
+		conn, pingStop, connectedAt, backoff = processNextMessage(
+			ctx, url, conn, out, pingStop, connectedAt, backoff, maxBackoff,
+		)
+		if conn == nil {
+			return
 		}
 	}
+}
+
+// recoverPanic from event loop.
+func recoverPanic() {
+	if r := recover(); r != nil {
+		log().Errorf("WebSocket event loop recovered from panic: %v", r)
+	}
+}
+
+// closeConn from event loop.
+func closeConn(conn *websocket.Conn) {
+	if err := conn.Close(); err != nil {
+		log().Warnf("failed to close websocket connection: %v", err)
+	}
+}
+
+// processNextMessage in event loop.
+func processNextMessage(
+	ctx context.Context,
+	url string,
+	conn *websocket.Conn,
+	out chan<- ShinzoEvent,
+	pingStop func(),
+	connectedAt time.Time,
+	backoff, maxBackoff time.Duration,
+) (*websocket.Conn, func(), time.Time, time.Duration) {
+	const readTimeout = 30 * time.Second
+
+	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		log().Warnf("failed to set read deadline: %v", err)
+	}
+
+	_, message, err := conn.ReadMessage()
+	if err != nil {
+		return handleReadError(ctx, url, conn, pingStop, backoff, maxBackoff, err)
+	}
+
+	if time.Since(connectedAt) > 60*time.Second {
+		backoff = time.Second
+	}
+
+	conn = dispatchEvents(ctx, conn, out, message)
+	return conn, pingStop, connectedAt, backoff
+}
+
+// handleReadError in event loop.
+func handleReadError(
+	ctx context.Context,
+	url string,
+	conn *websocket.Conn,
+	pingStop func(),
+	backoff, maxBackoff time.Duration,
+	err error,
+) (*websocket.Conn, func(), time.Time, time.Duration) {
+	if ctx.Err() != nil {
+		closeConn(conn)
+		return nil, nil, time.Time{}, backoff
+	}
+	if isTimeoutError(err) {
+		return conn, pingStop, time.Now(), backoff
+	}
+	pingStop()
+	closeConn(conn)
+	log().Warnf("WebSocket read failed: %v; reconnecting in ~%v", err, backoff)
+	conn = reconnect(ctx, url, &backoff, maxBackoff)
+	if conn == nil {
+		return nil, nil, time.Time{}, backoff
+	}
+	return conn, startPing(ctx, conn), time.Now(), backoff
+}
+
+// dispatchEvents from event loop.
+func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- ShinzoEvent, message []byte) *websocket.Conn {
+	var msg RPCResponse
+	if err := json.Unmarshal(message, &msg); err != nil {
+		return conn
+	}
+	for _, ev := range extractShinzoEvents(msg) {
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+			closeConn(conn)
+			return nil
+		}
+	}
+	return conn
 }
 
 // isTimeoutError checks whether the error is a read deadline timeout.
@@ -222,8 +286,8 @@ func isTimeoutError(err error) bool {
 func reconnect(ctx context.Context, url string, backoff *time.Duration, maxBackoff time.Duration) *websocket.Conn {
 	for {
 		// Add jitter: sleep for backoff +/- 25% to spread reconnection attempts.
-		jitter := time.Duration(rand.Int64N(int64(*backoff) / 2))
-		wait := *backoff + jitter - (*backoff / 4)
+		jitter := time.Duration(rand.Int64N(int64(*backoff) / 2)) //nolint:gosec,mnd
+		wait := *backoff + jitter - (*backoff / 4)                // nolint:mnd
 
 		select {
 		case <-ctx.Done():
@@ -252,18 +316,18 @@ func reconnect(ctx context.Context, url string, backoff *time.Duration, maxBacko
 func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 	pingCtx, pingCancel := context.WithCancel(ctx)
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(15 * time.Second) // nolint:mnd
 		defer ticker.Stop()
 		for {
 			select {
 			case <-pingCtx.Done():
 				return
 			case <-ticker.C:
-				msg := map[string]interface{}{
+				msg := map[string]any{
 					"jsonrpc": "2.0",
 					"method":  "status",
-					"id":      999,
-					"params":  map[string]interface{}{},
+					"id":      999, // nolint:mnd
+					"params":  map[string]any{},
 				}
 				if err := conn.WriteJSON(msg); err != nil {
 					return
@@ -274,94 +338,106 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 	return pingCancel
 }
 
-// extractShinzoEvents extracts ViewRegistered, HostRegistered, and IndexerRegistered events from an RPC message.
+// extractShinzoEvents extracts typed events from an RPC response.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
-	if msg.JsonRpcVersion != "2.0" ||
+	if msg.JSONRPCVersion != "2.0" ||
 		msg.Result.Data.Type != "tendermint/event/Tx" ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {
-		return events
+		return nil
 	}
 
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
 		case "ViewRegistered":
-			registeredEvent := ViewRegisteredEvent{}
-
-			for _, attr := range event.Attributes {
-				switch attr.Key {
-				case "view_address":
-					registeredEvent.ViewAddress = attr.Value
-				case "view_name":
-					registeredEvent.ViewName = attr.Value
-				case "creator":
-					registeredEvent.Creator = attr.Value
-				case "data":
-					newView, err := ProcessViewFromWireFormat(attr.Value)
-					if err != nil {
-						log().Warnf("failed to process view from wire: %v", err)
-						continue
-					}
-					registeredEvent.View = newView
-				}
+			if e := parseViewRegisteredEvent(event); e != nil {
+				events = append(events, e)
 			}
-
-			if registeredEvent.ViewAddress != "" && registeredEvent.Creator != "" && registeredEvent.View.Data.Query != "" {
-				log().Infof("ViewRegistered event received: %s", registeredEvent.View.Name)
-				events = append(events, &registeredEvent)
-			} else {
-				log().Debugf("incomplete ViewRegistered event: %+v", registeredEvent)
-			}
-
 		case "HostRegistered":
-			hostEvent := HostRegisteredEvent{}
-
-			for _, attr := range event.Attributes {
-				switch attr.Key {
-				case "owner":
-					hostEvent.Owner = attr.Value
-				case "did":
-					hostEvent.DID = attr.Value
-				case "connection_string":
-					hostEvent.ConnectionString = attr.Value
-				}
+			if e := parseHostRegisteredEvent(event); e != nil {
+				events = append(events, e)
 			}
-
-			if hostEvent.Owner != "" && hostEvent.DID != "" {
-				log().Infof("HostRegistered event received: owner=%s did=%s",
-					hostEvent.Owner, hostEvent.DID)
-				events = append(events, &hostEvent)
-			} else {
-				log().Debugf("incomplete HostRegistered event: %+v", hostEvent)
-			}
-
 		case "IndexerRegistered":
-			indexerEvent := IndexerRegisteredEvent{}
-
-			for _, attr := range event.Attributes {
-				switch attr.Key {
-				case "owner":
-					indexerEvent.Owner = attr.Value
-				case "did":
-					indexerEvent.DID = attr.Value
-				case "connection_string":
-					indexerEvent.ConnectionString = attr.Value
-				case "source_chain":
-					indexerEvent.SourceChain = attr.Value
-				case "source_chain_id":
-					indexerEvent.SourceChainID = attr.Value
-				}
-			}
-
-			if indexerEvent.Owner != "" && indexerEvent.DID != "" {
-				log().Infof("IndexerRegistered event received: owner=%s did=%s chain=%s/%s",
-					indexerEvent.Owner, indexerEvent.DID, indexerEvent.SourceChain, indexerEvent.SourceChainID)
-				events = append(events, &indexerEvent)
-			} else {
-				log().Debugf("incomplete IndexerRegistered event: %+v", indexerEvent)
+			if e := parseIndexerRegisteredEvent(event); e != nil {
+				events = append(events, e)
 			}
 		}
 	}
 
 	return events
+}
+
+// parseViewRegisteredEvent parses view registration events.
+func parseViewRegisteredEvent(event Event) ShinzoEvent {
+	e := ViewRegisteredEvent{}
+	for _, attr := range event.Attributes {
+		switch attr.Key {
+		case "view_address":
+			e.ViewAddress = attr.Value
+		case "view_name":
+			e.ViewName = attr.Value
+		case "creator":
+			e.Creator = attr.Value
+		case "data":
+			newView, err := ProcessViewFromWireFormat(attr.Value)
+			if err != nil {
+				log().Warnf("failed to process view from wire: %v", err)
+				continue
+			}
+			e.View = newView
+		}
+	}
+	if e.ViewAddress != "" && e.Creator != "" && e.View.Data.Query != "" {
+		log().Infof("ViewRegistered event received: %s", e.View.Name)
+		return &e
+	}
+	log().Debugf("incomplete ViewRegistered event: %+v", e)
+	return nil
+}
+
+// parseHostRegisteredEvent parse host registration events.
+func parseHostRegisteredEvent(event Event) ShinzoEvent {
+	e := HostRegisteredEvent{}
+	for _, attr := range event.Attributes {
+		switch attr.Key {
+		case "owner":
+			e.Owner = attr.Value
+		case "did":
+			e.DID = attr.Value
+		case "connection_string":
+			e.ConnectionString = attr.Value
+		}
+	}
+	if e.Owner != "" && e.DID != "" {
+		log().Infof("HostRegistered event received: owner=%s did=%s", e.Owner, e.DID)
+		return &e
+	}
+	log().Debugf("incomplete HostRegistered event: %+v", e)
+	return nil
+}
+
+// parseIndexerRegisteredEvent parse indexer registration events.
+func parseIndexerRegisteredEvent(event Event) ShinzoEvent {
+	e := IndexerRegisteredEvent{}
+	for _, attr := range event.Attributes {
+		switch attr.Key {
+		case "owner":
+			e.Owner = attr.Value
+		case "did":
+			e.DID = attr.Value
+		case "connection_string":
+			e.ConnectionString = attr.Value
+		case "source_chain":
+			e.SourceChain = attr.Value
+		case "source_chain_id":
+			e.SourceChainID = attr.Value
+		}
+	}
+	if e.Owner != "" && e.DID != "" {
+		log().Infof("IndexerRegistered event received: owner=%s did=%s chain=%s/%s",
+			e.Owner, e.DID, e.SourceChain, e.SourceChainID)
+		return &e
+	}
+	log().Debugf("incomplete IndexerRegistered event: %+v", e)
+	return nil
 }

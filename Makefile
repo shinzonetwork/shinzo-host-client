@@ -1,4 +1,4 @@
-.PHONY: build build-playground build-branchable build-branchable-with-playground start deps-playground
+.PHONY: build build-playground build-branchable build-branchable-with-playground start deps-playground lint lint-fix
 
 build:
 	go build -o bin/host cmd/main.go
@@ -20,3 +20,11 @@ deps-playground:
 # Build with both branchable tag and playground enabled
 build-branchable-with-playground: deps-playground
 	go build -tags "branchable,hostplayground" -o bin/host cmd/main.go
+
+lint:
+	@echo "🔍 Running golangci-lint..."
+	@golangci-lint run ./...
+
+lint-fix:
+	@echo "🔧 Running golangci-lint with auto-fix..."
+	@golangci-lint run --fix ./...

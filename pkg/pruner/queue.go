@@ -3,7 +3,7 @@ package pruner
 // PrunerQueue is the interface for queue implementations used by the pruner.
 // Host's only implementation is EventQueue, a FIFO queue tracking docIDs
 // arriving from P2P replication events.
-type PrunerQueue interface {
+type PrunerQueue interface { // nolint:revive // TODO: remove the double reference to
 	// Len returns the total number of entries in the queue.
 	Len() int
 

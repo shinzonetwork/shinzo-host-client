@@ -10,15 +10,15 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// queryClient provides a clean interface for executing GraphQL queries against DefraDB using the direct client
+// queryClient provides a clean interface for executing GraphQL queries against DefraDB using the direct client.
 type queryClient struct {
 	defraNode *node.Node
 }
 
-// newQueryClient creates a new GraphQL query client using the Defra node directly
+// newQueryClient creates a new GraphQL query client using the Defra node directly.
 func newQueryClient(defraNode *node.Node) (*queryClient, error) {
 	if defraNode == nil {
-		return nil, fmt.Errorf("defraNode parameter cannot be nil")
+		return nil, ErrDefraNodeNil
 	}
 
 	return &queryClient{
@@ -26,24 +26,24 @@ func newQueryClient(defraNode *node.Node) (*queryClient, error) {
 	}, nil
 }
 
-// query executes a GraphQL query using the Defra client directly and returns the raw result
-func (c *queryClient) query(ctx context.Context, query string) (interface{}, error) {
+// query executes a GraphQL query using the Defra client directly and returns the raw result.
+func (c *queryClient) query(ctx context.Context, query string) (any, error) {
 	if query == "" {
-		return nil, fmt.Errorf("query parameter is empty")
+		return nil, ErrQueryEmpty
 	}
 
 	result := c.defraNode.DB.ExecRequest(ctx, query)
 	gqlResult := result.GQL
 
 	if len(gqlResult.Errors) > 0 {
-		return nil, fmt.Errorf("graphql errors: %v", gqlResult.Errors)
+		return nil, ErrGraphQLErrors
 	}
 
 	return gqlResult.Data, nil
 }
 
-// queryAndUnmarshal executes a GraphQL query and unmarshals the result into the provided interface
-func (c *queryClient) queryAndUnmarshal(ctx context.Context, query string, result interface{}) error {
+// queryAndUnmarshal executes a GraphQL query and unmarshals the result into the provided interface.
+func (c *queryClient) queryAndUnmarshal(ctx context.Context, query string, result any) error { //nolint:unused
 	data, err := c.query(ctx, query)
 	if err != nil {
 		return err
@@ -52,30 +52,30 @@ func (c *queryClient) queryAndUnmarshal(ctx context.Context, query string, resul
 	// Convert the data to JSON and then unmarshal into the result
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("failed to marshal data: %w", err)
+		return ErrUnexpectedDataFormat
 	}
 
 	return json.Unmarshal(dataBytes, result)
 }
 
 // getDataField extracts the data from a GraphQL response
-// For the Defra client, the data is returned directly, not wrapped in a "data" field
-func (c *queryClient) getDataField(ctx context.Context, query string) (map[string]interface{}, error) {
+// For the Defra client, the data is returned directly, not wrapped in a "data" field.
+func (c *queryClient) getDataField(ctx context.Context, query string) (map[string]any, error) { //nolint:unused
 	data, err := c.query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	dataMap, ok := data.(map[string]interface{})
+	dataMap, ok := data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("unexpected data format: %T", data)
+		return nil, ErrUnexpectedDataFormat
 	}
 
 	return dataMap, nil
 }
 
-// queryInto executes a GraphQL query and unmarshals the result into a struct of the specified type
-func (c *queryClient) queryInto(ctx context.Context, query string, result interface{}) error {
+// queryInto executes a GraphQL query and unmarshals the result into a struct of the specified type.
+func (c *queryClient) queryInto(ctx context.Context, query string, result any) error { //nolint:unused
 	data, err := c.query(ctx, query)
 	if err != nil {
 		return err
@@ -91,8 +91,8 @@ func (c *queryClient) queryInto(ctx context.Context, query string, result interf
 }
 
 // queryDataInto executes a GraphQL query and unmarshals only the "data" field into a struct
-// This function handles both single objects and arrays in the response
-func (c *queryClient) queryDataInto(ctx context.Context, query string, result interface{}) error {
+// This function handles both single objects and arrays in the response.
+func (c *queryClient) queryDataInto(ctx context.Context, query string, result any) error { //nolint:unused
 	data, err := c.query(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to execute query: %w", err)
@@ -101,17 +101,17 @@ func (c *queryClient) queryDataInto(ctx context.Context, query string, result in
 	// Check if result is expecting a slice (array) or single object
 	resultValue := reflect.ValueOf(result)
 	if resultValue.Kind() != reflect.Ptr {
-		return fmt.Errorf("result must be a pointer")
+		return ErrResultNotPointer
 	}
 
 	resultElem := resultValue.Elem()
 
 	// If result is a slice, find the first array in data and unmarshal it
 	if resultElem.Kind() == reflect.Slice {
-		if dataMap, ok := data.(map[string]interface{}); ok {
+		if dataMap, ok := data.(map[string]any); ok {
 			for _, value := range dataMap {
 				// Try different array types
-				if array, ok := value.([]interface{}); ok {
+				if array, ok := value.([]any); ok {
 					// Convert the array to JSON and unmarshal into result
 					arrayBytes, err := json.Marshal(array)
 					if err != nil {
@@ -121,7 +121,7 @@ func (c *queryClient) queryDataInto(ctx context.Context, query string, result in
 				}
 
 				// Try []map[string]interface{} type
-				if array, ok := value.([]map[string]interface{}); ok {
+				if array, ok := value.([]map[string]any); ok {
 					// Convert the array to JSON and unmarshal into result
 					arrayBytes, err := json.Marshal(array)
 					if err != nil {
@@ -140,10 +140,10 @@ func (c *queryClient) queryDataInto(ctx context.Context, query string, result in
 	}
 
 	// If result is a single struct, find the first array in data and get its first element
-	if dataMap, ok := data.(map[string]interface{}); ok {
+	if dataMap, ok := data.(map[string]any); ok {
 		for _, value := range dataMap {
 			// Try different array types
-			if array, ok := value.([]interface{}); ok && len(array) > 0 {
+			if array, ok := value.([]any); ok && len(array) > 0 {
 				// Convert the first element to JSON and unmarshal into result
 				firstElementBytes, err := json.Marshal(array[0])
 				if err != nil {
@@ -153,7 +153,7 @@ func (c *queryClient) queryDataInto(ctx context.Context, query string, result in
 			}
 
 			// Try []map[string]interface{} type
-			if array, ok := value.([]map[string]interface{}); ok && len(array) > 0 {
+			if array, ok := value.([]map[string]any); ok && len(array) > 0 {
 				// Convert the first element to JSON and unmarshal into result
 				firstElementBytes, err := json.Marshal(array[0])
 				if err != nil {
@@ -172,7 +172,7 @@ func (c *queryClient) queryDataInto(ctx context.Context, query string, result in
 	return json.Unmarshal(dataBytes, result)
 }
 
-// wrapQueryIfNeeded automatically wraps a query with "query { }" if it doesn't already start with "query", "mutation", or "subscription"
+// wrapQueryIfNeeded automatically wraps a query with "query { }" if it doesn't already start with "query", "mutation", or "subscription".
 func wrapQueryIfNeeded(query string) string {
 	// Trim whitespace to check the actual start
 	trimmed := strings.TrimSpace(query)
@@ -206,7 +206,7 @@ func wrapQueryIfNeeded(query string) string {
 }
 
 // QuerySingle executes a GraphQL query and returns a single item of the specified type
-// This is useful when you expect a single object back (not an array)
+// This is useful when you expect a single object back (not an array).
 func QuerySingle[T any](ctx context.Context, defraNode *node.Node, query string) (T, error) {
 	var result T
 	client, err := newQueryClient(defraNode)
@@ -221,7 +221,7 @@ func QuerySingle[T any](ctx context.Context, defraNode *node.Node, query string)
 }
 
 // QueryArray executes a GraphQL query and returns an array of the specified type
-// This is useful when you expect an array of objects back
+// This is useful when you expect an array of objects back.
 func QueryArray[T any](ctx context.Context, defraNode *node.Node, query string) ([]T, error) {
 	var result []T
 	client, err := newQueryClient(defraNode)

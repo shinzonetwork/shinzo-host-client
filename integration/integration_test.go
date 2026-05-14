@@ -33,7 +33,7 @@ func TestIntegration(t *testing.T) {
 	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0" // Use random available port
-	testConfig.DefraDB.Url = "localhost:0"
+	testConfig.DefraDB.URL = "localhost:0"
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
 	testConfig.DefraDB.P2P.Enabled = true
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{

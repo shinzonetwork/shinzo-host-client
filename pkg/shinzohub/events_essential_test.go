@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Real devnet values used across tests
+// Real devnet values used across tests.
 const (
 	testHostAddress    = "shinzo1k2e3g3696x7ycdz5tlqslplpgyh3dwy7e7jarm"
 	testHostDID        = "did:key:z7r8orQ6nZti55L4MsGEfJcpMBpjFAHResJ2wscTo77VFAdot5JNZ8Bz87hCMZ8XLwgA6YYMyQ521AXaEGYb9BSYfKf7i"
@@ -155,7 +155,7 @@ func TestEventInterface(t *testing.T) {
 
 func TestExtractShinzoEvents_ViewRegistered(t *testing.T) {
 	msg := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{
@@ -187,7 +187,7 @@ func TestExtractShinzoEvents_ViewRegistered(t *testing.T) {
 
 func TestExtractShinzoEvents_HostRegistered(t *testing.T) {
 	msg := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             2,
 		Result: RPCResult{
 			Data: RPCData{
@@ -224,7 +224,7 @@ func TestExtractShinzoEvents_HostRegistered(t *testing.T) {
 
 func TestExtractShinzoEvents_IndexerRegistered(t *testing.T) {
 	msg := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             3,
 		Result: RPCResult{
 			Data: RPCData{
@@ -265,7 +265,7 @@ func TestExtractShinzoEvents_IndexerRegistered(t *testing.T) {
 
 func TestExtractShinzoEvents_IncompleteHost(t *testing.T) {
 	msg := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             2,
 		Result: RPCResult{
 			Data: RPCData{
@@ -295,7 +295,7 @@ func TestExtractShinzoEvents_IncompleteHost(t *testing.T) {
 
 func TestExtractShinzoEvents_IgnoresUnknownEvents(t *testing.T) {
 	msg := RPCResponse{
-		JsonRpcVersion: "2.0",
+		JSONRPCVersion: "2.0",
 		ID:             1,
 		Result: RPCResult{
 			Data: RPCData{

@@ -10,4 +10,3 @@ import (
 
 //go:embed dist
 var Dist embed.FS
-

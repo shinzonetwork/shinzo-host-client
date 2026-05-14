@@ -13,11 +13,11 @@ import (
 
 	gocid "github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
@@ -32,6 +32,8 @@ func init() {
 
 // extractDocIDFromMutationResult extracts the _docID from a DefraDB mutation result.
 // DefraDB may return the list as []map[string]any or []any depending on version.
+//
+//nolint:unparam
 func extractDocIDFromMutationResult(t *testing.T, result *client.RequestResult, collectionName string) string {
 	t.Helper()
 	dataMap, ok := result.GQL.Data.(map[string]any)
@@ -178,7 +180,7 @@ func TestProcessAttestationEventsWithSubscription_ContextCancelled(t *testing.T)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
-	// Should return promptly since context is already cancelled
+	// Should return promptly since context is already canceled
 	done := make(chan struct{})
 	go func() {
 		h.processAttestationEventsWithSubscription(ctx)
@@ -360,7 +362,7 @@ func TestStartEventBusListener_NilDefraNode(t *testing.T) {
 // processBlockSignatureFromEventBus
 // ---------------------------------------------------------------------------
 
-func TestProcessBlockSignatureFromEventBus_NilDefraNode(t *testing.T) {
+func TestProcessBlockSignatureFromEventBus_NilDefraNode(_ *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
@@ -368,7 +370,7 @@ func TestProcessBlockSignatureFromEventBus_NilDefraNode(t *testing.T) {
 	h.processBlockSignatureFromEventBus(context.Background(), "test-doc-id")
 }
 
-func TestProcessBlockSignatureFromEventBus_ContextCancelled(t *testing.T) {
+func TestProcessBlockSignatureFromEventBus_ContextCancelled(_ *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
@@ -391,7 +393,7 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelled(t *testing.T) {
 // processAttestationsFromBlockSignature
 // ---------------------------------------------------------------------------
 
-func TestProcessAttestationsFromBlockSignature_NilDefraNode(t *testing.T) {
+func TestProcessAttestationsFromBlockSignature_NilDefraNode(_ *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
@@ -404,7 +406,7 @@ func TestProcessAttestationsFromBlockSignature_NilDefraNode(t *testing.T) {
 	h.processAttestationsFromBlockSignature(context.Background(), blockSig)
 }
 
-func TestProcessAttestationsFromBlockSignature_NoCIDs(t *testing.T) {
+func TestProcessAttestationsFromBlockSignature_NoCIDs(_ *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 		metrics:   server.NewHostMetrics(),
@@ -504,14 +506,14 @@ func TestProcessAttestationsFromBlockSignature_EmptyBlockAttestedID(t *testing.T
 	require.Equal(t, "block:42:abc123", blockAttestedID)
 
 	record := &constants.AttestationRecord{
-		AttestedDocId: blockAttestedID,
-		SourceDocIds:  []string{blockSig.SignatureIdentity},
+		AttestedDocID: blockAttestedID,
+		SourceDocIDs:  []string{blockSig.SignatureIdentity},
 		CIDs:          blockSig.CIDs,
 		DocType:       "Block",
 		VoteCount:     1,
 	}
-	require.Equal(t, "block:42:abc123", record.AttestedDocId)
-	require.Equal(t, []string{"0xsigner"}, record.SourceDocIds)
+	require.Equal(t, "block:42:abc123", record.AttestedDocID)
+	require.Equal(t, []string{"0xsigner"}, record.SourceDocIDs)
 	require.Equal(t, []string{"cid1", "cid2"}, record.CIDs)
 	require.Equal(t, "Block", record.DocType)
 	require.Equal(t, 1, record.VoteCount)
@@ -553,9 +555,9 @@ func TestRetryableErrorDetection(t *testing.T) {
 func TestInitKnownCollectionIDs_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -595,9 +597,9 @@ func TestInitKnownCollectionIDs_NilDB(t *testing.T) {
 func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	metrics := server.NewHostMetrics()
 	cfg := *DefaultConfig
@@ -646,9 +648,9 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := *DefaultConfig
 	h := &Host{
@@ -681,9 +683,9 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -696,9 +698,9 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testi
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -715,9 +717,9 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *tes
 func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create a BlockSignature document in DefraDB
 	mutation := fmt.Sprintf(`mutation {
@@ -768,9 +770,9 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create a BlockSignature document with invalid signature (will fail verification)
 	mutation := fmt.Sprintf(`mutation {
@@ -822,9 +824,9 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 func TestProcessDocumentAttestationBatch_WithVersionData(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	cfg := *DefaultConfig
 	cfg.Shinzo.MaxConcurrentVerifications = 10
@@ -870,12 +872,12 @@ func TestProcessDocumentAttestationBatch_WithVersionData(t *testing.T) {
 	_ = err
 }
 
-func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(t *testing.T) {
+func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(_ *testing.T) {
 	cfg := *DefaultConfig
 	cfg.Shinzo.MaxConcurrentVerifications = 5
 
 	h := &Host{
-		config: &cfg,
+		config:            &cfg,
 		signatureVerifier: attestationService.NewDefraSignatureVerifier(nil, nil),
 	}
 
@@ -928,9 +930,9 @@ func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(t *tes
 func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	metrics := server.NewHostMetrics()
 
@@ -966,9 +968,9 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -996,9 +998,9 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing
 func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create a BlockSignature document with cids populated
 	mutation := fmt.Sprintf(`mutation {
@@ -1044,9 +1046,9 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create a BlockSignature with blockNumber=0 to test type handling
 	mutation := fmt.Sprintf(`mutation {
@@ -1083,9 +1085,9 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create a BlockSignature with empty merkleRoot
 	mutation := fmt.Sprintf(`mutation {
@@ -1126,9 +1128,9 @@ func makeTestCID(data string) string {
 func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Generate an Ed25519 key pair
 	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
@@ -1206,9 +1208,9 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create a BlockSignature document
 	mutation := fmt.Sprintf(`mutation {
@@ -1248,9 +1250,9 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	metrics := server.NewHostMetrics()
 	h := &Host{
@@ -1287,9 +1289,9 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIdentities(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	metrics := server.NewHostMetrics()
 	h := &Host{
@@ -1325,9 +1327,15 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 	require.Len(t, records, 1, "Should have exactly one attestation record for this block")
 
 	record := records[0]
-	require.Contains(t, record.SourceDocIds, "indexer-A", "Should contain first indexer's identity")
-	require.Contains(t, record.SourceDocIds, "indexer-B", "Should contain second indexer's identity")
-	require.Len(t, record.SourceDocIds, 2, "Should have exactly 2 indexer identities")
+	require.Contains(t, record.SourceDocIDs, "indexer-A", "Should contain first indexer's identity")
+	require.Contains(t, record.SourceDocIDs, "indexer-B", "Should contain second indexer's identity")
+	require.Len(t, record.SourceDocIDs, 2, "Should have exactly 2 indexer identities")
+}
+
+func TestDebugSchema(t *testing.T) {
+	schema := localschema.GetSchema()
+	t.Log(schema)
+	require.Contains(t, schema, "source_doc")
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,9 +1345,9 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Generate Ed25519 key pair
 	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
@@ -1406,15 +1414,15 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// processBlockSignatureFromEventBus - context cancelled during retry loop
+// processBlockSignatureFromEventBus - context canceled during retry loop
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -1435,9 +1443,9 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	metrics := server.NewHostMetrics()
 	cfg := *DefaultConfig

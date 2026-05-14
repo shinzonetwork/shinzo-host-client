@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
@@ -37,82 +38,25 @@ type kvSnapshotHeader struct {
 // ImportWithVerification verifies the cryptographic signature and Merkle root,
 // then imports raw KV pairs into DefraDB. Does NOT rebuild indexes — the caller
 // should call RebuildAllIndexes once after all snapshots are imported.
-func ImportWithVerification(ctx context.Context, defraNode *node.Node, snapshotPath string, sig *SnapshotSignatureData) (*ImportResult, error) {
+// ImportWithVerification verifies and imports a signed KV snapshot.
+func ImportWithVerification(ctx context.Context, defraNode *node.Node, snapshotPath string, sig *SignatureData) (*ImportResult, error) {
 	if err := verifySignature(sig); err != nil {
 		return nil, fmt.Errorf("signature verification failed: %w", err)
 	}
 
-	f, err := os.Open(snapshotPath)
+	header, gr, cleanup, err := openAndReadHeader(snapshotPath)
 	if err != nil {
-		return nil, fmt.Errorf("open snapshot: %w", err)
+		return nil, err
 	}
-	defer f.Close()
+	defer cleanup()
 
-	gr, err := gzip.NewReader(f)
+	if err := verifyHeaderAgainstSig(header, sig); err != nil {
+		return nil, err
+	}
+
+	count, err := importKVs(ctx, defraNode, gr, header)
 	if err != nil {
-		return nil, fmt.Errorf("gzip reader: %w", err)
-	}
-	defer gr.Close()
-
-	var lenBuf [4]byte
-	if _, err := io.ReadFull(gr, lenBuf[:]); err != nil {
-		return nil, fmt.Errorf("read header length: %w", err)
-	}
-	headerLen := binary.BigEndian.Uint32(lenBuf[:])
-	headerBytes := make([]byte, headerLen)
-	if _, err := io.ReadFull(gr, headerBytes); err != nil {
-		return nil, fmt.Errorf("read header: %w", err)
-	}
-
-	var header kvSnapshotHeader
-	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return nil, fmt.Errorf("parse header: %w", err)
-	}
-	if header.Magic != "DFKV" {
-		return nil, fmt.Errorf("invalid snapshot magic: %q", header.Magic)
-	}
-
-	if len(header.BlockSigMerkleRoots) == 0 {
-		return nil, fmt.Errorf("no block signatures found in KV snapshot header")
-	}
-
-	roots := make([][]byte, 0, len(header.BlockSigMerkleRoots))
-	for _, rootHex := range header.BlockSigMerkleRoots {
-		rootBytes, err := hex.DecodeString(rootHex)
-		if err != nil {
-			return nil, fmt.Errorf("decode block sig root: %w", err)
-		}
-		roots = append(roots, rootBytes)
-	}
-
-	computedRoot := computeSnapshotMerkleRoot(roots)
-	computedRootHex := hex.EncodeToString(computedRoot)
-	if computedRootHex != sig.MerkleRoot {
-		return nil, fmt.Errorf("merkle root mismatch: computed %s, expected %s", computedRootHex, sig.MerkleRoot)
-	}
-
-	// If the signature carries its own block sig roots, verify they match the file header.
-	if len(sig.BlockSigMerkleRoots) > 0 {
-		if len(sig.BlockSigMerkleRoots) != len(header.BlockSigMerkleRoots) {
-			return nil, fmt.Errorf("block sig root count mismatch: signature has %d, file header has %d",
-				len(sig.BlockSigMerkleRoots), len(header.BlockSigMerkleRoots))
-		}
-		for i, sigRoot := range sig.BlockSigMerkleRoots {
-			if sigRoot != header.BlockSigMerkleRoots[i] {
-				return nil, fmt.Errorf("block sig root mismatch at index %d: signature has %s, file header has %s",
-					i, sigRoot, header.BlockSigMerkleRoots[i])
-			}
-		}
-	}
-
-	var count int
-	if len(header.FieldMappings) > 0 {
-		count, err = defraNode.DB.ImportRawKVsWithMapping(ctx, gr, header.FieldMappings)
-	} else {
-		count, err = defraNode.DB.ImportRawKVs(ctx, gr)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("import raw KVs: %w", err)
+		return nil, err
 	}
 
 	logger.Sugar.Infof("KV snapshot imported: blocks %d-%d (%d KV pairs, signer: %s)",
@@ -122,6 +66,111 @@ func ImportWithVerification(ctx context.Context, defraNode *node.Node, snapshotP
 		StartBlock: header.StartBlock,
 		EndBlock:   header.EndBlock,
 	}, nil
+}
+
+// openAndReadHeader opens the snapshot file and reads the header, returning a cleanup func.
+func openAndReadHeader(snapshotPath string) (*kvSnapshotHeader, *gzip.Reader, func(), error) {
+	f, err := os.Open(filepath.Clean(snapshotPath))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("open snapshot: %w", err)
+	}
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		_ = f.Close()
+		return nil, nil, nil, fmt.Errorf("gzip reader: %w", err)
+	}
+
+	cleanup := func() {
+		_ = gr.Close()
+		_ = f.Close()
+	}
+
+	header, err := readSnapshotHeader(gr)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, err
+	}
+
+	return header, gr, cleanup, nil
+}
+
+// readSnapshotHeader reads and parses the length-prefixed JSON header from the gzip stream.
+func readSnapshotHeader(gr *gzip.Reader) (*kvSnapshotHeader, error) {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(gr, lenBuf[:]); err != nil {
+		return nil, fmt.Errorf("read header length: %w", err)
+	}
+
+	headerBytes := make([]byte, binary.BigEndian.Uint32(lenBuf[:]))
+	if _, err := io.ReadFull(gr, headerBytes); err != nil {
+		return nil, fmt.Errorf("read header: %w", err)
+	}
+
+	var header kvSnapshotHeader
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return nil, fmt.Errorf("parse header: %w", err)
+	}
+	if header.Magic != "DFKV" {
+		return nil, fmt.Errorf("magic %q: %w", header.Magic, ErrInvalidSnapshotMagic)
+	}
+	if len(header.BlockSigMerkleRoots) == 0 {
+		return nil, ErrNoBlockSignatures
+	}
+
+	return &header, nil
+}
+
+// verifyHeaderAgainstSig verifies the header's merkle root and block sig roots match the signature.
+func verifyHeaderAgainstSig(header *kvSnapshotHeader, sig *SignatureData) error {
+	roots := make([][]byte, 0, len(header.BlockSigMerkleRoots))
+	for _, rootHex := range header.BlockSigMerkleRoots {
+		rootBytes, err := hex.DecodeString(rootHex)
+		if err != nil {
+			return fmt.Errorf("decode block sig root: %w", err)
+		}
+		roots = append(roots, rootBytes)
+	}
+
+	computedRootHex := hex.EncodeToString(computeSnapshotMerkleRoot(roots))
+	if computedRootHex != sig.MerkleRoot {
+		return fmt.Errorf("computed %s, expected %s: %w", computedRootHex, sig.MerkleRoot, ErrMerkleRootMismatch)
+	}
+
+	if len(sig.BlockSigMerkleRoots) == 0 {
+		return nil
+	}
+
+	if len(sig.BlockSigMerkleRoots) != len(header.BlockSigMerkleRoots) {
+		return fmt.Errorf("signature has %d, file header has %d: %w",
+			len(sig.BlockSigMerkleRoots), len(header.BlockSigMerkleRoots), ErrBlockSigCountMismatch)
+	}
+
+	for i, sigRoot := range sig.BlockSigMerkleRoots {
+		if sigRoot != header.BlockSigMerkleRoots[i] {
+			return fmt.Errorf("index %d, signature %s, header %s: %w",
+				i, sigRoot, header.BlockSigMerkleRoots[i], ErrBlockSigRootMismatch)
+		}
+	}
+
+	return nil
+}
+
+// importKVs imports raw KV pairs from the gzip reader into DefraDB.
+func importKVs(ctx context.Context, defraNode *node.Node, gr *gzip.Reader, header *kvSnapshotHeader) (int, error) {
+	var count int
+	var err error
+
+	if len(header.FieldMappings) > 0 {
+		count, err = defraNode.DB.ImportRawKVsWithMapping(ctx, gr, header.FieldMappings)
+	} else {
+		count, err = defraNode.DB.ImportRawKVs(ctx, gr)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("import raw KVs: %w", err)
+	}
+
+	return count, nil
 }
 
 // RebuildAllIndexes rebuilds indexes for all collections after bulk KV import.
@@ -136,7 +185,7 @@ func RebuildAllIndexes(ctx context.Context, defraNode *node.Node, collections []
 }
 
 // verifySignature verifies the cryptographic signature on a snapshot.
-func verifySignature(sig *SnapshotSignatureData) error {
+func verifySignature(sig *SignatureData) error {
 	merkleRootBytes, err := hex.DecodeString(sig.MerkleRoot)
 	if err != nil {
 		return fmt.Errorf("decode merkle root: %w", err)
@@ -154,7 +203,7 @@ func verifySignature(sig *SnapshotSignatureData) error {
 	case "Ed25519", "ed25519":
 		keyType = crypto.KeyTypeEd25519
 	default:
-		return fmt.Errorf("unsupported signature type: %s", sig.SignatureType)
+		return fmt.Errorf("signature type %s: %w", sig.SignatureType, ErrUnsupportedSigType)
 	}
 
 	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)
@@ -167,13 +216,15 @@ func verifySignature(sig *SnapshotSignatureData) error {
 		return fmt.Errorf("verify: %w", err)
 	}
 	if !valid {
-		return fmt.Errorf("invalid signature")
+		return ErrInvalidSignature
 	}
 
 	return nil
 }
 
 // computeSnapshotMerkleRoot computes a Merkle root from per-block block sig roots.
+//
+//nolint:gomnd
 func computeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
 	if len(blockSigMerkleRoots) == 0 {
 		return nil
@@ -185,9 +236,9 @@ func computeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
 		hashes[i] = hash[:]
 	}
 
-	combined := make([]byte, 64)
+	combined := make([]byte, sha256CombinedByteSize)
 	for len(hashes) > 1 {
-		newLen := (len(hashes) + 1) / 2
+		newLen := (len(hashes) + 1) / merkleArity
 		newHashes := make([][]byte, 0, newLen)
 		for i := 0; i < len(hashes); i += 2 {
 			if i+1 < len(hashes) {

@@ -9,13 +9,15 @@ type Config struct {
 	Logger  LoggerConfig  `yaml:"logger"`
 }
 
-type DefraDBConfig struct {
-	Url           string           `yaml:"url"`
+// DefraDBConfig is a structure for passing the client config to app.
+type DefraDBConfig struct { //nolint:revive // TODO: remove the double reference to defra
+	URL           string           `yaml:"url"`
 	KeyringSecret string           `yaml:"keyring_secret"`
 	P2P           DefraP2PConfig   `yaml:"p2p"`
 	Store         DefraStoreConfig `yaml:"store"`
 }
 
+// DefraP2PConfig is a structure for the default behaviour.
 type DefraP2PConfig struct {
 	Enabled             bool     `yaml:"enabled"`
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
@@ -26,6 +28,7 @@ type DefraP2PConfig struct {
 	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
 }
 
+// DefraStoreConfig holds configuration for the DefraDB storage engine.
 type DefraStoreConfig struct {
 	Path string `yaml:"path"`
 	// Badger memory configuration.
@@ -40,6 +43,7 @@ type DefraStoreConfig struct {
 	ValueLogFileSizeMB int64 `yaml:"value_log_file_size_mb"`
 }
 
+// LoggerConfig holds configuration for the application logger.
 type LoggerConfig struct {
 	Development bool   `yaml:"development"`
 	LogsDir     string `yaml:"logs_dir"`

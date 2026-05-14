@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestViewProcessor_ProcessViewFromWire tests wire format processing
+// TestViewProcessor_ProcessViewFromWire tests wire format processing.
 func TestViewProcessor_ProcessViewFromWire(t *testing.T) {
 	// Create test viewbundle
 	bundler := viewbundle.NewBundler()
-	
+
 	// Create valid WASM magic number + some data
 	wasmData := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC, 0xDD}
 	wasmBase64 := base64.StdEncoding.EncodeToString(wasmData)
-	
+
 	testView := viewbundle.View{
 		Query: "Log { address topics }",
 		Sdl:   "type LogView { address: String }",
@@ -49,7 +49,7 @@ func TestViewProcessor_ProcessViewFromWire(t *testing.T) {
 	require.Len(t, resultView.Data.Transform.Lenses, 1)
 }
 
-// TestViewProcessor_ProcessViewFromWire_InvalidBase64 tests error handling
+// TestViewProcessor_ProcessViewFromWire_InvalidBase64 tests error handling.
 func TestViewProcessor_ProcessViewFromWire_InvalidBase64(t *testing.T) {
 	// Test with invalid base64
 	_, err := ProcessViewFromWireFormat("invalid-base64!")
@@ -57,7 +57,7 @@ func TestViewProcessor_ProcessViewFromWire_InvalidBase64(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to decode base64 wire")
 }
 
-// TestViewProcessor_ProcessViewFromWire_InvalidWire tests error handling
+// TestViewProcessor_ProcessViewFromWire_InvalidWire tests error handling.
 func TestViewProcessor_ProcessViewFromWire_InvalidWire(t *testing.T) {
 	// Test with valid base64 but invalid wire data
 	invalidBase64 := "dGVzdA==" // "test" in base64
@@ -66,7 +66,7 @@ func TestViewProcessor_ProcessViewFromWire_InvalidWire(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to create view from wire")
 }
 
-// TestViewProcessor_ProcessViewFromWire_InvalidView tests validation
+// TestViewProcessor_ProcessViewFromWire_InvalidView tests validation.
 func TestViewProcessor_ProcessViewFromWire_InvalidView(t *testing.T) {
 	// Create invalid view (missing query)
 	bundler := viewbundle.NewBundler()
@@ -87,13 +87,13 @@ func TestViewProcessor_ProcessViewFromWire_InvalidView(t *testing.T) {
 	require.Contains(t, err.Error(), "view query is required")
 }
 
-// TestViewProcessor_SetupViewInDefraDB tests complete DefraDB setup
+// TestViewProcessor_SetupViewInDefraDB tests complete DefraDB setup.
 func TestViewProcessor_SetupViewInDefraDB(t *testing.T) {
 	// Create temporary DefraDB instance
 	ctx := context.Background()
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	processor := NewViewProcessor(defraNode)
 
@@ -120,13 +120,13 @@ func TestViewProcessor_SetupViewInDefraDB(t *testing.T) {
 	require.Equal(t, testView.Name, collection.Name())
 }
 
-// TestViewProcessor_SetupViewInDefraDB_WithoutLenses tests basic view setup without lenses (GitHub Actions compatible)
+// TestViewProcessor_SetupViewInDefraDB_WithoutLenses tests basic view setup without lenses (GitHub Actions compatible).
 func TestViewProcessor_SetupViewInDefraDB_WithoutLenses(t *testing.T) {
 	// Create temporary DefraDB instance
 	ctx := context.Background()
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	processor := NewViewProcessor(defraNode)
 
@@ -154,13 +154,13 @@ func TestViewProcessor_SetupViewInDefraDB_WithoutLenses(t *testing.T) {
 	require.Equal(t, testView.Name, collection.Name())
 }
 
-// TestViewProcessor_SetupViewInDefraDB_InvalidView tests error handling
+// TestViewProcessor_SetupViewInDefraDB_InvalidView tests error handling.
 func TestViewProcessor_SetupViewInDefraDB_InvalidView(t *testing.T) {
 	// Create temporary DefraDB instance
 	ctx := context.Background()
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	processor := NewViewProcessor(defraNode)
 

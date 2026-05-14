@@ -21,8 +21,8 @@ const keyFileName string = "defra_identity.key"
 // shims for those have been removed. The two left below cover the load-flow
 // orchestration and ed25519 public-key parsing in the verifier.
 var (
-	loadIdentityFromStoreFn   = loadIdentityFromStore
-	ed25519PubKeyFromStringFn = func(hex string) (crypto.PublicKey, error) {
+	loadIdentityFromStoreFn   = loadIdentityFromStore                        //nolint:gochecknoglobals
+	ed25519PubKeyFromStringFn = func(hex string) (crypto.PublicKey, error) { //nolint:gochecknoglobals
 		return crypto.PublicKeyFromString(crypto.KeyTypeEd25519, hex)
 	}
 )
@@ -32,7 +32,7 @@ func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
 	keyPath := filepath.Join(storePath, keyFileName)
 
 	// Read the stored key file
-	keyHex, err := os.ReadFile(keyPath)
+	keyHex, err := os.ReadFile(filepath.Clean(keyPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read key file at %s: %w", keyPath, err)
 	}
@@ -93,13 +93,13 @@ func getStorePath(_ *node.Node, cfg *defradb.Config) (string, error) {
 
 	// Try each path to see if it contains the key file
 	for _, path := range possiblePaths {
-		keyPath := filepath.Join(path, keyFileName)
+		keyPath := filepath.Join(filepath.Clean(path), keyFileName)
 		if _, err := os.Stat(keyPath); err == nil {
 			return path, nil
 		}
 	}
 
-	return "", fmt.Errorf("could not find defra_identity.key in any common location. Please ensure the key file exists or provide a store path in config")
+	return "", ErrKeyFileNotFound
 }
 
 // SignWithDefraKeys signs a message using the DefraDB identity's private key (secp256k1).
@@ -121,7 +121,7 @@ func SignWithDefraKeys(message string, defraNode *node.Node, cfg *defradb.Config
 	// Get the private key
 	privateKey := fullIdentity.PrivateKey()
 	if privateKey == nil {
-		return "", fmt.Errorf("identity does not have a private key")
+		return "", ErrNoPrivateKey
 	}
 
 	// Sign the message
@@ -166,12 +166,13 @@ func SignWithP2PKeys(message string, defraNode *node.Node, cfg *defradb.Config) 
 	// Ed25519.NewKeyFromSeed expects exactly 32 bytes (the seed)
 	// If we got 64 bytes, take only the first 32 bytes (the seed portion)
 	var ed25519Seed []byte
-	if len(rawKeyBytes) == 64 {
+	switch len(rawKeyBytes) {
+	case 64: //nolint:mnd
 		ed25519Seed = rawKeyBytes[:32]
-	} else if len(rawKeyBytes) == 32 {
+	case 32: //nolint:mnd
 		ed25519Seed = rawKeyBytes
-	} else {
-		return "", fmt.Errorf("unexpected Ed25519 key length: expected 32 or 64 bytes, got %d", len(rawKeyBytes))
+	default:
+		return "", ErrUnexpectedKeyLength
 	}
 
 	// Construct full ed25519.PrivateKey from seed (64 bytes: 32-byte seed + 32-byte public key)
@@ -202,7 +203,7 @@ func GetDefraPublicKey(defraNode *node.Node, cfg *defradb.Config) (string, error
 	// Get the public key
 	publicKey := fullIdentity.PublicKey()
 	if publicKey == nil {
-		return "", fmt.Errorf("identity does not have a public key")
+		return "", ErrNoPublicKey
 	}
 
 	// Return hex-encoded public key
@@ -271,7 +272,7 @@ func VerifyDefraSignature(publicKeyHex string, message string, signatureHex stri
 	}
 
 	if !valid {
-		return fmt.Errorf("signature verification failed")
+		return ErrSignatureVerification
 	}
 
 	return nil
@@ -301,7 +302,7 @@ func VerifyP2PSignature(publicKeyHex string, message string, signatureHex string
 	// Get the underlying Ed25519 public key
 	ed25519PubKey, ok := publicKey.Underlying().(ed25519.PublicKey)
 	if !ok {
-		return fmt.Errorf("public key is not Ed25519")
+		return ErrNotEd25519Key
 	}
 
 	// Verify the signature using DefraDB's crypto package

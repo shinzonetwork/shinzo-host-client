@@ -138,7 +138,7 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 	ctx := context.Background()
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
-	
+
 	// Create view using viewbundle
 	bundledView := viewbundle.View{
 		Query: query,
@@ -149,7 +149,7 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 
 	myDefra, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer myDefra.Close(ctx)
+	defer func() { _ = myDefra.Close(ctx) }()
 
 	// SubscribeTo should fail because the collection doesn't exist yet
 	// (views must be created before they can be subscribed to)
@@ -161,7 +161,7 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 func TestSubscribeToInvalidViewFails(t *testing.T) {
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
-	
+
 	// Create view using viewbundle
 	bundledView := viewbundle.View{
 		Query: query,

@@ -251,13 +251,13 @@ func fieldUint64(fields map[string]any, key string) (uint64, bool) {
 	}
 	switch n := v.(type) {
 	case int64:
-		return uint64(n), true
+		return uint64(n), true //nolint:gosec
 	case uint64:
 		return n, true
 	case float64:
 		return uint64(n), true
 	case int:
-		return uint64(n), true
+		return uint64(n), true //nolint:gosec // int to uint64 conversion is safe here, negative values won't occur
 	}
 	return 0, false
 }

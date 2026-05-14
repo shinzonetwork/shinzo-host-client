@@ -10,7 +10,7 @@ import (
 
 // Sugar is the package-level sugared logger. Call Init before first use; until
 // then it is nil and call sites will panic on dereference.
-var Sugar *zap.SugaredLogger
+var Sugar *zap.SugaredLogger //nolint:gochecknoglobals
 
 // Init builds a tee'd zap logger that writes to stdout and, when logsDir is
 // writable, also to logsDir/logfile.log (all levels) and logsDir/errorfile.log
@@ -31,18 +31,18 @@ func Init(development bool, logsDir string) {
 
 	var cores []zapcore.Core
 
-	if err := os.MkdirAll(logsDir, 0755); err == nil {
+	if err := os.MkdirAll(logsDir, 0o750); err == nil { // nolint:mnd
 		logFile := filepath.Join(logsDir, "logfile.log")
 		errorFile := filepath.Join(logsDir, "errorfile.log")
 
-		if logFileWriter, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err == nil {
+		if logFileWriter, err := os.OpenFile(filepath.Clean(logFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { // nolint:mnd
 			consoleCore := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), consoleWriter, zapLevel)
 			cores = append(cores, consoleCore)
 
 			logFileCore := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), zapcore.AddSync(logFileWriter), zapLevel)
 			cores = append(cores, logFileCore)
 
-			if errorFileWriter, err := os.OpenFile(errorFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err == nil {
+			if errorFileWriter, err := os.OpenFile(filepath.Clean(errorFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { // nolint:mnd
 				errorCore := zapcore.NewCore(
 					zapcore.NewConsoleEncoder(encoderConfig),
 					zapcore.AddSync(errorFileWriter),

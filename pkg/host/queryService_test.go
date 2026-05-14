@@ -124,7 +124,7 @@ func TestBuildDynamicQuery(t *testing.T) {
 	tests := []struct {
 		name           string
 		collectionType CollectionType
-		filters        map[string]interface{}
+		filters        map[string]any
 		mustContain    []string
 		mustNotContain []string
 	}{
@@ -138,20 +138,20 @@ func TestBuildDynamicQuery(t *testing.T) {
 		{
 			name:           "empty filter map produces simple query",
 			collectionType: CollectionTransaction,
-			filters:        map[string]interface{}{},
+			filters:        map[string]any{},
 			mustContain:    []string{"Ethereum__Mainnet__Transaction {", "_docID"},
 			mustNotContain: []string{"filter:"},
 		},
 		{
 			name:           "with string filter",
 			collectionType: CollectionTransaction,
-			filters:        map[string]interface{}{"from": "0xabc"},
+			filters:        map[string]any{"from": "0xabc"},
 			mustContain:    []string{"Ethereum__Mainnet__Transaction(filter:", "from: {_eq: \"0xabc\"}"},
 		},
 		{
 			name:           "with bool filter",
 			collectionType: CollectionTransaction,
-			filters:        map[string]interface{}{"status": true},
+			filters:        map[string]any{"status": true},
 			mustContain:    []string{"filter:", "status: {_eq: true}"},
 		},
 	}
@@ -174,11 +174,11 @@ func TestBuildNestedQuery(t *testing.T) {
 	qs := NewQueryService()
 
 	tests := []struct {
-		name              string
-		primary           CollectionType
-		nested            []CollectionType
-		filters           map[string]interface{}
-		mustContain       []string
+		name        string
+		primary     CollectionType
+		nested      []CollectionType
+		filters     map[string]any
+		mustContain []string
 	}{
 		{
 			name:    "block with nested transaction",
@@ -205,7 +205,7 @@ func TestBuildNestedQuery(t *testing.T) {
 			name:    "nested query with filters",
 			primary: CollectionBlock,
 			nested:  []CollectionType{CollectionTransaction},
-			filters: map[string]interface{}{"number": int64(100)},
+			filters: map[string]any{"number": int64(100)},
 			mustContain: []string{
 				"Ethereum__Mainnet__Block(filter:",
 				"Ethereum__Mainnet__Transaction",
@@ -272,13 +272,13 @@ func TestBuildFilterString(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		filters     map[string]interface{}
+		filters     map[string]any
 		expectEmpty bool
 		mustContain []string
 	}{
 		{
 			name:        "empty map returns empty string",
-			filters:     map[string]interface{}{},
+			filters:     map[string]any{},
 			expectEmpty: true,
 		},
 		{
@@ -288,7 +288,7 @@ func TestBuildFilterString(t *testing.T) {
 		},
 		{
 			name:    "string value",
-			filters: map[string]interface{}{"from": "0xabc"},
+			filters: map[string]any{"from": "0xabc"},
 			mustContain: []string{
 				"{ ",
 				"from: {_eq: \"0xabc\"}",
@@ -297,35 +297,35 @@ func TestBuildFilterString(t *testing.T) {
 		},
 		{
 			name:    "int64 value",
-			filters: map[string]interface{}{"blockNumber": int64(42)},
+			filters: map[string]any{"blockNumber": int64(42)},
 			mustContain: []string{
 				"blockNumber: {_eq: 42}",
 			},
 		},
 		{
 			name:    "float64 value",
-			filters: map[string]interface{}{"gasPrice": float64(1.5)},
+			filters: map[string]any{"gasPrice": float64(1.5)},
 			mustContain: []string{
 				"gasPrice: {_eq: 1.500000}",
 			},
 		},
 		{
 			name:    "bool value",
-			filters: map[string]interface{}{"status": true},
+			filters: map[string]any{"status": true},
 			mustContain: []string{
 				"status: {_eq: true}",
 			},
 		},
 		{
 			name:    "bool false value",
-			filters: map[string]interface{}{"removed": false},
+			filters: map[string]any{"removed": false},
 			mustContain: []string{
 				"removed: {_eq: false}",
 			},
 		},
 		{
 			name:    "unknown type falls back to string representation",
-			filters: map[string]interface{}{"custom": []int{1, 2, 3}},
+			filters: map[string]any{"custom": []int{1, 2, 3}},
 			mustContain: []string{
 				"custom: {_eq: \"[1 2 3]\"}",
 			},
@@ -403,7 +403,7 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 	tests := []struct {
 		name           string
 		root           CollectionType
-		filters        map[string]interface{}
+		filters        map[string]any
 		mustContain    []string
 		mustNotContain []string
 	}{
@@ -422,7 +422,7 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 		{
 			name:    "block with children and filters",
 			root:    CollectionBlock,
-			filters: map[string]interface{}{"hash": "0xabc"},
+			filters: map[string]any{"hash": "0xabc"},
 			mustContain: []string{
 				"Ethereum__Mainnet__Block(filter:",
 				"hash: {_eq: \"0xabc\"}",
@@ -459,7 +459,7 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 		{
 			name:    "access list entry with no children and filters",
 			root:    CollectionAccessListEntry,
-			filters: map[string]interface{}{"address": "0x123"},
+			filters: map[string]any{"address": "0x123"},
 			mustContain: []string{
 				"Ethereum__Mainnet__AccessListEntry(filter:",
 				"address: {_eq: \"0x123\"}",
@@ -581,7 +581,7 @@ func TestExtractNestedFields_PointerType(t *testing.T) {
 	}
 
 	qs := NewQueryService()
-	fields := qs.extractNestedFields(reflect.TypeOf(&Inner{}))
+	fields := qs.extractNestedFields(reflect.TypeFor[*Inner]())
 	require.Contains(t, fields, "field1")
 	require.Contains(t, fields, "field2")
 }
@@ -592,7 +592,7 @@ func TestExtractNestedFields_NoJsonTags(t *testing.T) {
 	}
 
 	qs := NewQueryService()
-	fields := qs.extractNestedFields(reflect.TypeOf(NoTags{}))
+	fields := qs.extractNestedFields(reflect.TypeFor[NoTags]())
 	require.Empty(t, fields)
 }
 
@@ -603,7 +603,7 @@ func TestExtractNestedFields_WithDashTag(t *testing.T) {
 	}
 
 	qs := NewQueryService()
-	fields := qs.extractNestedFields(reflect.TypeOf(WithDash{}))
+	fields := qs.extractNestedFields(reflect.TypeFor[WithDash]())
 	require.Contains(t, fields, "visible")
 	require.NotContains(t, fields, "-")
 }
@@ -614,12 +614,12 @@ func TestExtractNestedFields_WithDashTag(t *testing.T) {
 
 func TestBuildFilterString_Uint64Value(t *testing.T) {
 	qs := NewQueryService()
-	result := qs.buildFilterString(map[string]interface{}{"blockNum": uint64(99)})
+	result := qs.buildFilterString(map[string]any{"blockNum": uint64(99)})
 	require.Contains(t, result, "blockNum: {_eq: 99}")
 }
 
 func TestBuildFilterString_IntValue(t *testing.T) {
 	qs := NewQueryService()
-	result := qs.buildFilterString(map[string]interface{}{"count": 42})
+	result := qs.buildFilterString(map[string]any{"count": 42})
 	require.Contains(t, result, "count: {_eq: 42}")
 }

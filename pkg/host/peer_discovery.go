@@ -22,6 +22,11 @@ const DefaultPeerDiscoveryTimeout = 10 * time.Second
 // DefaultP2PPort is the default libp2p port used when only an IP is provided.
 const DefaultP2PPort = "9171"
 
+type result struct {
+	index int
+	addr  string
+}
+
 // resolveBootstrapPeers takes a list of peer addresses (which may or may not include
 // a /p2p/<peerID> component) and returns fully-qualified multiaddrs with peer IDs.
 // Discovery requests are run in parallel to avoid sequential timeout delays.
@@ -37,11 +42,6 @@ const DefaultP2PPort = "9171"
 func resolveBootstrapPeers(ctx context.Context, peers []string, timeout time.Duration) []string {
 	if timeout <= 0 {
 		timeout = DefaultPeerDiscoveryTimeout
-	}
-
-	type result struct {
-		index int
-		addr  string
 	}
 
 	results := make([]result, 0, len(peers))
@@ -96,17 +96,23 @@ func resolveBootstrapPeers(ctx context.Context, peers []string, timeout time.Dur
 	wg.Wait()
 
 	// Sort by original index to maintain config ordering
+	sorted := makeSortedArray(results, peers)
+
+	return sorted
+}
+
+func makeSortedArray(results []result, peers []string) []string {
+	// Sort by original index to maintain config ordering
 	sorted := make([]string, 0, len(results))
 	indexMap := make(map[int]string, len(results))
 	for _, r := range results {
 		indexMap[r.index] = r.addr
 	}
-	for i := 0; i < len(peers); i++ {
+	for i := range peers {
 		if addr, ok := indexMap[i]; ok {
 			sorted = append(sorted, addr)
 		}
 	}
-
 	return sorted
 }
 
@@ -137,7 +143,7 @@ func normalizeToMultiaddr(addr string) (ma.Multiaddr, error) {
 func buildMultiaddr(host, port string) (ma.Multiaddr, error) {
 	ip := net.ParseIP(host)
 	if ip == nil {
-		return nil, fmt.Errorf("invalid IP address: %s", host)
+		return nil, fmt.Errorf("IP address %s: %w", host, ErrInvalidIPAddress)
 	}
 
 	proto := "ip4"
@@ -171,7 +177,7 @@ func discoverPeerID(ctx context.Context, targetAddr ma.Multiaddr, timeout time.D
 	if err != nil {
 		return "", fmt.Errorf("failed to create discovery host: %w", err)
 	}
-	defer tmpHost.Close()
+	defer func() { _ = tmpHost.Close() }()
 
 	// Use a well-known bogus peer ID; the security handshake will reject it
 	// and return ErrPeerIDMismatch containing the actual peer ID.
@@ -194,7 +200,7 @@ func discoverPeerID(ctx context.Context, targetAddr ma.Multiaddr, timeout time.D
 	// Extract the actual peer ID from the typed error
 	actualPeerID, extractErr := extractPeerIDFromError(err)
 	if extractErr != nil {
-		return "", fmt.Errorf("connection failed and could not extract peer ID: %w (original error: %v)", extractErr, err)
+		return "", fmt.Errorf("connection failed and could not extract peer ID: %w (original error: %w)", extractErr, err)
 	}
 
 	return fmt.Sprintf("%s/p2p/%s", targetAddr.String(), actualPeerID.String()), nil
@@ -216,15 +222,15 @@ func extractPeerIDFromError(err error) (peer.ID, error) {
 
 // extractPeerIDFromMismatchString is a fallback that parses the peer ID from
 // the error string when errors.As cannot unwrap the typed error.
-// Expected format: "...but remote key matches 12D3KooW..."
+// Expected format: "...but remote key matches 12D3KooW...".
 func extractPeerIDFromMismatchString(errMsg string) (peer.ID, error) {
 	const marker = "but remote key matches "
-	idx := strings.Index(errMsg, marker)
-	if idx == -1 {
-		return "", fmt.Errorf("error does not contain peer ID mismatch info")
+	_, after, ok := strings.Cut(errMsg, marker)
+	if !ok {
+		return "", ErrNoPeerIDMismatchInfo
 	}
 
-	remainder := errMsg[idx+len(marker):]
+	remainder := after
 
 	// The peer ID ends at the next delimiter or end of string
 	peerIDStr := remainder

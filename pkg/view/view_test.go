@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestView_SubscribeTo tests basic view subscription functionality
+// TestView_SubscribeTo tests basic view subscription functionality.
 func TestView_SubscribeTo(t *testing.T) {
 	ctx := context.Background()
 
@@ -27,7 +27,7 @@ func TestView_SubscribeTo(t *testing.T) {
 	// Create a mock DefraDB node
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// SubscribeTo should fail because the collection doesn't exist yet
 	err = testView.SubscribeTo(ctx, defraNode)
@@ -35,7 +35,7 @@ func TestView_SubscribeTo(t *testing.T) {
 	require.Contains(t, err.Error(), "collection does not exist")
 }
 
-// TestView_HasLenses tests lens detection
+// TestView_HasLenses tests lens detection.
 func TestView_HasLenses(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -79,7 +79,7 @@ func TestView_HasLenses(t *testing.T) {
 	}
 }
 
-// TestView_NeedsWasmConversion tests WASM conversion detection
+// TestView_NeedsWasmConversion tests WASM conversion detection.
 func TestView_NeedsWasmConversion(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -129,7 +129,7 @@ func TestView_NeedsWasmConversion(t *testing.T) {
 	}
 }
 
-// TestView_ExtractNameFromSDL tests SDL name extraction
+// TestView_ExtractNameFromSDL tests SDL name extraction.
 func TestView_ExtractNameFromSDL(t *testing.T) {
 	tests := []struct {
 		name     string

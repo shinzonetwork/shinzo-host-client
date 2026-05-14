@@ -10,21 +10,24 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// SignatureVerifier defines the interface for verifying signatures. It abstracts the verification logic, allowing for different implementations (e.g., using DefraDB directly or a mock verifier for testing). The Verify method checks if the provided signature is valid for the given CID.
 type SignatureVerifier interface {
 	Verify(ctx context.Context, cid string, signature constants.Signature) error
 }
 
-// SignatureMetrics defines the metrics interface for signature verification
+// SignatureMetrics defines the metrics interface for signature verification.
 type SignatureMetrics interface {
 	IncrementSignatureVerifications()
 	IncrementSignatureFailures()
 }
 
+// DefraSignatureVerifier is an implementation of the SignatureVerifier interface that uses a DefraDB node to verify signatures directly against the database. It also reports metrics for successful verifications and failures.
 type DefraSignatureVerifier struct { // Implements SignatureVerifier interface
 	defraNode *node.Node
 	metrics   SignatureMetrics
 }
 
+// NewDefraSignatureVerifier creates a new instance of DefraSignatureVerifier with the provided DefraDB node and metrics. This verifier will use the DefraDB node to verify signatures directly against the database, and will report metrics for successful verifications and failures.
 func NewDefraSignatureVerifier(defraNode *node.Node, metrics SignatureMetrics) *DefraSignatureVerifier {
 	return &DefraSignatureVerifier{
 		defraNode: defraNode,
@@ -32,16 +35,16 @@ func NewDefraSignatureVerifier(defraNode *node.Node, metrics SignatureMetrics) *
 	}
 }
 
-// Verify verifies that the signature is valid for the given CID using DefraDB directly (no HTTP)
+// Verify verifies that the signature is valid for the given CID using DefraDB directly (no HTTP).
 func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
 	if signature.Identity == "" || cid == "" {
-		return fmt.Errorf("empty identity or CID")
+		return ErrEmptyIdentityOrCID
 	}
-	if strings.ToUpper(signature.Type) != "ES256K" {
-		return fmt.Errorf("invalid signature type %s", signature.Type)
+	if !strings.EqualFold(signature.Type, "ES256K") {
+		return fmt.Errorf("signature type %s: %w", signature.Type, ErrInvalidSignatureType)
 	}
 	if v.defraNode == nil || v.defraNode.DB == nil {
-		return fmt.Errorf("defradb node or DB is not available for signature verification")
+		return ErrDefraDBUnavailable
 	}
 
 	// Parse the public key from the hex identity string
@@ -65,10 +68,12 @@ func (v *DefraSignatureVerifier) Verify(ctx context.Context, cid string, signatu
 	return nil
 }
 
+// MockSignatureVerifier is a mock implementation of the SignatureVerifier interface for testing purposes. It allows tests to define custom verification behavior by providing a function that will be called when Verify is invoked.
 type MockSignatureVerifier struct {
 	verifyFunc func(ctx context.Context, cid string, signature constants.Signature) error
 }
 
+// Verify calls the custom verify function if set, otherwise it returns nil (indicating success). This allows tests to define specific verification behavior by providing a custom function.
 func (m *MockSignatureVerifier) Verify(ctx context.Context, cid string, signature constants.Signature) error {
 	if m.verifyFunc != nil {
 		return m.verifyFunc(ctx, cid, signature)

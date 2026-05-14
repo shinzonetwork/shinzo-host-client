@@ -216,7 +216,7 @@ func TestRegistrationHandler_PeerInfoError(t *testing.T) {
 		currentBlock:  200,
 		lastProcessed: time.Now(),
 		peerInfo:      nil,
-		peerInfoErr:   fmt.Errorf("peer info error"),
+		peerInfoErr:   errPeerInfo,
 	}
 	hs := newHS(mock, "")
 
@@ -265,7 +265,7 @@ func TestRegistrationAppHandler_NilHost(t *testing.T) {
 func TestRegistrationAppHandler_SignError(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy: true,
-		signErr: fmt.Errorf("signing error"),
+		signErr: errSigning,
 	}
 	hs := newHS(mock, "")
 
@@ -343,7 +343,7 @@ func TestRootHandler_RootPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "Shinzo Network Host", resp["service"])
 	require.Equal(t, "running", resp["status"])
@@ -380,7 +380,7 @@ func TestCheckDefraDB_Localhost127(t *testing.T) {
 }
 
 func TestCheckDefraDB_ExternalURL_Success(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -390,7 +390,7 @@ func TestCheckDefraDB_ExternalURL_Success(t *testing.T) {
 }
 
 func TestCheckDefraDB_ExternalURL_BadRequest(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest) // GraphQL endpoint returns 400 for GET
 	}))
 	defer ts.Close()
@@ -400,7 +400,7 @@ func TestCheckDefraDB_ExternalURL_BadRequest(t *testing.T) {
 }
 
 func TestCheckDefraDB_ExternalURL_ServerError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
@@ -505,7 +505,7 @@ func TestGetRegistrationData_WithHost(t *testing.T) {
 
 func TestGetRegistrationData_SignError(t *testing.T) {
 	mock := &mockHealthChecker{
-		signErr: fmt.Errorf("signing error"),
+		signErr: errSigning,
 	}
 	hs := newHS(mock, "")
 
@@ -628,7 +628,7 @@ func TestHealthServer_StartStop(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close() // free the port for the server to use
+	_ = listener.Close() // free the port for the server to use
 
 	hs := NewHealthServer(port, nil, "", nil)
 
@@ -644,7 +644,7 @@ func TestHealthServer_StartStop(t *testing.T) {
 	// Verify the server is serving by making a request
 	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Stop the server gracefully
@@ -664,22 +664,25 @@ func TestHealthServer_StartStop(t *testing.T) {
 
 func TestCheckDefraDB_ExternalURL_ServerError_CustomListener(t *testing.T) {
 	// Create a test server that returns 500
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
 
 	// httptest URLs use 127.0.0.1 which checkDefraDB short-circuits as localhost.
 	// Use a custom listener on 0.0.0.0 to exercise the HTTP request path.
-	_ = ts // ts is not used since its URL contains 127.0.0.1
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	_ = ts                                          // ts is not used since its URL contains 127.0.0.1
+	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
 	require.NoError(t, err)
 
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	})}
-	go srv.Serve(listener)
-	defer srv.Close()
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}),
+		ReadHeaderTimeout: defaultTimeout,
+	}
+	go func() { _ = srv.Serve(listener) }()
+	defer func() { _ = srv.Close() }()
 
 	// Get the port and construct a URL without localhost/127.0.0.1
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -690,14 +693,17 @@ func TestCheckDefraDB_ExternalURL_ServerError_CustomListener(t *testing.T) {
 }
 
 func TestCheckDefraDB_ExternalURL_200_CustomListener(t *testing.T) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	listener, err := net.Listen("tcp", "0.0.0.0:0") //nolint:gosec // test server, binding to all interfaces is intentional
 	require.NoError(t, err)
 
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})}
-	go srv.Serve(listener)
-	defer srv.Close()
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: defaultTimeout,
+	}
+	go func() { _ = srv.Serve(listener) }()
+	defer func() { _ = srv.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://0.0.0.0:%d", port)
@@ -706,14 +712,17 @@ func TestCheckDefraDB_ExternalURL_200_CustomListener(t *testing.T) {
 }
 
 func TestCheckDefraDB_ExternalURL_400_CustomListener(t *testing.T) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
 	require.NoError(t, err)
 
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-	})}
-	go srv.Serve(listener)
-	defer srv.Close()
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+		}),
+		ReadHeaderTimeout: defaultTimeout,
+	}
+	go func() { _ = srv.Serve(listener) }()
+	defer func() { _ = srv.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://0.0.0.0:%d", port)
@@ -732,7 +741,7 @@ func TestRegistrationHandler_SignError_PeerInfoOK(t *testing.T) {
 		lastProcessed: time.Now(),
 		peerInfo:      &P2PInfo{Enabled: true},
 		peerInfoErr:   nil,
-		signErr:       fmt.Errorf("signing not configured"),
+		signErr:       errSigningNotConfigured,
 	}
 	hs := newHS(mock, "")
 
@@ -764,7 +773,7 @@ func TestGetHealthStatusPageHTML_DiskReadPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "health_status_page.html")
 	testContent := "<html><body>test health page</body></html>"
-	err := os.WriteFile(tmpFile, []byte(testContent), 0644)
+	err := os.WriteFile(tmpFile, []byte(testContent), 0o600)
 	require.NoError(t, err)
 
 	// Override the package-level path to point to our temp file
