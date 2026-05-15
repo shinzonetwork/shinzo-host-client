@@ -30,6 +30,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -60,7 +61,7 @@ func maxInt(a, b int) int {
 var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglobals
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "localhost:9181",
+			URL:           defaultDefraURL,
 			KeyringSecret: "test-keyring-secret-for-testing",
 			P2P: config.DefraDBP2PConfig{
 				Enabled:             true,
@@ -143,10 +144,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		replicationFilter = f
 	}
 
+	// wazero runs lens transforms in pure Go. wasmtime is the upstream default,
+	// but a wasm trap inside wasmtime crosses cgo as a Rust panic and Go cannot
+	// recover from it, so the host process dies. wazero returns traps as Go errors.
+	nodeOpts := options.Node()
+	nodeOpts.DB().SetLensRuntime("wazero")
+
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		cfg.ToInternalConfig(),
 		defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
-		nil,
+		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		constants.AllCollections...,
 	)
@@ -237,19 +244,27 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		return newHost.metrics
 	})
 
-	// Build RPC and WebSocket URLs from base URL (e.g., "shinzohub-rpc.infra.source.network:26657")
-	var rpcURL, wsURL string
+	// Build RPC, WebSocket, and LCD URLs from the hub base URL
+	// (e.g., "shinzohub-rpc.infra.source.network:26657"). The Cosmos LCD listens
+	// on a separate port (1317 by convention) on the same host.
+	var rpcURL, wsURL, lcdURL string
 	if cfg.Shinzo.HubBaseURL != "" {
 		rpcURL = "http://" + cfg.Shinzo.HubBaseURL
 		wsURL = "ws://" + cfg.Shinzo.HubBaseURL + "/websocket"
+		lcdURL = "http://" + strings.Replace(cfg.Shinzo.HubBaseURL, ":26657", ":1317", 1)
+	}
+
+	// One client serves both the startup backfill and the live-event hydration.
+	var rpcClient *shinzohub.RPCClient
+	if rpcURL != "" {
+		rpcClient = shinzohub.NewRPCClient(lcdURL, defraNode)
 	}
 
 	// Fetch views from ShinzoHub if RPC URL is configured
 	var hubViews []view.View
 	logger.Sugar.Infof("ShinzoHub base URL: %s", rpcURL)
-	if rpcURL != "" {
+	if rpcClient != nil {
 		logger.Sugar.Infof("🔍 Querying ShinzoHub for registered views: %s", rpcURL)
-		rpcClient := shinzohub.NewRPCClient(rpcURL, defraNode)
 		fetchedViews, totalCount, err := rpcClient.FetchAllRegisteredViews(context.Background())
 		if err != nil {
 			logger.Sugar.Warnf("⚠️ Failed to fetch views from ShinzoHub: %v", err)
@@ -318,7 +333,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	newHost.processingPipeline.Start()
 
 	if wsURL != "" {
-		cancel, channel, err := shinzohub.StartEventSubscription(wsURL)
+		cancel, channel, err := shinzohub.StartEventSubscription(wsURL, rpcClient)
 
 		cancellableContext, cancelEventHandler := context.WithCancel(context.Background())
 		go func() { newHost.handleIncomingEvents(cancellableContext, channel) }()
@@ -727,43 +742,6 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 				} else {
 					logger.Sugar.Warn("ViewManager not initialized - cannot register view")
 				}
-			} else if hostEvent, ok := event.(*shinzohub.HostRegisteredEvent); ok {
-				logger.Sugar.Infof("Received host registration: owner=%s, did=%s, conn=%s",
-					hostEvent.Owner, hostEvent.DID, hostEvent.ConnectionString)
-
-				if h.NetworkHandler != nil && hostEvent.ConnectionString != "" {
-					resolved := resolveBootstrapPeers(ctx,
-						[]string{hostEvent.ConnectionString},
-						peerResolutionTimeoutSecs*time.Second,
-					)
-					for _, addr := range resolved {
-						if err := h.NetworkHandler.AddPeer(addr); err != nil {
-							logger.Sugar.Errorf("Failed to add host peer %s: %v", addr, err)
-						} else {
-							logger.Sugar.Infof("Added host as P2P peer: %s", addr)
-						}
-					}
-				}
-
-			} else if indexerEvent, ok := event.(*shinzohub.IndexerRegisteredEvent); ok {
-				logger.Sugar.Infof("Received indexer registration: owner=%s, did=%s, chain=%s/%s, conn=%s",
-					indexerEvent.Owner, indexerEvent.DID, indexerEvent.SourceChain,
-					indexerEvent.SourceChainID, indexerEvent.ConnectionString)
-
-				if h.NetworkHandler != nil && indexerEvent.ConnectionString != "" {
-					resolved := resolveBootstrapPeers(ctx,
-						[]string{indexerEvent.ConnectionString},
-						peerResolutionTimeoutSecs*time.Second,
-					)
-					for _, addr := range resolved {
-						if err := h.NetworkHandler.AddPeer(addr); err != nil {
-							logger.Sugar.Errorf("Failed to add indexer peer %s: %v", addr, err)
-						} else {
-							logger.Sugar.Infof("Added indexer as P2P peer: %s", addr)
-						}
-					}
-				}
-
 			} else {
 				logger.Sugar.Debugf("Received unknown event type: %+v", event)
 			}

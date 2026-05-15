@@ -4,8 +4,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooW9vHms1Uyzai3j8L3ZykcPhLYXoHifzrhgKP6HaTmszbV'
-      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDUN4xrdREQ4qcAbRmHb1otefmwi6F3a9FTsZdconUHUZ' # IND2
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWJGCSs1tkiDif4rgQMS7uNqTNA8BKNsNhW62NXbUN5Au3'  # IND1 (shinzo-indexer-v063), live ID 2026-05-07
+      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWSwrdPrfgm79Zne51hpihmfeZgGGpNqcim2LSoEDRquvr' # IND2 (shinzo-indexer-v063-2), live ID 2026-05-07
       # - '/ip4/35.209.45.53/tcp/9171/p2p/' # IND3
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
@@ -109,8 +109,8 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
 logger:
-  development: false
-  level: "error"
+  development: true
+  level: "info"
 host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080

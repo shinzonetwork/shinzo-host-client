@@ -103,7 +103,7 @@ func TestViewProcessor_SetupViewInDefraDB(t *testing.T) {
 
 	// Create test view
 	testView := &view.View{
-		Name: "TestView",
+		Name: testViewName,
 		Data: viewbundle.View{
 			Query: "Log { address }",
 			Sdl:   "type TestView { address: String }",

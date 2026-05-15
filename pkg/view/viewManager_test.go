@@ -70,18 +70,18 @@ func TestViewManager_LoadAndRegisterViews_NoViews(t *testing.T) {
 
 func TestDeduplicateViews(t *testing.T) {
 	views := []View{
-		{Name: "View1"},
-		{Name: "View2"},
-		{Name: "View1"}, // Duplicate
+		{Name: testViewNameOne},
+		{Name: testViewNameTwo},
+		{Name: testViewNameOne}, // Duplicate
 		{Name: "View3"},
-		{Name: "View2"}, // Duplicate
+		{Name: testViewNameTwo}, // Duplicate
 	}
 
 	result := deduplicateViews(views)
 
 	require.Len(t, result, 3)
-	require.Equal(t, "View1", result[0].Name)
-	require.Equal(t, "View2", result[1].Name)
+	require.Equal(t, testViewNameOne, result[0].Name)
+	require.Equal(t, testViewNameTwo, result[1].Name)
 	require.Equal(t, "View3", result[2].Name)
 }
 
@@ -92,8 +92,8 @@ func TestDeduplicateViews_Empty(t *testing.T) {
 
 func TestDeduplicateViews_NoDuplicates(t *testing.T) {
 	views := []View{
-		{Name: "View1"},
-		{Name: "View2"},
+		{Name: testViewNameOne},
+		{Name: testViewNameTwo},
 		{Name: "View3"},
 	}
 
@@ -105,7 +105,7 @@ func TestDeduplicateViews_NoDuplicates(t *testing.T) {
 func TestExtractWasmURLsFromViews_NoHTTPURLs(t *testing.T) {
 	views := []View{
 		{
-			Name: "View1",
+			Name: testViewNameOne,
 			Data: viewbundle.View{
 				Transform: viewbundle.Transform{
 					Lenses: []viewbundle.Lens{
@@ -129,13 +129,13 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 	}{
 		{
 			name:     "simple query",
-			query:    "Ethereum__Mainnet__Log { address topics }",
-			expected: "Ethereum__Mainnet__Log",
+			query:    queryEthLogAddrTopics,
+			expected: queryEthLog,
 		},
 		{
 			name:     "full collection name",
-			query:    "Ethereum__Mainnet__Log { address }",
-			expected: "Ethereum__Mainnet__Log",
+			query:    queryEthLogAddr,
+			expected: queryEthLog,
 		},
 		{
 			name:     "no braces",
@@ -153,7 +153,7 @@ func TestExtractCollectionFromQuery(t *testing.T) {
 }
 
 func TestView_BuildLensConfig(t *testing.T) {
-	query := "Ethereum__Mainnet__Log { address topics }" // Add prefix
+	query := queryEthLogAddrTopics // Add prefix
 	sdl := "type FilteredLog { address: String }"
 
 	v := View{
@@ -191,14 +191,14 @@ func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	vm := NewManager(defraNode, t.TempDir())
 
 	// Manually add a view to activeViews
-	vm.activeViews["TestView"] = nil
+	vm.activeViews[testViewName] = nil
 
 	// Try to register the same view
 	v := View{
-		Name: "TestView",
+		Name: testViewName,
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }", // Add prefix
-			Sdl:   "type TestView { address: String }",
+			Query: queryEthLogAddr, // Add prefix
+			Sdl:   sdlTestView,
 		},
 	}
 	err = vm.RegisterView(ctx, &v)
@@ -297,14 +297,14 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 		{
 			Name: "ExternalView1",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address }",
+				Query: queryEthLogAddr,
 				Sdl:   "type ExternalView1 { address: String }",
 			},
 		},
 		{
 			Name: "ExternalView2",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Transaction { hash }",
+				Query: queryEthTransactionHash,
 				Sdl:   "type ExternalView2 { hash: String }",
 			},
 		},
@@ -341,7 +341,7 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 		{
 			Name: "WasmView",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address }",
+				Query: queryEthLogAddr,
 				Sdl:   "type WasmView { address: String }",
 				// No lenses to avoid WASM operations - we're testing the URL extraction logic separately
 			},
@@ -369,8 +369,8 @@ func TestViewManager_RegisterView_ValidationFailure(t *testing.T) {
 	v := View{
 		Name: "",
 		Data: viewbundle.View{
-			Query: "Log { address }",
-			Sdl:   "type TestView { address: String }",
+			Query: queryLogAddr,
+			Sdl:   sdlTestView,
 		},
 	}
 
@@ -418,13 +418,13 @@ func TestSuggestCorrectCollection(t *testing.T) {
 	}{
 		{
 			name:     "simple collection",
-			input:    "Log",
-			expected: "Ethereum__Mainnet__Log",
+			input:    queryLogJustName,
+			expected: queryEthLog,
 		},
 		{
 			name:     "already prefixed",
-			input:    "Ethereum__Mainnet__Log",
-			expected: "Ethereum__Mainnet__Log",
+			input:    queryEthLog,
+			expected: queryEthLog,
 		},
 		{
 			name:     "different chain prefix",
@@ -457,7 +457,7 @@ func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 
 	vm := NewManager(defraNode, t.TempDir())
 
-	err = vm.subscribeToSourceCollection(ctx, "Ethereum__Mainnet__Log", "TestView")
+	err = vm.subscribeToSourceCollection(ctx, queryEthLog, testViewName)
 	require.NoError(t, err)
 }
 
@@ -509,14 +509,14 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 		{
 			Name: "DuplicateView",
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Log { address }",
+				Query: queryEthLogAddr,
 				Sdl:   "type DuplicateView { address: String }",
 			},
 		},
 		{
 			Name: "DuplicateView", // Same name
 			Data: viewbundle.View{
-				Query: "Ethereum__Mainnet__Transaction { hash }",
+				Query: queryEthTransactionHash,
 				Sdl:   "type DuplicateView { hash: String }",
 			},
 		},
@@ -555,7 +555,7 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	v := &View{
 		Name: "Base64WasmView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: queryEthLogAddr,
 			Sdl:   "type Base64WasmView { address: String }",
 			// No lenses to avoid WASM processing issues
 		},
@@ -584,7 +584,7 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	v := &View{
 		Name: "CollectionTestView",
 		Data: viewbundle.View{
-			Query: "Log { address }", // Missing chain prefix - should be auto-corrected
+			Query: queryLogAddr, // Missing chain prefix - should be auto-corrected
 			Sdl:   "type CollectionTestView { address: String }",
 		},
 	}
@@ -597,8 +597,8 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify query was corrected to include chain prefix
-	require.Contains(t, v.Data.Query, "Ethereum__Mainnet__Log")
-	require.NotEqual(t, "Log { address }", v.Data.Query) // Should not be the original uncorrected form
+	require.Contains(t, v.Data.Query, queryEthLog)
+	require.NotEqual(t, queryLogAddr, v.Data.Query) // Should not be the original uncorrected form
 }
 
 // TestViewManager_Integration_CompleteFlow tests a complete view registration flow without WASM.
@@ -622,7 +622,7 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	v := &View{
 		Name: "CompleteFlowView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address topics }",
+			Query: queryEthLogAddrTopics,
 			Sdl:   "type CompleteFlowView { address: String, topics: [String] }",
 			// No Transform/Lenses to avoid WASM operations
 		},
@@ -652,13 +652,13 @@ func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 	}{
 		{
 			name:     "simple query with space",
-			query:    "Log { address topics }",
-			expected: "Log",
+			query:    queryLogAddrTopics,
+			expected: queryLogJustName,
 		},
 		{
 			name:     "query with newline",
 			query:    "Log\n{ address }",
-			expected: "Log",
+			expected: queryLogJustName,
 		},
 		{
 			name:     "query without braces",
@@ -678,12 +678,12 @@ func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
 		{
 			name:     "query with leading newline",
 			query:    "\nLog { address }",
-			expected: "Log",
+			expected: queryLogJustName,
 		},
 		{
 			name:     "query with mixed leading whitespace",
 			query:    "  \n\tLog { address }",
-			expected: "Log",
+			expected: queryLogJustName,
 		},
 	}
 
@@ -708,7 +708,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	v := &View{
 		Name: "NoLensesView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: queryEthLogAddr,
 			Sdl:   "type NoLensesView { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{}, // Empty lenses
@@ -741,7 +741,7 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	v := &View{
 		Name: "FileURLView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: queryEthLogAddr,
 			Sdl:   "type FileURLView { address: String }",
 			// No lenses to avoid WASM file processing issues
 		},
@@ -825,7 +825,7 @@ func TestViewManager_MetricsCallbackError(t *testing.T) {
 	v := &View{
 		Name: "MetricsErrorView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: queryEthLogAddr,
 			Sdl:   "type MetricsErrorView { address: String }",
 		},
 	}
@@ -849,11 +849,11 @@ func TestDeduplicateViews_ComplexScenarios(t *testing.T) {
 		{
 			name: "all duplicates",
 			views: []View{
-				{Name: "SameView"},
-				{Name: "SameView"},
-				{Name: "SameView"},
+				{Name: testViewNameSame},
+				{Name: testViewNameSame},
+				{Name: testViewNameSame},
 			},
-			expected: []string{"SameView"},
+			expected: []string{testViewNameSame},
 		},
 		{
 			name: "case sensitive",

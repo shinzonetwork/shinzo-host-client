@@ -364,7 +364,7 @@ func TestHost_ViewManagerIntegration(t *testing.T) {
 func TestView_HasLenses_Integration(t *testing.T) {
 	// Test view with lenses
 	viewWithLenses := view.View{
-		Name: "TestView",
+		Name: testViewName,
 		Data: viewbundle.View{
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -558,7 +558,7 @@ func TestHost_ProcessViewRegistrationEvent_NilViewManager_ReturnsError(t *testin
 	}
 
 	event := shinzohub.ViewRegisteredEvent{
-		View: view.View{Name: "test"},
+		View: view.View{Name: testNameTest},
 	}
 
 	err := host.ProcessViewRegistrationEvent(context.Background(), event)
@@ -579,7 +579,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingQuery(t *testing.T) {
 
 	// No query set (nil)
 	event := shinzohub.ViewRegisteredEvent{
-		View: view.View{Name: "testview"},
+		View: view.View{Name: testTestView},
 	}
 
 	err = host.ProcessViewRegistrationEvent(ctx, event)
@@ -601,7 +601,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 	query := "SELECT * FROM something"
 	event := shinzohub.ViewRegisteredEvent{
 		View: view.View{
-			Name: "testview",
+			Name: testTestView,
 			Data: viewbundle.View{
 				Query: query,
 			},
@@ -627,7 +627,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 	emptyStr := ""
 	event := shinzohub.ViewRegisteredEvent{
 		View: view.View{
-			Name: "testview",
+			Name: testTestView,
 			Data: viewbundle.View{
 				Query: emptyStr,
 			},
@@ -654,7 +654,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptySDL(t *testing.T) {
 	emptyStr := ""
 	event := shinzohub.ViewRegisteredEvent{
 		View: view.View{
-			Name: "testview",
+			Name: testTestView,
 			Data: viewbundle.View{
 				Query: query,
 				Sdl:   emptyStr,
@@ -676,7 +676,7 @@ func TestHost_RegisterViewWithManager_NilViewManager(t *testing.T) {
 		viewManager: nil,
 	}
 
-	err := host.RegisterViewWithManager(context.Background(), view.View{Name: "test"})
+	err := host.RegisterViewWithManager(context.Background(), view.View{Name: testNameTest})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ViewManager not initialized")
 }
@@ -754,40 +754,6 @@ func TestHandleIncomingEvents_ChannelClosed(t *testing.T) {
 	}
 }
 
-func TestHandleIncomingEvents_IndexerRegisteredEvent_NoNetworkHandler(t *testing.T) {
-	h := &Host{
-		NetworkHandler: nil,
-	}
-	ch := make(chan shinzohub.ShinzoEvent, 1)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		h.handleIncomingEvents(ctx, ch)
-		close(done)
-	}()
-
-	// Send entity event
-	ch <- &shinzohub.IndexerRegisteredEvent{
-		Owner:            "owner1",
-		DID:              "did1",
-		ConnectionString: "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
-		SourceChain:      "ethereum",
-		SourceChainID:    "1",
-	}
-
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("handleIncomingEvents did not return")
-	}
-}
-
 func TestHandleIncomingEvents_ViewRegisteredEvent_NilViewManager(t *testing.T) {
 	h := &Host{
 		viewManager: nil,
@@ -806,10 +772,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NilViewManager(t *testing.T) {
 	query := testQueryBlocks
 	sdl := "type Block { hash: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 			Data: viewbundle.View{
 				Query: query,
 				Sdl:   sdl,
@@ -844,10 +810,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingQuery(t *testing.T) {
 
 	// View with nil Query
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 		},
 	}
 
@@ -878,10 +844,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptyQuery(t *testing.T) {
 
 	emptyQuery := ""
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 			Data: viewbundle.View{
 				Query: emptyQuery,
 			},
@@ -915,10 +881,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_MissingSDL(t *testing.T) {
 
 	query := testQueryBlocks
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 			Data: viewbundle.View{
 				Query: query,
 			},
@@ -953,10 +919,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptySDL(t *testing.T) {
 	query := testQueryBlocks
 	emptySDL := ""
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 			Data: viewbundle.View{
 				Query: query,
 				Sdl:   emptySDL,
@@ -1055,8 +1021,8 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 	query := testQueryTest
 	sdl := testViewSDL
 	event := shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
 			Name: "TestViewLens",
 			Data: viewbundle.View{
@@ -1097,10 +1063,10 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 	query := testQueryTest
 	sdl := testViewSDL
 	event := shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 			Data: viewbundle.View{
 				Query: query,
 				Sdl:   sdl,
@@ -1133,7 +1099,7 @@ func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 	query := testQueryTest
 	sdl := testViewSDL
 	v := view.View{
-		Name: "TestView",
+		Name: testViewName,
 		Data: viewbundle.View{
 			Query: query,
 			Sdl:   sdl,
@@ -1304,41 +1270,6 @@ func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// handleIncomingEvents - entity event with real NetworkHandler
-// ---------------------------------------------------------------------------
-
-func TestHandleIncomingEvents_HostRegisteredEvent_WithoutNetworkHandler(t *testing.T) {
-	// NetworkHandler is nil — exercises the entity event parsing and nil-check branch
-	// (cannot use bare &defradb.NetworkHandler{} because AddPeer panics on uninitialized maps)
-	h := &Host{}
-	ch := make(chan shinzohub.ShinzoEvent, 1)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		h.handleIncomingEvents(ctx, ch)
-		close(done)
-	}()
-
-	ch <- &shinzohub.HostRegisteredEvent{
-		Owner:            "owner1",
-		DID:              "did1",
-		ConnectionString: "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r",
-	}
-
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("handleIncomingEvents did not return")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // handleIncomingEvents - unknown event type
 // ---------------------------------------------------------------------------
 
@@ -1405,8 +1336,8 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 	sdl := "type TestView { hash: String }"
 	// View with lenses that have invalid WASM (will fail PostWasmToFile but exercises the path)
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
 			Name: "TestViewWithLenses",
 			Data: viewbundle.View{
@@ -1461,10 +1392,10 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 	query := testQueryBlocks
 	sdl := "type TestView { hash: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
-			Name: "TestView",
+			Name: testViewName,
 			Data: viewbundle.View{
 				Query: query,
 				Sdl:   sdl,
@@ -1623,8 +1554,8 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	sdl := "type TestLensView { address: String }"
 	// Use valid base64 (tiny fake WASM) so PostWasmToFile succeeds
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey1",
-		Creator:     "creator1",
+		ContractAddress: testContractKey1,
+		Creator:         testCreator1,
 		View: view.View{
 			Name: "TestLensView",
 			Data: viewbundle.View{
@@ -1683,8 +1614,8 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 	query := "Log { address }"
 	sdl := "type NoLensView { address: String }"
 	ch <- &shinzohub.ViewRegisteredEvent{
-		ViewAddress: "0xkey2",
-		Creator:     "creator2",
+		ContractAddress: "0xkey2",
+		Creator:         "creator2",
 		View: view.View{
 			Name: "NoLensView",
 			Data: viewbundle.View{

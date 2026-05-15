@@ -46,12 +46,12 @@ func extractDocIDFromMutationResult(t *testing.T, result *client.RequestResult, 
 		require.NotEmpty(t, list)
 		docMap, ok := list[0].(map[string]any)
 		require.True(t, ok)
-		id, ok := docMap["_docID"].(string)
+		id, ok := docMap[defraFieldDocID].(string)
 		require.True(t, ok)
 		return id
 	case []map[string]any:
 		require.NotEmpty(t, list)
-		id, ok := list[0]["_docID"].(string)
+		id, ok := list[0][defraFieldDocID].(string)
 		require.True(t, ok)
 		return id
 	default:
@@ -67,11 +67,11 @@ func TestTruncateString(t *testing.T) {
 		maxLen   int
 		expected string
 	}{
-		{"shorter than max", "abc", 10, "abc"},
+		{"shorter than max", testAbc, 10, testAbc},
 		{"exact length", "abcde", 5, "abcde"},
 		{"exceeds max", "abcdefghij", 5, "abcde..."},
 		{"empty string", "", 5, ""},
-		{"max zero", "abc", 0, "..."},
+		{"max zero", testAbc, 0, "..."},
 	}
 
 	for _, tt := range tests {
@@ -87,14 +87,14 @@ func TestEnqueueDoc(t *testing.T) {
 	docQueue = make(chan docEvent, 2)
 
 	// Normal enqueue
-	enqueueDoc(docEvent{docID: "doc1", collectionName: "col1"})
+	enqueueDoc(docEvent{docID: testDoc1, collectionName: "col1"})
 	require.Len(t, docQueue, 1)
 
-	enqueueDoc(docEvent{docID: "doc2", collectionName: "col2"})
+	enqueueDoc(docEvent{docID: testDoc2, collectionName: "col2"})
 	require.Len(t, docQueue, 2)
 
 	// Queue is full, enqueue should drop oldest and add new
-	enqueueDoc(docEvent{docID: "doc3", collectionName: "col3"})
+	enqueueDoc(docEvent{docID: testDoc3, collectionName: "col3"})
 	require.Len(t, docQueue, 2)
 
 	// Drain and verify the newest items are present
@@ -106,7 +106,7 @@ func TestEnqueueDoc(t *testing.T) {
 	require.Equal(t, 2, len(events))
 	hasDoc3 := false
 	for _, e := range events {
-		if e.docID == "doc3" {
+		if e.docID == testDoc3 {
 			hasDoc3 = true
 		}
 	}
@@ -135,8 +135,8 @@ func TestProcessDocumentAttestationBatch_NoVersions(t *testing.T) {
 		config: &config.Config{},
 	}
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{"field": "value"}},
-		{ID: "doc2", Type: "Block", BlockNumber: 2, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{"field": testValue}},
+		{ID: testDoc2, Type: docTypeBlock, BlockNumber: 2, Data: map[string]any{}},
 	}
 	err := h.processDocumentAttestationBatch(context.Background(), docs)
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestProcessDocumentAttestationBatch_DefaultMaxConcurrent(t *testing.T) {
 	}
 	// With no _version data, inputs will be empty and return nil
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
 	}
 	err := h.processDocumentAttestationBatch(context.Background(), docs)
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestProcessDocumentAttestationBatch_NegativeMaxConcurrent(t *testing.T) {
 		config: &cfg,
 	}
 	docs := []Document{
-		{ID: "doc1", Type: "Block", BlockNumber: 1, Data: map[string]any{}},
+		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
 	}
 	err := h.processDocumentAttestationBatch(context.Background(), docs)
 	require.NoError(t, err)
@@ -399,8 +399,8 @@ func TestProcessAttestationsFromBlockSignature_NilDefraNode(_ *testing.T) {
 	}
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber: 100,
-		MerkleRoot:  "abc",
-		CIDs:        []string{"cid1"},
+		MerkleRoot:  testAbc,
+		CIDs:        []string{testCID1},
 	}
 	// Should return immediately
 	h.processAttestationsFromBlockSignature(context.Background(), blockSig)
@@ -414,7 +414,7 @@ func TestProcessAttestationsFromBlockSignature_NoCIDs(_ *testing.T) {
 	// Even with DefraNode nil, the CIDs check happens first
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber: 100,
-		MerkleRoot:  "abc",
+		MerkleRoot:  testAbc,
 		CIDs:        []string{}, // Empty CIDs
 	}
 	// Should return because DefraNode is nil
@@ -445,14 +445,14 @@ func TestAttestedBlocks_SyncMap(t *testing.T) {
 func TestDocumentStruct(t *testing.T) {
 	doc := Document{
 		ID:          "test-id",
-		Type:        "Block",
+		Type:        docTypeBlock,
 		BlockNumber: 42,
-		Data:        map[string]any{"key": "value"},
+		Data:        map[string]any{"key": testValue},
 	}
 	require.Equal(t, "test-id", doc.ID)
-	require.Equal(t, "Block", doc.Type)
+	require.Equal(t, docTypeBlock, doc.Type)
 	require.Equal(t, uint64(42), doc.BlockNumber)
-	require.Equal(t, "value", doc.Data["key"])
+	require.Equal(t, testValue, doc.Data["key"])
 }
 
 // ---------------------------------------------------------------------------
@@ -480,7 +480,7 @@ func TestEnqueueDoc_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			enqueueDoc(docEvent{docID: fmt.Sprintf("doc-%d", idx), collectionName: "test"})
+			enqueueDoc(docEvent{docID: fmt.Sprintf("doc-%d", idx), collectionName: testNameTest})
 		}(i)
 	}
 	wg.Wait()
@@ -498,8 +498,8 @@ func TestProcessAttestationsFromBlockSignature_EmptyBlockAttestedID(t *testing.T
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       42,
 		MerkleRoot:        "abc123",
-		SignatureIdentity: "0xsigner",
-		CIDs:              []string{"cid1", "cid2"},
+		SignatureIdentity: testSignerAddr,
+		CIDs:              []string{testCID1, testCID2},
 	}
 
 	blockAttestedID := fmt.Sprintf("block:%d:%s", blockSig.BlockNumber, blockSig.MerkleRoot)
@@ -509,13 +509,13 @@ func TestProcessAttestationsFromBlockSignature_EmptyBlockAttestedID(t *testing.T
 		AttestedDocID: blockAttestedID,
 		SourceDocIDs:  []string{blockSig.SignatureIdentity},
 		CIDs:          blockSig.CIDs,
-		DocType:       "Block",
+		DocType:       docTypeBlock,
 		VoteCount:     1,
 	}
 	require.Equal(t, "block:42:abc123", record.AttestedDocID)
-	require.Equal(t, []string{"0xsigner"}, record.SourceDocIDs)
-	require.Equal(t, []string{"cid1", "cid2"}, record.CIDs)
-	require.Equal(t, "Block", record.DocType)
+	require.Equal(t, []string{testSignerAddr}, record.SourceDocIDs)
+	require.Equal(t, []string{testCID1, testCID2}, record.CIDs)
+	require.Equal(t, docTypeBlock, record.DocType)
 	require.Equal(t, 1, record.VoteCount)
 }
 
@@ -845,17 +845,17 @@ func TestProcessDocumentAttestationBatch_WithVersionData(t *testing.T) {
 	// Documents with _version data that ExtractVersionsFromDocument can parse
 	docs := []Document{
 		{
-			ID:          "doc1",
-			Type:        "Block",
+			ID:          testDoc1,
+			Type:        docTypeBlock,
 			BlockNumber: 1,
 			Data: map[string]any{
-				"_version": []any{
+				defraFieldVersion: []any{
 					map[string]any{
-						"cid": "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4",
-						"signature": map[string]any{
-							"type":     "ES256K",
-							"identity": "testpubkey",
-							"value":    "testsig",
+						testJSONFieldCID: testSnapshotCID,
+						testJSONFieldSignature: map[string]any{
+							testJSONFieldType:     testSigTypeES256K,
+							testJSONFieldIdentity: testIdentityPubkey,
+							testValue:             testSigValue,
 						},
 						"collectionVersionId": "1",
 					},
@@ -885,16 +885,16 @@ func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(_ *tes
 	docs := []Document{
 		{
 			ID:          "doc-with-version",
-			Type:        "Transaction",
+			Type:        docTypeTransaction,
 			BlockNumber: 10,
 			Data: map[string]any{
-				"_version": []any{
+				defraFieldVersion: []any{
 					map[string]any{
-						"cid": "somecid",
-						"signature": map[string]any{
-							"type":     "ES256K",
-							"identity": "testpubkey",
-							"value":    "testsig",
+						testJSONFieldCID: "somecid",
+						testJSONFieldSignature: map[string]any{
+							testJSONFieldType:     testSigTypeES256K,
+							testJSONFieldIdentity: testIdentityPubkey,
+							testValue:             testSigValue,
 						},
 					},
 				},
@@ -902,16 +902,16 @@ func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(_ *tes
 		},
 		{
 			ID:          "doc-without-version",
-			Type:        "Block",
+			Type:        docTypeBlock,
 			BlockNumber: 10,
-			Data:        map[string]any{"hash": "0x123"},
+			Data:        map[string]any{gqlFieldHash: "0x123"},
 		},
 		{
 			ID:          "doc-with-empty-version",
-			Type:        "Log",
+			Type:        docTypeLog,
 			BlockNumber: 10,
 			Data: map[string]any{
-				"_version": []any{}, // Empty version array
+				defraFieldVersion: []any{}, // Empty version array
 			},
 		},
 	}
@@ -1267,8 +1267,8 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       300,
 		MerkleRoot:        "abcdef",
-		SignatureIdentity: "0xsigner",
-		CIDs:              []string{"cid-1", "cid-2"},
+		SignatureIdentity: testSignerAddr,
+		CIDs:              []string{testCIDName1, testCIDName2},
 	}
 
 	// First call creates attestation
@@ -1308,7 +1308,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 		BlockNumber:       400,
 		MerkleRoot:        "aaa",
 		SignatureIdentity: "indexer-A",
-		CIDs:              []string{"cid-1", "cid-2"},
+		CIDs:              []string{testCIDName1, testCIDName2},
 	}
 	h.processAttestationsFromBlockSignature(ctx, blockSigA)
 
@@ -1317,12 +1317,12 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 		BlockNumber:       400,
 		MerkleRoot:        "aaa",
 		SignatureIdentity: "indexer-B",
-		CIDs:              []string{"cid-1", "cid-2"},
+		CIDs:              []string{testCIDName1, testCIDName2},
 	}
 	h.processAttestationsFromBlockSignature(ctx, blockSigB)
 
 	// Query the attestation record
-	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, "block:400:aaa", "Block")
+	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, "block:400:aaa", docTypeBlock)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record for this block")
 

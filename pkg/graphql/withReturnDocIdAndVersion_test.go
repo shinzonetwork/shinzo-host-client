@@ -118,7 +118,7 @@ func TestWithReturnDocIDAndVersion(t *testing.T) {
 			expectError:   false,
 		},
 		{
-			name:          "empty query",
+			name:          testCaseEmptyQuery,
 			query:         "",
 			expectedQuery: "",
 			expectError:   true,

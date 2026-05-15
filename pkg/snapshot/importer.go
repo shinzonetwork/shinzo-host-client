@@ -111,7 +111,7 @@ func readSnapshotHeader(gr *gzip.Reader) (*kvSnapshotHeader, error) {
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
-	if header.Magic != "DFKV" {
+	if header.Magic != snapshotMagic {
 		return nil, fmt.Errorf("magic %q: %w", header.Magic, ErrInvalidSnapshotMagic)
 	}
 	if len(header.BlockSigMerkleRoots) == 0 {
@@ -198,9 +198,9 @@ func verifySignature(sig *SignatureData) error {
 
 	var keyType crypto.KeyType
 	switch sig.SignatureType {
-	case "ES256K", "ecdsa-256k":
+	case sigTypeES256K, sigTypeES256KLower:
 		keyType = crypto.KeyTypeSecp256k1
-	case "Ed25519", "ed25519":
+	case sigTypeEd25519, sigTypeEd25519Lower:
 		keyType = crypto.KeyTypeEd25519
 	default:
 		return fmt.Errorf("signature type %s: %w", sig.SignatureType, ErrUnsupportedSigType)

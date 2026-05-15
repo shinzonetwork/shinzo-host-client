@@ -9,330 +9,160 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// RPCClient queries the Shinzo Hub Tendermint RPC for historical events.
+// RPCClient queries the Shinzo Hub's Cosmos LCD (REST gateway) for the
+// view-registry endpoints used by the host's startup backfill and live
+// event hydration.
 type RPCClient struct {
-	rpcURL     string
+	lcdURL     string
 	defraNode  *node.Node
 	httpClient *http.Client
 }
 
-// defaultHTTPClientTimeout is the default timeout for HTTP client requests.
-const defaultHTTPClientTimeout = 30 * time.Second
+// httpClientTimeout is the per-request timeout for LCD calls. Higher than
+// typical Cosmos LCD latency so a single slow page doesn't kill backfill.
+const httpClientTimeout = 30 * time.Second
 
-// NewRPCClient creates a new RPC client for querying Shinzo Hub.
-// defraNode is used to persist the last processed page number.
-func NewRPCClient(rpcURL string, defraNode *node.Node) *RPCClient {
+// NewRPCClient creates a client against the hub's Cosmos LCD. An empty
+// lcdURL disables backfill and hydration; the caller in that case is
+// responsible for not invoking the methods below.
+func NewRPCClient(lcdURL string, defraNode *node.Node) *RPCClient {
 	return &RPCClient{
-		rpcURL:    rpcURL,
+		lcdURL:    lcdURL,
 		defraNode: defraNode,
 		httpClient: &http.Client{
-			Timeout: defaultHTTPClientTimeout,
+			Timeout: httpClientTimeout,
 		},
 	}
 }
 
-// queryResult wraps the GraphQL response for JSON unmarshaling.
-type queryResult struct {
-	ConfigLastProcessedPage []struct {
-		Page     int `json:"page"`
-		PageSize int `json:"pageSize"`
-	} `json:"ConfigLastProcessedPage"`
+// LCDView mirrors the JSON shape returned by the hub's view-registry REST API.
+// `data` carries the base64-encoded view bundle when the request includes
+// include_data=true; otherwise it's empty.
+type LCDView struct {
+	Name            string `json:"name"`
+	Creator         string `json:"creator"`
+	ContractAddress string `json:"contract_address"`
+	Data            string `json:"data"`
+	Height          string `json:"height"`
 }
 
-// getLastProcessedPage reads the last processed page from DefraDB.
-func (c *RPCClient) getLastProcessedPage(ctx context.Context) (int, int) {
-	if c.defraNode == nil {
-		return 0, defaultPageSize
+// GetViewBundle fetches the base64-encoded wire bundle for a registered view
+// identified by its EVM contract address. Callers decode via
+// ProcessViewFromWireFormat to get a view.View.
+func (c *RPCClient) GetViewBundle(ctx context.Context, contractAddress string) (string, error) {
+	if c.lcdURL == "" {
+		return "", ErrLCDNotConfigured
 	}
+	endpoint := fmt.Sprintf("%s/shinzonetwork/view/v1/views/%s?include_data=true", c.lcdURL, contractAddress)
 
-	query := `query { Config__LastProcessedPage { page pageSize } }`
-	result := c.defraNode.DB.ExecRequest(ctx, query)
-	if result.GQL.Errors != nil {
-		logger.Sugar.Debugf("📡 getLastProcessedPage error: %v", result.GQL.Errors)
-		return 0, defaultPageSize
-	}
-
-	// Marshal to JSON then unmarshal to struct
-	jsonBytes, err := json.Marshal(result.GQL.Data)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		logger.Sugar.Debugf("📡 getLastProcessedPage marshal error: %v", err)
-		return 0, defaultPageSize
+		return "", fmt.Errorf("build LCD request: %w", err)
 	}
-
-	var qr queryResult
-	if err := json.Unmarshal(jsonBytes, &qr); err != nil {
-		logger.Sugar.Debugf("📡 getLastProcessedPage unmarshal error: %v", err)
-		return 0, defaultPageSize
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("LCD GET %s: %w", endpoint, err)
 	}
-
-	if len(qr.ConfigLastProcessedPage) == 0 {
-		logger.Sugar.Debugf("📡 getLastProcessedPage: no records")
-		return 0, defaultPageSize
-	}
-
-	// Find max page
-	maxPage := 0
-	for _, rec := range qr.ConfigLastProcessedPage {
-		if rec.Page > maxPage {
-			maxPage = rec.Page
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			log().Warnf("close LCD response body: %v", cerr)
 		}
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read LCD response: %w", err)
 	}
-	maxPageSize := 0
-	for _, rec := range qr.ConfigLastProcessedPage {
-		if rec.PageSize > maxPageSize {
-			maxPageSize = rec.PageSize
-		}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%w: %s returned HTTP %d: %s", ErrLCDHTTPStatus, endpoint, resp.StatusCode, string(body))
 	}
-	// pageSize must be positive; tx_search returns zero rows otherwise.
-	if maxPageSize <= 0 {
-		maxPageSize = 5
+
+	var wrap struct {
+		View LCDView `json:"view"`
 	}
-	logger.Sugar.Debugf("📡 getLastProcessedPage: page=%d, pageSize=%d", maxPage, maxPageSize)
-	return maxPage, maxPageSize
+	if err := json.Unmarshal(body, &wrap); err != nil {
+		return "", fmt.Errorf("decode LCD response: %w", err)
+	}
+	if wrap.View.Data == "" {
+		return "", fmt.Errorf("%w: contract %s", ErrLCDEmptyData, contractAddress)
+	}
+	return wrap.View.Data, nil
 }
 
-// saveLastProcessedPage writes the last processed page to DefraDB.
-// It deletes any existing records first to avoid duplicate ID errors.
-func (c *RPCClient) saveLastProcessedPage(ctx context.Context, page, pageSize int) {
-	if c.defraNode == nil {
-		return
-	}
-
-	// Delete all existing records
-	query := `query { Config__LastProcessedPage { _docID } }`
-	result := c.defraNode.DB.ExecRequest(ctx, query)
-	if result.GQL.Errors == nil {
-		if data, ok := result.GQL.Data.(map[string]any); ok {
-			if records, ok := data["Config__LastProcessedPage"].([]any); ok {
-				for _, record := range records {
-					if rec, ok := record.(map[string]any); ok {
-						if docID, ok := rec["_docID"].(string); ok {
-							deleteMutation := fmt.Sprintf(`mutation { delete_Config__LastProcessedPage(docID: "%s") { _docID } }`, docID)
-							c.defraNode.DB.ExecRequest(ctx, deleteMutation)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Create new record with final page
-	mutation := fmt.Sprintf(`mutation { create_Config__LastProcessedPage(input: {page: %d, pageSize: %d}) { _docID } }`, page, pageSize)
-	result = c.defraNode.DB.ExecRequest(ctx, mutation)
-	if result.GQL.Errors != nil {
-		logger.Sugar.Warnf("📡 Failed to save last processed page: %v", result.GQL.Errors)
-	} else {
-		logger.Sugar.Infof("📡 Saved last processed page: %d", page)
-	}
-}
-
-// TxSearchResponse represents the response from tx_search RPC call.
-type TxSearchResponse struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int    `json:"id"`
-	Result  struct {
-		Txs        []TxSearchItem `json:"txs"`
-		TotalCount string         `json:"total_count"`
-	} `json:"result"`
-}
-
-// TxSearchItem represents a single transaction in tx_search results.
-type TxSearchItem struct {
-	Hash     string `json:"hash"`
-	Height   string `json:"height"`
-	TxResult struct {
-		Events []Event `json:"events"`
-	} `json:"tx_result"`
-}
-
-// FetchAllRegisteredViews fetches all Registered events from the RPC endpoint one tx at a time,
-// resuming from the last processed page on restart.
+// FetchAllRegisteredViews lists every registered view from the hub and
+// decodes each bundle into a view.View. Cursor pagination is followed
+// transparently. Entries with malformed or missing bundle bytes are logged
+// and skipped so a single bad view doesn't block the rest. The second
+// return value duplicates len(views) for caller convenience.
 func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, int, error) {
-	var allViews []view.View
-
-	// Re-fetch from the last known page, not the one after it. CometBFT's
-	// tx_search pagination is positional: a new tx can land on a page the
-	// host already fetched if that page had room. Starting from lastPage
-	// instead of lastPage+1 catches those. Views the host already registered
-	// produce "already exists" errors that are silently ignored, so
-	// re-fetching is idempotent.
-	startPage, pageSize := c.getLastProcessedPage(ctx)
-	if startPage < 1 {
-		startPage = 1
-	}
-	logger.Sugar.Debugf("📡 getLastProcessedPage result: page=%d, pageSize=%d", startPage, pageSize)
-	if startPage > 1 {
-		logger.Sugar.Infof("📡 Resuming from page %d (re-checking last known page for new txs)", startPage)
-	} else {
-		logger.Sugar.Debugf("📡 Starting ShinzoHub query for registered views...")
+	if c.lcdURL == "" {
+		return nil, 0, ErrLCDNotConfigured
 	}
 
-	lastSuccessfulPage := startPage - 1
-	totalCount := 0
+	const pageLimit = 100
+	var views []view.View
+	nextKey := ""
 
-	// Fetch 1 transaction at a time until we hit an error or empty page
-	for page := startPage; ; page++ {
-		logger.Sugar.Debugf("📡 Fetching transaction page %d...", page)
-		views, total, err := c.fetchRegisteredViewsPage(ctx, page, pageSize) // per_page=5
-		if err != nil {
-			// Error likely means we've gone past the last page
-			logger.Sugar.Debugf("📡 Stopping at page %d: %v", page, err)
-			break
+	for {
+		endpoint := fmt.Sprintf("%s/shinzonetwork/view/v1/views?include_data=true&pagination.limit=%d",
+			c.lcdURL, pageLimit)
+		if nextKey != "" {
+			endpoint += "&pagination.key=" + url.QueryEscape(nextKey)
 		}
 
-		allViews = append(allViews, views...)
-		lastSuccessfulPage = page
-		totalCount = total
-
-		// Stop if we've processed all transactions
-		if page*pageSize >= total {
-			logger.Sugar.Debugf("📡 Reached end of transactions (page %d of %d)", page, total)
-			break
-		}
-	}
-	// Persist the page size we actually queried with, not totalCount.
-	c.saveLastProcessedPage(ctx, lastSuccessfulPage, pageSize)
-	logger.Sugar.Debugf("📡 Saved progress: page %d (pageSize=%d, total_count=%d)", lastSuccessfulPage, pageSize, totalCount)
-
-	logger.Sugar.Infof("📡 ShinzoHub query complete: found %d new views with lenses", len(allViews))
-	return allViews, totalCount, nil
-}
-
-// fetchRegisteredViewsPage fetches a single page of Registered events with retry logic.
-func (c *RPCClient) fetchRegisteredViewsPage(ctx context.Context, page, perPage int) ([]view.View, int, error) {
-	query := url.QueryEscape(`ViewRegistered.view_address EXISTS`)
-	endpoint := fmt.Sprintf("%s/tx_search?query=\"%s\"&page=%d&per_page=%d&order_by=\"asc\"",
-		c.rpcURL, query, page, perPage)
-
-	body, err := c.fetchWithRetry(ctx, endpoint)
-	if err != nil {
-		return []view.View{}, 0, err
-	}
-
-	var txResp TxSearchResponse
-	if err := json.Unmarshal(body, &txResp); err != nil {
-		logger.Sugar.Warnf("📡 Failed to parse response: %v", err)
-		return []view.View{}, 0, nil
-	}
-
-	return parseViewsFromTxResponse(txResp)
-}
-
-func (c *RPCClient) fetchWithRetry(ctx context.Context, endpoint string) ([]byte, error) {
-	var lastErr error
-
-	for attempt := range 3 {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return nil, err
+			return views, len(views), fmt.Errorf("build LCD request: %w", err)
 		}
-
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			lastErr = err
-			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-			continue
+			return views, len(views), fmt.Errorf("LCD GET %s: %w", endpoint, err)
 		}
-
+		body, readErr := io.ReadAll(resp.Body)
+		if cerr := resp.Body.Close(); cerr != nil {
+			log().Warnf("close LCD response body: %v", cerr)
+		}
+		if readErr != nil {
+			return views, len(views), fmt.Errorf("read LCD response: %w", readErr)
+		}
 		if resp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			return nil, fmt.Errorf("HTTP %d %s: %w", resp.StatusCode, string(respBody), ErrHTTPErrorResponse)
+			return views, len(views), fmt.Errorf("%w: %s returned HTTP %d: %s", ErrLCDHTTPStatus, endpoint, resp.StatusCode, string(body))
 		}
 
-		body, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-			continue
+		var page struct {
+			Views      []LCDView `json:"views"`
+			Pagination struct {
+				NextKey string `json:"next_key"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return views, len(views), fmt.Errorf("decode LCD response: %w", err)
 		}
 
-		return body, nil
-	}
-
-	return nil, lastErr
-}
-
-// parseViewsFromTxResponse is self explainatory.
-func parseViewsFromTxResponse(txResp TxSearchResponse) ([]view.View, int, error) {
-	var views []view.View
-	var skippedNoLenses, skippedMalformed int
-
-	logger.Sugar.Debugf("📡 Processing %d transactions", len(txResp.Result.Txs))
-
-	for _, tx := range txResp.Result.Txs {
-		for _, event := range tx.TxResult.Events {
-			if event.Type != "ViewRegistered" {
+		for _, lv := range page.Views {
+			if lv.Data == "" {
+				log().Debugf("📡 view %s (contract %s) has no bundle bytes; skipping", lv.Name, lv.ContractAddress)
 				continue
 			}
-			v, err := extractViewFromEvent(event)
+			v, err := ProcessViewFromWireFormat(lv.Data)
 			if err != nil {
-				skippedMalformed++
-				logger.Sugar.Debugf("📡 Skipping malformed event: %v", err)
+				log().Warnf("📡 failed to decode bundle for view %s (contract %s): %v", lv.Name, lv.ContractAddress, err)
 				continue
 			}
-			logger.Sugar.Debugf("📡 Found view with lenses: %s", v.Name)
+			log().Debugf("📡 fetched view %s (contract %s)", lv.Name, lv.ContractAddress)
 			views = append(views, v)
 		}
-	}
 
-	var total int
-	if _, err := fmt.Sscanf(txResp.Result.TotalCount, "%d", &total); err != nil {
-		return nil, 0, fmt.Errorf("failed to parse total count %q: %w", txResp.Result.TotalCount, err)
-	}
-
-	logger.Sugar.Debugf("📡 Page results: %d views with lenses, %d skipped (no lenses), %d malformed, total_count=%d",
-		len(views), skippedNoLenses, skippedMalformed, total)
-
-	return views, total, nil
-}
-
-// extractViewFromEvent extracts a View from a Registered event using viewbundle.
-func extractViewFromEvent(event Event) (view.View, error) {
-	var v view.View
-
-	for _, attr := range event.Attributes {
-		if attr.Key == "data" {
-			newView, err := ProcessViewFromWireFormat(attr.Value)
-			if err != nil {
-				return v, fmt.Errorf("failed to process view from wire: %w", err)
-			}
-			v = newView
+		nextKey = page.Pagination.NextKey
+		if nextKey == "" {
+			break
 		}
 	}
 
-	// Extract name from SDL if not set (should already be done by ProcessViewFromWire)
-	if v.Name == "" && v.Data.Sdl != "" {
-		v.ExtractNameFromSDL()
-	}
-
-	if v.Data.Query == "" {
-		return v, ErrViewHasNoQuery
-	}
-
-	return v, nil
-}
-
-// GetAllWASMURLs extracts all WASM URLs from a list of views.
-func GetAllWASMURLs(views []view.View) []string {
-	var urls []string
-	seen := make(map[string]bool)
-
-	for _, v := range views {
-		for _, lens := range v.Data.Transform.Lenses {
-			// Only include HTTP/HTTPS URLs
-			if len(lens.Path) > 0 && !seen[lens.Path] {
-				urls = append(urls, lens.Path)
-				seen[lens.Path] = true
-			}
-		}
-	}
-
-	return urls
+	log().Infof("📡 ShinzoHub query complete: found %d registered views", len(views))
+	return views, len(views), nil
 }

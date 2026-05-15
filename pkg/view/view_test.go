@@ -144,7 +144,7 @@ func TestView_ExtractNameFromSDL(t *testing.T) {
 		{
 			name:     "SDL with @index",
 			sdl:      "type TestView @index(unique: [\"address\"]) { address: String }",
-			expected: "TestView",
+			expected: testViewName,
 		},
 		{
 			name:     "simple SDL",
@@ -181,14 +181,14 @@ func TestAttemptQueryCorrection_WholeWordReplacementOnly(t *testing.T) {
 	}{
 		{
 			name:     "single occurrence gets corrected",
-			query:    "Log { address }",
-			errMsg:   `Cannot query field "Log" on type "Query". Did you mean "Ethereum__Mainnet__Log"`,
-			expected: "Ethereum__Mainnet__Log { address }",
+			query:    queryLogAddr,
+			errMsg:   testErrUnknownLogCollection,
+			expected: queryEthLogAddr,
 		},
 		{
 			name:     "substring in a different identifier is untouched",
 			query:    "Log { Logger address }",
-			errMsg:   `Cannot query field "Log" on type "Query". Did you mean "Ethereum__Mainnet__Log"`,
+			errMsg:   testErrUnknownLogCollection,
 			expected: "Ethereum__Mainnet__Log { Logger address }",
 		},
 		{
@@ -200,14 +200,14 @@ func TestAttemptQueryCorrection_WholeWordReplacementOnly(t *testing.T) {
 		{
 			name:     "multiple whole-word occurrences all get corrected",
 			query:    "Log { nested { Log } }",
-			errMsg:   `Cannot query field "Log" on type "Query". Did you mean "Ethereum__Mainnet__Log"`,
+			errMsg:   testErrUnknownLogCollection,
 			expected: "Ethereum__Mainnet__Log { nested { Ethereum__Mainnet__Log } }",
 		},
 		{
 			name:     "unparseable error leaves query alone",
-			query:    "Log { address }",
+			query:    queryLogAddr,
 			errMsg:   "some unrelated error",
-			expected: "Log { address }",
+			expected: queryLogAddr,
 		},
 	}
 

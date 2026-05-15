@@ -56,7 +56,7 @@ func (qs *QueryService) initializeFieldMappings() {
 // extractFields uses reflection to extract field names from a struct.
 func (qs *QueryService) extractFields(model any) []string {
 	t := reflect.TypeOf(model)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -86,7 +86,7 @@ func (qs *QueryService) extractFields(model any) []string {
 
 // extractNestedFields extracts fields from nested struct types.
 func (qs *QueryService) extractNestedFields(t reflect.Type) []string {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -105,11 +105,11 @@ func (qs *QueryService) extractNestedFields(t reflect.Type) []string {
 func (qs *QueryService) GetFieldsForCollection(collectionType CollectionType) []string {
 	fields, exists := qs.fieldCache[string(collectionType)]
 	if !exists {
-		return []string{"_docID", "_version"} // fallback to system fields
+		return []string{defraFieldDocID, defraFieldVersion} // fallback to system fields
 	}
 
 	// Always include system fields
-	return append([]string{"_docID", "_version"}, fields...)
+	return append([]string{defraFieldDocID, defraFieldVersion}, fields...)
 }
 
 // BuildDynamicQuery creates a query for the specified collection type with optional filters.
@@ -153,13 +153,13 @@ func (qs *QueryService) BuildNestedQuery(primaryCollection CollectionType, neste
 func (qs *QueryService) getCollectionName(collectionType CollectionType) string {
 	switch collectionType {
 	case CollectionBlock:
-		return "Ethereum__Mainnet__Block"
+		return constants.CollectionBlock
 	case CollectionTransaction:
-		return "Ethereum__Mainnet__Transaction"
+		return constants.CollectionTransaction
 	case CollectionLog:
-		return "Ethereum__Mainnet__Log"
+		return constants.CollectionLog
 	case CollectionAccessListEntry:
-		return "Ethereum__Mainnet__AccessListEntry"
+		return constants.CollectionAccessListEntry
 	default:
 		return string(collectionType)
 	}

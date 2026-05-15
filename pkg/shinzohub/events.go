@@ -79,19 +79,15 @@ type ShinzoEvent interface {
 	ToString() string
 }
 
-// subscriptionQueries are the CometBFT event queries the host subscribes to.
+// getSubscriptionQueries returns the CometBFT event queries the host subscribes to.
 // Tendermint doesn't support OR logic, so each event type gets its own subscription.
-// var subscriptionQueries = []string{
-// 	"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
-// 	"tm.event='Tx' AND HostRegistered.owner EXISTS",
-// 	"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
-// }
-
+// CometBFT's EXISTS clause requires an attribute key (<event_type>.<attribute_key>),
+// not just the type; view_id is always present on these events.
 func getSubscriptionQueries() []string {
 	return []string{
-		"tm.event='Tx' AND ViewRegistered.view_address EXISTS",
-		"tm.event='Tx' AND HostRegistered.owner EXISTS",
-		"tm.event='Tx' AND IndexerRegistered.owner EXISTS",
+		"tm.event='Tx' AND " + eventTypeViewRegistered + "." + attrViewID + " EXISTS",
+		"tm.event='Tx' AND " + eventTypeViewRegistrationFailed + "." + attrViewID + " EXISTS",
+		"tm.event='Tx' AND " + eventTypeViewRegistrationTimedOut + "." + attrViewID + " EXISTS",
 	}
 }
 
@@ -100,7 +96,11 @@ func getSubscriptionQueries() []string {
 // connection is re-established automatically on drops with exponential
 // backoff (1s, 2s, 4s, ..., capped at 60s). The channel stays open across
 // reconnections; it is only closed when ctx is cancelled.
-func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan ShinzoEvent, error) {
+//
+// lcd is used to hydrate view-registration events with the bundle wire bytes
+// the CometBFT event payload doesn't carry. Pass nil to disable hydration;
+// any view-registration events received then get dropped with a warning.
+func StartEventSubscription(tendermintURL string, lcd *RPCClient) (context.CancelFunc, <-chan ShinzoEvent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	eventChan := make(chan ShinzoEvent, 16) //nolint:mnd
 
@@ -113,7 +113,7 @@ func StartEventSubscription(tendermintURL string) (context.CancelFunc, <-chan Sh
 		return cancel, nil, fmt.Errorf("initial WebSocket connection failed: %w", err)
 	}
 
-	go eventLoop(ctx, tendermintURL, conn, eventChan)
+	go eventLoop(ctx, tendermintURL, conn, eventChan, lcd)
 
 	return cancel, eventChan, nil
 }
@@ -133,10 +133,10 @@ func dialAndSubscribe(url string) (*websocket.Conn, error) {
 
 	for i, query := range getSubscriptionQueries() {
 		msg := map[string]any{
-			"jsonrpc": "2.0",
-			"method":  "subscribe",
-			"id":      i + 1,
-			"params":  map[string]any{"query": query},
+			jsonRPCMsgKey: jsonRPCVersion,
+			"method":      "subscribe",
+			"id":          i + 1,
+			"params":      map[string]any{"query": query},
 		}
 		if err := conn.WriteJSON(msg); err != nil {
 			if err := conn.Close(); err != nil {
@@ -162,7 +162,10 @@ func dialAndSubscribe(url string) (*websocket.Conn, error) {
 // owns the connection lifecycle: when a read fails, it closes the old
 // connection, waits with backoff, dials a new one, re-subscribes, and
 // resumes reading. The channel is closed only when ctx is cancelled.
-func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<- ShinzoEvent) {
+//
+// lcd is consulted to hydrate view-registration events before they're pushed
+// onto the channel; see hydrateViewBundle. nil disables hydration.
+func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<- ShinzoEvent, lcd *RPCClient) {
 	defer close(out)
 	defer recoverPanic()
 
@@ -178,7 +181,7 @@ func eventLoop(ctx context.Context, url string, conn *websocket.Conn, out chan<-
 		}
 
 		conn, pingStop, connectedAt, backoff = processNextMessage(
-			ctx, url, conn, out, pingStop, connectedAt, backoff, maxBackoff,
+			ctx, url, conn, out, lcd, pingStop, connectedAt, backoff, maxBackoff,
 		)
 		if conn == nil {
 			return
@@ -206,6 +209,7 @@ func processNextMessage(
 	url string,
 	conn *websocket.Conn,
 	out chan<- ShinzoEvent,
+	lcd *RPCClient,
 	pingStop func(),
 	connectedAt time.Time,
 	backoff, maxBackoff time.Duration,
@@ -225,7 +229,7 @@ func processNextMessage(
 		backoff = time.Second
 	}
 
-	conn = dispatchEvents(ctx, conn, out, message)
+	conn = dispatchEvents(ctx, conn, out, lcd, message)
 	return conn, pingStop, connectedAt, backoff
 }
 
@@ -255,13 +259,21 @@ func handleReadError(
 	return conn, startPing(ctx, conn), time.Now(), backoff
 }
 
-// dispatchEvents from event loop.
-func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- ShinzoEvent, message []byte) *websocket.Conn {
+// dispatchEvents decodes the WebSocket message, hydrates any view-registration
+// events from the hub's REST gateway, and pushes them onto out. Events whose
+// hydration fails are dropped with a warn log; the loop continues.
+func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- ShinzoEvent, lcd *RPCClient, message []byte) *websocket.Conn {
 	var msg RPCResponse
 	if err := json.Unmarshal(message, &msg); err != nil {
 		return conn
 	}
 	for _, ev := range extractShinzoEvents(msg) {
+		if vre, ok := ev.(*ViewRegisteredEvent); ok && vre.View.Data.Query == "" {
+			if err := hydrateViewBundle(ctx, lcd, vre); err != nil {
+				log().Warnf("dropping view.view_registered for contract %s: %v", vre.ContractAddress, err)
+				continue
+			}
+		}
 		select {
 		case out <- ev:
 		case <-ctx.Done():
@@ -270,6 +282,31 @@ func dispatchEvents(ctx context.Context, conn *websocket.Conn, out chan<- Shinzo
 		}
 	}
 	return conn
+}
+
+// hydrateViewBundle fetches the wire bundle from the hub's view-registry REST
+// endpoint and decodes it onto vre.View. CometBFT event payloads carry only
+// identifiers (view_id, contract_address, creator); the bundle has to be
+// resolved separately before the consumer can register the view in DefraDB.
+func hydrateViewBundle(ctx context.Context, lcd *RPCClient, vre *ViewRegisteredEvent) error {
+	if lcd == nil {
+		return ErrLCDNotConfigured
+	}
+	if vre.ContractAddress == "" {
+		return ErrEventNoContract
+	}
+
+	wireBase64, err := lcd.GetViewBundle(ctx, vre.ContractAddress)
+	if err != nil {
+		return fmt.Errorf("fetch bundle: %w", err)
+	}
+
+	v, err := ProcessViewFromWireFormat(wireBase64)
+	if err != nil {
+		return fmt.Errorf("decode bundle: %w", err)
+	}
+	vre.View = v
+	return nil
 }
 
 // isTimeoutError checks whether the error is a read deadline timeout.
@@ -324,10 +361,10 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 				return
 			case <-ticker.C:
 				msg := map[string]any{
-					"jsonrpc": "2.0",
-					"method":  "status",
-					"id":      999, // nolint:mnd
-					"params":  map[string]any{},
+					jsonRPCMsgKey: jsonRPCVersion,
+					"method":      "status",
+					"id":          pingMessageID,
+					"params":      map[string]any{},
 				}
 				if err := conn.WriteJSON(msg); err != nil {
 					return
@@ -338,106 +375,59 @@ func startPing(ctx context.Context, conn *websocket.Conn) context.CancelFunc {
 	return pingCancel
 }
 
-// extractShinzoEvents extracts typed events from an RPC response.
+// extractShinzoEvents converts the CometBFT tx events in msg into typed
+// registry events. The view-registration cases (view.view_registered and the
+// terminal-failure counterparts) carry view_id and contract_address; the
+// bundle wire bytes are fetched separately by downstream hydration.
 func extractShinzoEvents(msg RPCResponse) []ShinzoEvent {
 	var events []ShinzoEvent
-	if msg.JSONRPCVersion != "2.0" ||
-		msg.Result.Data.Type != "tendermint/event/Tx" ||
+	if msg.JSONRPCVersion != jsonRPCVersion ||
+		msg.Result.Data.Type != tmEventTxType ||
 		msg.Result.Data.Value.TxResult.Result.Events == nil {
 		return nil
 	}
 
 	for _, event := range msg.Result.Data.Value.TxResult.Result.Events {
 		switch event.Type {
-		case "ViewRegistered":
-			if e := parseViewRegisteredEvent(event); e != nil {
-				events = append(events, e)
+		case eventTypeViewRegistered:
+			registeredEvent := ViewRegisteredEvent{}
+
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case attrViewID:
+					registeredEvent.ViewID = attr.Value
+				case attrContractAddress:
+					registeredEvent.ContractAddress = attr.Value
+				case attrCreator:
+					registeredEvent.Creator = attr.Value
+				}
 			}
-		case "HostRegistered":
-			if e := parseHostRegisteredEvent(event); e != nil {
-				events = append(events, e)
+
+			if registeredEvent.ViewID != "" && registeredEvent.ContractAddress != "" && registeredEvent.Creator != "" {
+				log().Infof("view.view_registered event received: id=%s contract=%s creator=%s",
+					registeredEvent.ViewID, registeredEvent.ContractAddress, registeredEvent.Creator)
+				events = append(events, &registeredEvent)
+			} else {
+				log().Debugf("incomplete view.view_registered event: %+v", registeredEvent)
 			}
-		case "IndexerRegistered":
-			if e := parseIndexerRegisteredEvent(event); e != nil {
-				events = append(events, e)
+
+		case eventTypeViewRegistrationFailed, eventTypeViewRegistrationTimedOut:
+			// Logged for visibility and dropped: the host keeps no pending-view state
+			// locally, so there is nothing to roll back.
+			var viewID, contractAddr, errMsg string
+			for _, attr := range event.Attributes {
+				switch attr.Key {
+				case attrViewID:
+					viewID = attr.Value
+				case attrContractAddress:
+					contractAddr = attr.Value
+				case attrError:
+					errMsg = attr.Value
+				}
 			}
+			log().Warnf("%s: id=%s contract=%s error=%q", event.Type, viewID, contractAddr, errMsg)
 		}
 	}
 
 	return events
-}
-
-// parseViewRegisteredEvent parses view registration events.
-func parseViewRegisteredEvent(event Event) ShinzoEvent {
-	e := ViewRegisteredEvent{}
-	for _, attr := range event.Attributes {
-		switch attr.Key {
-		case "view_address":
-			e.ViewAddress = attr.Value
-		case "view_name":
-			e.ViewName = attr.Value
-		case "creator":
-			e.Creator = attr.Value
-		case "data":
-			newView, err := ProcessViewFromWireFormat(attr.Value)
-			if err != nil {
-				log().Warnf("failed to process view from wire: %v", err)
-				continue
-			}
-			e.View = newView
-		}
-	}
-	if e.ViewAddress != "" && e.Creator != "" && e.View.Data.Query != "" {
-		log().Infof("ViewRegistered event received: %s", e.View.Name)
-		return &e
-	}
-	log().Debugf("incomplete ViewRegistered event: %+v", e)
-	return nil
-}
-
-// parseHostRegisteredEvent parse host registration events.
-func parseHostRegisteredEvent(event Event) ShinzoEvent {
-	e := HostRegisteredEvent{}
-	for _, attr := range event.Attributes {
-		switch attr.Key {
-		case "owner":
-			e.Owner = attr.Value
-		case "did":
-			e.DID = attr.Value
-		case "connection_string":
-			e.ConnectionString = attr.Value
-		}
-	}
-	if e.Owner != "" && e.DID != "" {
-		log().Infof("HostRegistered event received: owner=%s did=%s", e.Owner, e.DID)
-		return &e
-	}
-	log().Debugf("incomplete HostRegistered event: %+v", e)
-	return nil
-}
-
-// parseIndexerRegisteredEvent parse indexer registration events.
-func parseIndexerRegisteredEvent(event Event) ShinzoEvent {
-	e := IndexerRegisteredEvent{}
-	for _, attr := range event.Attributes {
-		switch attr.Key {
-		case "owner":
-			e.Owner = attr.Value
-		case "did":
-			e.DID = attr.Value
-		case "connection_string":
-			e.ConnectionString = attr.Value
-		case "source_chain":
-			e.SourceChain = attr.Value
-		case "source_chain_id":
-			e.SourceChainID = attr.Value
-		}
-	}
-	if e.Owner != "" && e.DID != "" {
-		log().Infof("IndexerRegistered event received: owner=%s did=%s chain=%s/%s",
-			e.Owner, e.DID, e.SourceChain, e.SourceChainID)
-		return &e
-	}
-	log().Debugf("incomplete IndexerRegistered event: %+v", e)
-	return nil
 }

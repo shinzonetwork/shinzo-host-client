@@ -157,8 +157,8 @@ func TestRegistrationHandler_GET_Ready(t *testing.T) {
 		currentBlock:  200,
 		lastProcessed: time.Now(), // recent => ready
 		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: "abc", SignedPKMsg: "def"},
-		peerReg:       PeerIDRegistration{PeerID: "peer1", SignedPeerMsg: "sig1"},
+		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 	hs := newHS(mock, "") // empty defraURL => checkDefraDB returns true
 
@@ -182,8 +182,8 @@ func TestRegistrationHandler_GET_NotReady_StaleTime(t *testing.T) {
 		currentBlock:  200,
 		lastProcessed: time.Now().Add(-10 * time.Minute), // stale
 		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: "abc", SignedPKMsg: "def"},
-		peerReg:       PeerIDRegistration{PeerID: "peer1", SignedPeerMsg: "sig1"},
+		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 	hs := newHS(mock, "")
 
@@ -487,8 +487,8 @@ func TestGetRegistrationData_NilHost(t *testing.T) {
 
 func TestGetRegistrationData_WithHost(t *testing.T) {
 	mock := &mockHealthChecker{
-		defraReg: DefraPKRegistration{PublicKey: "abc", SignedPKMsg: "def"},
-		peerReg:  PeerIDRegistration{PeerID: "peer1", SignedPeerMsg: "sig1"},
+		defraReg: DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:  PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 	hs := newHS(mock, "")
 
@@ -545,8 +545,8 @@ func TestRegistrationHandler_ZeroLastProcessed(t *testing.T) {
 		currentBlock:  1,
 		lastProcessed: time.Time{}, // zero value
 		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: "abc", SignedPKMsg: "def"},
-		peerReg:       PeerIDRegistration{PeerID: "peer1", SignedPeerMsg: "sig1"},
+		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 	hs := newHS(mock, "")
 
@@ -570,8 +570,8 @@ func TestRegistrationHandler_DefraDBNotConnected(t *testing.T) {
 		currentBlock:  100,
 		lastProcessed: time.Now(),
 		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: "abc", SignedPKMsg: "def"},
-		peerReg:       PeerIDRegistration{PeerID: "peer1", SignedPeerMsg: "sig1"},
+		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 	// External URL that is unreachable
 	hs := newHS(mock, "http://192.0.2.1:9999")
