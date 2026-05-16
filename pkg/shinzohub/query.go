@@ -153,6 +153,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 				log().Warnf("📡 failed to decode bundle for view %s (contract %s): %v", lv.Name, lv.ContractAddress, err)
 				continue
 			}
+			v.ContractAddress = lv.ContractAddress
 			log().Debugf("📡 fetched view %s (contract %s)", lv.Name, lv.ContractAddress)
 			views = append(views, v)
 		}

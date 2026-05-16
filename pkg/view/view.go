@@ -27,9 +27,16 @@ type Transform = viewbundle.Transform
 type Lens = viewbundle.Lens
 
 // View represents a Shinzo view with viewbundle integration.
+//
+// ContractAddress is the EVM address of the deployed view contract on
+// ShinzoHub. SourceHub relationship tuples key off this address
+// (`view:<ContractAddress>#subscriber@<did>`); callers that resolve a
+// view name to an on-chain identity rely on it. May be empty for Views
+// constructed without an on-chain origin.
 type View struct {
-	Name string          `json:"name"`
-	Data viewbundle.View `json:"data"`
+	Name            string          `json:"name"`
+	ContractAddress string          `json:"contract_address,omitempty"`
+	Data            viewbundle.View `json:"data"`
 }
 
 // NewViewFromWire creates a new View from a viewbundle wire format.

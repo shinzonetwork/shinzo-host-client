@@ -892,3 +892,82 @@ func TestDeduplicateViews_ComplexScenarios(t *testing.T) {
 		})
 	}
 }
+
+// TestViewManager_ContractAddress_StoredAndRetrieved registers a view with a
+// non-empty ContractAddress and verifies Manager.ContractAddress returns the
+// stored value.
+func TestViewManager_ContractAddress_StoredAndRetrieved(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	require.NoError(t, err)
+
+	const addr = "0xc5d55f9a4e8788abaaf74d4772c2a4afe60a23a3"
+	v := &View{
+		Name:            "AddressedView",
+		ContractAddress: addr,
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type AddressedView { address: String }",
+		},
+	}
+
+	require.NoError(t, vm.RegisterView(ctx, v))
+
+	got, ok := vm.ContractAddress("AddressedView")
+	require.True(t, ok, "expected ContractAddress lookup to succeed for a registered addressed view")
+	require.Equal(t, addr, got)
+}
+
+// TestViewManager_ContractAddress_EmptyAddressReturnsFalse registers a view
+// whose ContractAddress is the empty string and verifies the accessor returns
+// ("", false). The boolean lets callers gate on presence without inferring it
+// from the string.
+func TestViewManager_ContractAddress_EmptyAddressReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	require.NoError(t, err)
+
+	v := &View{
+		Name: "UnaddressedView",
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type UnaddressedView { address: String }",
+		},
+	}
+
+	require.NoError(t, vm.RegisterView(ctx, v))
+
+	got, ok := vm.ContractAddress("UnaddressedView")
+	require.False(t, ok, "expected ContractAddress lookup to fail for a view registered without an address")
+	require.Equal(t, "", got)
+}
+
+// TestViewManager_ContractAddress_UnknownViewReturnsFalse verifies that a
+// lookup for a name not in the registry returns ("", false).
+func TestViewManager_ContractAddress_UnknownViewReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	got, ok := vm.ContractAddress("NeverRegistered")
+	require.False(t, ok)
+	require.Equal(t, "", got)
+}

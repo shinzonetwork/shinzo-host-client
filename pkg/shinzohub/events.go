@@ -305,6 +305,7 @@ func hydrateViewBundle(ctx context.Context, lcd *RPCClient, vre *ViewRegisteredE
 	if err != nil {
 		return fmt.Errorf("decode bundle: %w", err)
 	}
+	v.ContractAddress = vre.ContractAddress
 	vre.View = v
 	return nil
 }

@@ -19,6 +19,15 @@ type Registrar interface {
 	RegisterView(ctx context.Context, v View) error
 }
 
+// ActiveView is the per-registered-view state the Manager retains in memory.
+// Lens is the DefraDB view configuration. ContractAddress is the view's
+// on-chain identity, used to resolve a collection name to the SourceHub
+// relationship-tuple object_id at request time.
+type ActiveView struct {
+	Lens            *client.LensConfig
+	ContractAddress string
+}
+
 // Manager orchestrates the complete lifecycle of Shinzo views including:
 // - Loading views from local storage and external sources
 // - Managing WASM lens files and migrations
@@ -26,7 +35,7 @@ type Registrar interface {
 // - Setting up P2P subscriptions for real-time updates
 // - Tracking active views and metrics.
 type Manager struct {
-	activeViews     map[string]*client.LensConfig
+	activeViews     map[string]*ActiveView
 	defraNode       *node.Node
 	mutex           sync.RWMutex
 	schemaService   *SchemaService
@@ -40,7 +49,7 @@ type Manager struct {
 func NewManager(defraNode *node.Node, registryPath string) *Manager {
 	wasmRegistry, _ := NewWASMRegistry(registryPath, zap.L().Sugar())
 	return &Manager{
-		activeViews:   make(map[string]*client.LensConfig),
+		activeViews:   make(map[string]*ActiveView),
 		defraNode:     defraNode,
 		schemaService: NewSchemaService(),
 		wasmRegistry:  wasmRegistry,
@@ -150,8 +159,8 @@ func (m *Manager) GetActiveViewDetails() [][]string {
 	defer m.mutex.RUnlock()
 
 	details := make([][]string, 0, len(m.activeViews))
-	for name, lensConfig := range m.activeViews {
-		details = append(details, []string{name, lensConfig.DestinationCollectionVersionID})
+	for name, av := range m.activeViews {
+		details = append(details, []string{name, av.Lens.DestinationCollectionVersionID})
 	}
 	return details
 }
@@ -161,6 +170,21 @@ func (m *Manager) GetViewCount() int {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	return len(m.activeViews)
+}
+
+// ContractAddress returns the on-chain contract address for an active view by
+// name. Returns ("", false) when no view by that name is registered or when
+// the registered view has no address set; the boolean lets callers
+// distinguish "no address available" from a legitimate empty string without
+// relying on the string itself.
+func (m *Manager) ContractAddress(viewName string) (string, bool) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	av, ok := m.activeViews[viewName]
+	if !ok || av.ContractAddress == "" {
+		return "", false
+	}
+	return av.ContractAddress, true
 }
 
 // RegisterView implements the full view registration flow with validation.
@@ -200,9 +224,12 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 
 	m.updateMetrics()
 
-	m.activeViews[v.Name] = &client.LensConfig{
-		SourceCollectionVersionID:      v.Data.Query,
-		DestinationCollectionVersionID: v.Data.Sdl,
+	m.activeViews[v.Name] = &ActiveView{
+		Lens: &client.LensConfig{
+			SourceCollectionVersionID:      v.Data.Query,
+			DestinationCollectionVersionID: v.Data.Sdl,
+		},
+		ContractAddress: v.ContractAddress,
 	}
 
 	return nil

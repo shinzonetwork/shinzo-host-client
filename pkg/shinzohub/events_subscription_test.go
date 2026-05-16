@@ -105,6 +105,10 @@ func TestEventSubscription_HydratesAndEmits(t *testing.T) {
 		require.Equal(t, expectedQuery, vre.View.Data.Query, "view query hydrated from bundle")
 		require.NotEmpty(t, vre.View.Data.Sdl, "view SDL hydrated from bundle")
 		require.Len(t, vre.View.Data.Transform.Lenses, 1, "lens chain decoded from bundle")
+		// The contract address is an event attribute, not part of the bundle.
+		// Hydration must copy it onto the View so the decoded value carries
+		// the on-chain identity end-to-end.
+		require.Equal(t, contract, vre.View.ContractAddress, "view contract address propagated to View struct")
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for hydrated view.view_registered event")
 	}
