@@ -11,11 +11,14 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
 	github.com/shinzonetwork/viewbundle-go v0.1.1
+	github.com/sourcenetwork/acp_core v0.8.1
 	github.com/sourcenetwork/corelog v0.0.8
 	github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.10.0
+	github.com/sourcenetwork/sourcehub v0.4.1-0.20260128164915-1bce44032618
 	github.com/stretchr/testify v1.11.1
+	github.com/vektah/gqlparser/v2 v2.5.33
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -316,7 +319,6 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skip-mev/block-sdk/v2 v2.1.5 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
-	github.com/sourcenetwork/acp_core v0.8.1 // indirect
 	github.com/sourcenetwork/corekv v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/badger v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/blockstore v0.3.1 // indirect
@@ -331,7 +333,6 @@ require (
 	github.com/sourcenetwork/graphql-go v0.7.10-0.20251126162830-73185f9b1d45 // indirect
 	github.com/sourcenetwork/raccoondb v0.2.1-0.20240722161350-d4a78b691ec8 // indirect
 	github.com/sourcenetwork/raccoondb/v2 v2.0.0 // indirect
-	github.com/sourcenetwork/sourcehub v0.4.1-0.20260128164915-1bce44032618 // indirect
 	github.com/sourcenetwork/zanzi v0.3.1-0.20251104182341-4b1bd0f7be5a // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect

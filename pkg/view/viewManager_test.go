@@ -956,6 +956,46 @@ func TestViewManager_ContractAddress_EmptyAddressReturnsFalse(t *testing.T) {
 	require.Equal(t, "", got)
 }
 
+// TestViewManager_IsActive registers two views (one with a contract address,
+// one without) and verifies IsActive returns true for both, false for an
+// unregistered name. IsActive must report registration independently of
+// whether an address is present so callers can distinguish "not a view"
+// from "view without address".
+func TestViewManager_IsActive(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	require.NoError(t, err)
+
+	addressed := &View{
+		Name:            "AddressedView",
+		ContractAddress: "0xc5d55f9a4e8788abaaf74d4772c2a4afe60a23a3",
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type AddressedView { address: String }",
+		},
+	}
+	unaddressed := &View{
+		Name: "UnaddressedView",
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type UnaddressedView { address: String }",
+		},
+	}
+	require.NoError(t, vm.RegisterView(ctx, addressed))
+	require.NoError(t, vm.RegisterView(ctx, unaddressed))
+
+	require.True(t, vm.IsActive("AddressedView"))
+	require.True(t, vm.IsActive("UnaddressedView"))
+	require.False(t, vm.IsActive("NeverRegistered"))
+}
+
 // TestViewManager_ContractAddress_UnknownViewReturnsFalse verifies that a
 // lookup for a name not in the registry returns ("", false).
 func TestViewManager_ContractAddress_UnknownViewReturnsFalse(t *testing.T) {

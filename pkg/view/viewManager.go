@@ -172,6 +172,18 @@ func (m *Manager) GetViewCount() int {
 	return len(m.activeViews)
 }
 
+// IsActive reports whether a view with the given name is currently
+// registered, regardless of whether it carries an on-chain contract
+// address. Distinguished from ContractAddress so callers can tell
+// "not a view" (skip) apart from "view without address" (handle
+// explicitly).
+func (m *Manager) IsActive(viewName string) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	_, ok := m.activeViews[viewName]
+	return ok
+}
+
 // ContractAddress returns the on-chain contract address for an active view by
 // name. Returns ("", false) when no view by that name is registered or when
 // the registered view has no address set; the boolean lets callers
