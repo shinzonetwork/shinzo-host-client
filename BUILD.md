@@ -5,7 +5,7 @@
 - [Go 1.25+](https://go.dev/dl/)
 - Make
 
-The Dockerfile handles Wasmtime and Wasmer installation automatically. If building locally (outside Docker), the WASM runtimes must be available on your `LD_LIBRARY_PATH`. See the `Dockerfile` for the exact versions and install steps.
+Wasmtime and Wasmer are installed automatically inside the Docker build. If you are building locally (outside Docker), both WASM runtimes need to be on your `LD_LIBRARY_PATH`. The `Dockerfile` has the exact versions and install steps.
 
 ## Steps
 
@@ -15,7 +15,7 @@ cd shinzo-host-client
 make build
 ```
 
-The compiled binary is written to `./bin/host`.
+The binary lands at `./bin/host`.
 
 ## Useful commands
 
@@ -38,17 +38,13 @@ The compiled binary is written to `./bin/host`.
 
 ## Docker
 
-```shell
-docker compose up
-```
-
-The `docker-compose.yml` pulls the published image from GHCR. To build the image locally:
+`docker-compose.yml` pulls the published image from GHCR. To build locally instead:
 
 ```shell
 docker build -t shinzo-host-client .
 ```
 
-Pass `--build-arg TAGS=hostplayground` to include the Playground in the Docker image.
+To include the Playground UI in the image, add `--build-arg TAGS=hostplayground`.
 
 ## Ports
 

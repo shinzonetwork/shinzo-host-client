@@ -2,11 +2,9 @@
 
 ## Before you start
 
-Open an issue to discuss your proposed change before submitting a PR. This avoids wasted effort if the change isn't a good fit. PRs without an attached issue will be closed.
+Open an issue to discuss your change before submitting a PR. PRs without an attached issue will be closed.
 
 ## Making changes
-
-The repo is structured as follows:
 
 | Path | Purpose |
 | --- | --- |
@@ -27,7 +25,7 @@ The repo is structured as follows:
 | `scripts/` | GCP VM startup and monitoring scripts. |
 | `integration/` | Integration tests. |
 
-Before touching core data-flow logic (host startup, view processing, attestation handling), read the relevant ADRs in `adr/`. They explain the reasoning behind key design decisions.
+Before touching host startup, view processing, or attestation handling, read the relevant ADRs in `adr/`.
 
 ## Submitting a PR
 

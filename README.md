@@ -12,15 +12,17 @@
 ![License](https://img.shields.io/github/license/shinzonetwork/shinzo-host-client)
 ![Docker](https://img.shields.io/docker/v/shinzonetwork/shinzo-host-client)
 
-Receives primitive blockchain data from Shinzo Indexers, applies Lens WASM transforms, and serves the resulting Views to subscriber nodes via an embedded DefraDB instance.
+A Host node for the Shinzo network. It pulls primitive blockchain data from Indexers, runs Lens WASM transforms, and serves the resulting Views to subscriber nodes via an embedded DefraDB instance.
 
 ## Getting started
+
+Make sure `~/config.yaml` exists on the host machine, then:
 
 ```shell
 docker compose up
 ```
 
-You will need a `~/config.yaml` on the host machine before starting. At minimum, set your keyring secret:
+At minimum, set your keyring secret before starting:
 
 ```shell
 export DEFRA_KEYRING_SECRET=<your-secret>
@@ -31,7 +33,7 @@ export DEFRA_KEYRING_SECRET=<your-secret>
 
 ## Configuration
 
-The application reads from `config/config.yaml`. The only field you must set is `defradb.keyring_secret` (or the `DEFRA_KEYRING_SECRET` environment variable). All other fields have sensible defaults.
+The app reads from `config/config.yaml`. The only field you must set is `defradb.keyring_secret` (or the `DEFRA_KEYRING_SECRET` environment variable). Everything else has working defaults.
 
 See the [Shinzo documentation site](https://docs.shinzo.network) for the full configuration reference.
 
