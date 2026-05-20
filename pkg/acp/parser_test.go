@@ -3,11 +3,14 @@ package acp
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -206,6 +209,122 @@ func TestErrMalformedQuery_IsRecognizable(t *testing.T) {
 	r := newPostJSON(t, body)
 
 	_, err := ExtractCollections(r)
+	require.True(t, errors.Is(err, ErrMalformedQuery))
+}
+
+// A named fragment spread used at the top level of the operation
+// resolves to its declared selection set. Fields inside that selection
+// set are top-level fields of the operation for gating purposes.
+func TestExtractCollections_NamedFragmentSpreadAtTopLevel(t *testing.T) {
+	body := []byte(`{"query":"fragment AsQuery on Query { FilteredLogs { hash } } query { ...AsQuery }"}`)
+	r := newPostJSON(t, body)
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{testViewFilteredLogs}, got)
+}
+
+// An inline fragment at the top level introduces no Field of its own in
+// the AST. Its selection set carries the actual top-level fields and must
+// be traversed.
+func TestExtractCollections_InlineFragmentAtTopLevel(t *testing.T) {
+	body := []byte(`{"query":"query { ... on Query { FilteredLogs { hash } } }"}`)
+	r := newPostJSON(t, body)
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{testViewFilteredLogs}, got)
+}
+
+// Nested fragment chain. Spreads expand through arbitrary depth and the
+// parser must follow each link.
+func TestExtractCollections_NestedFragmentSpreads(t *testing.T) {
+	body := []byte(`{"query":"fragment Inner on Query { FilteredLogs { hash } } fragment Outer on Query { ...Inner } query { ...Outer }"}`)
+	r := newPostJSON(t, body)
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{testViewFilteredLogs}, got)
+}
+
+// A direct Field and an InlineFragment at the same selection level both
+// contribute their fields. The result includes the Field's name and
+// every name reachable through the fragment.
+func TestExtractCollections_MixedFieldAndInlineFragmentAtTopLevel(t *testing.T) {
+	body := []byte(`{"query":"query { Block { number } ... on Query { FilteredLogs { hash } } }"}`)
+	r := newPostJSON(t, body)
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"Block", testViewFilteredLogs}, got)
+}
+
+// Fragments INSIDE a Field's own selection set describe that field's
+// sub-shape and do not introduce new top-level fields. The outer Field is
+// the only entry; the inline fragment is not traversed further by this
+// gate.
+func TestExtractCollections_InlineFragmentInsideField(t *testing.T) {
+	body := []byte(`{"query":"query { FilteredLogs { ... on FilteredLogs { hash } } }"}`)
+	r := newPostJSON(t, body)
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.Equal(t, []string{testViewFilteredLogs}, got)
+}
+
+// A fragment spread that names a fragment not declared in the document
+// has no resolvable selection set. ParseQuery accepts the spread because
+// validation is a separate stage; the gate rejects it as malformed
+// since the resulting field set is undefined.
+func TestExtractCollections_UndeclaredFragmentReturnsErr(t *testing.T) {
+	body := []byte(`{"query":"query { ...Missing }"}`)
+	r := newPostJSON(t, body)
+
+	_, err := ExtractCollections(r)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrMalformedQuery))
+}
+
+// A fragment cycle (A spreads B, B spreads A) is illegal per the GraphQL
+// spec but expressible in raw input. The gate must detect the cycle and
+// return ErrMalformedQuery in bounded time rather than recursing
+// indefinitely or forwarding the request.
+func TestExtractCollections_FragmentCycleReturnsErr(t *testing.T) {
+	body := []byte(`{"query":"fragment A on Query { ...B } fragment B on Query { ...A } query { ...A }"}`)
+	r := newPostJSON(t, body)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := ExtractCollections(r)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ErrMalformedQuery))
+	case <-time.After(2 * time.Second):
+		t.Fatal("parser did not terminate on fragment cycle within 2s")
+	}
+}
+
+// Deep but acyclic fragment nesting is rejected once it exceeds the
+// configured depth bound. The user-facing impact is that hand-written
+// queries with more than maxFragmentDepth levels of fragment indirection
+// fail with a clear error. The bound is generous enough that legitimate
+// documents do not hit it.
+func TestExtractCollections_ExcessiveFragmentDepthReturnsErr(t *testing.T) {
+	var b strings.Builder
+	const depth = 32 // exceeds maxFragmentDepth
+	for i := 0; i < depth; i++ {
+		fmt.Fprintf(&b, "fragment F%d on Query { ...F%d } ", i, i+1)
+	}
+	fmt.Fprintf(&b, "fragment F%d on Query { FilteredLogs { hash } } query { ...F0 }", depth)
+
+	body := []byte(`{"query":"` + b.String() + `"}`)
+	r := newPostJSON(t, body)
+
+	_, err := ExtractCollections(r)
+	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrMalformedQuery))
 }
 
