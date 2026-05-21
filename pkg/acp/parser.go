@@ -39,12 +39,18 @@ const maxFragmentDepth = 16
 //
 // Supported transports:
 //   - GET with `query` (and optional `operationName`) URL parameters
+//   - POST with `query` (and optional `operationName`) URL parameters
 //   - POST with `Content-Type: application/json` body `{"query": ..., "operationName": ...}`
 //   - POST with `Content-Type: application/graphql` body (raw query string)
 //
-// For POST requests the body is read fully and reset on r so downstream
-// handlers can re-read it. An empty body or empty `query` returns nil with
-// no error so the caller can pass the request through without gating.
+// On POST a non-empty URL `query` parameter takes precedence over the
+// body. This mirrors defradb's GraphQL handler so the middleware gates
+// the same operation defradb will execute.
+//
+// For POST requests that fall through to the body, the body is read
+// fully and reset on r so downstream handlers can re-read it. An empty
+// body or empty `query` returns nil with no error so the caller can pass
+// the request through without gating.
 // Parse failures, fragment cycles, undeclared fragments, and excessive
 // fragment nesting return ErrMalformedQuery so the caller can respond
 // 400 rather than forwarding a request whose top-level field set is
@@ -142,16 +148,22 @@ func collectTopLevelFields(
 }
 
 // extractGraphQLOperation reads the GraphQL query and operationName from r.
-// For POST requests it reads the body into memory and rewinds r.Body so
-// downstream handlers can re-read it; for GET requests it reads URL params.
-// Unsupported methods return ("", "", nil) so the caller passes the request
-// through without parsing.
+// On POST a non-empty URL `query` parameter takes precedence over the
+// body, matching defradb's handler. When the body path is taken, the
+// body is read into memory and r.Body is rewound so downstream handlers
+// can re-read it. On GET it reads URL params. Unsupported methods return
+// ("", "", nil) so the caller passes the request through without parsing.
 func extractGraphQLOperation(r *http.Request) (query, operationName string, err error) {
 	switch r.Method {
 	case http.MethodGet:
 		return r.URL.Query().Get("query"), r.URL.Query().Get("operationName"), nil
 
 	case http.MethodPost:
+		// Defradb prefers URL `query` over the body on POST. Mirror that
+		// so the middleware sees the same query defradb will execute.
+		if q := r.URL.Query().Get("query"); q != "" {
+			return q, r.URL.Query().Get("operationName"), nil
+		}
 		if r.Body == nil {
 			return "", "", nil
 		}

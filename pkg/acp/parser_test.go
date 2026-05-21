@@ -328,6 +328,77 @@ func TestExtractCollections_ExcessiveFragmentDepthReturnsErr(t *testing.T) {
 	require.True(t, errors.Is(err, ErrMalformedQuery))
 }
 
+// On POST, URL `query` takes precedence over the body, matching
+// defradb. Without this precedence the middleware would inspect the
+// body while defradb runs the URL query, leaving the URL-named
+// operation ungated.
+func TestExtractCollections_PostUrlQueryPrecedesBody(t *testing.T) {
+	body := []byte(`{"query":"{ Block { number } }"}`)
+	r := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v0/graphql?query=%7B+FilteredLogs+%7B+hash+%7D+%7D",
+		bytes.NewReader(body),
+	)
+	r.Header.Set("Content-Type", "application/json")
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.Equal(t, []string{testViewFilteredLogs}, got)
+}
+
+// A POST whose URL `query` carries multiple operations is filtered by
+// the URL `operationName`, again matching defradb. The body's
+// operationName is irrelevant on this path.
+func TestExtractCollections_PostUrlQueryWithUrlOperationName(t *testing.T) {
+	urlQuery := "query+A+%7BFoo%7Bx%7D%7D+query+B+%7BBar%7By%7D%7D"
+	body := []byte(`{"query":"{ Other { z } }", "operationName": "ignored"}`)
+	r := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v0/graphql?query="+urlQuery+"&operationName=B",
+		bytes.NewReader(body),
+	)
+	r.Header.Set("Content-Type", "application/json")
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.Equal(t, []string{testOpBNamed}, got)
+}
+
+// When the URL `query` path is taken, the body is not consumed so
+// downstream handlers can still read it.
+func TestExtractCollections_PostUrlQueryDoesNotConsumeBody(t *testing.T) {
+	body := []byte(`{"query":"{ Block { number } }"}`)
+	r := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v0/graphql?query=%7B+FilteredLogs+%7B+hash+%7D+%7D",
+		bytes.NewReader(body),
+	)
+	r.Header.Set("Content-Type", "application/json")
+
+	_, err := ExtractCollections(r)
+	require.NoError(t, err)
+
+	remaining, readErr := io.ReadAll(r.Body)
+	require.NoError(t, readErr)
+	require.Equal(t, body, remaining)
+}
+
+// When URL `query` is empty, POST still reads the body as before. Empty
+// URL query must not trigger the precedence branch.
+func TestExtractCollections_PostEmptyUrlQueryFallsBackToBody(t *testing.T) {
+	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
+	r := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v0/graphql?query=",
+		bytes.NewReader(body),
+	)
+	r.Header.Set("Content-Type", "application/json")
+
+	got, err := ExtractCollections(r)
+	require.NoError(t, err)
+	require.Equal(t, []string{testViewFilteredLogs}, got)
+}
+
 func newPostJSON(t *testing.T, body []byte) *http.Request {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v0/graphql", bytes.NewReader(body))
