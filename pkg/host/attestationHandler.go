@@ -83,13 +83,8 @@ var (
 )
 
 // collectionIDToName - mapping for ID to Name.
-var collectionIDToName = map[string]string{ //nolint:gochecknoglobals
-	blockSigCollectionID:    constants.CollectionBlockSignature,
-	blockCollectionID:       constants.CollectionBlock,
-	transactionCollectionID: constants.CollectionTransaction,
-	logCollectionID:         constants.CollectionLog,
-	accessListCollectionID:  constants.CollectionAccessListEntry,
-}
+// Populated at runtime by initKnownCollectionIDs after fetching real collection IDs from DefraDB.
+var collectionIDToName = map[string]string{} //nolint:gochecknoglobals
 
 // collectionsWithMetrics - mapping collection to bool.
 var collectionsWithMetrics = map[string]bool{ //nolint:gochecknoglobals
@@ -115,14 +110,19 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 		switch col.Name() {
 		case constants.CollectionBlockSignature:
 			blockSigCollectionID = col.CollectionID()
+			collectionIDToName[blockSigCollectionID] = constants.CollectionBlockSignature
 		case constants.CollectionBlock:
 			blockCollectionID = col.CollectionID()
+			collectionIDToName[blockCollectionID] = constants.CollectionBlock
 		case constants.CollectionTransaction:
 			transactionCollectionID = col.CollectionID()
+			collectionIDToName[transactionCollectionID] = constants.CollectionTransaction
 		case constants.CollectionLog:
 			logCollectionID = col.CollectionID()
+			collectionIDToName[logCollectionID] = constants.CollectionLog
 		case constants.CollectionAccessListEntry:
 			accessListCollectionID = col.CollectionID()
+			collectionIDToName[accessListCollectionID] = constants.CollectionAccessListEntry
 		}
 	}
 
