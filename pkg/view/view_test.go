@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 
-// TestView_SubscribeTo tests basic view subscription functionality
+// TestView_SubscribeTo tests basic view subscription functionality.
 func TestView_SubscribeTo(t *testing.T) {
 	ctx := context.Background()
 
@@ -25,9 +25,9 @@ func TestView_SubscribeTo(t *testing.T) {
 	}
 
 	// Create a mock DefraDB node
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// SubscribeTo should fail because the collection doesn't exist yet
 	err = testView.SubscribeTo(ctx, defraNode)
@@ -35,7 +35,7 @@ func TestView_SubscribeTo(t *testing.T) {
 	require.Contains(t, err.Error(), "collection does not exist")
 }
 
-// TestView_HasLenses tests lens detection
+// TestView_HasLenses tests lens detection.
 func TestView_HasLenses(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -79,7 +79,7 @@ func TestView_HasLenses(t *testing.T) {
 	}
 }
 
-// TestView_NeedsWasmConversion tests WASM conversion detection
+// TestView_NeedsWasmConversion tests WASM conversion detection.
 func TestView_NeedsWasmConversion(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -129,7 +129,7 @@ func TestView_NeedsWasmConversion(t *testing.T) {
 	}
 }
 
-// TestView_ExtractNameFromSDL tests SDL name extraction
+// TestView_ExtractNameFromSDL tests SDL name extraction.
 func TestView_ExtractNameFromSDL(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -144,7 +144,7 @@ func TestView_ExtractNameFromSDL(t *testing.T) {
 		{
 			name:     "SDL with @index",
 			sdl:      "type TestView @index(unique: [\"address\"]) { address: String }",
-			expected: "TestView",
+			expected: testViewName,
 		},
 		{
 			name:     "simple SDL",
@@ -168,6 +168,54 @@ func TestView_ExtractNameFromSDL(t *testing.T) {
 
 			view.ExtractNameFromSDL()
 			require.Equal(t, tt.expected, view.Name)
+		})
+	}
+}
+
+func TestAttemptQueryCorrection_WholeWordReplacementOnly(t *testing.T) {
+	cases := []struct {
+		name     string
+		query    string
+		errMsg   string
+		expected string
+	}{
+		{
+			name:     "single occurrence gets corrected",
+			query:    queryLogAddr,
+			errMsg:   testErrUnknownLogCollection,
+			expected: queryEthLogAddr,
+		},
+		{
+			name:     "substring in a different identifier is untouched",
+			query:    "Log { Logger address }",
+			errMsg:   testErrUnknownLogCollection,
+			expected: "Ethereum__Mainnet__Log { Logger address }",
+		},
+		{
+			name:     "substring suffix is untouched",
+			query:    "Log { inputData inputDataLength }",
+			errMsg:   `Cannot query field "inputData" on type "Log". Did you mean "input"`,
+			expected: "Log { input inputDataLength }",
+		},
+		{
+			name:     "multiple whole-word occurrences all get corrected",
+			query:    "Log { nested { Log } }",
+			errMsg:   testErrUnknownLogCollection,
+			expected: "Ethereum__Mainnet__Log { nested { Ethereum__Mainnet__Log } }",
+		},
+		{
+			name:     "unparseable error leaves query alone",
+			query:    queryLogAddr,
+			errMsg:   "some unrelated error",
+			expected: queryLogAddr,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			v := &View{Data: viewbundle.View{Query: tt.query}}
+			got := v.attemptQueryCorrection(tt.errMsg)
+			require.Equal(t, tt.expected, got)
 		})
 	}
 }

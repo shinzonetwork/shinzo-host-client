@@ -27,7 +27,7 @@ shinzohub:
   rpc_url: "some url"
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
@@ -37,10 +37,10 @@ shinzohub:
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	expectedUrl := "http://localhost:9181"
+	expectedURL := "http://localhost:9181"
 	// Test DefraDB config
-	if cfg.DefraDB.Url != expectedUrl {
-		t.Errorf("Expected url '%s', got '%s'", expectedUrl, cfg.DefraDB.Url)
+	if cfg.DefraDB.URL != expectedURL {
+		t.Errorf("Expected url '%s', got '%s'", expectedURL, cfg.DefraDB.URL)
 	}
 
 	// Test P2P config
@@ -59,14 +59,14 @@ defradb:
   keyring_secret: "original_secret"
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
 	// Set environment variables
-	os.Setenv("DEFRA_KEYRING_SECRET", "env_secret")
-	defer os.Unsetenv("DEFRA_KEYRING_SECRET")
+	_ = os.Setenv("DEFRA_KEYRING_SECRET", "env_secret")
+	defer func() { _ = os.Unsetenv("DEFRA_KEYRING_SECRET") }()
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestLoadConfig_EmptyConfig(t *testing.T) {
 
 	configContent := `{}`
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
@@ -118,7 +118,7 @@ shinzo:
   minimum_attestations: "invalid yaml
 `
 
-	err := os.WriteFile(configPath, []byte(invalidContent), 0644)
+	err := os.WriteFile(configPath, []byte(invalidContent), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
@@ -129,10 +129,10 @@ shinzo:
 	}
 }
 
-func TestToAppConfig(t *testing.T) {
+func TestToInternalConfig(t *testing.T) {
 	cfg := &Config{
 		DefraDB: DefraDBConfig{
-			Url:           "localhost:9181",
+			URL:           "localhost:9181",
 			KeyringSecret: "secret123",
 			P2P: DefraDBP2PConfig{
 				Enabled:             true,
@@ -159,9 +159,9 @@ func TestToAppConfig(t *testing.T) {
 		},
 	}
 
-	appCfg := cfg.ToAppConfig()
+	appCfg := cfg.ToInternalConfig()
 	require.NotNil(t, appCfg)
-	require.Equal(t, "localhost:9181", appCfg.DefraDB.Url)
+	require.Equal(t, "localhost:9181", appCfg.DefraDB.URL)
 	require.Equal(t, "secret123", appCfg.DefraDB.KeyringSecret)
 	require.True(t, appCfg.DefraDB.P2P.Enabled)
 	// Bootstrap peers should be empty (added after ViewManager init)
@@ -182,9 +182,9 @@ func TestToAppConfig(t *testing.T) {
 	require.True(t, appCfg.Logger.Development)
 }
 
-func TestToAppConfig_Nil(t *testing.T) {
+func TestToInternalConfig_Nil(t *testing.T) {
 	var cfg *Config
-	appCfg := cfg.ToAppConfig()
+	appCfg := cfg.ToInternalConfig()
 	require.Nil(t, appCfg)
 }
 
@@ -192,7 +192,7 @@ func TestLoadConfig_StartHeightEnvOverride(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0644)
+	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("START_HEIGHT", "500")
@@ -206,7 +206,7 @@ func TestLoadConfig_InvalidStartHeightEnv(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0644)
+	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("START_HEIGHT", "not_a_number")
@@ -220,7 +220,7 @@ func TestLoadConfig_BootstrapPeersEnvOverride(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("defradb:\n  p2p:\n    bootstrap_peers: []\n"), 0644)
+	err := os.WriteFile(configPath, []byte("defradb:\n  p2p:\n    bootstrap_peers: []\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("BOOTSTRAP_PEERS", "peer1,peer2,peer3")

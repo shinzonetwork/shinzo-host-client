@@ -54,3 +54,4 @@ logs/
 .local_tests/
 
 /pkg/view/var/
+reviews/

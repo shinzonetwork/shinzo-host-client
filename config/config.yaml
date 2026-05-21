@@ -4,9 +4,9 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '136.112.82.96' # IND1
-      - '35.208.194.91' # IND2
-      - '35.208.10.127' # IND3
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWJGCSs1tkiDif4rgQMS7uNqTNA8BKNsNhW62NXbUN5Au3'  # IND1 (shinzo-indexer-v063), live ID 2026-05-07
+      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWSwrdPrfgm79Zne51hpihmfeZgGGpNqcim2LSoEDRquvr' # IND2 (shinzo-indexer-v063-2), live ID 2026-05-07
+      # - '/ip4/35.209.45.53/tcp/9171/p2p/' # IND3
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -27,7 +27,8 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 0 # Indexer auto-detects from chain tip
-  hub_base_url: rpc.devnet.shinzo.network:26657
+  # hub_base_url: rpc.devnet.shinzo.network:26657
+  hub_base_url: rpc.develop.devnet.shinzo.network:26657
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
@@ -108,8 +109,8 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
 logger:
-  development: false
-  level: "error"
+  development: true
+  level: "info"
 host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080

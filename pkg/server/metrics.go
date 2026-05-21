@@ -11,19 +11,16 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 //go:embed metrics_client_page.html
 var embeddedMetricsClientPageHTML string
 
-var (
-	metricsClientPagePath = filepath.Join("pkg", "server", "metrics_client_page.html")
-)
+var metricsClientPagePath = filepath.Join("pkg", "server", "metrics_client_page.html") //nolint:gochecknoglobals
 
-// HostMetrics tracks various metrics for the host
+// HostMetrics tracks various metrics for the host.
 type HostMetrics struct {
 	// Attestation metrics
 	AttestationsCreated    int64 `json:"attestations_created"`
@@ -45,10 +42,10 @@ type HostMetrics struct {
 	ViewsActive     int64 `json:"views_active"`
 
 	// Internal fields for atomic float64 operations
-	lastProcessingTimeBits uint64 `json:"-"`
+	lastProcessingTimeBits atomic.Uint64 `json:"-"`
 
 	// Performance metrics
-	LastProcessingTime  float64 `json:"last_processing_time_ms"`
+	LastProcessingTime float64 `json:"last_processing_time_ms"`
 
 	// System metrics
 	StartTime        time.Time `json:"start_time"`
@@ -60,15 +57,10 @@ type HostMetrics struct {
 	SchemaType string `json:"schema_type"`
 }
 
-// NewHostMetrics creates a new metrics instance
+// NewHostMetrics creates a new metrics instance.
 func NewHostMetrics() *HostMetrics {
 	buildTags := "standard"
 	schemaType := "non-branchable"
-
-	if schema.IsBranchable() {
-		buildTags = "branchable"
-		schemaType = "branchable"
-	}
 
 	return &HostMetrics{
 		StartTime:  time.Now(),
@@ -77,38 +69,38 @@ func NewHostMetrics() *HostMetrics {
 	}
 }
 
-// IncrementAttestationsCreated atomically increments the attestations created counter
+// IncrementAttestationsCreated atomically increments the attestations created counter.
 func (m *HostMetrics) IncrementAttestationsCreated() {
 	atomic.AddInt64(&m.AttestationsCreated, 1)
 }
 
-// IncrementAttestationErrors atomically increments the attestation errors counter
+// IncrementAttestationErrors atomically increments the attestation errors counter.
 func (m *HostMetrics) IncrementAttestationErrors() {
 	atomic.AddInt64(&m.AttestationErrors, 1)
 }
 
-// IncrementSignatureVerifications atomically increments the signature verifications counter
+// IncrementSignatureVerifications atomically increments the signature verifications counter.
 func (m *HostMetrics) IncrementSignatureVerifications() {
 	atomic.AddInt64(&m.SignatureVerifications, 1)
 }
 
-// IncrementSignatureFailures atomically increments the signature failures counter
+// IncrementSignatureFailures atomically increments the signature failures counter.
 func (m *HostMetrics) IncrementSignatureFailures() {
 	atomic.AddInt64(&m.SignatureFailures, 1)
 }
 
-// IncrementBlockSigEventsReceived atomically increments the block sig events received counter
+// IncrementBlockSigEventsReceived atomically increments the block sig events received counter.
 func (m *HostMetrics) IncrementBlockSigEventsReceived() {
 	atomic.AddInt64(&m.BlockSigEventsReceived, 1)
 }
 
-// IncrementDocumentsReceived atomically increments the documents received counter
+// IncrementDocumentsReceived atomically increments the documents received counter.
 func (m *HostMetrics) IncrementDocumentsReceived() {
 	atomic.AddInt64(&m.DocumentsReceived, 1)
 	m.LastDocumentTime = time.Now()
 }
 
-// IncrementDocumentByType atomically increments the counter for a specific document type
+// IncrementDocumentByType atomically increments the counter for a specific document type.
 func (m *HostMetrics) IncrementDocumentByType(docType string) {
 	switch docType {
 	case constants.CollectionBlock:
@@ -124,24 +116,24 @@ func (m *HostMetrics) IncrementDocumentByType(docType string) {
 	}
 }
 
-// IncrementViewsRegistered atomically increments the views registered counter
+// IncrementViewsRegistered atomically increments the views registered counter.
 func (m *HostMetrics) IncrementViewsRegistered() {
 	atomic.AddInt64(&m.ViewsRegistered, 1)
 }
 
-// SetViewsActive sets the number of active views
+// SetViewsActive sets the number of active views.
 func (m *HostMetrics) SetViewsActive(count int64) {
 	atomic.StoreInt64(&m.ViewsActive, count)
 }
 
-// UpdateLastProcessingTime updates the last processing time in milliseconds
+// UpdateLastProcessingTime updates the last processing time in milliseconds.
 func (m *HostMetrics) UpdateLastProcessingTime(avgMs float64) {
 	// For float64, we need to use atomic operations with bits
-	bits := *(*uint64)(unsafe.Pointer(&avgMs))
-	atomic.StoreUint64(&m.lastProcessingTimeBits, bits)
+	bits := *(*uint64)(unsafe.Pointer(&avgMs)) //nolint:gosec // unsafe pointer used for float64 to uint64 bit conversion
+	m.lastProcessingTimeBits.Store(bits)
 }
 
-// UpdateMostRecentBlock updates the most recent block number
+// UpdateMostRecentBlock updates the most recent block number.
 func (m *HostMetrics) UpdateMostRecentBlock(blockNumber uint64) {
 	for {
 		current := atomic.LoadUint64(&m.MostRecentBlock)
@@ -154,10 +146,11 @@ func (m *HostMetrics) UpdateMostRecentBlock(blockNumber uint64) {
 	}
 }
 
+// GetSnapshot returns a snapshot of the current metrics, loading atomic values safely.
 func (m *HostMetrics) GetSnapshot() *HostMetrics {
 	// Load float64 values from atomic storage
-	lastProcessingTimeBits := atomic.LoadUint64(&m.lastProcessingTimeBits)
-	lastProcessingTime := *(*float64)(unsafe.Pointer(&lastProcessingTimeBits))
+	lastProcessingTimeBits := m.lastProcessingTimeBits.Load()
+	lastProcessingTime := *(*float64)(unsafe.Pointer(&lastProcessingTimeBits)) // nolint:gosec // unsafe pointer used for float64 to uint64 bit conversion
 
 	return &HostMetrics{
 		AttestationsCreated:      atomic.LoadInt64(&m.AttestationsCreated),
@@ -174,16 +167,16 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		ViewsRegistered:          atomic.LoadInt64(&m.ViewsRegistered),
 		ViewsActive:              atomic.LoadInt64(&m.ViewsActive),
 		// Performance metrics
-		LastProcessingTime:  lastProcessingTime,
-		StartTime:           m.StartTime,
-		LastDocumentTime:    m.LastDocumentTime,
-		MostRecentBlock:     atomic.LoadUint64(&m.MostRecentBlock),
-		BuildTags:           m.BuildTags,
-		SchemaType:          m.SchemaType,
+		LastProcessingTime: lastProcessingTime,
+		StartTime:          m.StartTime,
+		LastDocumentTime:   m.LastDocumentTime,
+		MostRecentBlock:    atomic.LoadUint64(&m.MostRecentBlock),
+		BuildTags:          m.BuildTags,
+		SchemaType:         m.SchemaType,
 	}
 }
 
-// ServeHTTP implements http.Handler for the metrics endpoint
+// ServeHTTP implements http.Handler for the metrics endpoint.
 func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
 	accept := r.Header.Get("Accept")
@@ -196,7 +189,7 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		htmlContent := m.getMetricsClientPageHTML()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(htmlContent))
+		_, _ = w.Write(htmlContent)
 		return
 	}
 
@@ -208,7 +201,7 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Add computed metrics
 	uptime := time.Since(snapshot.StartTime)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"metrics":        snapshot,
 		"current_block":  snapshot.MostRecentBlock,
 		"timestamp":      time.Now().Unix(),
@@ -223,8 +216,8 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // getMetricsClientPageHTML reads the HTML file from disk at runtime, falling back to embedded version
-// This allows hot-reloading during development without rebuilding
-func (ms *HostMetrics) getMetricsClientPageHTML() []byte {
+// This allows hot-reloading during development without rebuilding.
+func (m *HostMetrics) getMetricsClientPageHTML() []byte {
 	// Try to read from disk first (for development hot-reload)
 	// Check multiple possible paths relative to where the binary might be running
 	possiblePaths := []string{
@@ -233,7 +226,7 @@ func (ms *HostMetrics) getMetricsClientPageHTML() []byte {
 	}
 
 	for _, path := range possiblePaths {
-		if data, err := os.ReadFile(path); err == nil {
+		if data, err := os.ReadFile(filepath.Clean(path)); err == nil {
 			logger.Sugar.Debugf("Loaded metrics client page from: %s", path)
 			return data
 		}

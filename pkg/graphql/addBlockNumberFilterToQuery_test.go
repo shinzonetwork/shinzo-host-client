@@ -3,8 +3,8 @@ package graphql
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,7 +74,7 @@ func TestAddBlockNumberFilter(t *testing.T) {
 			expectError:   false,
 		},
 		{
-			name:        "empty query",
+			name:        testCaseEmptyQuery,
 			query:       "",
 			expectError: true,
 		},

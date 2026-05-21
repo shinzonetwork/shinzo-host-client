@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -80,7 +79,6 @@ func TestIncrementBlockSigEventsReceived(t *testing.T) {
 	require.Equal(t, int64(1), atomic.LoadInt64(&m.BlockSigEventsReceived))
 }
 
-
 func TestIncrementDocumentsReceived(t *testing.T) {
 	m := NewHostMetrics()
 	m.IncrementDocumentsReceived()
@@ -95,14 +93,14 @@ func TestIncrementViewsRegistered(t *testing.T) {
 	require.Equal(t, int64(2), atomic.LoadInt64(&m.ViewsRegistered))
 }
 
-// Test atomic behaviour under concurrency
+// Test atomic behavior under concurrency.
 func TestIncrementConcurrent(t *testing.T) {
 	m := NewHostMetrics()
 	const goroutines = 100
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 			m.IncrementAttestationsCreated()
@@ -162,7 +160,6 @@ func TestIncrementDocumentByType(t *testing.T) {
 		require.Equal(t, int64(0), atomic.LoadInt64(&m.BlockSignaturesProcessed))
 	})
 }
-
 
 // ---------------------------------------------------------------------------
 // SetViewsActive
@@ -233,7 +230,7 @@ func TestUpdateMostRecentBlock_CASRetry(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(n uint64) {
 			defer wg.Done()
 			m.UpdateMostRecentBlock(n)
@@ -310,7 +307,7 @@ func TestServeHTTP_JSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	require.Contains(t, resp, "metrics")
@@ -389,15 +386,15 @@ func newFailWriter() *failWriter {
 	return &failWriter{header: make(http.Header)}
 }
 
-func (w *failWriter) Header() http.Header         { return w.header }
-func (w *failWriter) WriteHeader(statusCode int)   { w.statusCode = statusCode }
-func (w *failWriter) Write(b []byte) (int, error) {
+func (w *failWriter) Header() http.Header        { return w.header }
+func (w *failWriter) WriteHeader(statusCode int) { w.statusCode = statusCode }
+func (w *failWriter) Write(_ []byte) (int, error) {
 	if !w.written {
 		// Let the first write through (for the Content-Type / status), then fail
 		w.written = true
-		return 0, fmt.Errorf("simulated write error")
+		return 0, errSimulatedWrite
 	}
-	return 0, fmt.Errorf("simulated write error")
+	return 0, errSimulatedWrite
 }
 
 func TestServeHTTP_JSONEncodeError(t *testing.T) {
@@ -428,7 +425,7 @@ func TestGetMetricsClientPageHTML_DiskReadPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "metrics_client_page.html")
 	testContent := "<html><body>test metrics page</body></html>"
-	err := os.WriteFile(tmpFile, []byte(testContent), 0644)
+	err := os.WriteFile(filepath.Clean(tmpFile), []byte(testContent), 0o600)
 	require.NoError(t, err)
 
 	// Override the package-level path to point to our temp file

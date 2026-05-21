@@ -1,6 +1,6 @@
 package constants
 
-// Block represents a block from EVM or similar chain
+// Block represents a block from EVM or similar chain.
 type Block struct {
 	Hash             string        `json:"hash"`
 	Number           uint64        `json:"number"`
@@ -25,5 +25,5 @@ type Block struct {
 	Transactions     []Transaction `json:"transactions"`
 
 	Version []Version `json:"_version"`
-	DocId   string    `json:"_docID"`
+	DocID   string    `json:"_docID"`
 }

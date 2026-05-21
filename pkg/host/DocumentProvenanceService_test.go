@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,18 +31,18 @@ func TestInitializeMetadata(t *testing.T) {
 			name: "zero processing depth initializes fresh metadata",
 			doc: PrimitiveDocument{
 				ID:   "bae-123",
-				Type: "Transaction",
-				Data: map[string]interface{}{"from": "0xabc"},
+				Type: docTypeTransaction,
+				Data: map[string]any{gqlFieldFrom: "0xabc"},
 				Metadata: DocumentMetadata{
 					ProcessingDepth: 0,
 				},
 			},
 			expected: DocumentMetadata{
-				SourceCollection: "Transaction",
+				SourceCollection: docTypeTransaction,
 				IsViewOutput:     false,
 				ProcessingDepth:  0,
 				ProcessingChain:  "",
-				DocumentType:     "Transaction",
+				DocumentType:     docTypeTransaction,
 				OriginalDocID:    "bae-123",
 			},
 		},
@@ -49,26 +50,26 @@ func TestInitializeMetadata(t *testing.T) {
 			name: "non-zero processing depth preserves existing metadata",
 			doc: PrimitiveDocument{
 				ID:   "bae-456",
-				Type: "Block",
-				Data: map[string]interface{}{"hash": "0xdef"},
+				Type: docTypeBlock,
+				Data: map[string]any{gqlFieldHash: "0xdef"},
 				Metadata: DocumentMetadata{
-					SourceCollection: "Transaction",
+					SourceCollection: docTypeTransaction,
 					IsViewOutput:     true,
-					ViewID:           "view-A",
+					ViewID:           testViewA,
 					ProcessingDepth:  2,
-					ProcessingChain:  "view-A,view-B",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-orig",
+					ProcessingChain:  testViewAB,
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBaeOrig,
 				},
 			},
 			expected: DocumentMetadata{
-				SourceCollection: "Transaction",
+				SourceCollection: docTypeTransaction,
 				IsViewOutput:     true,
-				ViewID:           "view-A",
+				ViewID:           testViewA,
 				ProcessingDepth:  2,
-				ProcessingChain:  "view-A,view-B",
-				DocumentType:     "Transaction",
-				OriginalDocID:    "bae-orig",
+				ProcessingChain:  testViewAB,
+				DocumentType:     docTypeTransaction,
+				OriginalDocID:    testBaeOrig,
 			},
 		},
 	}
@@ -93,15 +94,15 @@ func TestConvertToPrimitiveDocument(t *testing.T) {
 			name: "converts document with all fields",
 			doc: Document{
 				ID:          "bae-abc",
-				Type:        "Transaction",
+				Type:        docTypeTransaction,
 				BlockNumber: 100,
-				Data:        map[string]any{"from": "0x1", "to": "0x2"},
+				Data:        map[string]any{gqlFieldFrom: "0x1", gqlFieldTo: "0x2"},
 			},
 			expected: PrimitiveDocument{
 				ID:          "bae-abc",
-				Type:        "Transaction",
+				Type:        docTypeTransaction,
 				BlockNumber: 100,
-				Data:        map[string]interface{}{"from": "0x1", "to": "0x2"},
+				Data:        map[string]any{gqlFieldFrom: "0x1", gqlFieldTo: "0x2"},
 				Metadata:    DocumentMetadata{},
 			},
 		},
@@ -109,13 +110,13 @@ func TestConvertToPrimitiveDocument(t *testing.T) {
 			name: "converts document with nil data",
 			doc: Document{
 				ID:          "bae-empty",
-				Type:        "Block",
+				Type:        docTypeBlock,
 				BlockNumber: 0,
 				Data:        nil,
 			},
 			expected: PrimitiveDocument{
 				ID:          "bae-empty",
-				Type:        "Block",
+				Type:        docTypeBlock,
 				BlockNumber: 0,
 				Data:        nil,
 				Metadata:    DocumentMetadata{},
@@ -143,14 +144,14 @@ func TestShouldProcessDocument(t *testing.T) {
 		{
 			name: "source document with zero depth should be processed",
 			doc: PrimitiveDocument{
-				ID:   "bae-1",
-				Type: "Transaction",
-				Data: map[string]interface{}{},
+				ID:   testBae1,
+				Type: docTypeTransaction,
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth: 0,
 				},
 			},
-			viewID: "view-A",
+			viewID: testViewA,
 			expected: ProcessingDecision{
 				ShouldProcess: true,
 				Reason:        "Source document ready for processing",
@@ -160,18 +161,18 @@ func TestShouldProcessDocument(t *testing.T) {
 		{
 			name: "depth limit exceeded",
 			doc: PrimitiveDocument{
-				ID:   "bae-2",
-				Type: "Transaction",
-				Data: map[string]interface{}{},
+				ID:   testBae2,
+				Type: docTypeTransaction,
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
-					ProcessingDepth: 5,
-					ProcessingChain: "v1,v2,v3,v4,v5",
-					SourceCollection: "Transaction",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-2",
+					ProcessingDepth:  5,
+					ProcessingChain:  "v1,v2,v3,v4,v5",
+					SourceCollection: docTypeTransaction,
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBae2,
 				},
 			},
-			viewID: "view-B",
+			viewID: testViewB,
 			expected: ProcessingDecision{
 				ShouldProcess: false,
 				Reason:        "Processing depth exceeded: 5 >= 5",
@@ -181,20 +182,20 @@ func TestShouldProcessDocument(t *testing.T) {
 		{
 			name: "same view loop detected",
 			doc: PrimitiveDocument{
-				ID:   "bae-3",
-				Type: "Transaction",
-				Data: map[string]interface{}{},
+				ID:   testBae3,
+				Type: docTypeTransaction,
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  1,
-					ViewID:           "view-A",
+					ViewID:           testViewA,
 					IsViewOutput:     true,
-					ProcessingChain:  "view-A",
-					SourceCollection: "Transaction",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-3",
+					ProcessingChain:  testViewA,
+					SourceCollection: docTypeTransaction,
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBae3,
 				},
 			},
-			viewID: "view-A",
+			viewID: testViewA,
 			expected: ProcessingDecision{
 				ShouldProcess: false,
 				Reason:        "Document already processed by view view-A",
@@ -204,20 +205,20 @@ func TestShouldProcessDocument(t *testing.T) {
 		{
 			name: "processing chain loop detected",
 			doc: PrimitiveDocument{
-				ID:   "bae-4",
-				Type: "Transaction",
-				Data: map[string]interface{}{},
+				ID:   testBae4,
+				Type: docTypeTransaction,
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  2,
-					ViewID:           "view-B",
+					ViewID:           testViewB,
 					IsViewOutput:     true,
-					ProcessingChain:  "view-A,view-B",
-					SourceCollection: "Transaction",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-4",
+					ProcessingChain:  testViewAB,
+					SourceCollection: docTypeTransaction,
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBae4,
 				},
 			},
-			viewID: "view-A",
+			viewID: testViewA,
 			expected: ProcessingDecision{
 				ShouldProcess: false,
 				Reason:        "Document already processed by view view-A in chain: view-A,view-B",
@@ -227,20 +228,20 @@ func TestShouldProcessDocument(t *testing.T) {
 		{
 			name: "view output from different view allowed",
 			doc: PrimitiveDocument{
-				ID:   "bae-5",
-				Type: "Transaction",
-				Data: map[string]interface{}{},
+				ID:   testBae5,
+				Type: docTypeTransaction,
+				Data: map[string]any{},
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  1,
-					ViewID:           "view-A",
+					ViewID:           testViewA,
 					IsViewOutput:     true,
-					ProcessingChain:  "view-A",
-					SourceCollection: "Transaction",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-5",
+					ProcessingChain:  testViewA,
+					SourceCollection: docTypeTransaction,
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBae5,
 				},
 			},
-			viewID: "view-B",
+			viewID: testViewB,
 			expected: ProcessingDecision{
 				ShouldProcess: true,
 				Reason:        "View output from view-A, allowing processing by view-B",
@@ -264,39 +265,39 @@ func TestCreateViewOutputDocument(t *testing.T) {
 		name       string
 		sourceDoc  PrimitiveDocument
 		viewID     string
-		outputData map[string]interface{}
+		outputData map[string]any
 		expected   PrimitiveDocument
 	}{
 		{
 			name: "creates output from source doc with empty chain",
 			sourceDoc: PrimitiveDocument{
-				ID:          "bae-src1",
-				Type:        "Transaction",
+				ID:          testBaeSrc1,
+				Type:        docTypeTransaction,
 				BlockNumber: 42,
-				Data:        map[string]interface{}{"from": "0x1"},
+				Data:        map[string]any{gqlFieldFrom: "0x1"},
 				Metadata: DocumentMetadata{
-					SourceCollection: "Transaction",
+					SourceCollection: docTypeTransaction,
 					ProcessingDepth:  0,
 					ProcessingChain:  "",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-src1",
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBaeSrc1,
 				},
 			},
-			viewID:     "WASMView_myview",
-			outputData: map[string]interface{}{"result": "processed"},
+			viewID:     testWASMViewID,
+			outputData: map[string]any{testJSONFieldResult: "processed"},
 			expected: PrimitiveDocument{
 				ID:          "src1-myview",
-				Type:        "Transaction",
+				Type:        docTypeTransaction,
 				BlockNumber: 42,
-				Data:        map[string]interface{}{"result": "processed"},
+				Data:        map[string]any{testJSONFieldResult: "processed"},
 				Metadata: DocumentMetadata{
-					SourceCollection: "Transaction",
+					SourceCollection: docTypeTransaction,
 					IsViewOutput:     true,
-					ViewID:           "WASMView_myview",
+					ViewID:           testWASMViewID,
 					ProcessingDepth:  1,
-					ProcessingChain:  "WASMView_myview",
-					DocumentType:     "Transaction",
-					OriginalDocID:    "bae-src1",
+					ProcessingChain:  testWASMViewID,
+					DocumentType:     docTypeTransaction,
+					OriginalDocID:    testBaeSrc1,
 				},
 			},
 		},
@@ -304,34 +305,34 @@ func TestCreateViewOutputDocument(t *testing.T) {
 			name: "creates output from source doc with existing chain",
 			sourceDoc: PrimitiveDocument{
 				ID:          "bae-src2",
-				Type:        "Log",
+				Type:        docTypeLog,
 				BlockNumber: 99,
-				Data:        map[string]interface{}{"address": "0xabc"},
+				Data:        map[string]any{gqlFieldAddress: "0xabc"},
 				Metadata: DocumentMetadata{
-					SourceCollection: "Log",
+					SourceCollection: docTypeLog,
 					IsViewOutput:     true,
-					ViewID:           "view-A",
+					ViewID:           testViewA,
 					ProcessingDepth:  1,
-					ProcessingChain:  "view-A",
-					DocumentType:     "Log",
-					OriginalDocID:    "bae-orig",
+					ProcessingChain:  testViewA,
+					DocumentType:     docTypeLog,
+					OriginalDocID:    testBaeOrig,
 				},
 			},
-			viewID:     "view-B",
-			outputData: map[string]interface{}{"enriched": true},
+			viewID:     testViewB,
+			outputData: map[string]any{"enriched": true},
 			expected: PrimitiveDocument{
 				ID:          "src2-view-B",
-				Type:        "Log",
+				Type:        docTypeLog,
 				BlockNumber: 99,
-				Data:        map[string]interface{}{"enriched": true},
+				Data:        map[string]any{"enriched": true},
 				Metadata: DocumentMetadata{
-					SourceCollection: "Log",
+					SourceCollection: docTypeLog,
 					IsViewOutput:     true,
-					ViewID:           "view-B",
+					ViewID:           testViewB,
 					ProcessingDepth:  2,
-					ProcessingChain:  "view-A,view-B",
-					DocumentType:     "Log",
-					OriginalDocID:    "bae-orig",
+					ProcessingChain:  testViewAB,
+					DocumentType:     docTypeLog,
+					OriginalDocID:    testBaeOrig,
 				},
 			},
 		},
@@ -350,38 +351,38 @@ func TestPreserveFilterFields(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		sourceData     map[string]interface{}
-		outputData     map[string]interface{}
+		sourceData     map[string]any
+		outputData     map[string]any
 		requiredFields []string
-		expected       map[string]interface{}
+		expected       map[string]any
 	}{
 		{
 			name:           "preserves missing required fields from source",
-			sourceData:     map[string]interface{}{"from": "0x1", "to": "0x2", "hash": "0xabc"},
-			outputData:     map[string]interface{}{"result": "done"},
-			requiredFields: []string{"from", "to"},
-			expected:       map[string]interface{}{"result": "done", "from": "0x1", "to": "0x2"},
+			sourceData:     map[string]any{gqlFieldFrom: "0x1", gqlFieldTo: "0x2", gqlFieldHash: "0xabc"},
+			outputData:     map[string]any{testJSONFieldResult: testDone},
+			requiredFields: []string{gqlFieldFrom, gqlFieldTo},
+			expected:       map[string]any{testJSONFieldResult: testDone, gqlFieldFrom: "0x1", gqlFieldTo: "0x2"},
 		},
 		{
 			name:           "does not overwrite existing output fields",
-			sourceData:     map[string]interface{}{"from": "0x1", "to": "0x2"},
-			outputData:     map[string]interface{}{"from": "0xoverride", "result": "done"},
-			requiredFields: []string{"from", "to"},
-			expected:       map[string]interface{}{"from": "0xoverride", "result": "done", "to": "0x2"},
+			sourceData:     map[string]any{gqlFieldFrom: "0x1", gqlFieldTo: "0x2"},
+			outputData:     map[string]any{gqlFieldFrom: "0xoverride", testJSONFieldResult: testDone},
+			requiredFields: []string{gqlFieldFrom, gqlFieldTo},
+			expected:       map[string]any{gqlFieldFrom: "0xoverride", testJSONFieldResult: testDone, gqlFieldTo: "0x2"},
 		},
 		{
 			name:           "handles field missing from both source and output",
-			sourceData:     map[string]interface{}{"from": "0x1"},
-			outputData:     map[string]interface{}{"result": "done"},
-			requiredFields: []string{"from", "to", "hash"},
-			expected:       map[string]interface{}{"result": "done", "from": "0x1"},
+			sourceData:     map[string]any{gqlFieldFrom: "0x1"},
+			outputData:     map[string]any{testJSONFieldResult: testDone},
+			requiredFields: []string{gqlFieldFrom, gqlFieldTo, gqlFieldHash},
+			expected:       map[string]any{testJSONFieldResult: testDone, gqlFieldFrom: "0x1"},
 		},
 		{
 			name:           "empty required fields returns copy of output",
-			sourceData:     map[string]interface{}{"from": "0x1"},
-			outputData:     map[string]interface{}{"result": "done"},
+			sourceData:     map[string]any{gqlFieldFrom: "0x1"},
+			outputData:     map[string]any{testJSONFieldResult: testDone},
 			requiredFields: []string{},
-			expected:       map[string]interface{}{"result": "done"},
+			expected:       map[string]any{testJSONFieldResult: testDone},
 		},
 	}
 
@@ -406,43 +407,43 @@ func TestGetRequiredFieldsByType(t *testing.T) {
 	}{
 		{
 			name:           "Ethereum Transaction",
-			docType:        "Ethereum__Mainnet__Transaction",
-			expectedFields: []string{"from", "to", "hash", "blockNumber"},
+			docType:        constants.CollectionTransaction,
+			expectedFields: []string{gqlFieldFrom, gqlFieldTo, gqlFieldHash, gqlFieldBlockNumber},
 		},
 		{
 			name:           "Ethereum Block",
-			docType:        "Ethereum__Mainnet__Block",
-			expectedFields: []string{"hash", "number"},
+			docType:        constants.CollectionBlock,
+			expectedFields: []string{gqlFieldHash, gqlFieldNumber},
 		},
 		{
 			name:           "Ethereum Log",
-			docType:        "Ethereum__Mainnet__Log",
-			expectedFields: []string{"address", "topics", "blockNumber"},
+			docType:        constants.CollectionLog,
+			expectedFields: []string{gqlFieldAddress, gqlFieldTopics, gqlFieldBlockNumber},
 		},
 		{
 			name:           "Ethereum AccessListEntry",
-			docType:        "Ethereum__Mainnet__AccessListEntry",
-			expectedFields: []string{"address", "storageKeys"},
+			docType:        constants.CollectionAccessListEntry,
+			expectedFields: []string{gqlFieldAddress, gqlFieldStorageKeys},
 		},
 		{
 			name:           "short Transaction",
-			docType:        "Transaction",
-			expectedFields: []string{"from", "to", "hash", "blockNumber"},
+			docType:        docTypeTransaction,
+			expectedFields: []string{gqlFieldFrom, gqlFieldTo, gqlFieldHash, gqlFieldBlockNumber},
 		},
 		{
 			name:           "short Block",
-			docType:        "Block",
-			expectedFields: []string{"hash", "number"},
+			docType:        docTypeBlock,
+			expectedFields: []string{gqlFieldHash, gqlFieldNumber},
 		},
 		{
 			name:           "short Log",
-			docType:        "Log",
-			expectedFields: []string{"address", "topics", "blockNumber"},
+			docType:        docTypeLog,
+			expectedFields: []string{gqlFieldAddress, gqlFieldTopics, gqlFieldBlockNumber},
 		},
 		{
 			name:           "short AccessListEntry",
-			docType:        "AccessListEntry",
-			expectedFields: []string{"address", "storageKeys"},
+			docType:        docTypeAccessListEntry,
+			expectedFields: []string{gqlFieldAddress, gqlFieldStorageKeys},
 		},
 	}
 
@@ -467,9 +468,9 @@ func TestValidateDocumentForView(t *testing.T) {
 		{
 			name: "valid transaction with string field",
 			doc: PrimitiveDocument{
-				ID:   "bae-1",
-				Type: "Transaction",
-				Data: map[string]interface{}{"from": "0xabc", "to": "0xdef"},
+				ID:   testBae1,
+				Type: docTypeTransaction,
+				Data: map[string]any{gqlFieldFrom: "0xabc", gqlFieldTo: "0xdef"},
 			},
 			viewID:      "view-1",
 			expectError: false,
@@ -477,9 +478,9 @@ func TestValidateDocumentForView(t *testing.T) {
 		{
 			name: "valid block with int field",
 			doc: PrimitiveDocument{
-				ID:   "bae-2",
-				Type: "Block",
-				Data: map[string]interface{}{"number": int(42)},
+				ID:   testBae2,
+				Type: docTypeBlock,
+				Data: map[string]any{gqlFieldNumber: int(42)},
 			},
 			viewID:      "view-2",
 			expectError: false,
@@ -487,9 +488,9 @@ func TestValidateDocumentForView(t *testing.T) {
 		{
 			name: "valid block with uint64 field",
 			doc: PrimitiveDocument{
-				ID:   "bae-3",
-				Type: "Block",
-				Data: map[string]interface{}{"number": uint64(100)},
+				ID:   testBae3,
+				Type: docTypeBlock,
+				Data: map[string]any{gqlFieldNumber: uint64(100)},
 			},
 			viewID:      "view-3",
 			expectError: false,
@@ -497,9 +498,9 @@ func TestValidateDocumentForView(t *testing.T) {
 		{
 			name: "missing all required fields",
 			doc: PrimitiveDocument{
-				ID:   "bae-4",
-				Type: "Transaction",
-				Data: map[string]interface{}{"unrelated": "value"},
+				ID:   testBae4,
+				Type: docTypeTransaction,
+				Data: map[string]any{"unrelated": testValue},
 			},
 			viewID:      "view-4",
 			expectError: true,
@@ -507,9 +508,9 @@ func TestValidateDocumentForView(t *testing.T) {
 		{
 			name: "empty string field does not satisfy requirement",
 			doc: PrimitiveDocument{
-				ID:   "bae-5",
-				Type: "Transaction",
-				Data: map[string]interface{}{"from": "", "to": ""},
+				ID:   testBae5,
+				Type: docTypeTransaction,
+				Data: map[string]any{gqlFieldFrom: "", gqlFieldTo: ""},
 			},
 			viewID:      "view-5",
 			expectError: true,
@@ -518,8 +519,8 @@ func TestValidateDocumentForView(t *testing.T) {
 			name: "nil value does not satisfy requirement",
 			doc: PrimitiveDocument{
 				ID:   "bae-6",
-				Type: "Transaction",
-				Data: map[string]interface{}{"from": nil},
+				Type: docTypeTransaction,
+				Data: map[string]any{gqlFieldFrom: nil},
 			},
 			viewID:      "view-6",
 			expectError: true,
@@ -529,7 +530,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-7",
 				Type: "UnknownType",
-				Data: map[string]interface{}{"address": "0x123"},
+				Data: map[string]any{gqlFieldAddress: "0x123"},
 			},
 			viewID:      "view-7",
 			expectError: false,
@@ -539,7 +540,7 @@ func TestValidateDocumentForView(t *testing.T) {
 			doc: PrimitiveDocument{
 				ID:   "bae-8",
 				Type: "UnknownType",
-				Data: map[string]interface{}{"unrelated": "value"},
+				Data: map[string]any{"unrelated": testValue},
 			},
 			viewID:      "view-8",
 			expectError: true,
@@ -571,7 +572,7 @@ func TestGenerateOutputID(t *testing.T) {
 		{
 			name:     "strips bae- prefix and WASMView_ prefix",
 			sourceID: "bae-abc123",
-			viewID:   "WASMView_myview",
+			viewID:   testWASMViewID,
 			expected: "abc123-myview",
 		},
 		{
@@ -608,54 +609,54 @@ func TestGetProcessingStats(t *testing.T) {
 	tests := []struct {
 		name     string
 		doc      PrimitiveDocument
-		expected map[string]interface{}
+		expected map[string]any
 	}{
 		{
 			name: "zero depth source document",
 			doc: PrimitiveDocument{
-				ID:   "bae-1",
-				Type: "Transaction",
+				ID:   testBae1,
+				Type: docTypeTransaction,
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  0,
 					IsViewOutput:     false,
-					SourceCollection: "Transaction",
+					SourceCollection: docTypeTransaction,
 					ViewID:           "",
 					ProcessingChain:  "",
-					OriginalDocID:    "bae-1",
+					OriginalDocID:    testBae1,
 				},
 			},
-			expected: map[string]interface{}{
-				"processing_depth":  0,
-				"is_view_output":    false,
-				"source_collection": "Transaction",
-				"view_id":           "",
-				"processing_chain":  "",
-				"chain_length":      1, // splitting empty string gives [""]
-				"original_doc_id":   "bae-1",
+			expected: map[string]any{
+				provenanceFieldProcessingDepth: 0,
+				provenanceFieldIsViewOutput:    false,
+				provenanceFieldSourceColl:      docTypeTransaction,
+				provenanceFieldViewID:          "",
+				provenanceFieldProcessingChain: "",
+				provenanceFieldChainLength:     1, // splitting empty string gives [""]
+				provenanceFieldOriginalDocID:   testBae1,
 			},
 		},
 		{
 			name: "multi-depth view output document",
 			doc: PrimitiveDocument{
 				ID:   "derived-1",
-				Type: "Transaction",
+				Type: docTypeTransaction,
 				Metadata: DocumentMetadata{
 					ProcessingDepth:  3,
 					IsViewOutput:     true,
-					SourceCollection: "Transaction",
+					SourceCollection: docTypeTransaction,
 					ViewID:           "view-C",
 					ProcessingChain:  "view-A,view-B,view-C",
-					OriginalDocID:    "bae-orig",
+					OriginalDocID:    testBaeOrig,
 				},
 			},
-			expected: map[string]interface{}{
-				"processing_depth":  3,
-				"is_view_output":    true,
-				"source_collection": "Transaction",
-				"view_id":           "view-C",
-				"processing_chain":  "view-A,view-B,view-C",
-				"chain_length":      len(strings.Split("view-A,view-B,view-C", ",")),
-				"original_doc_id":   "bae-orig",
+			expected: map[string]any{
+				provenanceFieldProcessingDepth: 3,
+				provenanceFieldIsViewOutput:    true,
+				provenanceFieldSourceColl:      docTypeTransaction,
+				provenanceFieldViewID:          "view-C",
+				provenanceFieldProcessingChain: "view-A,view-B,view-C",
+				provenanceFieldChainLength:     len(strings.Split("view-A,view-B,view-C", ",")),
+				provenanceFieldOriginalDocID:   testBaeOrig,
 			},
 		},
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
@@ -138,7 +138,7 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 	ctx := context.Background()
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs {transactionHash: String}"
-	
+
 	// Create view using viewbundle
 	bundledView := viewbundle.View{
 		Query: query,
@@ -147,9 +147,9 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 	testView, err := view.NewViewFromBundle(bundledView)
 	require.NoError(t, err)
 
-	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	myDefra, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer myDefra.Close(ctx)
+	defer func() { _ = myDefra.Close(ctx) }()
 
 	// SubscribeTo should fail because the collection doesn't exist yet
 	// (views must be created before they can be subscribed to)
@@ -161,7 +161,7 @@ func TestSubscribeToViewNoViewFailure(t *testing.T) {
 func TestSubscribeToInvalidViewFails(t *testing.T) {
 	query := "Log {address topics data transactionHash blockNumber}"
 	sdl := "type FilteredAndDecodedLogs @materialized(if: false) {transactionHash: String}"
-	
+
 	// Create view using viewbundle
 	bundledView := viewbundle.View{
 		Query: query,
@@ -170,7 +170,7 @@ func TestSubscribeToInvalidViewFails(t *testing.T) {
 	testView, err := view.NewViewFromBundle(bundledView)
 	require.NoError(t, err)
 
-	myDefra, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	myDefra, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	err = testView.SubscribeTo(context.Background(), myDefra)
 	require.Error(t, err)

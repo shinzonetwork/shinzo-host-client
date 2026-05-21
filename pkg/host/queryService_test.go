@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,27 +23,27 @@ func TestNewQueryService(t *testing.T) {
 	}{
 		{
 			name:           "Block fields populated",
-			collectionType: "Block",
+			collectionType: docTypeBlock,
 			expectPresent:  true,
-			mustContain:    []string{"hash", "number", "timestamp", "parentHash"},
+			mustContain:    []string{gqlFieldHash, gqlFieldNumber, "timestamp", "parentHash"},
 		},
 		{
 			name:           "Transaction fields populated",
-			collectionType: "Transaction",
+			collectionType: docTypeTransaction,
 			expectPresent:  true,
-			mustContain:    []string{"hash", "from", "to", "value", "blockNumber"},
+			mustContain:    []string{gqlFieldHash, gqlFieldFrom, gqlFieldTo, testValue, gqlFieldBlockNumber},
 		},
 		{
 			name:           "Log fields populated",
-			collectionType: "Log",
+			collectionType: docTypeLog,
 			expectPresent:  true,
-			mustContain:    []string{"address", "data", "blockNumber", "transactionHash"},
+			mustContain:    []string{gqlFieldAddress, "data", gqlFieldBlockNumber, "transactionHash"},
 		},
 		{
 			name:           "AccessListEntry fields populated",
-			collectionType: "AccessListEntry",
+			collectionType: docTypeAccessListEntry,
 			expectPresent:  true,
-			mustContain:    []string{"address", "storageKeys"},
+			mustContain:    []string{gqlFieldAddress, gqlFieldStorageKeys},
 		},
 	}
 
@@ -71,31 +72,31 @@ func TestGetFieldsForCollection(t *testing.T) {
 			name:           "Block includes system fields",
 			collectionType: CollectionBlock,
 			expectSystem:   true,
-			mustContain:    []string{"_docID", "_version", "hash", "number"},
+			mustContain:    []string{defraFieldDocID, defraFieldVersion, gqlFieldHash, gqlFieldNumber},
 		},
 		{
 			name:           "Transaction includes system fields",
 			collectionType: CollectionTransaction,
 			expectSystem:   true,
-			mustContain:    []string{"_docID", "_version", "hash", "from", "to"},
+			mustContain:    []string{defraFieldDocID, defraFieldVersion, gqlFieldHash, gqlFieldFrom, gqlFieldTo},
 		},
 		{
 			name:           "Log includes system fields",
 			collectionType: CollectionLog,
 			expectSystem:   true,
-			mustContain:    []string{"_docID", "_version", "address"},
+			mustContain:    []string{defraFieldDocID, defraFieldVersion, gqlFieldAddress},
 		},
 		{
 			name:           "AccessListEntry includes system fields",
 			collectionType: CollectionAccessListEntry,
 			expectSystem:   true,
-			mustContain:    []string{"_docID", "_version", "address"},
+			mustContain:    []string{defraFieldDocID, defraFieldVersion, gqlFieldAddress},
 		},
 		{
 			name:           "unknown type returns fallback with system fields only",
 			collectionType: CollectionType("UnknownCollection"),
 			expectFallback: true,
-			mustContain:    []string{"_docID", "_version"},
+			mustContain:    []string{defraFieldDocID, defraFieldVersion},
 		},
 	}
 
@@ -110,8 +111,8 @@ func TestGetFieldsForCollection(t *testing.T) {
 				require.Len(t, fields, 2) // only _docID and _version
 			}
 			if tt.expectSystem {
-				require.Equal(t, "_docID", fields[0])
-				require.Equal(t, "_version", fields[1])
+				require.Equal(t, defraFieldDocID, fields[0])
+				require.Equal(t, defraFieldVersion, fields[1])
 				require.Greater(t, len(fields), 2)
 			}
 		})
@@ -124,7 +125,7 @@ func TestBuildDynamicQuery(t *testing.T) {
 	tests := []struct {
 		name           string
 		collectionType CollectionType
-		filters        map[string]interface{}
+		filters        map[string]any
 		mustContain    []string
 		mustNotContain []string
 	}{
@@ -132,27 +133,27 @@ func TestBuildDynamicQuery(t *testing.T) {
 			name:           "no filters produces simple query",
 			collectionType: CollectionBlock,
 			filters:        nil,
-			mustContain:    []string{"Ethereum__Mainnet__Block {", "_docID", "_version", "hash", "number"},
-			mustNotContain: []string{"filter:"},
+			mustContain:    []string{testQueryEthBlock, defraFieldDocID, defraFieldVersion, gqlFieldHash, gqlFieldNumber},
+			mustNotContain: []string{testQueryFilterPrefix},
 		},
 		{
 			name:           "empty filter map produces simple query",
 			collectionType: CollectionTransaction,
-			filters:        map[string]interface{}{},
-			mustContain:    []string{"Ethereum__Mainnet__Transaction {", "_docID"},
-			mustNotContain: []string{"filter:"},
+			filters:        map[string]any{},
+			mustContain:    []string{testQueryEthTransaction, defraFieldDocID},
+			mustNotContain: []string{testQueryFilterPrefix},
 		},
 		{
 			name:           "with string filter",
 			collectionType: CollectionTransaction,
-			filters:        map[string]interface{}{"from": "0xabc"},
+			filters:        map[string]any{gqlFieldFrom: "0xabc"},
 			mustContain:    []string{"Ethereum__Mainnet__Transaction(filter:", "from: {_eq: \"0xabc\"}"},
 		},
 		{
 			name:           "with bool filter",
 			collectionType: CollectionTransaction,
-			filters:        map[string]interface{}{"status": true},
-			mustContain:    []string{"filter:", "status: {_eq: true}"},
+			filters:        map[string]any{"status": true},
+			mustContain:    []string{testQueryFilterPrefix, "status: {_eq: true}"},
 		},
 	}
 
@@ -174,11 +175,11 @@ func TestBuildNestedQuery(t *testing.T) {
 	qs := NewQueryService()
 
 	tests := []struct {
-		name              string
-		primary           CollectionType
-		nested            []CollectionType
-		filters           map[string]interface{}
-		mustContain       []string
+		name        string
+		primary     CollectionType
+		nested      []CollectionType
+		filters     map[string]any
+		mustContain []string
 	}{
 		{
 			name:    "block with nested transaction",
@@ -186,8 +187,8 @@ func TestBuildNestedQuery(t *testing.T) {
 			nested:  []CollectionType{CollectionTransaction},
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Block {",
-				"Ethereum__Mainnet__Transaction {",
+				testQueryEthBlock,
+				testQueryEthTransaction,
 			},
 		},
 		{
@@ -196,8 +197,8 @@ func TestBuildNestedQuery(t *testing.T) {
 			nested:  []CollectionType{CollectionLog, CollectionAccessListEntry},
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Transaction {",
-				"Ethereum__Mainnet__Log {",
+				testQueryEthTransaction,
+				testQueryEthLog,
 				"Ethereum__Mainnet__AccessListEntry {",
 			},
 		},
@@ -205,10 +206,10 @@ func TestBuildNestedQuery(t *testing.T) {
 			name:    "nested query with filters",
 			primary: CollectionBlock,
 			nested:  []CollectionType{CollectionTransaction},
-			filters: map[string]interface{}{"number": int64(100)},
+			filters: map[string]any{gqlFieldNumber: int64(100)},
 			mustContain: []string{
 				"Ethereum__Mainnet__Block(filter:",
-				"Ethereum__Mainnet__Transaction",
+				constants.CollectionTransaction,
 			},
 		},
 	}
@@ -233,24 +234,24 @@ func TestGetCollectionName(t *testing.T) {
 		expected       string
 	}{
 		{
-			name:           "Block",
+			name:           docTypeBlock,
 			collectionType: CollectionBlock,
-			expected:       "Ethereum__Mainnet__Block",
+			expected:       constants.CollectionBlock,
 		},
 		{
-			name:           "Transaction",
+			name:           docTypeTransaction,
 			collectionType: CollectionTransaction,
-			expected:       "Ethereum__Mainnet__Transaction",
+			expected:       constants.CollectionTransaction,
 		},
 		{
-			name:           "Log",
+			name:           docTypeLog,
 			collectionType: CollectionLog,
-			expected:       "Ethereum__Mainnet__Log",
+			expected:       constants.CollectionLog,
 		},
 		{
-			name:           "AccessListEntry",
+			name:           docTypeAccessListEntry,
 			collectionType: CollectionAccessListEntry,
-			expected:       "Ethereum__Mainnet__AccessListEntry",
+			expected:       constants.CollectionAccessListEntry,
 		},
 		{
 			name:           "unknown type returns raw string",
@@ -272,13 +273,13 @@ func TestBuildFilterString(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		filters     map[string]interface{}
+		filters     map[string]any
 		expectEmpty bool
 		mustContain []string
 	}{
 		{
 			name:        "empty map returns empty string",
-			filters:     map[string]interface{}{},
+			filters:     map[string]any{},
 			expectEmpty: true,
 		},
 		{
@@ -288,7 +289,7 @@ func TestBuildFilterString(t *testing.T) {
 		},
 		{
 			name:    "string value",
-			filters: map[string]interface{}{"from": "0xabc"},
+			filters: map[string]any{gqlFieldFrom: "0xabc"},
 			mustContain: []string{
 				"{ ",
 				"from: {_eq: \"0xabc\"}",
@@ -297,35 +298,35 @@ func TestBuildFilterString(t *testing.T) {
 		},
 		{
 			name:    "int64 value",
-			filters: map[string]interface{}{"blockNumber": int64(42)},
+			filters: map[string]any{gqlFieldBlockNumber: int64(42)},
 			mustContain: []string{
 				"blockNumber: {_eq: 42}",
 			},
 		},
 		{
 			name:    "float64 value",
-			filters: map[string]interface{}{"gasPrice": float64(1.5)},
+			filters: map[string]any{"gasPrice": float64(1.5)},
 			mustContain: []string{
 				"gasPrice: {_eq: 1.500000}",
 			},
 		},
 		{
 			name:    "bool value",
-			filters: map[string]interface{}{"status": true},
+			filters: map[string]any{"status": true},
 			mustContain: []string{
 				"status: {_eq: true}",
 			},
 		},
 		{
 			name:    "bool false value",
-			filters: map[string]interface{}{"removed": false},
+			filters: map[string]any{"removed": false},
 			mustContain: []string{
 				"removed: {_eq: false}",
 			},
 		},
 		{
 			name:    "unknown type falls back to string representation",
-			filters: map[string]interface{}{"custom": []int{1, 2, 3}},
+			filters: map[string]any{"custom": []int{1, 2, 3}},
 			mustContain: []string{
 				"custom: {_eq: \"[1 2 3]\"}",
 			},
@@ -403,7 +404,7 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 	tests := []struct {
 		name           string
 		root           CollectionType
-		filters        map[string]interface{}
+		filters        map[string]any
 		mustContain    []string
 		mustNotContain []string
 	}{
@@ -412,21 +413,21 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionBlock,
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Block {",
-				"Ethereum__Mainnet__Transaction {",
-				"_docID",
-				"_version",
+				testQueryEthBlock,
+				testQueryEthTransaction,
+				defraFieldDocID,
+				defraFieldVersion,
 			},
-			mustNotContain: []string{"filter:"},
+			mustNotContain: []string{testQueryFilterPrefix},
 		},
 		{
 			name:    "block with children and filters",
 			root:    CollectionBlock,
-			filters: map[string]interface{}{"hash": "0xabc"},
+			filters: map[string]any{gqlFieldHash: "0xabc"},
 			mustContain: []string{
 				"Ethereum__Mainnet__Block(filter:",
 				"hash: {_eq: \"0xabc\"}",
-				"Ethereum__Mainnet__Transaction {",
+				testQueryEthTransaction,
 			},
 		},
 		{
@@ -434,39 +435,39 @@ func TestBuildHierarchicalQuery(t *testing.T) {
 			root:    CollectionTransaction,
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Transaction {",
-				"Ethereum__Mainnet__Log {",
+				testQueryEthTransaction,
+				testQueryEthLog,
 				"Ethereum__Mainnet__AccessListEntry {",
 			},
-			mustNotContain: []string{"filter:"},
+			mustNotContain: []string{testQueryFilterPrefix},
 		},
 		{
 			name:    "log with no children and no filters",
 			root:    CollectionLog,
 			filters: nil,
 			mustContain: []string{
-				"Ethereum__Mainnet__Log {",
-				"_docID",
-				"_version",
-				"address",
+				testQueryEthLog,
+				defraFieldDocID,
+				defraFieldVersion,
+				gqlFieldAddress,
 			},
 			mustNotContain: []string{
-				"Ethereum__Mainnet__Transaction",
-				"Ethereum__Mainnet__Block",
-				"filter:",
+				constants.CollectionTransaction,
+				constants.CollectionBlock,
+				testQueryFilterPrefix,
 			},
 		},
 		{
 			name:    "access list entry with no children and filters",
 			root:    CollectionAccessListEntry,
-			filters: map[string]interface{}{"address": "0x123"},
+			filters: map[string]any{gqlFieldAddress: "0x123"},
 			mustContain: []string{
 				"Ethereum__Mainnet__AccessListEntry(filter:",
 				"address: {_eq: \"0x123\"}",
 			},
 			mustNotContain: []string{
-				"Ethereum__Mainnet__Transaction",
-				"Ethereum__Mainnet__Log",
+				constants.CollectionTransaction,
+				constants.CollectionLog,
 			},
 		},
 	}
@@ -581,7 +582,7 @@ func TestExtractNestedFields_PointerType(t *testing.T) {
 	}
 
 	qs := NewQueryService()
-	fields := qs.extractNestedFields(reflect.TypeOf(&Inner{}))
+	fields := qs.extractNestedFields(reflect.TypeFor[*Inner]())
 	require.Contains(t, fields, "field1")
 	require.Contains(t, fields, "field2")
 }
@@ -592,7 +593,7 @@ func TestExtractNestedFields_NoJsonTags(t *testing.T) {
 	}
 
 	qs := NewQueryService()
-	fields := qs.extractNestedFields(reflect.TypeOf(NoTags{}))
+	fields := qs.extractNestedFields(reflect.TypeFor[NoTags]())
 	require.Empty(t, fields)
 }
 
@@ -603,7 +604,7 @@ func TestExtractNestedFields_WithDashTag(t *testing.T) {
 	}
 
 	qs := NewQueryService()
-	fields := qs.extractNestedFields(reflect.TypeOf(WithDash{}))
+	fields := qs.extractNestedFields(reflect.TypeFor[WithDash]())
 	require.Contains(t, fields, "visible")
 	require.NotContains(t, fields, "-")
 }
@@ -614,12 +615,12 @@ func TestExtractNestedFields_WithDashTag(t *testing.T) {
 
 func TestBuildFilterString_Uint64Value(t *testing.T) {
 	qs := NewQueryService()
-	result := qs.buildFilterString(map[string]interface{}{"blockNum": uint64(99)})
+	result := qs.buildFilterString(map[string]any{"blockNum": uint64(99)})
 	require.Contains(t, result, "blockNum: {_eq: 99}")
 }
 
 func TestBuildFilterString_IntValue(t *testing.T) {
 	qs := NewQueryService()
-	result := qs.buildFilterString(map[string]interface{}{"count": 42})
+	result := qs.buildFilterString(map[string]any{"count": 42})
 	require.Contains(t, result, "count: {_eq: 42}")
 }

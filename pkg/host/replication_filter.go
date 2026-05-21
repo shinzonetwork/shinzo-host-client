@@ -83,18 +83,18 @@ func (f *EventReplicationFilter) allowBlock(fields map[string]any) bool {
 
 func (f *EventReplicationFilter) allowTransaction(fields map[string]any) bool {
 	to, _ := fieldString(fields, "to")
-	return f.matchesGroups(to, nil, "transaction")
+	return f.matchesGroups(to, nil, colTypeTransaction)
 }
 
 func (f *EventReplicationFilter) allowLog(fields map[string]any) bool {
 	addr, _ := fieldString(fields, "address")
 	topics := fieldStringSlice(fields, "topics")
-	return f.matchesGroups(addr, topics, "log")
+	return f.matchesGroups(addr, topics, colTypeLog)
 }
 
 func (f *EventReplicationFilter) allowAccessListEntry(fields map[string]any) bool {
 	addr, _ := fieldString(fields, "address")
-	return f.matchesGroups(addr, nil, "accessListEntry")
+	return f.matchesGroups(addr, nil, colTypeAccessListEntry)
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ func (f *EventReplicationFilter) allowAccessListEntry(fields map[string]any) boo
 // In allowlist mode the document must match at least one group to be accepted.
 // In blocklist mode the document is rejected when it matches any group.
 func (f *EventReplicationFilter) matchesGroups(address string, topics []string, colType string) bool {
-	isAllowlist := f.cfg.Mode != "blocklist" // default to allowlist
+	isAllowlist := f.cfg.Mode != filterModeBlocklist // default to allowlist
 
 	matched := false
 	for i := range f.cfg.Groups {
@@ -162,7 +162,7 @@ func (f *EventReplicationFilter) groupMatches(
 	}
 
 	// Topic matching (logs only).
-	if colType == "log" && len(topics) > 0 {
+	if colType == colTypeLog && len(topics) > 0 {
 		for _, tf := range g.Topics {
 			if topicFilterMatches(tf, topics) {
 				return true
@@ -174,15 +174,15 @@ func (f *EventReplicationFilter) groupMatches(
 }
 
 // contractAppliesToType checks if the ContractFilter is relevant for the given
-// collection type. When cascade is true, a filter targeting "transaction" also
-// applies to "log" and "accessListEntry".
+// collection type. When cascade is true, a filter targeting transaction also
+// applies to log and accessListEntry.
 func contractAppliesToType(cf config.ContractFilter, colType string, cascade bool) bool {
 	for _, t := range cf.Types {
 		if strings.EqualFold(t, colType) {
 			return true
 		}
-		if cascade && strings.EqualFold(t, "transaction") &&
-			(colType == "log" || colType == "accessListEntry") {
+		if cascade && strings.EqualFold(t, colTypeTransaction) &&
+			(colType == colTypeLog || colType == colTypeAccessListEntry) {
 			return true
 		}
 	}
@@ -251,13 +251,13 @@ func fieldUint64(fields map[string]any, key string) (uint64, bool) {
 	}
 	switch n := v.(type) {
 	case int64:
-		return uint64(n), true
+		return uint64(n), true //nolint:gosec
 	case uint64:
 		return n, true
 	case float64:
 		return uint64(n), true
 	case int:
-		return uint64(n), true
+		return uint64(n), true //nolint:gosec // int to uint64 conversion is safe here, negative values won't occur
 	}
 	return 0, false
 }

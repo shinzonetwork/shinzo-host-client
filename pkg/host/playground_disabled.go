@@ -2,6 +2,5 @@
 
 package host
 
-// playgroundEnabled is set to false when not built with the hostplayground tag
-var playgroundEnabled = false
-
+// playgroundEnabled is set to false when not built with the hostplayground tag.
+const playgroundEnabled = false

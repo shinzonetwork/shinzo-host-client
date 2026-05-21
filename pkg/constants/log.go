@@ -1,6 +1,6 @@
 package constants
 
-// Log represents a log from Ethereum
+// Log represents a log from Ethereum.
 type Log struct {
 	Address          string      `json:"address"`
 	Topics           []string    `json:"topics"`
@@ -15,5 +15,5 @@ type Log struct {
 	Transaction      Transaction `json:"transaction"`
 
 	Version []Version `json:"_version"`
-	DocId   string    `json:"_docID"`
+	DocID   string    `json:"_docID"`
 }

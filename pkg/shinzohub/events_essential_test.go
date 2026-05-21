@@ -8,161 +8,269 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestViewRegisteredEvent_ToString tests event string representation
+// Real devnet values used across tests.
+const (
+	testViewCreator      = "shinzo1cg7rssfan6duymqrvhhce2ldyycwvqll0z338z"
+	testContractAddress1 = "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
+	testContractAddress2 = "0xf00DFed28B5304251f271c6474dF260067ee6BDa"
+
+	testViewName  = "TestView"
+	testViewNameA = "ViewA"
+	testViewNameB = "ViewB"
+)
+
 func TestViewRegisteredEvent_ToString(t *testing.T) {
 	event := ViewRegisteredEvent{
-		Key:     "test-key-123",
-		Creator: "test-creator",
+		ViewID:          "view-abc123",
+		ContractAddress: testContractAddress2,
+		ViewName:        "StablecoinEvent",
+		Creator:         testViewCreator,
 		View: view.View{
-			Name: "TestView",
+			Name: "StablecoinEvent",
 		},
 	}
 
-	expected := "ViewRegistered: key=test-key-123, creator=test-creator, view=TestView"
+	expected := "ViewRegistered: id=view-abc123, address=" + testContractAddress2 + ", creator=" + testViewCreator
 	actual := event.ToString()
 
 	require.Equal(t, expected, actual)
 }
 
-// TestEntityRegisteredEvent_ToString tests event string representation
-func TestEntityRegisteredEvent_ToString(t *testing.T) {
-	event := EntityRegisteredEvent{
-		Key:    "entity-key-456",
-		Owner:  "entity-owner",
-		DID:    "did:key:test123",
-		Pid:    "pid456",
-		Entity: "\u0001",
-	}
-
-	expected := "EntityRegistered: key=entity-key-456, owner=entity-owner, did=did:key:test123, pid=pid456"
-	actual := event.ToString()
-
-	require.Equal(t, expected, actual)
-}
-
-// TestExtractViewFromEvent tests view extraction from events
 func TestExtractViewFromEvent(t *testing.T) {
-	// This would test the extractViewFromEvent function in query.go
-	// For now, we'll test the event structure
 	event := ViewRegisteredEvent{
-		Key:     "test-key",
-		Creator: "test-creator",
+		ContractAddress: testContractAddress1,
+		ViewName:        "SimpleLog",
+		Creator:         testViewCreator,
 		View: view.View{
-			Name: "TestView",
+			Name: "SimpleLog",
 			Data: viewbundle.View{
-				Query: "Log { address }",
-				Sdl:   "type TestView { address: String }",
+				Query: "Ethereum__Mainnet__Log { address topics data transactionHash blockNumber }",
+				Sdl:   "type SimpleLog @materialized(if: false) { transactionHash: String }",
 			},
 		},
 	}
 
-	// Verify event structure
-	require.Equal(t, "test-key", event.Key)
-	require.Equal(t, "test-creator", event.Creator)
-	require.Equal(t, "TestView", event.View.Name)
-	require.Equal(t, "Log { address }", event.View.Data.Query)
-	require.Equal(t, "type TestView { address: String }", event.View.Data.Sdl)
+	require.Equal(t, testContractAddress1, event.ContractAddress)
+	require.Equal(t, "SimpleLog", event.ViewName)
+	require.Equal(t, testViewCreator, event.Creator)
+	require.Equal(t, "SimpleLog", event.View.Name)
+	require.Equal(t, "Ethereum__Mainnet__Log { address topics data transactionHash blockNumber }", event.View.Data.Query)
 }
 
-// TestGetEntityType tests entity type detection
-func TestGetEntityType(t *testing.T) {
-	tests := []struct {
-		name         string
-		entityValue  string
-		expectedType EntityType
-	}{
-		{
-			name:         "indexer entity",
-			entityValue:  "\u0001",
-			expectedType: EntityTypeIndexer,
-		},
-		{
-			name:         "host entity",
-			entityValue:  "\u0002",
-			expectedType: EntityTypeHost,
-		},
-		{
-			name:         "unknown entity",
-			entityValue:  "\u0003",
-			expectedType: EntityTypeUnknown,
-		},
-		{
-			name:         "empty entity",
-			entityValue:  "",
-			expectedType: EntityTypeUnknown,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GetEntityType(tt.entityValue)
-			require.Equal(t, tt.expectedType, result)
-		})
-	}
-}
-
-// TestEventStructures tests event struct definitions
-func TestEventStructures(t *testing.T) {
-	// Test ViewRegisteredEvent structure
-	viewEvent := ViewRegisteredEvent{
-		Key:     "view-key",
-		Creator: "view-creator",
-		View: view.View{
-			Name: "ViewName",
-			Data: viewbundle.View{
-				Query: "TestQuery",
-				Sdl:   "type TestType { field: String }",
+func TestExtractShinzoEvents_IgnoresUnknownEvents(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: jsonRPCVersion,
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: tmEventTxType,
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								{
+									Type: "SomeOtherEvent",
+									Attributes: []EventAttribute{
+										{Key: "foo", Value: "bar"},
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
 
-	require.Equal(t, "view-key", viewEvent.Key)
-	require.Equal(t, "view-creator", viewEvent.Creator)
-	require.Equal(t, "ViewName", viewEvent.View.Name)
-	require.Equal(t, "TestQuery", viewEvent.View.Data.Query)
-	require.Equal(t, "type TestType { field: String }", viewEvent.View.Data.Sdl)
-
-	// Test EntityRegisteredEvent structure
-	entityEvent := EntityRegisteredEvent{
-		Key:    "entity-key",
-		Owner:  "entity-owner",
-		DID:    "did:key:abc123",
-		Pid:    "pid123",
-		Entity: "\u0001",
-	}
-
-	require.Equal(t, "entity-key", entityEvent.Key)
-	require.Equal(t, "entity-owner", entityEvent.Owner)
-	require.Equal(t, "did:key:abc123", entityEvent.DID)
-	require.Equal(t, "pid123", entityEvent.Pid)
-	require.Equal(t, "\u0001", entityEvent.Entity)
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 0)
 }
 
-// TestEventInterface tests that events implement the ShinzoEvent interface
-func TestEventInterface(t *testing.T) {
-	// Test ViewRegisteredEvent implements ShinzoEvent
-	var viewEvent ShinzoEvent = &ViewRegisteredEvent{
-		Key:     "test",
-		Creator: "test",
-		View:    view.View{Name: "Test"},
+// view.view_registered fills view_id, contract_address, creator on the
+// emitted event. View stays empty; downstream hydration populates it.
+func TestExtractShinzoEvents_ViewViewRegistered(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: jsonRPCVersion,
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: tmEventTxType,
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								{
+									Type: eventTypeViewRegistered,
+									Attributes: []EventAttribute{
+										{Key: attrViewID, Value: "view-id-abc"},
+										{Key: attrContractAddress, Value: testContractAddress1},
+										{Key: attrCreator, Value: testViewCreator},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	// Should have ToString method
-	require.NotPanics(t, func() {
-		_ = viewEvent.ToString()
-	})
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 1)
 
-	// Test EntityRegisteredEvent implements ShinzoEvent
-	var entityEvent ShinzoEvent = &EntityRegisteredEvent{
-		Key:    "test",
-		Owner:  "test",
-		DID:    "test",
-		Pid:    "test",
-		Entity: "\u0001",
+	vre, ok := events[0].(*ViewRegisteredEvent)
+	require.True(t, ok, "event should be ViewRegisteredEvent")
+	require.Equal(t, "view-id-abc", vre.ViewID)
+	require.Equal(t, testContractAddress1, vre.ContractAddress)
+	require.Equal(t, testViewCreator, vre.Creator)
+	require.Empty(t, vre.View.Data.Query, "View bundle is hydrated downstream, not in the event")
+}
+
+// A view.view_registered event missing contract_address can't be hydrated,
+// so the parser drops it.
+func TestExtractShinzoEvents_ViewViewRegistered_Incomplete(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: jsonRPCVersion,
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: tmEventTxType,
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								{
+									Type: eventTypeViewRegistered,
+									Attributes: []EventAttribute{
+										{Key: attrViewID, Value: "view-id-abc"},
+										// contract_address omitted
+										{Key: attrCreator, Value: testViewCreator},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	// Should have ToString method
-	require.NotPanics(t, func() {
-		_ = entityEvent.ToString()
-	})
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 0)
+}
+
+// view.view_registration_failed and _timed_out are logged and not emitted
+// onto the channel.
+func TestExtractShinzoEvents_ViewViewRegistrationFailed(t *testing.T) {
+	for _, eventType := range []string{
+		eventTypeViewRegistrationFailed,
+		eventTypeViewRegistrationTimedOut,
+	} {
+		msg := RPCResponse{
+			JSONRPCVersion: jsonRPCVersion,
+			ID:             1,
+			Result: RPCResult{
+				Data: RPCData{
+					Type: tmEventTxType,
+					Value: TxResult{
+						TxResult: TxResultData{
+							Result: TxResultResult{
+								Events: []Event{
+									{
+										Type: eventType,
+										Attributes: []EventAttribute{
+											{Key: attrViewID, Value: "view-id-failed"},
+											{Key: attrContractAddress, Value: testContractAddress1},
+											{Key: attrCreator, Value: testViewCreator},
+											{Key: attrError, Value: "ack returned with status FAILURE"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		events := extractShinzoEvents(msg)
+		require.Len(t, events, 0, "%s should not be emitted as a ShinzoEvent", eventType)
+	}
+}
+
+// A single Cosmos tx routinely carries many events: the registry event we care
+// about plus the ICA bookkeeping and any unrelated module emissions on the
+// same tx. The parser must walk the full Events list and return exactly the
+// matching well-formed registry events, regardless of order or interleaving.
+//
+// What this catches: a parser that short-circuits on the first matching event
+// and ignores the rest; a parser that fails to drop a malformed
+// view.view_registered (incomplete attributes); a panic on an unrelated event
+// type; a regression where view.view_registration_failed accidentally lands
+// on the channel instead of being logged-and-dropped.
+func TestExtractShinzoEvents_MultiEventTx(t *testing.T) {
+	msg := RPCResponse{
+		JSONRPCVersion: jsonRPCVersion,
+		ID:             1,
+		Result: RPCResult{
+			Data: RPCData{
+				Type: tmEventTxType,
+				Value: TxResult{
+					TxResult: TxResultData{
+						Result: TxResultResult{
+							Events: []Event{
+								// Unrelated event — should be skipped, not crash.
+								{
+									Type: "transfer",
+									Attributes: []EventAttribute{
+										{Key: "amount", Value: "1000ushinzo"},
+									},
+								},
+								// Well-formed view.view_registered — the only event
+								// we expect to see emitted.
+								{
+									Type: eventTypeViewRegistered,
+									Attributes: []EventAttribute{
+										{Key: attrViewID, Value: "good-view-id"},
+										{Key: attrContractAddress, Value: testContractAddress1},
+										{Key: attrCreator, Value: testViewCreator},
+									},
+								},
+								// Malformed view.view_registered — missing
+								// contract_address. Hydration would fail later
+								// anyway; the parser should drop it now.
+								{
+									Type: eventTypeViewRegistered,
+									Attributes: []EventAttribute{
+										{Key: attrViewID, Value: "bad-view-id"},
+										{Key: attrCreator, Value: testViewCreator},
+									},
+								},
+								// Terminal failure event — must be logged but
+								// not emitted; the host has no pending state to
+								// roll back.
+								{
+									Type: eventTypeViewRegistrationFailed,
+									Attributes: []EventAttribute{
+										{Key: attrViewID, Value: "failed-view-id"},
+										{Key: attrContractAddress, Value: testContractAddress2},
+										{Key: attrError, Value: "ack returned FAILURE"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	events := extractShinzoEvents(msg)
+	require.Len(t, events, 1, "exactly one well-formed view.view_registered should pass")
+
+	vre, ok := events[0].(*ViewRegisteredEvent)
+	require.True(t, ok, "expected *ViewRegisteredEvent, got %T", events[0])
+	require.Equal(t, "good-view-id", vre.ViewID)
+	require.Equal(t, testContractAddress1, vre.ContractAddress)
+	require.Equal(t, testViewCreator, vre.Creator)
 }
