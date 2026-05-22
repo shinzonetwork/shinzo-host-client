@@ -43,10 +43,11 @@ jobs:
           docker build -t ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
                        -t ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest \
                        --build-arg CHAIN=${{ steps.meta.outputs.chain }} \
-                       --build-arg NETWORK=${{ steps.meta.outputs.network }} .
+                       --build-arg NETWORK=${{ steps.meta.outputs.network }} \
+                       --build-arg TAGS=hostplayground .
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker push ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-          docker push ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest
+          docker push ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest 
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
