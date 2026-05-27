@@ -718,14 +718,17 @@ func startACPServer(
 		return nil, fmt.Errorf("defradb handler: %w", err)
 	}
 
-	// Bind to a routable interface: loopback hosts in defraURL are rewritten
-	// to the LAN IP so the reverse proxy and external peers can reach the
-	// port. Fall back to the raw address if the LAN IP cannot be resolved.
-	listenAddr, resolveErr := defradb.ResolveListenAddress(defraURL)
-	if resolveErr != nil {
-		logger.Sugar.Warnf("acp: could not resolve LAN IP, falling back to %s: %v", defraURL, resolveErr)
-		listenAddr = defraURL
+	// Bind on host:port. Loopback hosts (localhost, 127.0.0.1, ::1) are
+	// promoted to 0.0.0.0 so the same listener accepts both external
+	// connections and in-process loopback calls (e.g. healthcheck probes).
+	host, port, splitErr := net.SplitHostPort(defraURL)
+	if splitErr != nil {
+		return nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
 	}
+	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		host = "0.0.0.0"
+	}
+	listenAddr := net.JoinHostPort(host, port)
 
 	server, err := defradbHttp.NewServer(mw.Wrap(handler), options.NodeHTTP().SetAddress(listenAddr))
 	if err != nil {

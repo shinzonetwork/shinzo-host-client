@@ -184,6 +184,13 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.DefraDB.P2P.BootstrapPeers = strings.Split(v, ",")
 	}
 
+	// DEFRA_URL overrides defradb.url at runtime, so deployment artifacts
+	// can pick a different bind address (e.g. 0.0.0.0:9181 instead of the
+	// loopback-only default) without editing the YAML.
+	if v := os.Getenv("DEFRA_URL"); v != "" {
+		cfg.DefraDB.URL = v
+	}
+
 	return &cfg, nil
 }
 
