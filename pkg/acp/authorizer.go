@@ -24,7 +24,7 @@ var (
 // test surface can substitute a stub and stay free of any gRPC
 // dependency.
 type Authorizer interface {
-	AuthorizeView(ctx context.Context, callerDID, contractAddr string) (bool, error)
+	AuthorizeView(ctx context.Context, callerDID, viewName, contractAddr string) (bool, error)
 }
 
 // Resource and permission names match the SourceHub policy expression
@@ -72,16 +72,19 @@ func NewSourceHubAuthorizer(grpcAddr, cometRPCAddr, policyID string) (*SourceHub
 }
 
 // AuthorizeView returns true if SourceHub's policy evaluation finds a
-// subscriber tuple for (contractAddr, callerDID) under the configured
-// policy. A non-nil error from the gRPC call is treated by the caller as
-// an indeterminate state, distinct from a clean "deny".
-func (a *SourceHubAuthorizer) AuthorizeView(ctx context.Context, callerDID, contractAddr string) (bool, error) {
+// subscriber tuple for the view under the configured policy. The object
+// id is "<viewName>_<contractAddr>", matching the format ShinzoHub's
+// ViewRegistry precompile uses at registration. A non-nil error from
+// the gRPC call is treated by the caller as an indeterminate state,
+// distinct from a clean "deny".
+func (a *SourceHubAuthorizer) AuthorizeView(ctx context.Context, callerDID, viewName, contractAddr string) (bool, error) {
+	viewID := fmt.Sprintf("%s_%s", viewName, contractAddr)
 	resp, err := a.client.ACPQueryClient().VerifyAccessRequest(ctx,
 		&sourcehubTypes.QueryVerifyAccessRequestRequest{
 			PolicyId: a.policyID,
 			AccessRequest: &coreTypes.AccessRequest{
 				Operations: []*coreTypes.Operation{{
-					Object:     coreTypes.NewObject(viewResourceName, contractAddr),
+					Object:     coreTypes.NewObject(viewResourceName, viewID),
 					Permission: readPermission,
 				}},
 				Actor: &coreTypes.Actor{Id: callerDID},

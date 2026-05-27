@@ -145,7 +145,7 @@ func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []str
 // false after writing the appropriate error response on deny or error.
 func (m *Middleware) authorizeOne(w http.ResponseWriter, r *http.Request, callerDID string, lookup viewLookup) bool {
 	start := time.Now()
-	allowed, err := m.authz.AuthorizeView(r.Context(), callerDID, lookup.Address)
+	allowed, err := m.authz.AuthorizeView(r.Context(), callerDID, lookup.Name, lookup.Address)
 	latencyMS := time.Since(start).Milliseconds()
 	switch {
 	case err != nil:

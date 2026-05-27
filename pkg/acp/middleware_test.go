@@ -112,7 +112,7 @@ func TestMiddleware_ViewQueryWithValidAuth_Allowed(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.True(t, next.called)
-	require.Equal(t, []authzCall{{testDIDAlice, testContractA}}, authz.calls)
+	require.Equal(t, []authzCall{{testDIDAlice, testViewFilteredLogs, testContractA}}, authz.calls)
 }
 
 // The authorizer denies the request; middleware returns 403 without
@@ -226,7 +226,7 @@ func TestMiddleware_MixedViewAndPrimitive_AuthorizedOnViewOnly(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.True(t, next.called)
-	require.Equal(t, []authzCall{{testDIDAlice, testContractA}}, authz.calls,
+	require.Equal(t, []authzCall{{testDIDAlice, testViewFilteredLogs, testContractA}}, authz.calls,
 		"the authorizer must be consulted only for view collections")
 }
 
@@ -331,6 +331,7 @@ func (s stubAuth) CallerDID(*http.Request) (string, error) {
 
 type authzCall struct {
 	did  string
+	name string
 	addr string
 }
 
@@ -340,9 +341,10 @@ type authzDecision struct {
 }
 
 // fakeAuthorizer records every AuthorizeView call and returns a
-// pre-configured decision keyed by (callerDID, contractAddr). Unknown
-// keys default to deny so a test that forgets to set an expectation
-// fails fast.
+// pre-configured decision keyed by (callerDID, contractAddr). viewName
+// is captured in the recorded call but not part of the lookup key, so
+// tests declare expectations by (did, addr) alone. Unknown keys default
+// to deny so a test that forgets to set an expectation fails fast.
 type fakeAuthorizer struct {
 	decisions map[string]authzDecision
 	calls     []authzCall
@@ -360,8 +362,8 @@ func (f *fakeAuthorizer) fail(did, addr string, err error) {
 	f.decisions[did+"|"+addr] = authzDecision{err: err}
 }
 
-func (f *fakeAuthorizer) AuthorizeView(_ context.Context, did, addr string) (bool, error) {
-	f.calls = append(f.calls, authzCall{did, addr})
+func (f *fakeAuthorizer) AuthorizeView(_ context.Context, did, name, addr string) (bool, error) {
+	f.calls = append(f.calls, authzCall{did, name, addr})
 	d := f.decisions[did+"|"+addr]
 	return d.allow, d.err
 }
