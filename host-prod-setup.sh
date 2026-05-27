@@ -148,8 +148,7 @@ services:
       - "444:9182"  # GraphQL Playground 
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
-      - ~/data/defradb:/app/.defra/data
-      - ~/data/keys:/app/.defra/keys
+      - ~/data/defradb:/app/.defra
       - ~/data/lens:/app/.lens
       - ~/config.yaml:/app/config.yaml:ro
     environment:
