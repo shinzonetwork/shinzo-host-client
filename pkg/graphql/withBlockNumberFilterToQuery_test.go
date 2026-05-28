@@ -74,7 +74,7 @@ func TestWithBlockNumberFilter(t *testing.T) {
 			expectError:   false,
 		},
 		{
-			name:        "empty query",
+			name:        testCaseEmptyQuery,
 			query:       "",
 			expectError: true,
 		},

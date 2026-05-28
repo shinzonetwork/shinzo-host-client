@@ -26,6 +26,7 @@ services:
     container_name: shinzo-host
     volumes:
       - ~/data/defradb:/app/.defra/data
+      - ~/data/keys:/app/.defra/keys
       - ~/data/lens:/app/.lens
       - ~/shinzo-host-client/config.yaml:/app/config.yaml:ro
     environment:

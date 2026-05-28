@@ -58,7 +58,7 @@ func TestAllowReplication(t *testing.T) {
 			name: "block signature always allowed",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 			},
 			collectionID: constants.CollectionBlockSignature,
 			fields:       map[string]any{},
@@ -68,7 +68,7 @@ func TestAllowReplication(t *testing.T) {
 			name: "snapshot signature always allowed",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 			},
 			collectionID: constants.CollectionSnapshotSignature,
 			fields:       map[string]any{},
@@ -78,77 +78,77 @@ func TestAllowReplication(t *testing.T) {
 			name: "block collection uses allowBlock",
 			cfg: config.EventFilterConfig{
 				Enabled:    true,
-				Mode:       "allowlist",
+				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
 			collectionID: constants.CollectionBlock,
-			fields:       map[string]any{"number": uint64(150)},
+			fields:       map[string]any{gqlFieldNumber: uint64(150)},
 			want:         true,
 		},
 		{
 			name: "block collection rejected by allowBlock",
 			cfg: config.EventFilterConfig{
 				Enabled:    true,
-				Mode:       "allowlist",
+				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
 			collectionID: constants.CollectionBlock,
-			fields:       map[string]any{"number": uint64(50)},
+			fields:       map[string]any{gqlFieldNumber: uint64(50)},
 			want:         false,
 		},
 		{
 			name: "transaction uses matchesGroups",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 					},
 				},
 			},
 			collectionID: constants.CollectionTransaction,
-			fields:       map[string]any{"to": "0xabc"},
+			fields:       map[string]any{gqlFieldTo: "0xabc"},
 			want:         true,
 		},
 		{
 			name: "log uses matchesGroups",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xDEF", Types: []string{"log"}}},
+						Contracts: []config.ContractFilter{{Address: "0xDEF", Types: []string{colTypeLog}}},
 					},
 				},
 			},
 			collectionID: constants.CollectionLog,
-			fields:       map[string]any{"address": "0xdef", "topics": []string{"0xtopic0"}},
+			fields:       map[string]any{gqlFieldAddress: "0xdef", gqlFieldTopics: []string{"0xtopic0"}},
 			want:         true,
 		},
 		{
 			name: "accessListEntry uses matchesGroups",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0x123", Types: []string{"accessListEntry"}}},
+						Contracts: []config.ContractFilter{{Address: "0x123", Types: []string{colTypeAccessListEntry}}},
 					},
 				},
 			},
 			collectionID: constants.CollectionAccessListEntry,
-			fields:       map[string]any{"address": "0x123"},
+			fields:       map[string]any{gqlFieldAddress: "0x123"},
 			want:         true,
 		},
 		{
 			name: "unknown collection always allowed",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 			},
 			collectionID: "SomeUnknownCollection",
 			fields:       map[string]any{},
@@ -158,17 +158,17 @@ func TestAllowReplication(t *testing.T) {
 			name: "block range rejection for transaction",
 			cfg: config.EventFilterConfig{
 				Enabled:    true,
-				Mode:       "allowlist",
+				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 					},
 				},
 			},
 			collectionID: constants.CollectionTransaction,
-			fields:       map[string]any{"to": "0xabc", "blockNumber": uint64(50)},
+			fields:       map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)},
 			want:         false,
 		},
 	}
@@ -199,7 +199,7 @@ func TestAllowBlock(t *testing.T) {
 				Enabled:    true,
 				BlockRange: nil,
 			},
-			fields: map[string]any{"number": uint64(999)},
+			fields: map[string]any{gqlFieldNumber: uint64(999)},
 			want:   true,
 		},
 		{
@@ -208,7 +208,7 @@ func TestAllowBlock(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			fields: map[string]any{"number": uint64(50)},
+			fields: map[string]any{gqlFieldNumber: uint64(50)},
 			want:   false,
 		},
 		{
@@ -217,7 +217,7 @@ func TestAllowBlock(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			fields: map[string]any{"number": uint64(300)},
+			fields: map[string]any{gqlFieldNumber: uint64(300)},
 			want:   false,
 		},
 		{
@@ -226,7 +226,7 @@ func TestAllowBlock(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			fields: map[string]any{"number": uint64(150)},
+			fields: map[string]any{gqlFieldNumber: uint64(150)},
 			want:   true,
 		},
 		{
@@ -244,7 +244,7 @@ func TestAllowBlock(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 0},
 			},
-			fields: map[string]any{"number": uint64(999999)},
+			fields: map[string]any{gqlFieldNumber: uint64(999999)},
 			want:   true,
 		},
 	}
@@ -270,33 +270,33 @@ func TestAllowTransaction(t *testing.T) {
 		want   bool
 	}{
 		{
-			name: "matching address allowed",
+			name: testNameMatchingAddressAllowed,
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 					},
 				},
 			},
-			fields: map[string]any{"to": "0xabc"},
+			fields: map[string]any{gqlFieldTo: "0xabc"},
 			want:   true,
 		},
 		{
 			name: "non-matching address rejected in allowlist",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 					},
 				},
 			},
-			fields: map[string]any{"to": "0xDEF"},
+			fields: map[string]any{gqlFieldTo: "0xDEF"},
 			want:   false,
 		},
 	}
@@ -322,48 +322,48 @@ func TestAllowLog(t *testing.T) {
 		want   bool
 	}{
 		{
-			name: "matching address allowed",
+			name: testNameMatchingAddressAllowed,
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xLOG", Types: []string{"log"}}},
+						Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
 					},
 				},
 			},
-			fields: map[string]any{"address": "0xlog", "topics": []string{}},
+			fields: map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldTopics: []string{}},
 			want:   true,
 		},
 		{
 			name: "matching topics allowed",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled: true,
-						Topics:  []config.TopicFilter{{Topic0: "0xSIG"}},
+						Topics:  []config.TopicFilter{{Topic0: testHexSigUpper}},
 					},
 				},
 			},
-			fields: map[string]any{"address": "", "topics": []string{"0xsig"}},
+			fields: map[string]any{gqlFieldAddress: "", gqlFieldTopics: []string{testHexSigLower}},
 			want:   true,
 		},
 		{
 			name: "non-matching rejected",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xLOG", Types: []string{"log"}}},
+						Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
 					},
 				},
 			},
-			fields: map[string]any{"address": "0xOTHER", "topics": []string{}},
+			fields: map[string]any{gqlFieldAddress: "0xOTHER", gqlFieldTopics: []string{}},
 			want:   false,
 		},
 	}
@@ -389,33 +389,33 @@ func TestAllowAccessListEntry(t *testing.T) {
 		want   bool
 	}{
 		{
-			name: "matching address allowed",
+			name: testNameMatchingAddressAllowed,
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xALE", Types: []string{"accessListEntry"}}},
+						Contracts: []config.ContractFilter{{Address: testHexAleUpper, Types: []string{colTypeAccessListEntry}}},
 					},
 				},
 			},
-			fields: map[string]any{"address": "0xale"},
+			fields: map[string]any{gqlFieldAddress: testHexAleLower},
 			want:   true,
 		},
 		{
 			name: "non-matching address rejected",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
 					{
 						Enabled:   true,
-						Contracts: []config.ContractFilter{{Address: "0xALE", Types: []string{"accessListEntry"}}},
+						Contracts: []config.ContractFilter{{Address: testHexAleUpper, Types: []string{colTypeAccessListEntry}}},
 					},
 				},
 			},
-			fields: map[string]any{"address": "0xOTHER"},
+			fields: map[string]any{gqlFieldAddress: "0xOTHER"},
 			want:   false,
 		},
 	}
@@ -446,70 +446,70 @@ func TestMatchesGroups(t *testing.T) {
 			name: "allowlist with no enabled groups allows all",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
-					{Enabled: false, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}}},
+					{Enabled: false, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 				},
 			},
 			address: "0xABC",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    true,
 		},
 		{
 			name: "allowlist matched allows",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
-					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}}},
+					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 				},
 			},
 			address: "0xabc",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    true,
 		},
 		{
 			name: "allowlist unmatched rejects",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "allowlist",
+				Mode:    filterModeAllowlist,
 				Groups: []config.FilterGroup{
-					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}}},
+					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 				},
 			},
 			address: "0xDEF",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    false,
 		},
 		{
 			name: "blocklist matched rejects",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "blocklist",
+				Mode:    filterModeBlocklist,
 				Groups: []config.FilterGroup{
-					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}}},
+					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 				},
 			},
 			address: "0xabc",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    false,
 		},
 		{
 			name: "blocklist unmatched allows",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
-				Mode:    "blocklist",
+				Mode:    filterModeBlocklist,
 				Groups: []config.FilterGroup{
-					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}}},
+					{Enabled: true, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 				},
 			},
 			address: "0xDEF",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    true,
 		},
 	}
@@ -542,11 +542,11 @@ func TestGroupMatches(t *testing.T) {
 			cfg:  config.EventFilterConfig{Enabled: true, CascadeFilters: false},
 			group: config.FilterGroup{
 				Enabled:   true,
-				Contracts: []config.ContractFilter{{Address: "0xAbC", Types: []string{"transaction"}}},
+				Contracts: []config.ContractFilter{{Address: "0xAbC", Types: []string{colTypeTransaction}}},
 			},
 			address: "0xabc",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    true,
 		},
 		{
@@ -554,11 +554,11 @@ func TestGroupMatches(t *testing.T) {
 			cfg:  config.EventFilterConfig{Enabled: true, CascadeFilters: false},
 			group: config.FilterGroup{
 				Enabled: true,
-				Topics:  []config.TopicFilter{{Topic0: "0xSIG"}},
+				Topics:  []config.TopicFilter{{Topic0: testHexSigUpper}},
 			},
 			address: "",
-			topics:  []string{"0xsig"},
-			colType: "log",
+			topics:  []string{testHexSigLower},
+			colType: colTypeLog,
 			want:    true,
 		},
 		{
@@ -566,11 +566,11 @@ func TestGroupMatches(t *testing.T) {
 			cfg:  config.EventFilterConfig{Enabled: true, CascadeFilters: false},
 			group: config.FilterGroup{
 				Enabled:   true,
-				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 			},
 			address: "0xDEF",
 			topics:  nil,
-			colType: "transaction",
+			colType: colTypeTransaction,
 			want:    false,
 		},
 	}
@@ -598,36 +598,36 @@ func TestContractAppliesToType(t *testing.T) {
 	}{
 		{
 			name:    "direct type match",
-			cf:      config.ContractFilter{Types: []string{"log"}},
-			colType: "log",
+			cf:      config.ContractFilter{Types: []string{colTypeLog}},
+			colType: colTypeLog,
 			cascade: false,
 			want:    true,
 		},
 		{
 			name:    "cascade from transaction to log",
-			cf:      config.ContractFilter{Types: []string{"transaction"}},
-			colType: "log",
+			cf:      config.ContractFilter{Types: []string{colTypeTransaction}},
+			colType: colTypeLog,
 			cascade: true,
 			want:    true,
 		},
 		{
 			name:    "cascade from transaction to accessListEntry",
-			cf:      config.ContractFilter{Types: []string{"transaction"}},
-			colType: "accessListEntry",
+			cf:      config.ContractFilter{Types: []string{colTypeTransaction}},
+			colType: colTypeAccessListEntry,
 			cascade: true,
 			want:    true,
 		},
 		{
 			name:    "no cascade when disabled",
-			cf:      config.ContractFilter{Types: []string{"transaction"}},
-			colType: "log",
+			cf:      config.ContractFilter{Types: []string{colTypeTransaction}},
+			colType: colTypeLog,
 			cascade: false,
 			want:    false,
 		},
 		{
 			name:    "no match at all",
-			cf:      config.ContractFilter{Types: []string{"transaction"}},
-			colType: "accessListEntry",
+			cf:      config.ContractFilter{Types: []string{colTypeTransaction}},
+			colType: colTypeAccessListEntry,
 			cascade: false,
 			want:    false,
 		},
@@ -653,20 +653,20 @@ func TestTopicFilterMatches(t *testing.T) {
 	}{
 		{
 			name:   "empty topics returns false",
-			tf:     config.TopicFilter{Topic0: "0xSIG"},
+			tf:     config.TopicFilter{Topic0: testHexSigUpper},
 			topics: []string{},
 			want:   false,
 		},
 		{
 			name:   "empty Topic0 returns false",
 			tf:     config.TopicFilter{Topic0: ""},
-			topics: []string{"0xSIG"},
+			topics: []string{testHexSigUpper},
 			want:   false,
 		},
 		{
 			name:   "topic0 only match",
-			tf:     config.TopicFilter{Topic0: "0xSIG"},
-			topics: []string{"0xsig"},
+			tf:     config.TopicFilter{Topic0: testHexSigUpper},
+			topics: []string{testHexSigLower},
 			want:   true,
 		},
 		{
@@ -678,7 +678,7 @@ func TestTopicFilterMatches(t *testing.T) {
 		{
 			name:   "topic1 mismatch",
 			tf:     config.TopicFilter{Topic0: "0xA", Topic1: "0xB"},
-			topics: []string{"0xa", "0xWRONG"},
+			topics: []string{"0xa", testHexWrong},
 			want:   false,
 		},
 		{
@@ -719,7 +719,7 @@ func TestInBlockRange(t *testing.T) {
 				Enabled:    true,
 				BlockRange: nil,
 			},
-			fields: map[string]any{"blockNumber": uint64(999)},
+			fields: map[string]any{gqlFieldBlockNumber: uint64(999)},
 			want:   true,
 		},
 		{
@@ -728,7 +728,7 @@ func TestInBlockRange(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			fields: map[string]any{"blockNumber": uint64(50)},
+			fields: map[string]any{gqlFieldBlockNumber: uint64(50)},
 			want:   false,
 		},
 		{
@@ -737,7 +737,7 @@ func TestInBlockRange(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			fields: map[string]any{"blockNumber": uint64(300)},
+			fields: map[string]any{gqlFieldBlockNumber: uint64(300)},
 			want:   false,
 		},
 		{
@@ -746,7 +746,7 @@ func TestInBlockRange(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 0},
 			},
-			fields: map[string]any{"blockNumber": uint64(999999)},
+			fields: map[string]any{gqlFieldBlockNumber: uint64(999999)},
 			want:   true,
 		},
 		{
@@ -764,7 +764,7 @@ func TestInBlockRange(t *testing.T) {
 				Enabled:    true,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			fields: map[string]any{"blockNumber": uint64(150)},
+			fields: map[string]any{gqlFieldBlockNumber: uint64(150)},
 			want:   true,
 		},
 	}
@@ -792,22 +792,22 @@ func TestFieldString(t *testing.T) {
 	}{
 		{
 			name:   "present string",
-			fields: map[string]any{"addr": "0xABC"},
-			key:    "addr",
+			fields: map[string]any{testMapKeyAddr: "0xABC"},
+			key:    testMapKeyAddr,
 			wantS:  "0xABC",
 			wantOK: true,
 		},
 		{
-			name:   "missing key",
+			name:   testNameMissingKey,
 			fields: map[string]any{},
-			key:    "addr",
+			key:    testMapKeyAddr,
 			wantS:  "",
 			wantOK: false,
 		},
 		{
 			name:   "non-string value",
-			fields: map[string]any{"addr": 123},
-			key:    "addr",
+			fields: map[string]any{testMapKeyAddr: 123},
+			key:    testMapKeyAddr,
 			wantS:  "",
 			wantOK: false,
 		},
@@ -835,43 +835,43 @@ func TestFieldUint64(t *testing.T) {
 	}{
 		{
 			name:   "int64 value",
-			fields: map[string]any{"num": int64(42)},
-			key:    "num",
+			fields: map[string]any{testNum: int64(42)},
+			key:    testNum,
 			wantN:  42,
 			wantOK: true,
 		},
 		{
 			name:   "uint64 value",
-			fields: map[string]any{"num": uint64(100)},
-			key:    "num",
+			fields: map[string]any{testNum: uint64(100)},
+			key:    testNum,
 			wantN:  100,
 			wantOK: true,
 		},
 		{
 			name:   "float64 value",
-			fields: map[string]any{"num": float64(55.0)},
-			key:    "num",
+			fields: map[string]any{testNum: float64(55.0)},
+			key:    testNum,
 			wantN:  55,
 			wantOK: true,
 		},
 		{
 			name:   "int value",
-			fields: map[string]any{"num": int(77)},
-			key:    "num",
+			fields: map[string]any{testNum: int(77)},
+			key:    testNum,
 			wantN:  77,
 			wantOK: true,
 		},
 		{
-			name:   "missing key",
+			name:   testNameMissingKey,
 			fields: map[string]any{},
-			key:    "num",
+			key:    testNum,
 			wantN:  0,
 			wantOK: false,
 		},
 		{
 			name:   "unsupported type string",
-			fields: map[string]any{"num": "not-a-number"},
-			key:    "num",
+			fields: map[string]any{testNum: "not-a-number"},
+			key:    testNum,
 			wantN:  0,
 			wantOK: false,
 		},
@@ -898,26 +898,26 @@ func TestFieldStringSlice(t *testing.T) {
 	}{
 		{
 			name:   "[]string value",
-			fields: map[string]any{"topics": []string{"a", "b"}},
-			key:    "topics",
+			fields: map[string]any{gqlFieldTopics: []string{"a", "b"}},
+			key:    gqlFieldTopics,
 			want:   []string{"a", "b"},
 		},
 		{
 			name:   "[]any with strings",
-			fields: map[string]any{"topics": []any{"x", "y", "z"}},
-			key:    "topics",
+			fields: map[string]any{gqlFieldTopics: []any{"x", "y", "z"}},
+			key:    gqlFieldTopics,
 			want:   []string{"x", "y", "z"},
 		},
 		{
-			name:   "missing key",
+			name:   testNameMissingKey,
 			fields: map[string]any{},
-			key:    "topics",
+			key:    gqlFieldTopics,
 			want:   nil,
 		},
 		{
 			name:   "unsupported type int",
-			fields: map[string]any{"topics": 42},
-			key:    "topics",
+			fields: map[string]any{gqlFieldTopics: 42},
+			key:    gqlFieldTopics,
 			want:   nil,
 		},
 	}
@@ -942,11 +942,11 @@ func TestGroupMatches_EmptyAddress(t *testing.T) {
 
 	group := config.FilterGroup{
 		Enabled:   true,
-		Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+		Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 	}
 
 	// Empty address should not match contract filters
-	got := f.groupMatches(&group, "", nil, "transaction")
+	got := f.groupMatches(&group, "", nil, colTypeTransaction)
 	require.False(t, got)
 }
 
@@ -959,11 +959,11 @@ func TestGroupMatches_TopicsNonLogType(t *testing.T) {
 
 	group := config.FilterGroup{
 		Enabled: true,
-		Topics:  []config.TopicFilter{{Topic0: "0xSIG"}},
+		Topics:  []config.TopicFilter{{Topic0: testHexSigUpper}},
 	}
 
 	// Topics are only checked for "log" type
-	got := f.groupMatches(&group, "", []string{"0xsig"}, "transaction")
+	got := f.groupMatches(&group, "", []string{testHexSigLower}, colTypeTransaction)
 	require.False(t, got)
 }
 
@@ -976,11 +976,11 @@ func TestGroupMatches_CascadeFromTxToLog(t *testing.T) {
 
 	group := config.FilterGroup{
 		Enabled:   true,
-		Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+		Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 	}
 
 	// With cascade, a transaction filter should also match log types
-	got := f.groupMatches(&group, "0xabc", nil, "log")
+	got := f.groupMatches(&group, "0xabc", nil, colTypeLog)
 	require.True(t, got)
 }
 
@@ -993,10 +993,10 @@ func TestGroupMatches_CascadeFromTxToAccessListEntry(t *testing.T) {
 
 	group := config.FilterGroup{
 		Enabled:   true,
-		Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+		Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 	}
 
-	got := f.groupMatches(&group, "0xabc", nil, "accessListEntry")
+	got := f.groupMatches(&group, "0xabc", nil, colTypeAccessListEntry)
 	require.True(t, got)
 }
 
@@ -1017,13 +1017,13 @@ func TestTopicFilterMatches_Topic3Match(t *testing.T) {
 }
 
 func TestTopicFilterMatches_Topic2Mismatch(t *testing.T) {
-	tf := config.TopicFilter{Topic0: "0xA", Topic2: "0xWRONG"}
+	tf := config.TopicFilter{Topic0: "0xA", Topic2: testHexWrong}
 	topics := []string{"0xa", "0xb", "0xc"}
 	require.False(t, topicFilterMatches(tf, topics))
 }
 
 func TestTopicFilterMatches_Topic3Mismatch(t *testing.T) {
-	tf := config.TopicFilter{Topic0: "0xA", Topic3: "0xWRONG"}
+	tf := config.TopicFilter{Topic0: "0xA", Topic3: testHexWrong}
 	topics := []string{"0xa", "0xb", "0xc", "0xd"}
 	require.False(t, topicFilterMatches(tf, topics))
 }
@@ -1040,15 +1040,15 @@ func TestTopicFilterMatches_NilTopics(t *testing.T) {
 func TestMatchesGroups_BlocklistNoEnabledGroups(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled: true,
-		Mode:    "blocklist",
+		Mode:    filterModeBlocklist,
 		Groups: []config.FilterGroup{
-			{Enabled: false, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}}},
+			{Enabled: false, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 		},
 	})
 	require.NotNil(t, f)
 
 	// Blocklist with no matching (all groups disabled) => !false => true
-	got := f.matchesGroups("0xABC", nil, "transaction")
+	got := f.matchesGroups("0xABC", nil, colTypeTransaction)
 	require.True(t, got)
 }
 
@@ -1058,9 +1058,9 @@ func TestMatchesGroups_BlocklistNoEnabledGroups(t *testing.T) {
 
 func TestFieldStringSlice_MixedTypes(t *testing.T) {
 	fields := map[string]any{
-		"topics": []any{"str1", 42, "str2"},
+		gqlFieldTopics: []any{"str1", 42, "str2"},
 	}
-	got := fieldStringSlice(fields, "topics")
+	got := fieldStringSlice(fields, gqlFieldTopics)
 	require.Equal(t, []string{"str1", "str2"}, got)
 }
 
@@ -1112,12 +1112,12 @@ func TestGroupMatches_ContractFilterWrongType(t *testing.T) {
 	group := config.FilterGroup{
 		Enabled: true,
 		Contracts: []config.ContractFilter{
-			{Address: "0xABC", Types: []string{"log"}}, // Only matches "log", not "transaction"
+			{Address: "0xABC", Types: []string{colTypeLog}}, // Only matches "log", not "transaction"
 		},
 	}
 
 	// Address matches but type doesn't
-	got := f.groupMatches(&group, "0xabc", nil, "transaction")
+	got := f.groupMatches(&group, "0xabc", nil, colTypeTransaction)
 	require.False(t, got)
 }
 
@@ -1135,12 +1135,12 @@ func TestGroupMatches_MultipleContracts(t *testing.T) {
 	group := config.FilterGroup{
 		Enabled: true,
 		Contracts: []config.ContractFilter{
-			{Address: "0xDEF", Types: []string{"transaction"}}, // Won't match
-			{Address: "0xABC", Types: []string{"transaction"}}, // Will match
+			{Address: "0xDEF", Types: []string{colTypeTransaction}}, // Won't match
+			{Address: "0xABC", Types: []string{colTypeTransaction}}, // Will match
 		},
 	}
 
-	got := f.groupMatches(&group, "0xabc", nil, "transaction")
+	got := f.groupMatches(&group, "0xabc", nil, colTypeTransaction)
 	require.True(t, got)
 }
 
@@ -1174,11 +1174,11 @@ func TestGroupMatches_LogTypeTopicsMatch(t *testing.T) {
 	}
 
 	// Log type with matching topic0
-	got := f.groupMatches(&group, "", []string{"0xtransfer"}, "log")
+	got := f.groupMatches(&group, "", []string{testHexTransfer}, colTypeLog)
 	require.True(t, got)
 
 	// Non-log type should not check topics
-	got = f.groupMatches(&group, "", []string{"0xtransfer"}, "transaction")
+	got = f.groupMatches(&group, "", []string{testHexTransfer}, colTypeTransaction)
 	require.False(t, got)
 }
 
@@ -1196,12 +1196,12 @@ func TestGroupMatches_LogMultipleTopicFilters(t *testing.T) {
 	group := config.FilterGroup{
 		Enabled: true,
 		Topics: []config.TopicFilter{
-			{Topic0: "0xApproval"},  // Won't match
+			{Topic0: "0xApproval"}, // Won't match
 			{Topic0: "0xTransfer"}, // Will match
 		},
 	}
 
-	got := f.groupMatches(&group, "", []string{"0xtransfer"}, "log")
+	got := f.groupMatches(&group, "", []string{testHexTransfer}, colTypeLog)
 	require.True(t, got)
 }
 
@@ -1212,12 +1212,12 @@ func TestGroupMatches_LogMultipleTopicFilters(t *testing.T) {
 func TestAllowReplication_BlockNoNumberField(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:    true,
-		Mode:       "allowlist",
+		Mode:       filterModeAllowlist,
 		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 	})
 	require.NotNil(t, f)
 
-	// Block collection with no "number" field should be allowed (can't determine)
+	// Block collection with no gqlFieldNumber field should be allowed (can't determine)
 	got := f.AllowReplication(context.Background(), constants.CollectionBlock, "docID", map[string]any{})
 	require.True(t, got)
 }
@@ -1229,12 +1229,12 @@ func TestAllowReplication_BlockNoNumberField(t *testing.T) {
 func TestAllowReplication_TransactionBelowBlockRange(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:    true,
-		Mode:       "allowlist",
+		Mode:       filterModeAllowlist,
 		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 		Groups: []config.FilterGroup{
 			{
 				Enabled:   true,
-				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{"transaction"}}},
+				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 			},
 		},
 	})
@@ -1242,12 +1242,12 @@ func TestAllowReplication_TransactionBelowBlockRange(t *testing.T) {
 
 	// Transaction with blockNumber below range
 	got := f.AllowReplication(context.Background(), constants.CollectionTransaction, "docID",
-		map[string]any{"to": "0xabc", "blockNumber": uint64(50)})
+		map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 
 	// Transaction with blockNumber above range
 	got = f.AllowReplication(context.Background(), constants.CollectionTransaction, "docID",
-		map[string]any{"to": "0xabc", "blockNumber": uint64(300)})
+		map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(300)})
 	require.False(t, got)
 }
 
@@ -1258,47 +1258,47 @@ func TestAllowReplication_TransactionBelowBlockRange(t *testing.T) {
 func TestAllowReplication_LogBlockRange(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:    true,
-		Mode:       "allowlist",
+		Mode:       filterModeAllowlist,
 		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 		Groups: []config.FilterGroup{
 			{
 				Enabled:   true,
-				Contracts: []config.ContractFilter{{Address: "0xLOG", Types: []string{"log"}}},
+				Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
 			},
 		},
 	})
 
 	// Log with blockNumber in range, matching address
 	got := f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
-		map[string]any{"address": "0xlog", "blockNumber": uint64(150)})
+		map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldBlockNumber: uint64(150)})
 	require.True(t, got)
 
 	// Log with blockNumber out of range
 	got = f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
-		map[string]any{"address": "0xlog", "blockNumber": uint64(50)})
+		map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 }
 
 func TestAllowReplication_AccessListEntryBlockRange(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:    true,
-		Mode:       "allowlist",
+		Mode:       filterModeAllowlist,
 		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 		Groups: []config.FilterGroup{
 			{
 				Enabled:   true,
-				Contracts: []config.ContractFilter{{Address: "0xALE", Types: []string{"accessListEntry"}}},
+				Contracts: []config.ContractFilter{{Address: testHexAleUpper, Types: []string{colTypeAccessListEntry}}},
 			},
 		},
 	})
 
 	// AccessListEntry with blockNumber in range
 	got := f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
-		map[string]any{"address": "0xale", "blockNumber": uint64(150)})
+		map[string]any{gqlFieldAddress: testHexAleLower, gqlFieldBlockNumber: uint64(150)})
 	require.True(t, got)
 
 	// AccessListEntry with blockNumber below range
 	got = f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
-		map[string]any{"address": "0xale", "blockNumber": uint64(50)})
+		map[string]any{gqlFieldAddress: testHexAleLower, gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 }

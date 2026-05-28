@@ -6,26 +6,20 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
-// ViewRegisteredEvent represents a view registration event
+// ViewRegisteredEvent represents a successful view registration on ShinzoHub.
+// The view module emits it once the IBC ack from sourcehub confirms the
+// registration; the EVM-side ViewCreated log on the ViewRegistry precompile
+// (0x210) carries the same state change.
 type ViewRegisteredEvent struct {
-	Key     string
-	Creator string
-	View    view.View
+	ViewID          string    // attr "view_id"
+	ContractAddress string    // attr "contract_address": EVM address of the deployed view
+	ViewName        string    // attr "view_name" (legacy single-word events only)
+	Creator         string    // attr "creator": bech32 address of the view creator
+	View            view.View // bundle decoded from the hub registry; populated by downstream hydration
 }
 
-// EntityRegisteredEvent represents an entity registration event
-type EntityRegisteredEvent struct {
-	Key    string
-	Owner  string
-	DID    string
-	Pid    string
-	Entity string
-}
-
+// ToString returns a human-readable string representation of the ViewRegisteredEvent.
 func (vre *ViewRegisteredEvent) ToString() string {
-	return fmt.Sprintf("ViewRegistered: key=%s, creator=%s, view=%s", vre.Key, vre.Creator, vre.View.Name)
-}
-
-func (ere *EntityRegisteredEvent) ToString() string {
-	return fmt.Sprintf("EntityRegistered: key=%s, owner=%s, did=%s, pid=%s", ere.Key, ere.Owner, ere.DID, ere.Pid)
+	return fmt.Sprintf("ViewRegistered: id=%s, address=%s, creator=%s",
+		vre.ViewID, vre.ContractAddress, vre.Creator)
 }

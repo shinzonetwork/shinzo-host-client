@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -30,10 +30,10 @@ func TestIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create test config with P2P enabled to replicate data from indexer
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0" // Use random available port
-	testConfig.DefraDB.Url = "localhost:0"
+	testConfig.DefraDB.URL = "localhost:0"
 	testConfig.DefraDB.KeyringSecret = "integration-test-secret"
 	testConfig.DefraDB.P2P.Enabled = true
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{
@@ -42,8 +42,8 @@ func TestIntegration(t *testing.T) {
 	}
 
 	// Start defra with real connection using schema applier
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild())
-	defraNode, networkHandler, err := defra.StartDefraInstance(testConfig, schemaApplier, nil, nil, constants.AllCollections...)
+	schemaApplier := defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild())
+	defraNode, networkHandler, err := defradb.StartDefraInstance(testConfig, schemaApplier, nil, nil, constants.AllCollections...)
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
@@ -211,7 +211,7 @@ func waitForBlockViaSubscription(t *testing.T, ctx context.Context, defraNode *n
 	// Create subscription query for blocks
 	subscription := fmt.Sprintf(`subscription { %s { hash number } }`, constants.CollectionBlock)
 
-	blockChan, err := defra.Subscribe[map[string]any](ctx, defraNode, subscription)
+	blockChan, err := defradb.Subscribe[map[string]any](ctx, defraNode, subscription)
 	if err != nil {
 		return fmt.Errorf("failed to create block subscription: %w", err)
 	}
@@ -244,7 +244,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 	t.Run("IndividualCollectionQueries", func(t *testing.T) {
 		// Query Block
 		blockQuery := fmt.Sprintf(`{ %s(limit: 1) { hash number timestamp } }`, constants.CollectionBlock)
-		blocks, err := defra.QueryArray[map[string]any](ctx, defraNode, blockQuery)
+		blocks, err := defradb.QueryArray[map[string]any](ctx, defraNode, blockQuery)
 		if err != nil {
 			t.Logf("ERROR querying blocks: %v", err)
 		}
@@ -254,7 +254,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 
 		// Query Transaction
 		txQuery := fmt.Sprintf(`{ %s(limit: 10) { hash blockNumber from to } }`, constants.CollectionTransaction)
-		txs, err := defra.QueryArray[map[string]any](ctx, defraNode, txQuery)
+		txs, err := defradb.QueryArray[map[string]any](ctx, defraNode, txQuery)
 		if err != nil {
 			t.Logf("ERROR querying transactions: %v", err)
 		}
@@ -264,7 +264,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 
 		// Query Log
 		logQuery := fmt.Sprintf(`{ %s(limit: 10) { address blockNumber transactionHash logIndex } }`, constants.CollectionLog)
-		logs, err := defra.QueryArray[map[string]any](ctx, defraNode, logQuery)
+		logs, err := defradb.QueryArray[map[string]any](ctx, defraNode, logQuery)
 		if err != nil {
 			t.Logf("ERROR querying logs: %v", err)
 		}
@@ -274,7 +274,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 
 		// Query AccessListEntry
 		accessQuery := fmt.Sprintf(`{ %s(limit: 3) { address storageKeys } }`, constants.CollectionAccessListEntry)
-		accessList, err := defra.QueryArray[map[string]any](ctx, defraNode, accessQuery)
+		accessList, err := defradb.QueryArray[map[string]any](ctx, defraNode, accessQuery)
 		if err != nil {
 			t.Logf("ERROR querying access list entries: %v", err)
 		}
@@ -283,7 +283,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 
 		// Query AttestationRecord
 		attestQuery := fmt.Sprintf(`{ %s(limit: 10) { attested_doc source_doc doc_type vote_count CIDs } }`, constants.CollectionAttestationRecord)
-		attestations, err := defra.QueryArray[map[string]any](ctx, defraNode, attestQuery)
+		attestations, err := defradb.QueryArray[map[string]any](ctx, defraNode, attestQuery)
 		if err != nil {
 			t.Logf("ERROR querying attestation records: %v", err)
 		}
@@ -313,7 +313,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 			} 
 		}`, constants.CollectionBlock)
 
-		results, err := defra.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
+		results, err := defradb.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
 		if err != nil {
 			t.Logf("ERROR executing nested query: %v", err)
 		}
@@ -353,7 +353,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 			} 
 		}`, constants.CollectionTransaction)
 
-		results, err := defra.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
+		results, err := defradb.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
 		if err != nil {
 			t.Logf("ERROR executing nested transaction query: %v", err)
 		}
@@ -373,7 +373,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 			} 
 		}`, constants.CollectionLog)
 
-		results, err := defra.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
+		results, err := defradb.QueryArray[map[string]any](ctx, defraNode, nestedQuery)
 		if err != nil {
 			t.Logf("ERROR executing nested log query: %v", err)
 		}
@@ -385,7 +385,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 	t.Run("DocIDLookup", func(t *testing.T) {
 		// First get a document to get its _docID
 		getDocQuery := fmt.Sprintf(`{ %s(limit: 1) { _docID topics address } }`, constants.CollectionLog)
-		docs, err := defra.QueryArray[map[string]any](ctx, defraNode, getDocQuery)
+		docs, err := defradb.QueryArray[map[string]any](ctx, defraNode, getDocQuery)
 		if err != nil {
 			t.Logf("ERROR getting document with _docID: %v", err)
 		}
@@ -415,7 +415,7 @@ func testQueries(t *testing.T, ctx context.Context, defraNode *node.Node) {
 			} 
 		}`, constants.CollectionLog, docID)
 
-		result, err := defra.QuerySingle[map[string]any](ctx, defraNode, docIDLookupQuery)
+		result, err := defradb.QuerySingle[map[string]any](ctx, defraNode, docIDLookupQuery)
 		if err != nil {
 			t.Logf("ERROR looking up by _docID: %v", err)
 		}

@@ -5,15 +5,15 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// testMetrics implements SignatureMetrics for testing
+// testMetrics implements SignatureMetrics for testing.
 type testMetrics struct {
 	verifications atomic.Int64
 	failures      atomic.Int64
@@ -39,8 +39,8 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 			name: "empty identity",
 			signature: constants.Signature{
 				Identity: "",
-				Value:    "signature123",
-				Type:     "ES256K",
+				Value:    testSignature123,
+				Type:     sigTypeES256K,
 			},
 			cid:     "test-cid",
 			wantErr: true,
@@ -50,8 +50,8 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 			name: "empty CID",
 			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
-				Value:    "signature123",
-				Type:     "ES256K",
+				Value:    testSignature123,
+				Type:     sigTypeES256K,
 			},
 			cid:     "",
 			wantErr: true,
@@ -61,7 +61,7 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 			name: "invalid signature type",
 			signature: constants.Signature{
 				Identity: "0x1234567890abcdef",
-				Value:    "signature123",
+				Value:    testSignature123,
 				Type:     "RSA256",
 			},
 			cid:     "test-cid",
@@ -88,11 +88,11 @@ func TestSignatureVerifier_Validation(t *testing.T) {
 	}
 }
 
-// TestCachedSignatureVerifier_MockVerifier tests the MockSignatureVerifier behavior
+// TestCachedSignatureVerifier_MockVerifier tests the MockSignatureVerifier behavior.
 func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 	// Test MockSignatureVerifier
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
+		verifyFunc: func(_ context.Context, cid string, _ constants.Signature) error {
 			if cid == "error-cid" {
 				return assert.AnError
 			}
@@ -100,7 +100,7 @@ func TestCachedSignatureVerifier_MockVerifier(t *testing.T) {
 		},
 	}
 	ctx := context.Background()
-	signature := constants.Signature{Identity: "0x123", Value: "sig", Type: "ES256K"}
+	signature := constants.Signature{Identity: "0x123", Value: "sig", Type: sigTypeES256K}
 
 	// Test success case
 	err := mockVerifier.Verify(ctx, "success-cid", signature)
@@ -117,7 +117,7 @@ func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 	verifier := NewDefraSignatureVerifier(nil, nil)
 
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
-		Type:     "es256k",
+		Type:     sigTypeES256KLowerHex,
 		Identity: "", // Empty identity
 		Value:    "signature",
 	})
@@ -125,14 +125,14 @@ func TestDefraSignatureVerifier_Verify_InvalidIdentityFormat(t *testing.T) {
 	require.Contains(t, err.Error(), "empty identity")
 }
 
-// TestDefraSignatureVerifier_NilDB tests that verification fails gracefully when DB is nil
+// TestDefraSignatureVerifier_NilDB tests that verification fails gracefully when DB is nil.
 func TestDefraSignatureVerifier_NilDB(t *testing.T) {
 	ctx := context.Background()
 	verifier := NewDefraSignatureVerifier(nil, nil)
 
 	// Valid inputs but nil DB
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: "0x1234567890abcdef",
 		Value:    "signature",
 	})
@@ -140,11 +140,11 @@ func TestDefraSignatureVerifier_NilDB(t *testing.T) {
 	require.Contains(t, err.Error(), "defradb node or DB is not available")
 }
 
-// TestMockSignatureVerifier_ConcurrentAccess tests thread safety of MockSignatureVerifier
+// TestMockSignatureVerifier_ConcurrentAccess tests thread safety of MockSignatureVerifier.
 func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	var callCount atomic.Int64
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ constants.Signature) error {
 			callCount.Add(1)
 			return nil
 		},
@@ -153,8 +153,8 @@ func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
-		Value:    "signature123",
-		Type:     "ES256K",
+		Value:    testSignature123,
+		Type:     sigTypeES256K,
 	}
 
 	// Run concurrent tests
@@ -163,7 +163,7 @@ func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 
 	for range numGoroutines {
 		go func() {
-			mockVerifier.Verify(ctx, "concurrent-test", signature)
+			_ = mockVerifier.Verify(ctx, "concurrent-test", signature)
 			done <- true
 		}()
 	}
@@ -175,11 +175,11 @@ func TestMockSignatureVerifier_ConcurrentAccess(t *testing.T) {
 	assert.Equal(t, int64(numGoroutines), callCount.Load())
 }
 
-// TestMockSignatureVerifier_DifferentCIDs tests that MockSignatureVerifier handles different CIDs
+// TestMockSignatureVerifier_DifferentCIDs tests that MockSignatureVerifier handles different CIDs.
 func TestMockSignatureVerifier_DifferentCIDs(t *testing.T) {
 	callCount := 0
 	mockVerifier := &MockSignatureVerifier{
-		verifyFunc: func(ctx context.Context, cid string, signature constants.Signature) error {
+		verifyFunc: func(_ context.Context, _ string, _ constants.Signature) error {
 			callCount++
 			return nil
 		},
@@ -188,8 +188,8 @@ func TestMockSignatureVerifier_DifferentCIDs(t *testing.T) {
 	ctx := context.Background()
 	signature := constants.Signature{
 		Identity: "0x1234567890abcdef",
-		Value:    "signature123",
-		Type:     "ES256K",
+		Value:    testSignature123,
+		Type:     sigTypeES256K,
 	}
 	// Test different CIDs
 	cids := []string{"cid1", "cid2", "cid3", "cid1", "cid2"}
@@ -206,7 +206,7 @@ func TestMockSignatureVerifier_DifferentCIDs(t *testing.T) {
 // ========================================
 
 // setupDefraForVerifier creates a defra client with the attestation schema and returns the node.
-func setupDefraForVerifier(t *testing.T) *defra.Client {
+func setupDefraForVerifier(t *testing.T) *defradb.Client {
 	t.Helper()
 	testSchema := `
 		type TestDoc {
@@ -220,19 +220,19 @@ func setupDefraForVerifier(t *testing.T) *defra.Client {
 			vote_count: Int @crdt(type: pcounter)
 		}
 	`
-	testConfig := defra.DefaultConfig
+	testConfig := defradb.DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "test-keyring-secret-for-testing"
-	testConfig.DefraDB.Url = "localhost:0"
-	testConfig.DefraDB.P2P.ListenAddr = "/ip4/0.0.0.0/tcp/0"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
 	testConfig.DefraDB.P2P.Enabled = false
 	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
 
-	client, err := defra.NewClient(testConfig)
+	client, err := defradb.NewClient(testConfig)
 	require.NoError(t, err)
 	err = client.Start(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { client.Stop(t.Context()) })
+	t.Cleanup(func() { _ = client.Stop(t.Context()) })
 
 	err = client.ApplySchema(t.Context(), testSchema)
 	require.NoError(t, err)
@@ -248,9 +248,9 @@ func TestDefraSignatureVerifier_Verify_InvalidPublicKeyParse(t *testing.T) {
 	verifier := NewDefraSignatureVerifier(defraNode, nil)
 
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
-		Type:     "ES256K",
-		Identity: "aabb", // Valid hex but only 2 bytes, not a valid secp256k1 key
-		Value:    "sig-value",
+		Type:     sigTypeES256K,
+		Identity: testSigAabb, // Valid hex but only 2 bytes, not a valid secp256k1 key
+		Value:    testSigValue,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to parse public key from identity")
@@ -265,9 +265,9 @@ func TestDefraSignatureVerifier_Verify_InvalidPublicKeyParse_NonHex(t *testing.T
 	verifier := NewDefraSignatureVerifier(defraNode, nil)
 
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: "zzzz-not-hex", // Not valid hex
-		Value:    "sig-value",
+		Value:    testSigValue,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to parse public key from identity")
@@ -291,7 +291,7 @@ func TestDefraSignatureVerifier_Verify_VerifySignatureFailure_WithMetrics(t *tes
 
 	// Use a CID that does not exist in the DB
 	err = verifier.Verify(ctx, "nonexistent-cid", constants.Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: pubKeyHex,
 		Value:    "dummy-sig",
 	})
@@ -314,7 +314,7 @@ func TestDefraSignatureVerifier_Verify_VerifySignatureFailure_NilMetrics(t *test
 	verifier := NewDefraSignatureVerifier(defraNode, nil)
 
 	err = verifier.Verify(ctx, "nonexistent-cid", constants.Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: pubKeyHex,
 		Value:    "dummy-sig",
 	})
@@ -333,7 +333,7 @@ func TestDefraSignatureVerifier_Verify_Success_WithMetrics(t *testing.T) {
 
 	type TestDoc struct {
 		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
+		DocID   string    `json:"_docID"`
 		Version []Version `json:"_version"`
 	}
 
@@ -354,7 +354,7 @@ func TestDefraSignatureVerifier_Verify_Success_WithMetrics(t *testing.T) {
 		}
 	`
 
-	docResult, err := defra.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
+	docResult, err := defradb.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
 	require.NoError(t, err)
 	require.NotNil(t, docResult)
 	require.Len(t, docResult.Version, 1)
@@ -377,7 +377,7 @@ func TestDefraSignatureVerifier_Verify_Success_NilMetrics(t *testing.T) {
 
 	type TestDoc struct {
 		Name    string    `json:"name"`
-		DocId   string    `json:"_docID"`
+		DocID   string    `json:"_docID"`
 		Version []Version `json:"_version"`
 	}
 
@@ -398,7 +398,7 @@ func TestDefraSignatureVerifier_Verify_Success_NilMetrics(t *testing.T) {
 		}
 	`
 
-	docResult, err := defra.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
+	docResult, err := defradb.PostMutation[TestDoc](ctx, defraNode, createDocMutation)
 	require.NoError(t, err)
 	require.NotNil(t, docResult)
 	require.Len(t, docResult.Version, 1)
@@ -424,9 +424,9 @@ func TestDefraSignatureVerifier_Verify_NodeWithNilDB(t *testing.T) {
 	verifier := NewDefraSignatureVerifier(emptyNode, nil)
 
 	err := verifier.Verify(ctx, "test-cid", constants.Signature{
-		Type:     "ES256K",
+		Type:     sigTypeES256K,
 		Identity: "aabbccdd",
-		Value:    "sig-value",
+		Value:    testSigValue,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "defradb node or DB is not available")

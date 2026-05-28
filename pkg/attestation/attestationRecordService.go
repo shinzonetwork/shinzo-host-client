@@ -3,31 +3,32 @@ package attestation
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/sourcenetwork/immutable"
 )
 
-// AttestationRecord represents an attestation record with verified signatures
-type AttestationRecord = constants.AttestationRecord
+// Record represents an attestation record with verified signatures.
+type Record = constants.AttestationRecord
 
-// Version represents a version with signature information
+// Version represents a version with signature information.
 type Version = constants.Version
 
-// Signature represents a cryptographic signature
+// Signature represents a cryptographic signature.
 type Signature = constants.Signature
 
-// CreateAttestationRecord creates an attestation record after verifying signatures
-func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docId string, sourceDocIds []string, docType string, versions []Version, maxConcurrentVerifications int) (*AttestationRecord, error) {
+// CreateAttestationRecord creates an attestation record after verifying signatures.
+func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, docID string, sourceDocIDs []string, docType string, versions []Version, maxConcurrentVerifications int) (*Record, error) {
 	if len(versions) == 0 {
 		return &constants.AttestationRecord{
-			AttestedDocId: docId,
-			SourceDocIds:  sourceDocIds,
+			AttestedDocID: docID,
+			SourceDocIDs:  sourceDocIDs,
 			CIDs:          []string{},
 			DocType:       docType,
 			VoteCount:     1,
@@ -65,8 +66,8 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 	}
 
 	return &constants.AttestationRecord{
-		AttestedDocId: docId,
-		SourceDocIds:  sourceDocIds,
+		AttestedDocID: docID,
+		SourceDocIDs:  sourceDocIDs,
 		CIDs:          cids,
 		DocType:       docType,
 		VoteCount:     1,
@@ -75,20 +76,20 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 
 // PostAttestationRecord posts the attestation record to DefraDB using read-modify-write
 // to correctly merge source_doc lists when multiple indexers attest to the same block.
-func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *AttestationRecord) error {
+func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Record) error {
 	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
 	if err != nil {
 		return fmt.Errorf("failed to get attestation collection: %w", err)
 	}
 
-	existingDoc, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocId)
+	existingDoc, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
 	if err != nil {
 		return fmt.Errorf("failed to lookup existing attestation: %w", err)
 	}
 
 	if existingDoc != nil {
 		// Merge source_doc identities
-		mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIds)
+		mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIDs)
 		sourcesAny := make([]any, len(mergedSources))
 		for i, s := range mergedSources {
 			sourcesAny[i] = s
@@ -115,8 +116,8 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *At
 	}
 
 	// Create new document
-	sourceDocsAny := make([]any, len(record.SourceDocIds))
-	for i, s := range record.SourceDocIds {
+	sourceDocsAny := make([]any, len(record.SourceDocIDs))
+	for i, s := range record.SourceDocIDs {
 		sourceDocsAny[i] = s
 	}
 	cidsAny := make([]any, len(record.CIDs))
@@ -125,7 +126,7 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *At
 	}
 
 	data := map[string]any{
-		"attested_doc": record.AttestedDocId,
+		"attested_doc": record.AttestedDocID,
 		"source_doc":   sourceDocsAny,
 		"CIDs":         cidsAny,
 		"doc_type":     record.DocType,
@@ -201,7 +202,7 @@ func lookupExistingAttestation(ctx context.Context, defraNode *node.Node, col cl
 
 	docIDStr := extractDocIDFromResult(result.GQL.Data, constants.CollectionAttestationRecord)
 	if docIDStr == "" {
-		return nil, nil
+		return nil, nil // nolint:nilnil
 	}
 
 	docID, err := client.NewDocIDFromString(docIDStr)
@@ -244,7 +245,7 @@ func extractDocIDFromResult(data any, collectionName string) string {
 }
 
 // PostAttestationRecordsBatch posts multiple attestation records.
-func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, records []*AttestationRecord) error {
+func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, records []*Record) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -259,7 +260,7 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 		if record == nil || len(record.CIDs) == 0 {
 			continue
 		}
-		attestedDocIDs = append(attestedDocIDs, record.AttestedDocId)
+		attestedDocIDs = append(attestedDocIDs, record.AttestedDocID)
 	}
 
 	if len(attestedDocIDs) == 0 {
@@ -282,10 +283,10 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 			continue
 		}
 
-		existingDoc, exists := existingByAttestedDoc[record.AttestedDocId]
+		existingDoc, exists := existingByAttestedDoc[record.AttestedDocID]
 		if exists {
 			// Merge source_doc identities
-			mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIds)
+			mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIDs)
 			sourcesAny := make([]any, len(mergedSources))
 			for i, s := range mergedSources {
 				sourcesAny[i] = s
@@ -312,13 +313,13 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 			for i, cid := range record.CIDs {
 				cidsAny[i] = cid
 			}
-			sourceDocsAny := make([]any, len(record.SourceDocIds))
-			for i, s := range record.SourceDocIds {
+			sourceDocsAny := make([]any, len(record.SourceDocIDs))
+			for i, s := range record.SourceDocIDs {
 				sourceDocsAny[i] = s
 			}
 
 			data := map[string]any{
-				"attested_doc": record.AttestedDocId,
+				"attested_doc": record.AttestedDocID,
 				"source_doc":   sourceDocsAny,
 				"CIDs":         cidsAny,
 				"doc_type":     record.DocType,
@@ -327,7 +328,7 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 
 			doc, err := client.NewDocFromMap(ctx, data, col.Version())
 			if err != nil {
-				return fmt.Errorf("failed to create document for attestation %s: %w", record.AttestedDocId, err)
+				return fmt.Errorf("failed to create document for attestation %s: %w", record.AttestedDocID, err)
 			}
 			docs = append(docs, doc)
 		}
@@ -336,9 +337,8 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 	return col.SaveMany(ctx, docs)
 }
 
-// HandleDocumentAttestation is the main handler for processing document attestations
+// HandleDocumentAttestation is the main handler for processing document attestations.
 func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, defraNode *node.Node, docID string, docType string, versions []Version, maxConcurrentVerifications int) error {
-
 	if len(versions) == 0 {
 		return nil
 	}
@@ -358,7 +358,7 @@ func HandleDocumentAttestation(ctx context.Context, verifier SignatureVerifier, 
 	return nil
 }
 
-// DocumentAttestationInput represents input for batch attestation processing
+// DocumentAttestationInput represents input for batch attestation processing.
 type DocumentAttestationInput struct {
 	DocID    string
 	DocType  string
@@ -371,7 +371,7 @@ func HandleDocumentAttestationBatch(ctx context.Context, verifier SignatureVerif
 		return nil
 	}
 
-	records := make([]*AttestationRecord, 0, len(inputs))
+	records := make([]*Record, 0, len(inputs))
 	for _, input := range inputs {
 		if len(input.Versions) == 0 {
 			continue
@@ -391,8 +391,8 @@ func HandleDocumentAttestationBatch(ctx context.Context, verifier SignatureVerif
 	return PostAttestationRecordsBatch(ctx, defraNode, records)
 }
 
-// CheckExistingAttestation checks if an attestation already exists for a document
-func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string) ([]AttestationRecord, error) {
+// CheckExistingAttestation checks if an attestation already exists for a document.
+func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string) ([]Record, error) {
 	// Query the general attestation collection for this specific document
 	query := fmt.Sprintf(`
 		query {
@@ -407,7 +407,7 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 		}
 	`, constants.CollectionAttestationRecord, docID, docType)
 
-	existing, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	existing, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return nil, nil // No existing attestation, not an error
@@ -418,7 +418,7 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 	return existing, nil
 }
 
-// ExtractVersionsFromDocument extracts version/signature information from a document based on its type
+// ExtractVersionsFromDocument extracts version/signature information from a document based on its type.
 func ExtractVersionsFromDocument(docData map[string]any) ([]Version, error) {
 	// Try to extract version information from the document data
 	// The document data should contain the version field with signatures
@@ -455,8 +455,8 @@ func ExtractVersionsFromDocument(docData map[string]any) ([]Version, error) {
 					}
 
 					// Extract CollectionVersionId
-					if collectionVersionId, ok := versionMap["collectionVersionId"].(string); ok {
-						version.CollectionVersionId = collectionVersionId
+					if collectionVersionID, ok := versionMap["collectionVersionId"].(string); ok {
+						version.CollectionVersionID = collectionVersionID
 					}
 
 					versions = append(versions, version)
@@ -476,22 +476,22 @@ func ExtractVersionsFromDocument(docData map[string]any) ([]Version, error) {
 // ========================================
 
 // MergeAttestationRecords merges two attestation records with the same attested document
-// This is useful when multiple sources attest to the same document and you want to combine their CIDs
-func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationRecord, error) {
-	if record1.AttestedDocId != record2.AttestedDocId {
-		return nil, fmt.Errorf("cannot merge records with different attested document IDs: %s vs %s", record1.AttestedDocId, record2.AttestedDocId)
+// This is useful when multiple sources attest to the same document and you want to combine their CIDs.
+func MergeAttestationRecords(record1, record2 *Record) (*Record, error) {
+	if record1.AttestedDocID != record2.AttestedDocID {
+		return nil, fmt.Errorf("%s vs %s: %w", record1.AttestedDocID, record2.AttestedDocID, ErrDifferentAttestedDocIDs)
 	}
 
 	// Merge source doc identities, avoiding duplicates
 	sourceSet := make(map[string]bool)
 	var mergedSources []string
-	for _, s := range record1.SourceDocIds {
+	for _, s := range record1.SourceDocIDs {
 		if !sourceSet[s] {
 			mergedSources = append(mergedSources, s)
 			sourceSet[s] = true
 		}
 	}
-	for _, s := range record2.SourceDocIds {
+	for _, s := range record2.SourceDocIDs {
 		if !sourceSet[s] {
 			mergedSources = append(mergedSources, s)
 			sourceSet[s] = true
@@ -499,9 +499,9 @@ func MergeAttestationRecords(record1, record2 *AttestationRecord) (*AttestationR
 	}
 
 	// Create merged record
-	merged := &AttestationRecord{
-		AttestedDocId: record1.AttestedDocId,
-		SourceDocIds:  mergedSources,
+	merged := &Record{
+		AttestedDocID: record1.AttestedDocID,
+		SourceDocIDs:  mergedSources,
 		CIDs:          make([]string, 0),
 	}
 
@@ -547,7 +547,7 @@ func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, block
 		}
 	`, constants.CollectionAttestationRecord, blockAttestedID)
 
-	records, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	records, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return false, nil
@@ -560,10 +560,8 @@ func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, block
 	}
 
 	for _, record := range records {
-		for _, cid := range record.CIDs {
-			if cid == documentCID {
-				return true, nil
-			}
+		if slices.Contains(record.CIDs, documentCID) {
+			return true, nil
 		}
 	}
 
@@ -572,7 +570,7 @@ func IsDocumentAttestedViaBlock(ctx context.Context, defraNode *node.Node, block
 
 // GetBlockAttestations retrieves all attestation records for a specific block height.
 // With multiple indexers, different merkle roots produce separate attestation records.
-func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber int64) ([]AttestationRecord, error) {
+func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber int64) ([]Record, error) {
 	blockPrefix := fmt.Sprintf("block:%d:", blockNumber)
 
 	query := fmt.Sprintf(`
@@ -588,7 +586,7 @@ func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber
 		}
 	`, constants.CollectionAttestationRecord, blockPrefix)
 
-	records, err := defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+	records, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {
 		if strings.Contains(err.Error(), "No attestation records found") {
 			return nil, nil
@@ -603,14 +601,14 @@ func GetBlockAttestations(ctx context.Context, defraNode *node.Node, blockNumber
 // UTILITY FUNCTIONS
 // ========================================
 
-// GetAttestationRecordsByViewName queries attestation records for a specific view
-func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIds []string) ([]AttestationRecord, error) {
+// GetAttestationRecordsByViewName queries attestation records for a specific view.
+func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, viewName string, viewDocIDs []string) ([]Record, error) {
 	collectionName := fmt.Sprintf("Ethereum__Mainnet__AttestationRecord_%s", viewName)
 
-	if len(viewDocIds) > 0 {
+	if len(viewDocIDs) > 0 {
 		// Build a comma-separated list of quoted doc IDs for GraphQL _in filter
-		quoted := make([]string, 0, len(viewDocIds))
-		for _, id := range viewDocIds {
+		quoted := make([]string, 0, len(viewDocIDs))
+		for _, id := range viewDocIDs {
 			quoted = append(quoted, fmt.Sprintf("\"%s\"", id))
 		}
 		inList := strings.Join(quoted, ", ")
@@ -626,20 +624,19 @@ func GetAttestationRecordsByViewName(ctx context.Context, defraNode *node.Node, 
 			}
 		`, collectionName, inList)
 
-		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
-	} else {
-		// Query all records for this view
-		query := fmt.Sprintf(`
-			query {
-				%s {
-					_docID
-					attested_doc
-					source_doc
-					CIDs
-				}
-			}
-		`, collectionName)
-
-		return defra.QueryArray[AttestationRecord](ctx, defraNode, query)
+		return defradb.QueryArray[Record](ctx, defraNode, query)
 	}
+	// Query all records for this view
+	query := fmt.Sprintf(`
+		query {
+			%s {
+				_docID
+				attested_doc
+				source_doc
+				CIDs
+			}
+		}
+	`, collectionName)
+
+	return defradb.QueryArray[Record](ctx, defraNode, query)
 }

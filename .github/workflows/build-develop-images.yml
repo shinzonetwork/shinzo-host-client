@@ -63,5 +63,6 @@ jobs:
           build-args: |
             CHAIN=${{ steps.meta.outputs.chain }}
             NETWORK=${{ steps.meta.outputs.network }}
+            TAGS=hostplayground
           cache-from: type=gha
           cache-to: type=gha,mode=max

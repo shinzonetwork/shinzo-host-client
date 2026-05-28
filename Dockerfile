@@ -1,5 +1,5 @@
 # Multi-stage build like indexer
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 
 # Build arguments
 ARG TAGS
@@ -68,14 +68,14 @@ ENV CGO_LDFLAGS="-L/usr/local/lib"
 # Copy source code
 COPY . .
 
-# Build the application with conditional branchable tag and always playground
+# Build the application with playground
 RUN set -ex && \
     echo "Building with TAGS=${TAGS}" && \
     echo "Final build tags: ${TAGS}" && \
     cd playground && go generate . && \
     cd .. && \
     go build \
-    ${TAGS:+-tags="${TAGS}"} \
+    -tags="hostplayground" \
     -o bin/host \
     cmd/main.go && \
     echo "Build completed successfully"

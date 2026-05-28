@@ -1,7 +1,6 @@
 package attestation
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -10,7 +9,7 @@ import (
 
 	gocid "github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -72,13 +71,13 @@ func TestBlockSignatureCache_Add(t *testing.T) {
 	}{
 		{
 			name:      "nil signature is ignored",
-			setup:     func(c *BlockSignatureCache) {},
+			setup:     func(_ *BlockSignatureCache) {},
 			sig:       nil,
 			expectLen: 0,
 		},
 		{
 			name:  "add normal signature",
-			setup: func(c *BlockSignatureCache) {},
+			setup: func(_ *BlockSignatureCache) {},
 			sig: &BlockSignature{
 				BlockNumber: 10,
 				BlockHash:   "abc",
@@ -140,7 +139,7 @@ func TestBlockSignatureCache_Get(t *testing.T) {
 		},
 		{
 			name:        "get missing entry",
-			setup:       func(c *BlockSignatureCache) {},
+			setup:       func(_ *BlockSignatureCache) {},
 			blockNumber: 99,
 			expectFound: false,
 		},
@@ -204,25 +203,25 @@ func TestBlockSignatureVerifier_VerifyBlockSignature(t *testing.T) {
 			name: "invalid merkle root hex",
 			sig: &BlockSignature{
 				MerkleRoot:     "not-valid-hex!",
-				SignatureValue: "aabb",
-				SignatureType:  "Ed25519",
+				SignatureValue: testSigAabb,
+				SignatureType:  sigTypeEd25519,
 			},
 			wantErr: "failed to decode merkle root",
 		},
 		{
 			name: "invalid signature value hex",
 			sig: &BlockSignature{
-				MerkleRoot:     "aabb",
+				MerkleRoot:     testSigAabb,
 				SignatureValue: "zzzz",
-				SignatureType:  "Ed25519",
+				SignatureType:  sigTypeEd25519,
 			},
 			wantErr: "failed to decode signature value",
 		},
 		{
 			name: "unsupported signature type",
 			sig: &BlockSignature{
-				MerkleRoot:     "aabb",
-				SignatureValue: "ccdd",
+				MerkleRoot:     testSigAabb,
+				SignatureValue: testSigCcdd,
 				SignatureType:  "RSA2048",
 			},
 			wantErr: "unsupported signature type: RSA2048",
@@ -230,51 +229,50 @@ func TestBlockSignatureVerifier_VerifyBlockSignature(t *testing.T) {
 		{
 			name: "invalid public key for ES256K",
 			sig: &BlockSignature{
-				MerkleRoot:        "aabb",
-				SignatureValue:    "ccdd",
-				SignatureType:     "ES256K",
+				MerkleRoot:        testSigAabb,
+				SignatureValue:    testSigCcdd,
+				SignatureType:     sigTypeES256K,
 				SignatureIdentity: "not-a-real-key",
 			},
-			wantErr: "failed to parse public key",
+			wantErr: testParsePubKeyErr,
 		},
 		{
 			name: "invalid public key for ecdsa-256k alias",
 			sig: &BlockSignature{
-				MerkleRoot:        "aabb",
-				SignatureValue:    "ccdd",
-				SignatureType:     "ecdsa-256k",
+				MerkleRoot:        testSigAabb,
+				SignatureValue:    testSigCcdd,
+				SignatureType:     sigTypeES256KLower,
 				SignatureIdentity: "bad-key",
 			},
-			wantErr: "failed to parse public key",
+			wantErr: testParsePubKeyErr,
 		},
 		{
 			name: "invalid public key for Ed25519",
 			sig: &BlockSignature{
-				MerkleRoot:        "aabb",
-				SignatureValue:    "ccdd",
-				SignatureType:     "Ed25519",
+				MerkleRoot:        testSigAabb,
+				SignatureValue:    testSigCcdd,
+				SignatureType:     sigTypeEd25519,
 				SignatureIdentity: "bad-key-data",
 			},
-			wantErr: "failed to parse public key",
+			wantErr: testParsePubKeyErr,
 		},
 		{
 			name: "invalid public key for ed25519 lowercase alias",
 			sig: &BlockSignature{
-				MerkleRoot:        "aabb",
-				SignatureValue:    "ccdd",
-				SignatureType:     "ed25519",
+				MerkleRoot:        testSigAabb,
+				SignatureValue:    testSigCcdd,
+				SignatureType:     sigTypeEd25519Lower,
 				SignatureIdentity: "bad-key-data",
 			},
-			wantErr: "failed to parse public key",
+			wantErr: testParsePubKeyErr,
 		},
 	}
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := v.VerifyBlockSignature(ctx, tt.sig)
+			err := v.VerifyBlockSignature(tt.sig)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -332,7 +330,7 @@ func TestBlockSignatureVerifier_VerifyCIDsAgainstBlockSignature(t *testing.T) {
 			name: "root length mismatch",
 			cids: []string{cid1, cid2},
 			sig: &BlockSignature{
-				MerkleRoot: "aabb", // 2 bytes vs 32-byte SHA-256
+				MerkleRoot: testSigAabb, // 2 bytes vs 32-byte SHA-256
 			},
 			wantMatch: false,
 		},
@@ -530,11 +528,11 @@ func TestNewBlockCIDCollector(t *testing.T) {
 
 func TestBlockCIDCollector_AddDocumentCID(t *testing.T) {
 	c := NewBlockCIDCollector()
-	c.AddDocumentCID(1, "doc-a", "typeA", "cid-a1")
-	c.AddDocumentCID(1, "doc-b", "typeB", "cid-b1")
+	c.AddDocumentCID(1, "doc-a", "typeA", testCIDA1)
+	c.AddDocumentCID(1, "doc-b", "typeB", testCIDB1)
 	c.AddDocumentCID(2, "doc-c", "typeC", "cid-c1")
 
-	require.Equal(t, []string{"cid-a1", "cid-b1"}, c.blockCIDs[1])
+	require.Equal(t, []string{testCIDA1, testCIDB1}, c.blockCIDs[1])
 	require.Equal(t, []string{"cid-c1"}, c.blockCIDs[2])
 	require.Equal(t, []string{"doc-a", "doc-b"}, c.blockDocs[1])
 	require.Equal(t, "typeA", c.docTypes["doc-a"])
@@ -551,18 +549,18 @@ func TestBlockCIDCollector_GetBlockCIDs(t *testing.T) {
 	}{
 		{
 			name:        "get missing block returns nil",
-			setup:       func(c *BlockCIDCollector) {},
+			setup:       func(_ *BlockCIDCollector) {},
 			blockNumber: 99,
 			expect:      nil,
 		},
 		{
 			name: "get existing block returns copy",
 			setup: func(c *BlockCIDCollector) {
-				c.AddDocumentCID(5, "d1", "t1", "cid-1")
-				c.AddDocumentCID(5, "d2", "t2", "cid-2")
+				c.AddDocumentCID(5, "d1", "t1", testCID1)
+				c.AddDocumentCID(5, "d2", "t2", testCID2)
 			},
 			blockNumber: 5,
-			expect:      []string{"cid-1", "cid-2"},
+			expect:      []string{testCID1, testCID2},
 		},
 	}
 
@@ -633,17 +631,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_Success(t *testing.
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       42,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    sigHex,
-		SignatureType:     "Ed25519",
+		SignatureType:     sigTypeEd25519,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -652,17 +649,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519Lowercase_Success(t 
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       43,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    sigHex,
-		SignatureType:     "ed25519",
+		SignatureType:     sigTypeEd25519Lower,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -672,17 +668,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_Success(t *testin
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeSecp256k1)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       44,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    sigHex,
-		SignatureType:     "ES256K",
+		SignatureType:     sigTypeES256K,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -691,17 +686,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_EcdsaAlias_Success(t *testi
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeSecp256k1)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       45,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    sigHex,
-		SignatureType:     "ecdsa-256k",
+		SignatureType:     sigTypeES256KLower,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.NoError(t, err)
 }
 
@@ -715,17 +709,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_InvalidSignature(t *testing
 	pubKeyHex, sigHex := signMerkleRoot(t, differentData[:], crypto.KeyTypeEd25519)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       46,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    sigHex,
-		SignatureType:     "Ed25519",
+		SignatureType:     sigTypeEd25519,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 	// Should be either "signature verification error" or "block signature verification failed"
 	errMsg := err.Error()
@@ -744,17 +737,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_InvalidSignature(
 	pubKeyHex, sigHex := signMerkleRoot(t, differentData[:], crypto.KeyTypeSecp256k1)
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       47,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    sigHex,
-		SignatureType:     "ES256K",
+		SignatureType:     sigTypeES256K,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err := v.VerifyBlockSignature(ctx, sig)
+	err := v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 }
 
@@ -769,17 +761,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_MalformedSignatureBytes(t *
 	pubKeyHex := privKey.GetPublic().String()
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       48,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    "0102030405", // Valid hex but not a valid DER signature
-		SignatureType:     "ES256K",
+		SignatureType:     sigTypeES256K,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err = v.VerifyBlockSignature(ctx, sig)
+	err = v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 }
 
@@ -793,17 +784,16 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_MalformedSignatureB
 	pubKeyHex := privKey.GetPublic().String()
 
 	v := NewBlockSignatureVerifier(10)
-	ctx := context.Background()
 
 	sig := &BlockSignature{
 		BlockNumber:       49,
 		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
 		SignatureValue:    "0102", // Only 2 bytes, not a valid Ed25519 signature
-		SignatureType:     "Ed25519",
+		SignatureType:     sigTypeEd25519,
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err = v.VerifyBlockSignature(ctx, sig)
+	err = v.VerifyBlockSignature(sig)
 	require.Error(t, err)
 	errMsg := err.Error()
 	require.True(t,
@@ -854,10 +844,10 @@ func TestBlockCIDCollector_ConcurrentAccess(t *testing.T) {
 			c.AddDocumentCID(1, fmt.Sprintf("doc-%d", idx), "type", fmt.Sprintf("cid-%d", idx))
 			done <- true
 		}(i)
-		go func(idx int) {
+		go func() {
 			_ = c.GetBlockCIDs(1)
 			done <- true
-		}(i)
+		}()
 		go func() {
 			c.ClearBlock(2) // clear a different block concurrently
 			done <- true

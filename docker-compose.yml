@@ -4,7 +4,8 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.1
+    image: ghcr.io/shinzonetwork/shinzo-host-client:standard
+    platform: linux/amd64
     mem_reservation: 15g
     restart: unless-stopped
     container_name: shinzo-host
@@ -14,10 +15,10 @@ services:
       - "9181:9181"  # DefraDB API (internal network access)
       - "444:9182"  # GraphQL Playground 
       - "9171:9171"  # P2P networking (still needs external access)
-    volumes:
-      - ~/data/defradb:/app/.defra/data
-      - ~/data/lens:/app/.lens
-      - ~/config.yaml:/app/config.yaml:ro
+    # volumes:
+    #   - ./data/defradb:/app/.defra/data
+    #   - ./data/lens:/app/.lens
+    #   - ./config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
       - LOG_LEVEL=error
@@ -32,6 +33,7 @@ services:
 
   nginx:
     image: nginx:alpine
+    platform: linux/amd64
     ports:
       - "8080:8080"
     volumes:

@@ -8,22 +8,22 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
 )
 
-// TestSetupLensInDefraDB_NoLenses tests when view has no lenses
+// TestSetupLensInDefraDB_NoLenses tests when view has no lenses.
 func TestSetupLensInDefraDB_NoLenses(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	v := &View{
 		Name: "NoLensView",
 		Data: viewbundle.View{
-			Query: "Log { address }",
+			Query: queryLogAddr,
 			Sdl:   "type NoLensView { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{},
@@ -36,17 +36,17 @@ func TestSetupLensInDefraDB_NoLenses(t *testing.T) {
 	require.Empty(t, lensCID)
 }
 
-// TestSetupLensInDefraDB_WithLenses tests lens setup with valid lenses
+// TestSetupLensInDefraDB_WithLenses tests lens setup with valid lenses.
 func TestSetupLensInDefraDB_WithLenses(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	v := &View{
 		Name: "LensView",
 		Data: viewbundle.View{
-			Query: "Log { address topics }",
+			Query: queryLogAddrTopics,
 			Sdl:   "type LensView { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -68,11 +68,11 @@ func TestSetupLensInDefraDB_WithLenses(t *testing.T) {
 	}
 }
 
-// TestBuildLensConfig_SingleLens tests building config with one lens
+// TestBuildLensConfig_SingleLens tests building config with one lens.
 func TestBuildLensConfig_SingleLens(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
-			Query: "Log { address topics }",
+			Query: queryLogAddrTopics,
 			Sdl:   "type FilteredLog { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -89,12 +89,12 @@ func TestBuildLensConfig_SingleLens(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, v.Data.Query, config.SourceCollectionVersionID)
 	require.Equal(t, v.Data.Sdl, config.DestinationCollectionVersionID)
-	require.Len(t, config.Lens.Lenses, 1)
+	require.Len(t, config.Lenses, 1)
 	require.Equal(t, "file:///filter.wasm", config.Lens.Lenses[0].Path)
 	require.Equal(t, "value", config.Lens.Lenses[0].Arguments["key"])
 }
 
-// TestBuildLensConfig_MultipleLenses tests building config with multiple lenses
+// TestBuildLensConfig_MultipleLenses tests building config with multiple lenses.
 func TestBuildLensConfig_MultipleLenses(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
@@ -121,7 +121,7 @@ func TestBuildLensConfig_MultipleLenses(t *testing.T) {
 
 	config, err := v.BuildLensConfig()
 	require.NoError(t, err)
-	require.Len(t, config.Lens.Lenses, 3)
+	require.Len(t, config.Lenses, 3)
 	require.Equal(t, "file:///filter.wasm", config.Lens.Lenses[0].Path)
 	require.Equal(t, "file:///transform.wasm", config.Lens.Lenses[1].Path)
 	require.Equal(t, "file:///decode.wasm", config.Lens.Lenses[2].Path)
@@ -130,11 +130,11 @@ func TestBuildLensConfig_MultipleLenses(t *testing.T) {
 	require.Equal(t, float64(3), config.Lens.Lenses[2].Arguments["step"])
 }
 
-// TestBuildLensConfig_EmptyArguments tests lens with empty arguments
+// TestBuildLensConfig_EmptyArguments tests lens with empty arguments.
 func TestBuildLensConfig_EmptyArguments(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
-			Query: "Log { address }",
+			Query: queryLogAddr,
 			Sdl:   "type SimpleLog { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -149,15 +149,15 @@ func TestBuildLensConfig_EmptyArguments(t *testing.T) {
 
 	config, err := v.BuildLensConfig()
 	require.NoError(t, err)
-	require.Len(t, config.Lens.Lenses, 1)
+	require.Len(t, config.Lenses, 1)
 	require.Empty(t, config.Lens.Lenses[0].Arguments)
 }
 
-// TestBuildLensConfig_InvalidJSON tests lens with invalid JSON arguments
+// TestBuildLensConfig_InvalidJSON tests lens with invalid JSON arguments.
 func TestBuildLensConfig_InvalidJSON(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
-			Query: "Log { address }",
+			Query: queryLogAddr,
 			Sdl:   "type BadLog { address: String }",
 			Transform: viewbundle.Transform{
 				Lenses: []viewbundle.Lens{
@@ -175,7 +175,7 @@ func TestBuildLensConfig_InvalidJSON(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to parse lens arguments")
 }
 
-// TestHasLenses_True tests HasLenses returns true when lenses exist
+// TestHasLenses_True tests HasLenses returns true when lenses exist.
 func TestHasLenses_True(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
@@ -190,7 +190,7 @@ func TestHasLenses_True(t *testing.T) {
 	require.True(t, v.HasLenses())
 }
 
-// TestHasLenses_False tests HasLenses returns false when no lenses
+// TestHasLenses_False tests HasLenses returns false when no lenses.
 func TestHasLenses_False(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
@@ -203,7 +203,7 @@ func TestHasLenses_False(t *testing.T) {
 	require.False(t, v.HasLenses())
 }
 
-// TestHasLenses_Nil tests HasLenses with nil lenses
+// TestHasLenses_Nil tests HasLenses with nil lenses.
 func TestHasLenses_Nil(t *testing.T) {
 	v := &View{
 		Data: viewbundle.View{
@@ -216,7 +216,7 @@ func TestHasLenses_Nil(t *testing.T) {
 	require.False(t, v.HasLenses())
 }
 
-// TestPostWasmToFile_Base64Conversion tests converting base64 WASM to file
+// TestPostWasmToFile_Base64Conversion tests converting base64 WASM to file.
 func TestPostWasmToFile_Base64Conversion(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -235,7 +235,7 @@ func TestPostWasmToFile_Base64Conversion(t *testing.T) {
 		},
 	}
 
-	err := v.PostWasmToFile(context.Background(), tempDir)
+	err := v.PostWasmToFile(tempDir)
 	require.NoError(t, err)
 
 	// Verify path was updated to file:// URL
@@ -243,13 +243,13 @@ func TestPostWasmToFile_Base64Conversion(t *testing.T) {
 	require.Contains(t, v.Data.Transform.Lenses[0].Path, ".wasm")
 
 	// Verify file exists and has correct content
-	filePath := v.Data.Transform.Lenses[0].Path[7:] // Remove "file://"
-	data, err := os.ReadFile(filePath)
+	path := v.Data.Transform.Lenses[0].Path[7:] // Remove "file://"
+	data, err := os.ReadFile(filepath.Clean(path))
 	require.NoError(t, err)
 	require.Equal(t, wasmData, data)
 }
 
-// TestPostWasmToFile_SkipsFileURLs tests that file:// URLs are not converted
+// TestPostWasmToFile_SkipsFileURLs tests that file:// URLs are not converted.
 func TestPostWasmToFile_SkipsFileURLs(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -264,14 +264,14 @@ func TestPostWasmToFile_SkipsFileURLs(t *testing.T) {
 		},
 	}
 
-	err := v.PostWasmToFile(context.Background(), tempDir)
+	err := v.PostWasmToFile(tempDir)
 	require.NoError(t, err)
 
 	// Path should remain unchanged
 	require.Equal(t, "file:///already/a/file.wasm", v.Data.Transform.Lenses[0].Path)
 }
 
-// TestPostWasmToFile_SkipsHTTPURLs tests that HTTP URLs are not converted
+// TestPostWasmToFile_SkipsHTTPURLs tests that HTTP URLs are not converted.
 func TestPostWasmToFile_SkipsHTTPURLs(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -286,14 +286,14 @@ func TestPostWasmToFile_SkipsHTTPURLs(t *testing.T) {
 		},
 	}
 
-	err := v.PostWasmToFile(context.Background(), tempDir)
+	err := v.PostWasmToFile(tempDir)
 	require.NoError(t, err)
 
 	// Path should remain unchanged
 	require.Equal(t, "https://example.com/lens.wasm", v.Data.Transform.Lenses[0].Path)
 }
 
-// TestPostWasmToFile_InvalidWASM tests rejection of invalid WASM data
+// TestPostWasmToFile_InvalidWASM tests rejection of invalid WASM data.
 func TestPostWasmToFile_InvalidWASM(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -312,12 +312,12 @@ func TestPostWasmToFile_InvalidWASM(t *testing.T) {
 		},
 	}
 
-	err := v.PostWasmToFile(context.Background(), tempDir)
+	err := v.PostWasmToFile(tempDir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid WASM file format")
 }
 
-// TestPostWasmToFile_TooShortWASM tests rejection of too-short WASM data
+// TestPostWasmToFile_TooShortWASM tests rejection of too-short WASM data.
 func TestPostWasmToFile_TooShortWASM(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -336,12 +336,12 @@ func TestPostWasmToFile_TooShortWASM(t *testing.T) {
 		},
 	}
 
-	err := v.PostWasmToFile(context.Background(), tempDir)
+	err := v.PostWasmToFile(tempDir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid WASM file format")
 }
 
-// TestPostWasmToFile_MultipleBase64Lenses tests converting multiple base64 lenses
+// TestPostWasmToFile_MultipleBase64Lenses tests converting multiple base64 lenses.
 func TestPostWasmToFile_MultipleBase64Lenses(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -360,7 +360,7 @@ func TestPostWasmToFile_MultipleBase64Lenses(t *testing.T) {
 		},
 	}
 
-	err := v.PostWasmToFile(context.Background(), tempDir)
+	err := v.PostWasmToFile(tempDir)
 	require.NoError(t, err)
 
 	// Both should be converted
@@ -371,41 +371,41 @@ func TestPostWasmToFile_MultipleBase64Lenses(t *testing.T) {
 	require.NotEqual(t, v.Data.Transform.Lenses[0].Path, v.Data.Transform.Lenses[1].Path)
 }
 
-// TestIsValidBase64_Valid tests valid base64 detection
+// TestIsValidBase64_Valid tests valid base64 detection.
 func TestIsValidBase64_Valid(t *testing.T) {
 	validBase64 := base64.StdEncoding.EncodeToString([]byte("test data"))
 	require.True(t, isValidBase64(validBase64))
 }
 
-// TestIsValidBase64_Invalid tests invalid base64 detection
+// TestIsValidBase64_Invalid tests invalid base64 detection.
 func TestIsValidBase64_Invalid(t *testing.T) {
 	require.False(t, isValidBase64("not valid base64!!!"))
 }
 
-// TestIsValidWASM_Valid tests valid WASM magic number detection
+// TestIsValidWASM_Valid tests valid WASM magic number detection.
 func TestIsValidWASM_Valid(t *testing.T) {
 	validWasm := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
 	require.True(t, isValidWASM(validWasm))
 }
 
-// TestIsValidWASM_Invalid tests invalid WASM magic number detection
+// TestIsValidWASM_Invalid tests invalid WASM magic number detection.
 func TestIsValidWASM_Invalid(t *testing.T) {
 	invalidWasm := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00}
 	require.False(t, isValidWASM(invalidWasm))
 }
 
-// TestIsValidWASM_TooShort tests WASM data that's too short
+// TestIsValidWASM_TooShort tests WASM data that's too short.
 func TestIsValidWASM_TooShort(t *testing.T) {
 	shortData := []byte{0x00, 0x61, 0x73}
 	require.False(t, isValidWASM(shortData))
 }
 
-// TestConfigureLens_WithoutLensCID tests view configuration without lens CID
+// TestConfigureLens_WithoutLensCID tests view configuration without lens CID.
 func TestConfigureLens_WithoutLensCID(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create source collection
 	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
@@ -414,22 +414,21 @@ func TestConfigureLens_WithoutLensCID(t *testing.T) {
 	v := &View{
 		Name: "SimpleView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Log { address }",
+			Query: queryEthLogAddr,
 			Sdl:   "type SimpleView { address: String }",
 		},
 	}
 
-	schemaService := NewSchemaService()
-	err = v.ConfigureLens(ctx, defraNode, schemaService, "")
+	err = v.ConfigureLens(ctx, defraNode, "")
 	require.NoError(t, err)
 }
 
-// TestConfigureLens_WithLensCID tests view configuration with lens CID
+// TestConfigureLens_WithLensCID tests view configuration with lens CID.
 func TestConfigureLens_WithLensCID(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, &defra.MockSchemaApplierThatSucceeds{})
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
-	defer defraNode.Close(ctx)
+	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create source collection
 	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
@@ -438,35 +437,34 @@ func TestConfigureLens_WithLensCID(t *testing.T) {
 	v := &View{
 		Name: "LensedView",
 		Data: viewbundle.View{
-			Query: "Ethereum__Mainnet__Transaction { hash }",
+			Query: queryEthTransactionHash,
 			Sdl:   "type LensedView { hash: String }",
 		},
 	}
 
-	schemaService := NewSchemaService()
 	// Use a fake lens CID - AddView will handle it
-	err = v.ConfigureLens(ctx, defraNode, schemaService, "bafyreifake123")
+	err = v.ConfigureLens(ctx, defraNode, "bafyreifake123")
 	// May fail if lens CID doesn't exist, but we test the code path
 	if err != nil && !contains(err.Error(), "already exists") {
 		require.Contains(t, err.Error(), "failed to create view")
 	}
 }
 
-// TestBuildLensConfig_ComplexArguments tests lens with complex JSON arguments
+// TestBuildLensConfig_ComplexArguments tests lens with complex JSON arguments.
 func TestBuildLensConfig_ComplexArguments(t *testing.T) {
-	complexArgs := map[string]interface{}{
-		"events": []interface{}{
-			map[string]interface{}{
-				"name": "Transfer",
-				"inputs": []interface{}{
-					map[string]interface{}{"type": "address", "name": "from"},
-					map[string]interface{}{"type": "address", "name": "to"},
-					map[string]interface{}{"type": "uint256", "name": "value"},
+	complexArgs := map[string]any{
+		"events": []any{
+			map[string]any{
+				gqlFieldName: "Transfer",
+				"inputs": []any{
+					map[string]any{gqlFieldType: "address", gqlFieldName: "from"},
+					map[string]any{gqlFieldType: "address", gqlFieldName: "to"},
+					map[string]any{gqlFieldType: "uint256", gqlFieldName: "value"},
 				},
 			},
 		},
-		"config": map[string]interface{}{
-			"strict": true,
+		"config": map[string]any{
+			"strict":  true,
 			"version": 2,
 		},
 	}
@@ -491,27 +489,27 @@ func TestBuildLensConfig_ComplexArguments(t *testing.T) {
 
 	config, err := v.BuildLensConfig()
 	require.NoError(t, err)
-	require.Len(t, config.Lens.Lenses, 1)
+	require.Len(t, config.Lenses, 1)
 
 	// Verify complex arguments were parsed correctly
 	args := config.Lens.Lenses[0].Arguments
 	require.Contains(t, args, "events")
 	require.Contains(t, args, "config")
 
-	configMap := args["config"].(map[string]interface{})
+	configMap := args["config"].(map[string]any)
 	require.Equal(t, true, configMap["strict"])
 	require.Equal(t, float64(2), configMap["version"])
 }
 
-// TestSaveViewToRegistry tests saving view to registry file
+// TestSaveViewToRegistry tests saving view to registry file.
 func TestSaveViewToRegistry(t *testing.T) {
 	tempDir := t.TempDir()
 
 	v := View{
-		Name: "TestView",
+		Name: testViewName,
 		Data: viewbundle.View{
-			Query: "Log { address }",
-			Sdl:   "type TestView { address: String }",
+			Query: queryLogAddr,
+			Sdl:   sdlTestView,
 		},
 	}
 
@@ -524,31 +522,31 @@ func TestSaveViewToRegistry(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify content
-	data, err := os.ReadFile(viewsFile)
+	data, err := os.ReadFile(filepath.Clean(viewsFile))
 	require.NoError(t, err)
 
 	var views []View
 	err = json.Unmarshal(data, &views)
 	require.NoError(t, err)
 	require.Len(t, views, 1)
-	require.Equal(t, "TestView", views[0].Name)
+	require.Equal(t, testViewName, views[0].Name)
 }
 
-// TestAddViewsFromLensRegistry tests loading views from registry
+// TestAddViewsFromLensRegistry tests loading views from registry.
 func TestAddViewsFromLensRegistry(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create views.json
 	views := []View{
 		{
-			Name: "View1",
+			Name: testViewNameOne,
 			Data: viewbundle.View{
-				Query: "Log { address }",
+				Query: queryLogAddr,
 				Sdl:   "type View1 { address: String }",
 			},
 		},
 		{
-			Name: "View2",
+			Name: testViewNameTwo,
 			Data: viewbundle.View{
 				Query: "Transaction { hash }",
 				Sdl:   "type View2 { hash: String }",
@@ -560,18 +558,18 @@ func TestAddViewsFromLensRegistry(t *testing.T) {
 	require.NoError(t, err)
 
 	viewsFile := filepath.Join(tempDir, "views.json")
-	err = os.WriteFile(viewsFile, data, 0644)
+	err = os.WriteFile(viewsFile, data, 0o600)
 	require.NoError(t, err)
 
 	// Load views
 	loadedViews, err := AddViewsFromLensRegistry(tempDir)
 	require.NoError(t, err)
 	require.Len(t, loadedViews, 2)
-	require.Equal(t, "View1", loadedViews[0].Name)
-	require.Equal(t, "View2", loadedViews[1].Name)
+	require.Equal(t, testViewNameOne, loadedViews[0].Name)
+	require.Equal(t, testViewNameTwo, loadedViews[1].Name)
 }
 
-// TestAddViewsFromLensRegistry_NoFile tests loading when file doesn't exist
+// TestAddViewsFromLensRegistry_NoFile tests loading when file doesn't exist.
 func TestAddViewsFromLensRegistry_NoFile(t *testing.T) {
 	tempDir := t.TempDir()
 

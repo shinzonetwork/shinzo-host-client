@@ -1,6 +1,6 @@
 package constants
 
-// Transaction represents a transaction from Ethereum
+// Transaction represents a transaction from Ethereum.
 type Transaction struct {
 	Hash                 string            `json:"hash"`
 	BlockHash            string            `json:"blockHash"`
@@ -16,7 +16,7 @@ type Transaction struct {
 	Nonce                string            `json:"nonce"`
 	TransactionIndex     int               `json:"transactionIndex"`
 	Type                 string            `json:"type"`
-	ChainId              string            `json:"chainId"`
+	ChainID              string            `json:"chainId"`
 	V                    string            `json:"v"`
 	R                    string            `json:"r"`
 	S                    string            `json:"s"`
@@ -28,5 +28,5 @@ type Transaction struct {
 	AccessList           []AccessListEntry `json:"accessList"`
 
 	Version []Version `json:"_version"`
-	DocId   string    `json:"_docID"`
+	DocID   string    `json:"_docID"`
 }

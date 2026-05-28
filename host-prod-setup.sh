@@ -5,10 +5,8 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      # - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF'
-      # - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWCXACP55i3jSf6rMiZXGpdruyvr9SyEdXBxu2PXeQGtv1'
-      # - '/ip4/35.209.3.27/tcp/9171/p2p/12D3KooWCjuGc2jjFGogai7kwJpYC6BwxPvsZVDsgB5BUNGXofUr'
-      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWMYhYNBo4zAi9j7TpyGQJBSvbwSSNkgsMrLs6vHUnFUzY'
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooW9vHms1Uyzai3j8L3ZykcPhLYXoHifzrhgKP6HaTmszbV'
+      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDUN4xrdREQ4qcAbRmHb1otefmwi6F3a9FTsZdconUHUZ' # IND2
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -29,7 +27,8 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 0 # Indexer auto-detects from chain tip
-  hub_base_url: rpc.devnet.shinzo.network:26657
+  # hub_base_url: rpc.devnet.shinzo.network:26657
+  hub_base_url: rpc.develop.devnet.shinzo.network:26657
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
@@ -135,7 +134,8 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.5.7
+    image: ghcr.io/shinzonetwork/shinzo-host-client:standard
+    user: "1003:1006" # update to match your user and group id.
     mem_limit: 16g
     mem_reservation: 13g
     restart: unless-stopped
@@ -148,6 +148,7 @@ services:
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
       - ~/data/defradb:/app/.defra/data
+      - ~/data/keys:/app/.defra/keys
       - ~/data/lens:/app/.lens
       - ~/config.yaml:/app/config.yaml:ro
     environment:
