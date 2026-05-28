@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -109,6 +110,78 @@ func TestEventSubscription_HydratesAndEmits(t *testing.T) {
 		// Hydration must copy it onto the View so the decoded value carries
 		// the on-chain identity end-to-end.
 		require.Equal(t, contract, vre.View.ContractAddress, "view contract address propagated to View struct")
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for hydrated view.view_registered event")
+	}
+}
+
+// When the LCD returns a transient 404 before the registering block has
+// propagated to the LCD-backing RPC pod, hydration must retry rather than
+// drop. This test stubs an LCD that 404s the first two requests and then
+// serves the bundle; the event must be emitted on the channel with its
+// View populated.
+//
+// What this catches: a regression where the retry is bypassed or counted
+// wrong; a mismatch between the retry classifier and what GetViewBundle
+// returns on 404; a deadlock between the retry sleep and the WS read
+// goroutine; the channel-send racing the WARN drop.
+func TestEventSubscription_HydratesAfterTransientLCD(t *testing.T) {
+	useFastHydrateRetries(t, 5, 1*time.Millisecond)
+
+	const contract = "0x6814589574569e6c25e72EB52f62aFaDDf5eF14D"
+	const expectedQuery = "Ethereum__Mainnet__Log { address }"
+	bundleBase64 := makeTestBundle(t, "TestHydration")
+
+	var hits atomic.Int64
+	lcdSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shinzonetwork/view/v1/views/"+contract {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		count := hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if count <= 2 {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":5,"message":"view not found"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			lcdFieldView: LCDView{
+				Name:            "stub",
+				Creator:         testViewCreator,
+				ContractAddress: contract,
+				Data:            bundleBase64,
+				Height:          "1",
+			},
+		})
+	}))
+	defer lcdSrv.Close()
+	lcd := NewRPCClient(lcdSrv.URL, nil)
+
+	wsSrv := NewMockWebSocketServer()
+	defer wsSrv.Close()
+
+	cancel, ch, err := StartEventSubscription(wsSrv.WebsocketURL(), lcd)
+	require.NoError(t, err)
+	defer cancel()
+
+	wsSrv.SendEvent(txResponseFor(Event{
+		Type: eventTypeViewRegistered,
+		Attributes: []EventAttribute{
+			{Key: attrViewID, Value: "TestHydration_" + contract},
+			{Key: attrContractAddress, Value: contract},
+			{Key: attrCreator, Value: testViewCreator},
+		},
+	}))
+
+	select {
+	case ev, ok := <-ch:
+		require.True(t, ok, "event channel closed unexpectedly")
+		vre, ok := ev.(*ViewRegisteredEvent)
+		require.True(t, ok, "expected *ViewRegisteredEvent, got %T", ev)
+		require.Equal(t, contract, vre.ContractAddress)
+		require.Equal(t, expectedQuery, vre.View.Data.Query, "view query hydrated from bundle on retry")
+		require.EqualValues(t, 3, hits.Load(), "two transient failures plus one success")
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for hydrated view.view_registered event")
 	}
