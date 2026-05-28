@@ -44,7 +44,7 @@ The binary lands at `./bin/host`.
 docker build -t shinzo-host-client .
 ```
 
-To include the Playground UI in the image, add `--build-arg TAGS=hostplayground`.
+To include the Playground UI in the image, pass `--build-arg TAGS=hostplayground`.
 
 ## Ports
 

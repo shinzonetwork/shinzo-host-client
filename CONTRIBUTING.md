@@ -32,4 +32,4 @@ Before touching host startup, view processing, or attestation handling, read the
 - Keep PRs focused. One change per PR.
 - Describe what you changed and why in the PR description.
 - Make sure all tests pass before requesting review: `go test -v ./pkg/...`
-- Leave lots of comments. It's best to be verbose in your explanations rather than assuming reviewers know what you're doing.
+- Leave plenty of comments. Reviewers should not have to guess what you were thinking.

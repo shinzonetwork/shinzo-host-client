@@ -22,7 +22,7 @@ Make sure `~/config.yaml` exists on the host machine, then:
 docker compose up
 ```
 
-At minimum, set your keyring secret before starting:
+Set your keyring secret before starting:
 
 ```shell
 export DEFRA_KEYRING_SECRET=<your-secret>
