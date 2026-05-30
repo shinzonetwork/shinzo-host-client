@@ -229,3 +229,31 @@ func TestLoadConfig_BootstrapPeersEnvOverride(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"peer1", "peer2", "peer3"}, cfg.DefraDB.P2P.BootstrapPeers)
 }
+
+func TestLoadConfig_DefraURLEnvOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("DEFRA_URL", "0.0.0.0:9181")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "0.0.0.0:9181", cfg.DefraDB.URL)
+}
+
+func TestLoadConfig_DefraURLEnvUnsetKeepsYAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("DEFRA_URL", "")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "localhost:9181", cfg.DefraDB.URL)
+}

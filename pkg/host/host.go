@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
@@ -31,6 +32,7 @@ import (
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
+	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -101,9 +103,10 @@ type Host struct {
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
-	processingCancel       context.CancelFunc // For canceling the event processing goroutine
-	playgroundServer       *http.Server       // Playground HTTP server (if enabled)
-	config                 *config.Config     // Host configuration including StartHeight
+	processingCancel       context.CancelFunc  // For canceling the event processing goroutine
+	playgroundServer       *http.Server        // Playground HTTP server (if enabled)
+	acpServer              *defradbHttp.Server // ACP-wrapped GraphQL server (set when the ACP middleware owns the API port)
+	config                 *config.Config      // Host configuration including StartHeight
 
 	// EVENT-DRIVEN ATTESTATION SYSTEM: Only track attestation processing
 	processingPipeline *ProcessingPipeline // Complete message processing pipeline
@@ -134,6 +137,14 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	logger.Init(cfg.Logger.Development, "./logs")
 
+	// Load ACP middleware configuration from the environment before any
+	// defradb work so a misconfigured host fails fast instead of starting
+	// up ungated.
+	acpCfg, err := acp.LoadConfigFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("acp config: %w", err)
+	}
+
 	// Configure DefraDB logging - set to error level to hide INFO logs from HTTP requests
 	corelog.SetConfigOverride("http", corelog.Config{
 		Level: corelog.LevelError,
@@ -149,6 +160,13 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// recover from it, so the host process dies. wazero returns traps as Go errors.
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
+
+	// When the ACP middleware is enabled the host owns the GraphQL API port.
+	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
+	// the auto-start of the HTTP server is suppressed.
+	if acpCfg.Enabled {
+		nodeOpts.SetDisableAPI(true)
+	}
 
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		cfg.ToInternalConfig(),
@@ -179,6 +197,22 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// Bootstrap from historical snapshots before P2P starts
 	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
 		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
+	}
+
+	// View manager has to be built before the ACP server because the
+	// middleware's view registry adapts the manager's accessors.
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+
+	// When the middleware is enabled the host owns the GraphQL API. The
+	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.
+	// defraNode.APIURL is populated inside startACPServer so the playground
+	// proxy below uses our address.
+	var acpServer *defradbHttp.Server
+	if acpCfg.Enabled {
+		acpServer, err = startACPServer(ctx, acpCfg, defraNode, viewManager, cfg.DefraDB.URL)
+		if err != nil {
+			return nil, fmt.Errorf("acp server: %w", err)
+		}
 	}
 
 	// Log API URL
@@ -231,13 +265,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},
 		playgroundServer:       playgroundServer,
+		acpServer:              acpServer,
 		config:                 cfg,
 		metrics:                server.NewHostMetrics(),
+		viewManager:            viewManager,
 	}
-
-	// Initialize ViewManager and load persisted views
-	// This handles: 1) Fetch views from ShinzoHub, 2) Load local views, 3) Download WASM files, 4) Register views
-	newHost.viewManager = view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
 
 	// Hook up metrics callback for view tracking
 	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
@@ -634,6 +666,14 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
+	// Shut down the ACP-wrapped GraphQL server before closing defradb;
+	// the server holds a handler that calls into defraNode.DB.
+	if h.acpServer != nil {
+		if err := h.acpServer.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down ACP server: %v\n", err)
+		}
+	}
+
 	// ViewManager cleanup (no explicit close needed - just log)
 	if h.viewManager != nil {
 		logger.Sugar.Infof("🎯 ViewManager shutdown: %d active views", h.viewManager.GetViewCount())
@@ -651,6 +691,81 @@ func (h *Host) Close(ctx context.Context) error {
 
 	return nil
 }
+
+// startACPServer constructs the host-owned GraphQL HTTP server: it wraps
+// defradb's API handler with the ACP middleware, binds the listener on
+// the resolved LAN address, points defraNode.APIURL at the address so
+// the playground proxy uses it, and waits for the server to answer a
+// health check before returning. Caller shuts the returned server down
+// via Host.Close.
+func startACPServer(
+	ctx context.Context,
+	acpCfg acp.Config,
+	defraNode *node.Node,
+	viewManager *view.Manager,
+	defraURL string,
+) (*defradbHttp.Server, error) {
+	authz, err := acp.NewSourceHubAuthorizer(acpCfg.SourceHubGRPC, acpCfg.SourceHubComet, acpCfg.PolicyID)
+	if err != nil {
+		return nil, fmt.Errorf("authorizer: %w", err)
+	}
+
+	registry := acp.NewViewRegistry(viewManager)
+	mw := acp.NewMiddleware(acp.BearerJWTAuth{}, authz, registry, logger.Sugar)
+
+	handler, err := defradbHttp.NewHandler(defraNode.DB)
+	if err != nil {
+		return nil, fmt.Errorf("defradb handler: %w", err)
+	}
+
+	// Bind on host:port. Loopback hosts (localhost, 127.0.0.1, ::1) are
+	// promoted to 0.0.0.0 so the same listener accepts both external
+	// connections and in-process loopback calls (e.g. healthcheck probes).
+	host, port, splitErr := net.SplitHostPort(defraURL)
+	if splitErr != nil {
+		return nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
+	}
+	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		host = "0.0.0.0"
+	}
+	listenAddr := net.JoinHostPort(host, port)
+
+	server, err := defradbHttp.NewServer(mw.Wrap(handler), options.NodeHTTP().SetAddress(listenAddr))
+	if err != nil {
+		return nil, fmt.Errorf("defradb server: %w", err)
+	}
+	if err := server.SetListener(); err != nil {
+		return nil, fmt.Errorf("listener: %w", err)
+	}
+
+	go func() {
+		if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Sugar.Errorf("ACP server stopped: %v", err)
+		}
+	}()
+
+	defraNode.APIURL = server.Address()
+
+	healthCtx, cancel := context.WithTimeout(ctx, acpHealthCheckTimeout)
+	defer cancel()
+
+	healthClient, err := defradbHttp.NewClient(server.Address())
+	if err != nil {
+		_ = server.Shutdown(ctx)
+		return nil, fmt.Errorf("health client: %w", err)
+	}
+	if err := healthClient.HealthCheck(healthCtx); err != nil {
+		_ = server.Shutdown(ctx)
+		return nil, fmt.Errorf("health check: %w", err)
+	}
+
+	return server, nil
+}
+
+// acpHealthCheckTimeout bounds the post-listen health check on the
+// ACP-wrapped server. The server is local; a slow response indicates
+// startup is wedged and the host should fail rather than hang.
+const acpHealthCheckTimeout = 5 * time.Second
 
 // GetMetricsHandler returns an HTTP handler for the metrics endpoint.
 func (h *Host) GetMetricsHandler() http.Handler {

@@ -3,6 +3,7 @@ package shinzohub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -10,6 +11,13 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"go.uber.org/zap"
+)
+
+// Live LCD hydration retries while the hub RPC pod catches up to the
+// registering block.
+var (
+	hydrateMaxAttempts = 3                      //nolint:gochecknoglobals
+	hydrateBaseDelay   = 100 * time.Millisecond //nolint:gochecknoglobals
 )
 
 // log returns a non-nil SugaredLogger. Falls back to a nop logger when
@@ -296,7 +304,7 @@ func hydrateViewBundle(ctx context.Context, lcd *RPCClient, vre *ViewRegisteredE
 		return ErrEventNoContract
 	}
 
-	wireBase64, err := lcd.GetViewBundle(ctx, vre.ContractAddress)
+	wireBase64, err := fetchBundleWithRetry(ctx, lcd, vre.ContractAddress)
 	if err != nil {
 		return fmt.Errorf("fetch bundle: %w", err)
 	}
@@ -305,8 +313,57 @@ func hydrateViewBundle(ctx context.Context, lcd *RPCClient, vre *ViewRegisteredE
 	if err != nil {
 		return fmt.Errorf("decode bundle: %w", err)
 	}
+	v.ContractAddress = vre.ContractAddress
 	vre.View = v
 	return nil
+}
+
+// fetchBundleWithRetry calls GetViewBundle with exponential backoff on
+// transient failures (see isTransientHydrationErr).
+func fetchBundleWithRetry(ctx context.Context, lcd *RPCClient, contractAddr string) (string, error) {
+	delay := hydrateBaseDelay
+	var lastErr error
+	for attempt := 1; attempt <= hydrateMaxAttempts; attempt++ {
+		wireBase64, err := lcd.GetViewBundle(ctx, contractAddr)
+		if err == nil {
+			if attempt > 1 {
+				log().Infof("view bundle for contract %s hydrated on attempt %d", contractAddr, attempt)
+			}
+			return wireBase64, nil
+		}
+		if !isTransientHydrationErr(err) {
+			return "", err
+		}
+		lastErr = err
+		if attempt == hydrateMaxAttempts {
+			break
+		}
+		jitter := time.Duration(rand.Int64N(int64(delay) / 2)) //nolint:gosec,mnd
+		wait := delay + jitter - delay/4                       //nolint:mnd
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(wait):
+		}
+		delay *= 2
+	}
+	return "", fmt.Errorf("gave up after %d attempts: %w", hydrateMaxAttempts, lastErr)
+}
+
+// isTransientHydrationErr identifies failures that the hub RPC pod's
+// replication lag can produce.
+func isTransientHydrationErr(err error) bool {
+	if errors.Is(err, ErrLCDHTTPStatus) || errors.Is(err, ErrLCDEmptyData) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr interface{ Timeout() bool }
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return false
 }
 
 // isTimeoutError checks whether the error is a read deadline timeout.

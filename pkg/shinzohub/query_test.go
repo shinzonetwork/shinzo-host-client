@@ -195,6 +195,41 @@ func TestFetchAllRegisteredViews_LCDNotConfigured(t *testing.T) {
 	require.Contains(t, err.Error(), "LCD URL not configured")
 }
 
+// FetchAllRegisteredViews must carry the LCDView contract address onto the
+// decoded view.View. The LCD response is the only place the address is
+// available during the startup backfill; dropping it at decode time would
+// force callers to do a second per-view query to recover it.
+func TestFetchAllRegisteredViews_PopulatesContractAddress(t *testing.T) {
+	bundleA := makeTestBundle(t, testViewNameA)
+	bundleB := makeTestBundle(t, testViewNameB)
+	const contractA = "0xA"
+	const contractB = "0xB"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			lcdFieldViews: []LCDView{
+				{Name: testViewNameA, Creator: "shinzo1a", ContractAddress: contractA, Data: bundleA, Height: "1"},
+				{Name: testViewNameB, Creator: "shinzo1b", ContractAddress: contractB, Data: bundleB, Height: "2"},
+			},
+			lcdFieldPagination: map[string]any{lcdFieldNextKey: nil},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewRPCClient(srv.URL, nil)
+	views, _, err := c.FetchAllRegisteredViews(context.Background())
+	require.NoError(t, err)
+	require.Len(t, views, 2)
+
+	byName := map[string]string{}
+	for _, v := range views {
+		byName[v.Name] = v.ContractAddress
+	}
+	require.Equal(t, contractA, byName[testViewNameA], "ContractAddress for first view propagated from LCD response")
+	require.Equal(t, contractB, byName[testViewNameB], "ContractAddress for second view propagated from LCD response")
+}
+
 func TestFetchAllRegisteredViews_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
