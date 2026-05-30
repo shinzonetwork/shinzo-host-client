@@ -3,7 +3,6 @@ package shinzohub
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +28,7 @@ func useFastHydrateRetries(t *testing.T, attempts int, base time.Duration) {
 func servAfterN(t *testing.T, n int, contract, bundle string) (*httptest.Server, *atomic.Int64) {
 	t.Helper()
 	var hits atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		count := hits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if count <= int64(n) {
@@ -173,10 +172,10 @@ func TestFetchBundleWithRetry_RespectsContextCancel(t *testing.T) {
 }
 
 // fakeNetErr implements the Timeout() probe used by isTransientHydrationErr.
-type fakeNetErr struct{ timeout bool }
+type fakeNetError struct{ timeout bool }
 
-func (e fakeNetErr) Timeout() bool { return e.timeout }
-func (e fakeNetErr) Error() string { return "fake net err" }
+func (e fakeNetError) Timeout() bool { return e.timeout }
+func (e fakeNetError) Error() string { return "fake net err" }
 
 func TestIsTransientHydrationErr(t *testing.T) {
 	cases := []struct {
@@ -188,9 +187,9 @@ func TestIsTransientHydrationErr(t *testing.T) {
 		{"lcd http status wrap", fmt.Errorf("%w: HTTP 404", ErrLCDHTTPStatus), true},
 		{"lcd empty data wrap", fmt.Errorf("%w: contract 0xabc", ErrLCDEmptyData), true},
 		{"context deadline", context.DeadlineExceeded, true},
-		{"timeout interface", fakeNetErr{timeout: true}, true},
-		{"non-timeout interface", fakeNetErr{timeout: false}, false},
-		{"decode failure is permanent", errors.New("decode bundle: invalid wire format"), false},
+		{"timeout interface", fakeNetError{timeout: true}, true},
+		{"non-timeout interface", fakeNetError{timeout: false}, false},
+		{"decode failure is permanent", fmt.Errorf("%w: invalid wire format", errDecodeBundleInvalidWireFormat), false},
 		{"missing contract is permanent", ErrEventNoContract, false},
 		{"lcd not configured is permanent", ErrLCDNotConfigured, false},
 	}

@@ -315,7 +315,7 @@ func TestExtractCollections_FragmentCycleReturnsErr(t *testing.T) {
 func TestExtractCollections_ExcessiveFragmentDepthReturnsErr(t *testing.T) {
 	var b strings.Builder
 	const depth = 32 // exceeds maxFragmentDepth
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		fmt.Fprintf(&b, "fragment F%d on Query { ...F%d } ", i, i+1)
 	}
 	fmt.Fprintf(&b, "fragment F%d on Query { FilteredLogs { hash } } query { ...F0 }", depth)
