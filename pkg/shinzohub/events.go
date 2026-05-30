@@ -16,8 +16,8 @@ import (
 // Live LCD hydration retries while the hub RPC pod catches up to the
 // registering block.
 var (
-	hydrateMaxAttempts = 3
-	hydrateBaseDelay   = 100 * time.Millisecond
+	hydrateMaxAttempts = 3                      //nolint:gochecknoglobals
+	hydrateBaseDelay   = 100 * time.Millisecond //nolint:gochecknoglobals
 )
 
 // log returns a non-nil SugaredLogger. Falls back to a nop logger when
