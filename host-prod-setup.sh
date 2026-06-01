@@ -169,7 +169,8 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8080:8080"
+      - "80:80"
+      - "443:443"   
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
