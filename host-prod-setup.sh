@@ -150,7 +150,7 @@ services:
     volumes:
       - ~/data/defradb:/app/.defra
       - ~/data/keys:/app/.defra/keys
-      - ~/data/lens:/app/.lens`
+      - ~/data/lens:/app/.defra/lens`
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
