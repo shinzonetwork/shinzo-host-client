@@ -23,7 +23,6 @@ The binary lands at `./bin/host`.
 | --- | --- |
 | `make build` | Build the binary into `./bin/host`. |
 | `make build-playground` | Download playground assets and build with the embedded GraphQL Playground UI. |
-| `make build-branchable` | Build with the `branchable` schema variant. |
 | `make start` | Run the compiled `./bin/host` binary. |
 | `make deps-playground` | Download playground static assets (required before `build-playground`). |
 | `go run cmd/main.go` | Run without building. |
@@ -34,7 +33,6 @@ The binary lands at `./bin/host`.
 | Tag | Effect |
 | --- | --- |
 | `hostplayground` | Embeds the GraphQL Playground UI (served on port `9182`). |
-| `branchable` | Uses the branchable GraphQL schema variant. |
 
 ## Docker
 
@@ -47,6 +45,9 @@ docker build -t shinzo-host-client .
 To include the Playground UI in the image, pass `--build-arg TAGS=hostplayground`.
 
 ## Ports
+
+> [!NOTE]
+> The playground port is set to the DefraDB GraphQL port `+1`. For example, if the DefraDB GraphQL port is set to `9181`, then the playground port is automatically set to `9182`. Similarly, if the DefraDB GraphQL port is set to `443`, then they playground port is set to `444`.
 
 | Port | Service |
 | --- | --- |
