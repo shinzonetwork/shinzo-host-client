@@ -149,7 +149,8 @@ services:
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
       - ~/data/defradb:/app/.defra
-      - ~/data/lens:/app/.lens
+      - ~/data/keys:/app/.defra/keys
+      - ~/data/lens:/app/.lens`
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
@@ -171,6 +172,8 @@ services:
       - "8080:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ~/ssl/nginx.key:/etc/nginx/ssl/nginx.key:ro
     depends_on:
       - shinzo-host
     networks:
