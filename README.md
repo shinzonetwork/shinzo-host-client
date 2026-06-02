@@ -28,6 +28,8 @@ Set your keyring secret before starting:
 export DEFRA_KEYRING_SECRET=<your-secret>
 ```
 
+Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/hosts/overview).
+
 > [!TIP]
 > See [BUILD.md](./BUILD.md) for full build-from-source instructions.
 
