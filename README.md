@@ -37,7 +37,7 @@ Further instructions, as well as hardware recommendations, can be found at [docs
 
 The app reads from `config/config.yaml`. The only field you must set is `defradb.keyring_secret` (or the `DEFRA_KEYRING_SECRET` environment variable). Everything else has working defaults.
 
-See the [Shinzo documentation site](https://docs.shinzo.network) for the full configuration reference.
+See [docs.shinzo.network](https://docs.shinzo.network/hosts/overview) for the full configuration reference.
 
 ## Deployment
 
