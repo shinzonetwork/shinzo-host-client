@@ -1,4 +1,4 @@
-.PHONY: build build-playground build-branchable build-branchable-with-playground start deps-playground lint lint-fix
+.PHONY: build build-playground start deps-playground lint lint-fix
 
 build:
 	go build -o bin/host cmd/main.go
