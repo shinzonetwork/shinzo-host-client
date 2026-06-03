@@ -32,7 +32,7 @@ jobs:
           ${{ runner.os }}-go-
 
     - name: Linting - golangci-lint
-      uses: golangci/golangci-lint-action@v6
+      uses: golangci/golangci-lint-action@v7
       with:
         version: v2.12.2
 
