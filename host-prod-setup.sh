@@ -126,8 +126,6 @@ host:
         end: 24528999
 EOF
 
-&&
-
 sudo tee ~/docker-compose.yml <<'EOF'
 networks:
   shinzo-net:
@@ -181,8 +179,6 @@ services:
       - shinzo-net
     restart: unless-stopped
 EOF
-
-&&
 
 sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
