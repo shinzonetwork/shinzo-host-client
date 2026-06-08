@@ -44,12 +44,13 @@ jobs:
     - name: Run tests
       env:
         GCP_GETH_RPC_URL: ${{ secrets.GCP_GETH_RPC_URL }}
-        GCP_GETH_WS_URL:  ${{ secrets.GCP_GETH_WS_URL }}
+        GCP_GETH_WS_URL: ${{ secrets.GCP_GETH_WS_URL }}
         GCP_GETH_API_KEY: ${{ secrets.GCP_GETH_API_KEY }}
-      run: go test -count=1 -timeout=3m \
-        -covermode=atomic \
-        -coverprofile=coverage.out \
-        ./pkg/...
+      run: |
+        go test -count=1 -timeout=3m \
+          -covermode=atomic \
+          -coverprofile=coverage.out \
+          ./pkg/...
     
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
