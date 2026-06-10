@@ -126,8 +126,6 @@ host:
         end: 24528999
 EOF
 
-&&
-
 sudo tee ~/docker-compose.yml <<'EOF'
 networks:
   shinzo-net:
@@ -149,7 +147,8 @@ services:
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
       - ~/data/defradb:/app/.defra
-      - ~/data/lens:/app/.lens
+      - ~/data/keys:/app/.defra/keys
+      - ~/data/lens:/app/.defra/lens`
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
@@ -168,17 +167,18 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8080:8080"
+      - "80:80"
+      - "443:443"   
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ~/ssl/nginx.key:/etc/nginx/ssl/nginx.key:ro
     depends_on:
       - shinzo-host
     networks:
       - shinzo-net
     restart: unless-stopped
 EOF
-
-&&
 
 sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
