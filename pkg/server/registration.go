@@ -15,7 +15,7 @@ import (
 
 const (
 	registrationMessage = "Shinzo Network host registration"
-	registrationAppHost = "registration-staging.shinzo.network"
+	registrationAppHost = "registration.shinzo.network"
 )
 
 // DisplayRegistration represents the registration status and signed messages for display in the health endpoint.

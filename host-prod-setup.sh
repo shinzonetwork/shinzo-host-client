@@ -252,6 +252,27 @@ http {
       add_header 'Vary'                         'Origin' always;
       proxy_pass http://$backend:8080/registration;
       proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /registration-app {
+      if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
+        return 204;
+      }
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:8080/registration-app;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location = /api/v0/graphql {
