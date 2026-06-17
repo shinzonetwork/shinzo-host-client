@@ -108,7 +108,7 @@ pruner:
   max_blocks: 2000         # Number of blocks to retain
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
-  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
+  prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
 logger:
   development: false
   level: "error"
