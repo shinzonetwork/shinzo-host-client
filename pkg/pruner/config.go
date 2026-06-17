@@ -22,6 +22,8 @@ type CollectionConfig struct {
 }
 
 // DefaultCollectionConfig returns the default Ethereum mainnet collection config.
+// Adding to DependentCollections also requires an enum entry in
+// pkg/pruner/event_queue.go's knownCollections map; otherwise Push discards it.
 func DefaultCollectionConfig() CollectionConfig {
 	return CollectionConfig{
 		BlockCollection:  "Ethereum__Mainnet__Block",
@@ -31,6 +33,8 @@ func DefaultCollectionConfig() CollectionConfig {
 			"Ethereum__Mainnet__AccessListEntry",
 			"Ethereum__Mainnet__Log",
 			"Ethereum__Mainnet__Transaction",
+			"Ethereum__Mainnet__BlockSignature",
+			"Ethereum__Mainnet__AttestationRecord",
 		},
 	}
 }
