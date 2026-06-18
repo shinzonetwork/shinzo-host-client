@@ -439,38 +439,42 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 	}
 }
 
-// processAttestationsFromBlockSignature creates or updates an attestation record for a block.
+// processAttestationsFromBlockSignature builds a BlockAttestation from a verified
+// BlockSignature and writes it to the host-owned Ethereum__Mainnet__BlockAttestation
+// collection. PostBlockAttestation handles the merge by (hostId, blockNumber, merkleRoot).
 func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockSig *attestationService.BlockSignature) {
 	if h.DefraNode == nil {
 		return
 	}
 
 	blockNumber := blockSig.BlockNumber
-	blockAttestedID := fmt.Sprintf("block:%d:%s", blockNumber, blockSig.MerkleRoot)
 
 	if len(blockSig.CIDs) == 0 {
 		logger.Sugar.Warnf("Skipping attestation for block %d: block signature has no CID list", blockNumber)
 		return
 	}
 
-	record := &constants.AttestationRecord{
-		AttestedDocID: blockAttestedID,
-		SourceDocIDs:  []string{blockSig.SignatureIdentity},
-		CIDs:          blockSig.CIDs,
-		DocType:       docTypeBlock,
-		VoteCount:     1,
+	record := &constants.BlockAttestation{
+		HostID:           h.hostID,
+		BlockNumber:      blockNumber,
+		BlockHash:        blockSig.BlockHash,
+		MerkleRoot:       blockSig.MerkleRoot,
+		SignerIdentities: []string{blockSig.SignatureIdentity},
+		CIDs:             blockSig.CIDs,
+		ShinzoHeight:     h.heightPoller.Latest(),
+		CreatedAt:        time.Now().Unix(),
 	}
 
 	var lastErr error
 	for attempt := range maxAttestationRetries {
-		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+		if err := attestationService.PostBlockAttestation(ctx, h.DefraNode, record, h.signBlockAttestation); err != nil {
 			lastErr = err
 			if strings.Contains(err.Error(), "transaction conflict") || strings.Contains(err.Error(), "Please retry") {
 				time.Sleep(time.Duration(attestationBackoffBase*(1<<attempt)) * time.Millisecond)
 				continue
 			}
 			// Non-retryable error
-			logger.Sugar.Warnf("Failed to post attestation for block %d: %v", blockNumber, err)
+			logger.Sugar.Warnf("Failed to post block attestation for block %d: %v", blockNumber, err)
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationErrors()
 			}
@@ -478,13 +482,13 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		}
 		// Success
 		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
-			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
+			logger.Sugar.Infof("Updated block attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		} else {
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationsCreated()
 				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
 			}
-			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
+			logger.Sugar.Infof("Created block attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		}
 		if h.metrics != nil {
 			h.metrics.UpdateMostRecentBlock(uint64(blockNumber)) //nolint:gosec // block numbers are always positive
@@ -492,7 +496,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		return
 	}
 
-	logger.Sugar.Warnf("Failed to post attestation for block %d after retries: %v", blockNumber, lastErr)
+	logger.Sugar.Warnf("Failed to post block attestation for block %d after retries: %v", blockNumber, lastErr)
 	if h.metrics != nil {
 		h.metrics.IncrementAttestationErrors()
 	}

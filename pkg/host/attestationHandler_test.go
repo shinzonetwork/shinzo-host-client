@@ -20,6 +20,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
@@ -493,30 +494,53 @@ func TestEnqueueDoc_Concurrent(t *testing.T) {
 // processAttestationsFromBlockSignature - retryable error path
 // ---------------------------------------------------------------------------
 
-func TestProcessAttestationsFromBlockSignature_EmptyBlockAttestedID(t *testing.T) {
-	// This test verifies the blockAttestedID format
+func TestProcessAttestationsFromBlockSignature_RecordShape(t *testing.T) {
+	// Drives the real handler with a BlockSignature, then reads the stored record back
+	// to check the field mapping: typed block fields (not a packed string), the signer
+	// recorded, cids and the host's own id persisted, and voteCount at one signer.
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	h := newBlockAttestationHost(t, defraNode)
+
+	attestedBlocks.Delete(int64(42))
+	defer attestedBlocks.Delete(int64(42))
+
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       42,
+		BlockHash:         "0xhash42",
 		MerkleRoot:        "abc123",
 		SignatureIdentity: testSignerAddr,
 		CIDs:              []string{testCID1, testCID2},
 	}
+	h.processAttestationsFromBlockSignature(ctx, blockSig)
 
-	blockAttestedID := fmt.Sprintf("block:%d:%s", blockSig.BlockNumber, blockSig.MerkleRoot)
-	require.Equal(t, "block:42:abc123", blockAttestedID)
+	query := fmt.Sprintf(`query {
+		%s(filter: {blockNumber: {_eq: 42}}) {
+			hostId
+			blockNumber
+			blockHash
+			merkleRoot
+			signerIdentities
+			cids
+			voteCount
+		}
+	}`, constants.CollectionBlockAttestation)
+	recs, err := defradb.QueryArray[constants.BlockAttestation](ctx, defraNode, query)
+	require.NoError(t, err)
+	require.Len(t, recs, 1, "handler should write exactly one record")
 
-	record := &constants.AttestationRecord{
-		AttestedDocID: blockAttestedID,
-		SourceDocIDs:  []string{blockSig.SignatureIdentity},
-		CIDs:          blockSig.CIDs,
-		DocType:       docTypeBlock,
-		VoteCount:     1,
-	}
-	require.Equal(t, "block:42:abc123", record.AttestedDocID)
-	require.Equal(t, []string{testSignerAddr}, record.SourceDocIDs)
-	require.Equal(t, []string{testCID1, testCID2}, record.CIDs)
-	require.Equal(t, docTypeBlock, record.DocType)
-	require.Equal(t, 1, record.VoteCount)
+	got := recs[0]
+	require.Equal(t, h.hostID, got.HostID, "handler must stamp the host's own id")
+	require.Equal(t, int64(42), got.BlockNumber)
+	require.Equal(t, "0xhash42", got.BlockHash)
+	require.Equal(t, "abc123", got.MerkleRoot)
+	require.Equal(t, []string{testSignerAddr}, got.SignerIdentities)
+	require.Equal(t, []string{testCID1, testCID2}, got.CIDs)
+	require.Equal(t, 1, got.VoteCount)
 }
 
 // ---------------------------------------------------------------------------
@@ -934,12 +958,8 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	metrics := server.NewHostMetrics()
-
-	h := &Host{
-		DefraNode: defraNode,
-		metrics:   metrics,
-	}
+	h := newBlockAttestationHost(t, defraNode)
+	metrics := h.metrics
 
 	// Clean up global attestedBlocks state for this block number
 	attestedBlocks.Delete(int64(200))
@@ -951,17 +971,29 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 		CIDs:              []string{"cid-a", "cid-b", "cid-c"},
 	}
 
-	// First call should create the attestation
+	// First call creates the attestation.
+	h.processAttestationsFromBlockSignature(ctx, blockSig)
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated),
+		"first call must create exactly one attestation")
+	require.Equal(t, int64(0), atomic.LoadInt64(&metrics.AttestationErrors),
+		"first call must not error")
+
+	// Re-posting the same signer for the same block must not duplicate the record
+	// or inflate the distinct-signer count.
 	h.processAttestationsFromBlockSignature(ctx, blockSig)
 
-	// Verify metrics were updated
-	require.True(t, metrics.AttestationsCreated > 0 || metrics.AttestationErrors > 0,
-		"either attestations created or errors should be incremented")
+	query := fmt.Sprintf(`query {
+		%s(filter: {blockNumber: {_eq: 200}}) {
+			signerIdentities
+			voteCount
+		}
+	}`, constants.CollectionBlockAttestation)
+	recs, err := defradb.QueryArray[constants.BlockAttestation](ctx, defraNode, query)
+	require.NoError(t, err)
+	require.Len(t, recs, 1, "re-posting the same signer must stay one record")
+	require.Equal(t, []string{blockSig.SignatureIdentity}, recs[0].SignerIdentities)
+	require.Equal(t, 1, recs[0].VoteCount, "re-posting the same signer must not inflate voteCount")
 
-	// Second call with same block should hit the "existed" path in attestedBlocks
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
-
-	// Clean up
 	attestedBlocks.Delete(int64(200))
 }
 
@@ -1247,6 +1279,29 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 // processAttestationsFromBlockSignature - multiple calls to exercise "existed" metrics path
 // ---------------------------------------------------------------------------
 
+// newBlockAttestationHost builds a Host wired for block-attestation writes against
+// a test DefraDB: it registers the BlockAttestation collection and loads the node's
+// identity (saved to the test keyring by StartDefraInstanceWithTestConfig) so the
+// host can sign records, matching the production startup wiring.
+func newBlockAttestationHost(t *testing.T, defraNode *node.Node) *Host {
+	t.Helper()
+	ctx := context.Background()
+
+	_, err := defraNode.DB.AddSchema(ctx, localschema.BlockAttestationSchema)
+	require.NoError(t, err)
+
+	id, err := signer.LoadIdentity(defraNode, defradb.DefaultConfig)
+	require.NoError(t, err)
+	require.NotNil(t, id.PublicKey())
+
+	return &Host{
+		DefraNode:       defraNode,
+		metrics:         server.NewHostMetrics(),
+		signingIdentity: id,
+		hostID:          id.PublicKey().String(),
+	}
+}
+
 func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	ctx := context.Background()
 
@@ -1254,11 +1309,8 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	metrics := server.NewHostMetrics()
-	h := &Host{
-		DefraNode: defraNode,
-		metrics:   metrics,
-	}
+	h := newBlockAttestationHost(t, defraNode)
+	metrics := h.metrics
 
 	// Clean up global attestedBlocks state
 	attestedBlocks.Delete(int64(300))
@@ -1271,14 +1323,13 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 		CIDs:              []string{testCIDName1, testCIDName2},
 	}
 
-	// First call creates attestation
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
-	_ = atomic.LoadInt64(&metrics.AttestationsCreated)
-
-	// Second call hits the "existed" path — should update rather than create
+	// First call creates the block attestation
 	h.processAttestationsFromBlockSignature(ctx, blockSig)
 
-	// MostRecentBlock should have been updated
+	// Second call hits the "existed" path, updating rather than creating
+	h.processAttestationsFromBlockSignature(ctx, blockSig)
+
+	// MostRecentBlock should have been updated (which only happens on a successful write)
 	require.GreaterOrEqual(t, atomic.LoadUint64(&metrics.MostRecentBlock), uint64(300))
 }
 
@@ -1293,11 +1344,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	metrics := server.NewHostMetrics()
-	h := &Host{
-		DefraNode: defraNode,
-		metrics:   metrics,
-	}
+	h := newBlockAttestationHost(t, defraNode)
 
 	// Clean up global attestedBlocks state
 	attestedBlocks.Delete(int64(400))
@@ -1321,15 +1368,22 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 	}
 	h.processAttestationsFromBlockSignature(ctx, blockSigB)
 
-	// Query the attestation record
-	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, "block:400:aaa", docTypeBlock)
+	// Query the block attestation for this (block, merkleRoot).
+	query := fmt.Sprintf(`query {
+		%s(filter: {blockNumber: {_eq: 400}, merkleRoot: {_eq: "aaa"}}) {
+			signerIdentities
+			voteCount
+		}
+	}`, constants.CollectionBlockAttestation)
+	records, err := defradb.QueryArray[constants.BlockAttestation](ctx, defraNode, query)
 	require.NoError(t, err)
-	require.Len(t, records, 1, "Should have exactly one attestation record for this block")
+	require.Len(t, records, 1, "Should have exactly one block attestation for this (block, merkleRoot)")
 
 	record := records[0]
-	require.Contains(t, record.SourceDocIDs, "indexer-A", "Should contain first indexer's identity")
-	require.Contains(t, record.SourceDocIDs, "indexer-B", "Should contain second indexer's identity")
-	require.Len(t, record.SourceDocIDs, 2, "Should have exactly 2 indexer identities")
+	require.Contains(t, record.SignerIdentities, "indexer-A", "Should contain first indexer's identity")
+	require.Contains(t, record.SignerIdentities, "indexer-B", "Should contain second indexer's identity")
+	require.Len(t, record.SignerIdentities, 2, "Should have exactly 2 distinct indexer identities")
+	require.Equal(t, 2, record.VoteCount, "voteCount must be the distinct signer count")
 }
 
 func TestDebugSchema(t *testing.T) {

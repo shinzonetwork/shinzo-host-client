@@ -11,5 +11,6 @@ var (
 	ErrEventNoContract               = errors.New("event has no contract_address")
 	ErrLCDEmptyData                  = errors.New("LCD response carries empty data")
 	ErrLCDHTTPStatus                 = errors.New("LCD returned non-OK HTTP status")
+	ErrEmptyHeight                   = errors.New("status response carries empty height")
 	errDecodeBundleInvalidWireFormat = errors.New("decode bundle: invalid wire format")
 )

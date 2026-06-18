@@ -30,6 +30,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
+	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
 	defradbHttp "github.com/sourcenetwork/defradb/http"
@@ -100,6 +101,15 @@ type Host struct {
 	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
 	blockCIDCollector      *attestation.BlockCIDCollector      // Collects CIDs per block for batch verification
+
+	// Cached host identity for block attestations, loaded once at startup to avoid
+	// reopening the keyring per attestation. hostID is the host's secp256k1 defra
+	// public key hex (matches BlockSignature.signatureIdentity keyspace);
+	// signingIdentity produces the record's hostSignature.
+	hostID          string
+	signingIdentity identity.FullIdentity
+	// heightPoller tracks the latest ShinzoHub height stamped onto block attestations.
+	heightPoller *shinzohub.HeightPoller
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
@@ -292,6 +302,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		rpcClient = shinzohub.NewRPCClient(lcdURL, defraNode)
 	}
 
+	// Poll the ShinzoHub chain tip so block attestations can record the height they
+	// were written at (for accounting-service epoch binning). An empty rpcURL yields
+	// height 0 rather than a failure.
+	newHost.heightPoller = shinzohub.NewHeightPoller(rpcURL)
+
 	// Fetch views from ShinzoHub if RPC URL is configured
 	var hubViews []view.View
 	logger.Sugar.Infof("ShinzoHub base URL: %s", rpcURL)
@@ -384,6 +399,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	processingCtx, processingCancel := context.WithCancel(context.Background())
 	newHost.processingCancel = processingCancel
 	go newHost.processAttestationEventsWithSubscription(processingCtx)
+	go newHost.heightPoller.Start(processingCtx, shinzoHeightPollInterval)
 
 	// Block monitoring is now handled by the event-driven processAllViews goroutine
 	// No separate monitoring goroutine needed
@@ -401,6 +417,18 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(blockSignatureCacheSize)
 		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
 		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with block signature support)")
+
+		// Cache the host identity once so signing each block attestation does not
+		// reopen the keyring. hostID is the host's secp256k1 defra public key hex.
+		if id, idErr := signer.LoadIdentity(defraNode, cfg.ToInternalConfig()); idErr == nil {
+			newHost.signingIdentity = id
+			if pk := id.PublicKey(); pk != nil {
+				newHost.hostID = pk.String()
+			}
+			logger.Sugar.Infof("🪪 Host attestation identity cached (hostId=%s)", truncateString(newHost.hostID, identityTruncateLength))
+		} else {
+			logger.Sugar.Warnf("Failed to cache host identity for block attestations: %v", idErr)
+		}
 	}
 
 	port := cfg.HostConfig.HealthServerPort
@@ -927,17 +955,32 @@ func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 
 	_, err := defraNode.DB.AddSchema(ctx, localschema.GetSchema())
-	if err != nil && strings.Contains(err.Error(), "collection already exists") {
+	if err != nil {
+		if !strings.Contains(err.Error(), "collection already exists") {
+			return err
+		}
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
 		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int }`
-		_, configErr := defraNode.DB.AddSchema(ctx, configSchema)
-		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
+		if _, configErr := defraNode.DB.AddSchema(ctx, configSchema); configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
 			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)
 		}
-		return nil
 	}
-	return err
+
+	// BlockAttestation is host-owned and not in the shared schema, so register it on
+	// its own. This runs whether the bulk AddSchema above created the shared schema
+	// (fresh datastore) or no-oped (existing one). Re-adding an existing collection
+	// returns "collection already exists", which is ignored.
+	if _, baErr := defraNode.DB.AddSchema(ctx, localschema.BlockAttestationSchema); baErr != nil && !strings.Contains(baErr.Error(), "collection already exists") {
+		return fmt.Errorf("failed to register BlockAttestation collection: %w", baErr)
+	}
+	return nil
+}
+
+// signBlockAttestation signs a block-attestation payload with the host's cached
+// DefraDB identity. It is passed as the SignFunc to attestation.PostBlockAttestation.
+func (h *Host) signBlockAttestation(payload string) (string, error) {
+	return signer.SignWithIdentity(h.signingIdentity, payload)
 }
 
 // RegisterViewWithManager registers a view and manages its lifecycle.

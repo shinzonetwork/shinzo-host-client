@@ -31,6 +31,10 @@ const (
 	nanosecondsPerMillisecond = 1_000_000.0
 	// defaultTimeout is a const for the default timeout in s.
 	defaultTimeout = 5 * time.Second
+	// shinzoHeightPollInterval is how often the host refreshes the cached ShinzoHub
+	// height stamped onto block attestations. Epoch binning is coarse, so a few
+	// seconds of staleness is acceptable and avoids a chain call per attestation.
+	shinzoHeightPollInterval = 10 * time.Second
 )
 
 // Short document-type aliases. The provenance + processing pipelines

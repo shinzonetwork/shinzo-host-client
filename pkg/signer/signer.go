@@ -134,6 +134,44 @@ func SignWithDefraKeys(message string, defraNode *node.Node, cfg *defradb.Config
 	return hex.EncodeToString(signature), nil
 }
 
+// LoadIdentity loads the host's DefraDB identity (secp256k1) once so callers can
+// cache it and sign on a hot path without re-opening the keyring per call. It
+// uses the same keyring-then-file load path as SignWithDefraKeys.
+func LoadIdentity(defraNode *node.Node, cfg *defradb.Config) (identity.FullIdentity, error) {
+	storePath, err := getStorePath(defraNode, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get store path: %w", err)
+	}
+
+	fullIdentity, err := loadIdentityFromStoreFn(cfg, storePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load identity: %w", err)
+	}
+
+	return fullIdentity, nil
+}
+
+// SignWithIdentity signs a message with an already-loaded identity and returns a
+// hex-encoded signature. Pair it with LoadIdentity to sign repeatedly without
+// reloading the key (the standalone SignWithDefraKeys reloads on every call).
+func SignWithIdentity(id identity.FullIdentity, message string) (string, error) {
+	if id == nil {
+		return "", ErrNoPrivateKey
+	}
+
+	privateKey := id.PrivateKey()
+	if privateKey == nil {
+		return "", ErrNoPrivateKey
+	}
+
+	signature, err := privateKey.Sign([]byte(message))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	return hex.EncodeToString(signature), nil
+}
+
 // SignWithP2PKeys signs a message using the LibP2P private key (Ed25519) derived from the DefraDB identity.
 // The signature is returned as a hex-encoded string.
 // If cfg is provided and has a KeyringSecret, it will use the keyring; otherwise falls back to file-based storage.
