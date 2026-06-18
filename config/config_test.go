@@ -257,3 +257,41 @@ func TestLoadConfig_DefraURLEnvUnsetKeepsYAML(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "localhost:9181", cfg.DefraDB.URL)
 }
+
+func TestLoadConfig_IndexerSchemaEndpoint_YAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: /custom/v2/schema\n"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "/custom/v2/schema", cfg.Schema.IndexerSchemaEndpoint)
+}
+
+func TestLoadConfig_IndexerSchemaEndpoint_EnvOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: /api/v1/schema\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("INDEXER_SCHEMA_ENDPOINT", "/env/v3/schema")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "/env/v3/schema", cfg.Schema.IndexerSchemaEndpoint)
+}
+
+func TestLoadConfig_IndexerSchemaEndpoint_Default(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("{}"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/schema", cfg.Schema.IndexerSchemaEndpoint)
+}

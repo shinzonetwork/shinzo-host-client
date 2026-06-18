@@ -59,9 +59,15 @@ type LoggerConfig struct {
 type Config struct {
 	DefraDB    DefraDBConfig `yaml:"defradb"`
 	Shinzo     ShinzoConfig  `yaml:"shinzo"`
+	Schema     SchemaConfig  `yaml:"schema"`
 	Logger     LoggerConfig  `yaml:"logger"`
 	HostConfig HostConfig    `yaml:"host"`
 	Pruner     pruner.Config `yaml:"pruner"`
+}
+
+// SchemaConfig represents configuration for dynamic schema fetching.
+type SchemaConfig struct {
+	IndexerSchemaEndpoint string `yaml:"indexer_schema_endpoint"` // Path for the indexer schema endpoint; defaults to /api/v1/schema
 }
 
 // ShinzoConfig represents configuration specific to the Shinzo host application.
@@ -189,6 +195,13 @@ func LoadConfig(path string) (*Config, error) {
 	// loopback-only default) without editing the YAML.
 	if v := os.Getenv("DEFRA_URL"); v != "" {
 		cfg.DefraDB.URL = v
+	}
+
+	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT"); v != "" {
+		cfg.Schema.IndexerSchemaEndpoint = v
+	}
+	if cfg.Schema.IndexerSchemaEndpoint == "" {
+		cfg.Schema.IndexerSchemaEndpoint = "/api/v1/schema"
 	}
 
 	return &cfg, nil
