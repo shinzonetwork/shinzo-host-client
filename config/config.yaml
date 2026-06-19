@@ -110,6 +110,7 @@ pruner:
   prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
 schema:
   indexer_schema_endpoint: /api/v1/schema
+  http_client_timeout_secs: 30
 logger:
   development: true
   level: "info"

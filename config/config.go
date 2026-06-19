@@ -67,7 +67,8 @@ type Config struct {
 
 // SchemaConfig represents configuration for dynamic schema fetching.
 type SchemaConfig struct {
-	IndexerSchemaEndpoint string `yaml:"indexer_schema_endpoint"` // Path for the indexer schema endpoint; defaults to /api/v1/schema
+	IndexerSchemaEndpoint string `yaml:"indexer_schema_endpoint"`
+	HTTPClientTimeoutSecs int    `yaml:"http_client_timeout_secs"`
 }
 
 // ShinzoConfig represents configuration specific to the Shinzo host application.
@@ -202,6 +203,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Schema.IndexerSchemaEndpoint == "" {
 		cfg.Schema.IndexerSchemaEndpoint = "/api/v1/schema"
+	}
+	if cfg.Schema.HTTPClientTimeoutSecs == 0 {
+		cfg.Schema.HTTPClientTimeoutSecs = 30
 	}
 
 	return &cfg, nil

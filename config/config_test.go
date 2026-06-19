@@ -295,3 +295,27 @@ func TestLoadConfig_IndexerSchemaEndpoint_Default(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/api/v1/schema", cfg.Schema.IndexerSchemaEndpoint)
 }
+
+func TestLoadConfig_SchemaHTTPClientTimeout_YAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 60\n"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, 60, cfg.Schema.HTTPClientTimeoutSecs)
+}
+
+func TestLoadConfig_SchemaHTTPClientTimeout_Default(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("{}"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, 30, cfg.Schema.HTTPClientTimeoutSecs)
+}
