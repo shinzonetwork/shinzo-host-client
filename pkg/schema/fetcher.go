@@ -15,10 +15,12 @@ import (
 
 // Sentinel errors for schema fetch and validation failures.
 var (
-	ErrSchemaFetchStatus      = fmt.Errorf("schema fetch non-OK status")
-	ErrSchemaEmptyResponse    = fmt.Errorf("schema field is empty in indexer response")
-	ErrSchemaMissingBlockType = fmt.Errorf("schema missing required type Ethereum__Mainnet__Block")
-	ErrSchemaMissingAttType   = fmt.Errorf("schema missing required type Ethereum__Mainnet__AttestationRecord")
+	ErrSchemaFetchNetwork      = fmt.Errorf("schema fetch network error")
+	ErrSchemaFetchStatus       = fmt.Errorf("schema fetch non-OK status")
+	ErrSchemaEmptyResponse     = fmt.Errorf("schema field is empty in indexer response")
+	ErrSchemaMalformedResponse = fmt.Errorf("schema response is malformed or invalid JSON")
+	ErrSchemaMissingBlockType  = fmt.Errorf("schema missing required type Ethereum__Mainnet__Block")
+	ErrSchemaMissingAttType    = fmt.Errorf("schema missing required type Ethereum__Mainnet__AttestationRecord")
 )
 
 // AttestationRecordTypeDef is the GraphQL type definition for Ethereum__Mainnet__AttestationRecord.
@@ -39,12 +41,12 @@ type Response struct {
 func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("create schema request: %w", err)
+		return "", fmt.Errorf("create schema request: %w: %w", ErrSchemaFetchNetwork, err)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetch schema: %w", err)
+		return "", fmt.Errorf("fetch schema: %w: %w", ErrSchemaFetchNetwork, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -54,7 +56,7 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (
 
 	var schemaResp Response
 	if err := json.NewDecoder(resp.Body).Decode(&schemaResp); err != nil {
-		return "", fmt.Errorf("decode schema response: %w", err)
+		return "", fmt.Errorf("decode schema response: %w: %w", ErrSchemaMalformedResponse, err)
 	}
 
 	if strings.TrimSpace(schemaResp.Schema) == "" {

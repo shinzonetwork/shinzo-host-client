@@ -106,7 +106,7 @@ func TestFetchSchema_NetworkError(t *testing.T) {
 	client := NewSchemaHTTPClient(testSchemaConfig)
 	_, err := FetchSchema(context.Background(), client, "http://127.0.0.1:1/api/v1/schema")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "fetch schema")
+	require.ErrorIs(t, err, ErrSchemaFetchNetwork)
 }
 
 func TestFetchSchema_HttpError(t *testing.T) {
@@ -133,6 +133,7 @@ func TestFetchSchema_MalformedJSON(t *testing.T) {
 	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode schema response")
+	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
 }
 
 func TestFetchSchema_EmptySchemaField(t *testing.T) {
