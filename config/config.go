@@ -25,6 +25,12 @@ type DefraDBP2PConfig struct {
 	ReconnectIntervalMs    int      `yaml:"reconnect_interval_ms"`
 	EnableAutoReconnect    bool     `yaml:"enable_auto_reconnect"`
 	PeerDiscoveryTimeoutMs int      `yaml:"peer_discovery_timeout_ms"` // Timeout for auto-discovering peer IDs (default: 10000)
+	// AccountingReplicatorPeers are the accounting-service DefraDB multiaddrs
+	// (/ip4/<ip>/tcp/<port>/p2p/<peerID>) this host pushes its BlockAttestation writes
+	// to via a directed replicator. BlockAttestation is kept out of the host pubsub
+	// set, so this directed push is its only delivery path. Provisioned out-of-band;
+	// empty disables the push.
+	AccountingReplicatorPeers []string `yaml:"accounting_replicator_peers"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.

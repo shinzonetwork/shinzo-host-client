@@ -358,6 +358,23 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 			logger.Sugar.Warnf("Failed to start P2P network: %v", err)
 		} else {
 			logger.Sugar.Info("✅ P2P network started")
+
+			// Push our own BlockAttestation writes directly to the accounting service
+			// over a directed replicator. The collection is kept out of the host-to-host
+			// pubsub set (constants.AllCollections), so this directed push is its only
+			// delivery path. Non-fatal: CreateReplicator persists the intent and DefraDB
+			// retries delivery, so the accounting service may be provisioned after the
+			// host has already started.
+			if targets := cfg.DefraDB.P2P.AccountingReplicatorPeers; len(targets) > 0 {
+				if err := newHost.DefraNode.DB.CreateReplicator(
+					context.Background(), targets,
+					options.CreateReplicator().SetCollectionNames([]string{constants.CollectionBlockAttestation}),
+				); err != nil {
+					logger.Sugar.Warnf("Failed to register accounting-service replicator(s) %v: %v", targets, err)
+				} else {
+					logger.Sugar.Infof("✅ Registered accounting-service replicator(s) for %s: %v", constants.CollectionBlockAttestation, targets)
+				}
+			}
 		}
 	}
 
