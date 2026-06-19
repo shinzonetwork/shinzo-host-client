@@ -15,6 +15,11 @@ import (
 // CollectionName is the name of the collection where we store Shinzo-specific documents in DefraDB.
 const CollectionName = "shinzo"
 
+const (
+	DefaultIndexerSchemaEndpoint  = "/api/v1/schema"
+	DefaultSchemaHTTPClientTimeout = 30
+)
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	Enabled                bool     `yaml:"enabled"`
@@ -202,10 +207,10 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Schema.IndexerSchemaEndpoint = v
 	}
 	if cfg.Schema.IndexerSchemaEndpoint == "" {
-		cfg.Schema.IndexerSchemaEndpoint = "/api/v1/schema"
+		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint
 	}
 	if cfg.Schema.HTTPClientTimeoutSecs == 0 {
-		cfg.Schema.HTTPClientTimeoutSecs = 30
+		cfg.Schema.HTTPClientTimeoutSecs = DefaultSchemaHTTPClientTimeout
 	}
 
 	return &cfg, nil

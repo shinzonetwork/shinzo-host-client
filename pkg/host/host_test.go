@@ -1426,12 +1426,58 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	// First call should succeed (adding schema)
-	err = applySchema(ctx, defraNode)
+	err = applySchema(ctx, defraNode, localschema.GetSchema())
 	require.NoError(t, err)
 
 	// Second call should also succeed (schema already exists path)
-	err = applySchema(ctx, defraNode)
+	err = applySchema(ctx, defraNode, localschema.GetSchema())
 	require.NoError(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// resolveSchemaIndexerURL
+// ---------------------------------------------------------------------------
+
+func TestResolveSchemaIndexerURL_WithEndpoint(t *testing.T) {
+	cfg := &config.Config{
+		HostConfig: config.HostConfig{
+			Snapshot: config.SnapshotConfig{
+				IndexerURL: "http://35.206.105.60:8080",
+			},
+		},
+		Schema: config.SchemaConfig{
+			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
+		},
+	}
+	require.Equal(t, "http://35.206.105.60:8080"+config.DefaultIndexerSchemaEndpoint, resolveSchemaIndexerURL(cfg))
+}
+
+func TestResolveSchemaIndexerURL_DefaultEndpoint(t *testing.T) {
+	cfg := &config.Config{
+		HostConfig: config.HostConfig{
+			Snapshot: config.SnapshotConfig{
+				IndexerURL: "http://35.206.105.60:8080",
+			},
+		},
+		Schema: config.SchemaConfig{
+			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
+		},
+	}
+	require.Equal(t, "http://35.206.105.60:8080"+config.DefaultIndexerSchemaEndpoint, resolveSchemaIndexerURL(cfg))
+}
+
+func TestResolveSchemaIndexerURL_EmptyBase(t *testing.T) {
+	cfg := &config.Config{
+		HostConfig: config.HostConfig{
+			Snapshot: config.SnapshotConfig{
+				IndexerURL: "",
+			},
+		},
+		Schema: config.SchemaConfig{
+			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
+		},
+	}
+	require.Equal(t, config.DefaultIndexerSchemaEndpoint, resolveSchemaIndexerURL(cfg))
 }
 
 // ---------------------------------------------------------------------------

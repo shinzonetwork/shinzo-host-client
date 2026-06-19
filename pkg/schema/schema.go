@@ -25,7 +25,7 @@ func GetSchema() string {
 // Always returns a usable schema string.
 func GetSchemaDynamic(ctx context.Context, httpClient *http.Client, fullURL string) string {
 	if strings.TrimSpace(fullURL) == "" {
-		logger.Sugar.Warnf("Empty schema URL, using embedded schema: %v")
+		logger.Sugar.Warnf("Empty schema URL, using embedded schema")
 		return GetSchema()
 	}
 

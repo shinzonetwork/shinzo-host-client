@@ -81,6 +81,10 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 		Shinzo: config.ShinzoConfig{
 			MinimumAttestations: 1,
 		},
+		Schema: config.SchemaConfig{
+			IndexerSchemaEndpoint:  config.DefaultIndexerSchemaEndpoint,
+			HTTPClientTimeoutSecs: config.DefaultSchemaHTTPClientTimeout,
+		},
 		Logger: config.LoggerConfig{
 			Development: true,
 		},
@@ -161,6 +165,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
+	schemaURL := resolveSchemaIndexerURL(cfg)
+	schemaHTTPClient := localschema.NewSchemaHTTPClient(cfg.Schema)
+	resolvedSchema := localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, schemaURL)
+
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
 	// the auto-start of the HTTP server is suppressed.
@@ -170,7 +178,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		cfg.ToInternalConfig(),
-		defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
+		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		constants.AllCollections...,
@@ -189,7 +197,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	// Apply local schema after DefraDB is ready (for use with non-branchable)
-	err = applySchema(ctx, defraNode)
+	err = applySchema(ctx, defraNode, resolvedSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
@@ -922,11 +930,16 @@ func isPlaygroundEnabled() bool {
 	return playgroundEnabled
 }
 
+// resolveSchemaIndexerURL constructs the full schema URL from the indexer base URL and endpoint path.
+func resolveSchemaIndexerURL(cfg *config.Config) string {
+	return cfg.HostConfig.Snapshot.IndexerURL + cfg.Schema.IndexerSchemaEndpoint
+}
+
 // applySchema applies the GraphQL schema to DefraDB node.
-func applySchema(ctx context.Context, defraNode *node.Node) error {
+func applySchema(ctx context.Context, defraNode *node.Node, schemaStr string) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, localschema.GetSchema())
+	_, err := defraNode.DB.AddSchema(ctx, schemaStr)
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
