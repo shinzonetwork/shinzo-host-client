@@ -165,20 +165,25 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	schemaURL := resolveSchemaIndexerURL(cfg)
+	schemaURL, urlErr := url.JoinPath(cfg.HostConfig.Snapshot.IndexerURL, cfg.Schema.IndexerSchemaEndpoint)
 	schemaHTTPClient := localschema.NewSchemaHTTPClient(cfg.Schema)
 
 	var resolvedSchema string
-	if strings.TrimSpace(schemaURL) == "" {
+	switch {
+	case urlErr != nil:
+		logger.Sugar.Warnf("Invalid schema URL configuration, using embedded schema: %v", urlErr)
+		resolvedSchema = localschema.GetSchema()
+	case strings.TrimSpace(schemaURL) == "":
 		logger.Sugar.Infof("No schema URL configured, using embedded schema")
 		resolvedSchema = localschema.GetSchema()
-	} else {
+	default:
 		var schemaErr error
 		resolvedSchema, schemaErr = localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, schemaURL)
 		if schemaErr != nil {
-			if localschema.IsDataLevelError(schemaErr) {
+			switch {
+			case localschema.IsDataLevelError(schemaErr):
 				logger.Sugar.Warnf("Schema data error, using embedded schema: %v", schemaErr)
-			} else if localschema.IsNetworkLevelError(schemaErr) {
+			case localschema.IsNetworkLevelError(schemaErr):
 				logger.Sugar.Warnf("Schema fetch failed, using embedded schema: %v", schemaErr)
 			}
 		}
@@ -943,11 +948,6 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 // isPlaygroundEnabled checks the environment variable to determine if the GraphQL Playground should be enabled. This allows for dynamic control over the playground feature without changing code, which is useful for testing and different deployment environments.
 func isPlaygroundEnabled() bool {
 	return playgroundEnabled
-}
-
-// resolveSchemaIndexerURL constructs the full schema URL from the indexer base URL and endpoint path.
-func resolveSchemaIndexerURL(cfg *config.Config) string {
-	return cfg.HostConfig.Snapshot.IndexerURL + cfg.Schema.IndexerSchemaEndpoint
 }
 
 // applySchema applies the GraphQL schema to DefraDB node.
