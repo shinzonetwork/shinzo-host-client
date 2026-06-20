@@ -82,7 +82,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 			MinimumAttestations: 1,
 		},
 		Schema: config.SchemaConfig{
-			IndexerSchemaEndpoint:  config.DefaultIndexerSchemaEndpoint,
+			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
 			HTTPClientTimeoutSecs: config.DefaultSchemaHTTPClientTimeout,
 		},
 		Logger: config.LoggerConfig{
@@ -167,7 +167,22 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	schemaURL := resolveSchemaIndexerURL(cfg)
 	schemaHTTPClient := localschema.NewSchemaHTTPClient(cfg.Schema)
-	resolvedSchema := localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, schemaURL)
+
+	var resolvedSchema string
+	if strings.TrimSpace(schemaURL) == "" {
+		logger.Sugar.Infof("No schema URL configured, using embedded schema")
+		resolvedSchema = localschema.GetSchema()
+	} else {
+		var schemaErr error
+		resolvedSchema, schemaErr = localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, schemaURL)
+		if schemaErr != nil {
+			if localschema.IsDataLevelError(schemaErr) {
+				logger.Sugar.Warnf("Schema data error, using embedded schema: %v", schemaErr)
+			} else if localschema.IsNetworkLevelError(schemaErr) {
+				logger.Sugar.Warnf("Schema fetch failed, using embedded schema: %v", schemaErr)
+			}
+		}
+	}
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only

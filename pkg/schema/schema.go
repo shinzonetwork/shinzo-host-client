@@ -5,8 +5,6 @@ import (
 	_ "embed"
 	"net/http"
 	"strings"
-
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 // SchemaGraphQL holds the contents of the GraphQL schema defined in `schema.graphql`.
@@ -20,20 +18,18 @@ func GetSchema() string {
 }
 
 // GetSchemaDynamic attempts to fetch the schema from the indexer URL.
-// If the URL is empty, returns the embedded schema.
-// On any error, logs a warning and falls back to the embedded schema.
-// Always returns a usable schema string.
-func GetSchemaDynamic(ctx context.Context, httpClient *http.Client, fullURL string) string {
+// If the URL is empty or whitespace-only, it returns the embedded schema with no error.
+// On fetch failure, it returns the embedded schema as fallback along with the error
+// so the caller can inspect it and decide on logging policy.
+func GetSchemaDynamic(ctx context.Context, httpClient *http.Client, fullURL string) (string, error) {
 	if strings.TrimSpace(fullURL) == "" {
-		logger.Sugar.Warnf("Empty schema URL, using embedded schema")
-		return GetSchema()
+		return GetSchema(), nil
 	}
 
 	schema, err := FetchSchema(ctx, httpClient, fullURL)
 	if err != nil {
-		logger.Sugar.Warnf("Schema fetch failed, using embedded schema: %v", err)
-		return GetSchema()
+		return GetSchema(), err
 	}
 
-	return schema
+	return schema, nil
 }

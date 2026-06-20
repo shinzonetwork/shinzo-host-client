@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -90,6 +91,23 @@ func ValidateSchema(schemaStr string) error {
 		return ErrSchemaMissingAttType
 	}
 	return nil
+}
+
+// IsDataLevelError reports whether the given error is a data-level schema fetch error
+// (e.g. malformed JSON, empty schema, missing required types).
+// Network-level errors like DNS failure, connection refused, or HTTP non-200 return false.
+func IsDataLevelError(err error) bool {
+	return errors.Is(err, ErrSchemaMalformedResponse) ||
+		errors.Is(err, ErrSchemaEmptyResponse) ||
+		errors.Is(err, ErrSchemaMissingBlockType) ||
+		errors.Is(err, ErrSchemaMissingAttType)
+}
+
+// IsNetworkLevelError reports whether the given error is a network-level schema fetch error
+// (e.g. DNS failure, connection refused, timeout, or HTTP non-200 status).
+func IsNetworkLevelError(err error) bool {
+	return errors.Is(err, ErrSchemaFetchNetwork) ||
+		errors.Is(err, ErrSchemaFetchStatus)
 }
 
 // NewSchemaHTTPClient creates an HTTP client suitable for schema fetching,

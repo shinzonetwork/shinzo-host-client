@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,13 +30,15 @@ func TestGetSchema_ContainsExpectedTypes(t *testing.T) {
 
 func TestGetSchemaDynamic_EmptyURL_ReturnsEmbedded(t *testing.T) {
 	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-	result := GetSchemaDynamic(context.Background(), client, "")
+	result, err := GetSchemaDynamic(context.Background(), client, "")
+	require.NoError(t, err)
 	require.Equal(t, GetSchema(), result)
 }
 
 func TestGetSchemaDynamic_EmptyURL_Whitespace_ReturnsEmbedded(t *testing.T) {
 	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-	result := GetSchemaDynamic(context.Background(), client, "   ")
+	result, err := GetSchemaDynamic(context.Background(), client, "   ")
+	require.NoError(t, err)
 	require.Equal(t, GetSchema(), result)
 }
 
@@ -53,15 +56,19 @@ func TestGetSchemaDynamic_FetchSuccess(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-	result := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+	result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__Block")
 	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord")
 }
 
 func TestGetSchemaDynamic_NetworkError_Fallback(t *testing.T) {
 	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 1})
-	result := GetSchemaDynamic(context.Background(), client, "http://127.0.0.1:1/api/v1/schema")
+	result, err := GetSchemaDynamic(context.Background(), client, "http://127.0.0.1:1/api/v1/schema")
+	require.Error(t, err)
 	require.Equal(t, GetSchema(), result)
+	require.False(t, IsDataLevelError(err))
+	require.True(t, IsNetworkLevelError(err))
 }
 
 func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
@@ -72,8 +79,11 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		defer srv.Close()
 
 		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-		result := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
+		require.True(t, IsNetworkLevelError(err))
+		require.False(t, IsDataLevelError(err))
 	})
 
 	t.Run("malformed_json", func(t *testing.T) {
@@ -84,8 +94,10 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		defer srv.Close()
 
 		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-		result := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
+		require.True(t, IsDataLevelError(err))
 	})
 
 	t.Run("empty_schema", func(t *testing.T) {
@@ -98,8 +110,10 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		defer srv.Close()
 
 		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-		result := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
+		require.True(t, IsDataLevelError(err))
 	})
 
 	t.Run("missing_required_types", func(t *testing.T) {
@@ -112,7 +126,55 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		defer srv.Close()
 
 		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-		result := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
+		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
+		require.True(t, IsDataLevelError(err))
+	})
+}
+
+func TestIsDataLevelError(t *testing.T) {
+	t.Run("data_level_errors", func(t *testing.T) {
+		require.True(t, IsDataLevelError(ErrSchemaMalformedResponse))
+		require.True(t, IsDataLevelError(ErrSchemaEmptyResponse))
+		require.True(t, IsDataLevelError(ErrSchemaMissingBlockType))
+		require.True(t, IsDataLevelError(ErrSchemaMissingAttType))
+	})
+
+	t.Run("wrapped_data_level_errors", func(t *testing.T) {
+		err := fmt.Errorf("some context: %w", ErrSchemaMalformedResponse)
+		require.True(t, IsDataLevelError(err))
+	})
+
+	t.Run("network_level_errors_are_not_data_level", func(t *testing.T) {
+		require.False(t, IsDataLevelError(ErrSchemaFetchNetwork))
+		require.False(t, IsDataLevelError(ErrSchemaFetchStatus))
+	})
+
+	t.Run("nil_error", func(t *testing.T) {
+		require.False(t, IsDataLevelError(nil))
+	})
+}
+
+func TestIsNetworkLevelError(t *testing.T) {
+	t.Run("network_level_errors", func(t *testing.T) {
+		require.True(t, IsNetworkLevelError(ErrSchemaFetchNetwork))
+		require.True(t, IsNetworkLevelError(ErrSchemaFetchStatus))
+	})
+
+	t.Run("wrapped_network_level_errors", func(t *testing.T) {
+		err := fmt.Errorf("some context: %w", ErrSchemaFetchStatus)
+		require.True(t, IsNetworkLevelError(err))
+	})
+
+	t.Run("data_level_errors_are_not_network_level", func(t *testing.T) {
+		require.False(t, IsNetworkLevelError(ErrSchemaMalformedResponse))
+		require.False(t, IsNetworkLevelError(ErrSchemaEmptyResponse))
+		require.False(t, IsNetworkLevelError(ErrSchemaMissingBlockType))
+		require.False(t, IsNetworkLevelError(ErrSchemaMissingAttType))
+	})
+
+	t.Run("nil_error", func(t *testing.T) {
+		require.False(t, IsNetworkLevelError(nil))
 	})
 }

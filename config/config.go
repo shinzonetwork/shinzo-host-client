@@ -15,8 +15,9 @@ import (
 // CollectionName is the name of the collection where we store Shinzo-specific documents in DefraDB.
 const CollectionName = "shinzo"
 
+// Default configuration values for schema fetching.
 const (
-	DefaultIndexerSchemaEndpoint  = "/api/v1/schema"
+	DefaultIndexerSchemaEndpoint   = "/api/v1/schema"
 	DefaultSchemaHTTPClientTimeout = 30
 )
 
