@@ -165,20 +165,20 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	schemaURL, urlErr := url.JoinPath(cfg.HostConfig.Snapshot.IndexerURL, cfg.Schema.IndexerSchemaEndpoint)
-	schemaHTTPClient := localschema.NewSchemaHTTPClient(cfg.Schema)
+	schemaURL, urlError := url.JoinPath(cfg.HostConfig.Snapshot.IndexerURL, cfg.Schema.IndexerSchemaEndpoint)
+
+	parsedURL, parseErr := url.Parse(schemaURL)
 
 	var resolvedSchema string
 	switch {
-	case urlErr != nil:
-		logger.Sugar.Warnf("Invalid schema URL configuration, using embedded schema: %v", urlErr)
+	case urlError != nil || parseErr != nil || parsedURL.Scheme == "" || parsedURL.Host == "":
+		logger.Sugar.Infof("Invalid schema URL, using embedded schema: %s", schemaURL)
 		resolvedSchema = localschema.GetSchema()
-	case strings.TrimSpace(schemaURL) == "":
-		logger.Sugar.Infof("No schema URL configured, using embedded schema")
-		resolvedSchema = localschema.GetSchema()
+
 	default:
 		var schemaErr error
-		resolvedSchema, schemaErr = localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, schemaURL)
+		schemaHTTPClient := localschema.NewSchemaHTTPClient(cfg.Schema)
+		resolvedSchema, schemaErr = localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, parsedURL.String())
 		if schemaErr != nil {
 			switch {
 			case localschema.IsDataLevelError(schemaErr):
