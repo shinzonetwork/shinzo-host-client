@@ -24,7 +24,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
-	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
@@ -165,31 +164,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	schemaURL, urlError := url.JoinPath(cfg.HostConfig.Snapshot.IndexerURL, cfg.Schema.IndexerSchemaEndpoint)
-
-	parsedURL, parseErr := url.Parse(schemaURL)
-
-	var resolvedSchema string
-	switch {
-	case urlError != nil || parseErr != nil || parsedURL.Scheme == "" || parsedURL.Host == "":
-		logger.Sugar.Infof("Invalid schema URL, using embedded schema: %s", schemaURL)
-		resolvedSchema = localschema.GetSchema()
-
-	default:
-		var schemaErr error
-		schemaHTTPClient := localschema.NewSchemaHTTPClient(cfg.Schema)
-		resolvedSchema, schemaErr = localschema.GetSchemaDynamic(context.Background(), schemaHTTPClient, parsedURL.String())
-		if schemaErr != nil {
-			switch {
-			case localschema.IsDataLevelError(schemaErr):
-				logger.Sugar.Warnf("Schema data error, using embedded schema: %v", schemaErr)
-			case localschema.IsNetworkLevelError(schemaErr):
-				logger.Sugar.Warnf("Schema fetch failed, using embedded schema: %v", schemaErr)
-			default:
-				logger.Sugar.Warnf("Unexpected schema error, using embedded schema: %v", schemaErr)
-			}
-		}
-	}
+	resolvedSchema := resolveSchema(context.Background(), cfg)
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
