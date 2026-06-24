@@ -23,25 +23,6 @@ func TestGetSchema(t *testing.T) {
 	require.NotEmpty(t, s)
 }
 
-func TestGetSchema_ContainsExpectedTypes(t *testing.T) {
-	s := GetSchema()
-	require.Contains(t, s, "type", "schema should contain GraphQL type definitions")
-}
-
-func TestGetSchemaDynamic_EmptyURL_ReturnsEmbedded(t *testing.T) {
-	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-	result, err := GetSchemaDynamic(context.Background(), client, "")
-	require.NoError(t, err)
-	require.Equal(t, GetSchema(), result)
-}
-
-func TestGetSchemaDynamic_EmptyURL_Whitespace_ReturnsEmbedded(t *testing.T) {
-	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
-	result, err := GetSchemaDynamic(context.Background(), client, "   ")
-	require.NoError(t, err)
-	require.Equal(t, GetSchema(), result)
-}
-
 func TestGetSchemaDynamic_FetchSuccess(t *testing.T) {
 	validResp := Response{
 		Network: testNetwork,

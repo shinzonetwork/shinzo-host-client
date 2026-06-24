@@ -177,7 +177,7 @@ func TestFetchSchema_MissingRequiredTypes(t *testing.T) {
 func TestFetchSchema_OversizedPayload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		largePayload := make([]byte, maxSchemaBodyBytes + 1) // Exceeding the max schema payload size by 1 byte
+		largePayload := make([]byte, maxSchemaBodyBytes+1) // Exceeding the max schema payload size by 1 byte
 		for i := range largePayload {
 			largePayload[i] = 'a'
 		}

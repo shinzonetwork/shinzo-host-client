@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"net/http"
-	"strings"
 )
 
 // SchemaGraphQL holds the contents of the GraphQL schema defined in `schema.graphql`.
@@ -18,14 +17,11 @@ func GetSchema() string {
 }
 
 // GetSchemaDynamic attempts to fetch the schema from the indexer URL.
-// If the URL is empty or whitespace-only, it returns the embedded schema with no error.
+// The caller is responsible for ensuring fullURL is non-empty; the empty-URL
+// case is handled by the production caller in host.go before reaching here.
 // On fetch failure, it returns the embedded schema as fallback along with the error
 // so the caller can inspect it and decide on logging policy.
 func GetSchemaDynamic(ctx context.Context, httpClient *http.Client, fullURL string) (string, error) {
-	if strings.TrimSpace(fullURL) == "" {
-		return GetSchema(), nil
-	}
-
 	schema, err := FetchSchema(ctx, httpClient, fullURL)
 	if err != nil {
 		return GetSchema(), err
