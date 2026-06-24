@@ -104,6 +104,11 @@ func ValidateSchema(schemaStr string) error {
 // IsDataLevelError reports whether the given error is a data-level schema fetch error
 // (e.g. malformed JSON, empty schema, missing required types).
 // Network-level errors like DNS failure, connection refused, or HTTP non-200 return false.
+//
+// This classifier assumes single-level sentinel wrapping: FetchSchema wraps each error
+// with exactly one sentinel error via %w. Transitive wrapping of multiple sentinels
+// (e.g., fmt.Errorf("...: %w: %w", ErrSchemaFetchNetwork, ErrSchemaMalformedResponse))
+// could cause misclassification and must not be introduced without updating these classifiers.
 func IsDataLevelError(err error) bool {
 	return errors.Is(err, ErrSchemaMalformedResponse) ||
 		errors.Is(err, ErrSchemaEmptyResponse) ||
@@ -112,6 +117,11 @@ func IsDataLevelError(err error) bool {
 
 // IsNetworkLevelError reports whether the given error is a network-level schema fetch error
 // (e.g. DNS failure, connection refused, timeout, or HTTP non-200 status).
+//
+// This classifier assumes single-level sentinel wrapping: FetchSchema wraps each error
+// with exactly one sentinel error via %w. Transitive wrapping of multiple sentinels
+// (e.g., fmt.Errorf("...: %w: %w", ErrSchemaFetchNetwork, ErrSchemaMalformedResponse))
+// could cause misclassification and must not be introduced without updating these classifiers.
 func IsNetworkLevelError(err error) bool {
 	return errors.Is(err, ErrSchemaFetchNetwork) ||
 		errors.Is(err, ErrSchemaFetchStatus)
