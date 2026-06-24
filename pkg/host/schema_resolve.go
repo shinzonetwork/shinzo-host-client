@@ -37,6 +37,8 @@ func resolveSchema(ctx context.Context, cfg *config.Config) string {
 			default:
 				logger.Sugar.Warnf("Unexpected schema error, using embedded schema: %v", schemaErr)
 			}
+		} else {
+			logger.Sugar.Infof("Successfully fetched schema from indexer: %s", parsedURL.String())
 		}
 	}
 
