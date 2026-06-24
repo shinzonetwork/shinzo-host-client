@@ -185,6 +185,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 				logger.Sugar.Warnf("Schema data error, using embedded schema: %v", schemaErr)
 			case localschema.IsNetworkLevelError(schemaErr):
 				logger.Sugar.Warnf("Schema fetch failed, using embedded schema: %v", schemaErr)
+			default:
+				logger.Sugar.Warnf("Unexpected schema error, using embedded schema: %v", schemaErr)
 			}
 		}
 	}
