@@ -174,6 +174,23 @@ func TestFetchSchema_MissingRequiredTypes(t *testing.T) {
 	require.Contains(t, err.Error(), "validate schema")
 }
 
+func TestFetchSchema_OversizedPayload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		large := make([]byte, (maxSchemaBodyBytes+1)*1024) // Exceeding the max body bytes limit by 1
+		for i := range large {
+			large[i] = 'a'
+		}
+		_, _ = w.Write(large)
+	}))
+	defer srv.Close()
+
+	client := NewSchemaHTTPClient(testSchemaConfig)
+	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
+}
+
 func TestAppendAttestationRecord(t *testing.T) {
 	result := AppendAttestationRecord(testSchemaBlock)
 	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord")

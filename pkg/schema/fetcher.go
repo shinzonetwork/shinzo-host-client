@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ var (
 //
 //go:embed attestationRecord.graphql
 var AttestationRecordTypeDef string
+
+// Specifying max schema body size to prevent attacker from sending a large payload.
+const maxSchemaBodyBytes = 5 << 10 // 5 KB
 
 // Response represents the JSON response from the indexer's schema endpoint.
 type Response struct {
@@ -56,7 +60,7 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (
 	}
 
 	var schemaResp Response
-	if err := json.NewDecoder(resp.Body).Decode(&schemaResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSchemaBodyBytes)).Decode(&schemaResp); err != nil {
 		return "", fmt.Errorf("decode schema response: %w: %w", ErrSchemaMalformedResponse, err)
 	}
 
