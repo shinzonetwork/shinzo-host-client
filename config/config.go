@@ -19,10 +19,14 @@ const CollectionName = "shinzo"
 const (
 	DefaultIndexerSchemaEndpoint   = "/api/v1/schema"
 	DefaultSchemaHTTPClientTimeout = 30
+	MaxSchemaHTTPClientTimeout     = 300
 )
 
 // ErrNegativeSchemaTimeout is returned when the schema HTTP client timeout is negative.
 var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must be non-negative")
+
+// ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
+var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -216,6 +220,8 @@ func LoadConfig(path string) (*Config, error) {
 	switch {
 	case cfg.Schema.HTTPClientTimeoutSecs < 0:
 		return nil, fmt.Errorf("%w: got %d", ErrNegativeSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
+	case cfg.Schema.HTTPClientTimeoutSecs > MaxSchemaHTTPClientTimeout:
+		return nil, fmt.Errorf("%w: got %d", ErrExcessiveSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
 	case cfg.Schema.HTTPClientTimeoutSecs == 0:
 		cfg.Schema.HTTPClientTimeoutSecs = DefaultSchemaHTTPClientTimeout
 	}

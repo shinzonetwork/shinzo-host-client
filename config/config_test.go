@@ -331,3 +331,15 @@ func TestLoadConfig_SchemaHTTPClientTimeout_Negative(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrNegativeSchemaTimeout)
 }
+
+func TestLoadConfig_SchemaHTTPClientTimeout_Excessive(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 999999\n"), 0o600)
+	require.NoError(t, err)
+
+	_, err = LoadConfig(configPath)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrExcessiveSchemaTimeout)
+}

@@ -17,10 +17,15 @@ func GetSchema() string {
 }
 
 // GetSchemaDynamic attempts to fetch the schema from the indexer URL.
-// The caller is responsible for ensuring fullURL is non-empty; the empty-URL
-// case is handled by the production caller in host.go before reaching here.
-// On fetch failure, it returns the embedded schema as fallback along with the error
-// so the caller can inspect it and decide on logging policy.
+//
+// fullURL must be non-empty. The production caller in host.go
+// validates the URL before calling this function. If the contract is
+// violated (empty URL), the underlying HTTP request fails with a
+// network-level error and the embedded schema is returned as fallback —
+// the function never returns an empty string.
+//
+// On fetch failure, it returns the embedded schema as fallback along with
+// the error so the caller can inspect it and decide on logging policy.
 func GetSchemaDynamic(ctx context.Context, httpClient *http.Client, fullURL string) (string, error) {
 	schema, err := FetchSchema(ctx, httpClient, fullURL)
 	if err != nil {
