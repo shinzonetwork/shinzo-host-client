@@ -53,6 +53,7 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (
 	if err != nil {
 		return "", fmt.Errorf("create schema request: %w: %w", ErrSchemaFetchNetwork, err)
 	}
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
