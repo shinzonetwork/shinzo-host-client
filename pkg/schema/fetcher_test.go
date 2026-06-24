@@ -177,11 +177,11 @@ func TestFetchSchema_MissingRequiredTypes(t *testing.T) {
 func TestFetchSchema_OversizedPayload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		large := make([]byte, (maxSchemaBodyBytes+1)*1024) // Exceeding the max body bytes limit by 1
-		for i := range large {
-			large[i] = 'a'
+		largePayload := make([]byte, maxSchemaBodyBytes + 1) // Exceeding the max schema payload size by 1 byte
+		for i := range largePayload {
+			largePayload[i] = 'a'
 		}
-		_, _ = w.Write(large)
+		_, _ = w.Write(largePayload)
 	}))
 	defer srv.Close()
 
@@ -219,10 +219,20 @@ func TestValidateSchema_MissingBlock(t *testing.T) {
 	require.ErrorIs(t, err, ErrSchemaMissingBlockType)
 }
 
-func TestValidateSchema_MissingAttestationRecord(t *testing.T) {
-	err := ValidateSchema(testSchemaBlock)
+func TestValidateSchema_BlockSignatureOnly(t *testing.T) {
+	schema := `type Ethereum__Mainnet__BlockSignature {
+    blockHash: String
+}`
+	err := ValidateSchema(schema)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrSchemaMissingAttType)
+	require.ErrorIs(t, err, ErrSchemaMissingBlockType)
+}
+
+func TestAppendAttestationRecord_DoesNotMatchSimilarType(t *testing.T) {
+	schema := `type Ethereum__Mainnet__AttestationRecordFoo { id: String }`
+	result := AppendAttestationRecord(schema)
+	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord {", "should append the real type when only a similar-named type exists")
+	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecordFoo", "should preserve existing types")
 }
 
 func TestNewSchemaHTTPClient(t *testing.T) {

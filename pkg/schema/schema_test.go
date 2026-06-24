@@ -138,7 +138,6 @@ func TestIsDataLevelError(t *testing.T) {
 		require.True(t, IsDataLevelError(ErrSchemaMalformedResponse))
 		require.True(t, IsDataLevelError(ErrSchemaEmptyResponse))
 		require.True(t, IsDataLevelError(ErrSchemaMissingBlockType))
-		require.True(t, IsDataLevelError(ErrSchemaMissingAttType))
 	})
 
 	t.Run("wrapped_data_level_errors", func(t *testing.T) {
@@ -171,7 +170,6 @@ func TestIsNetworkLevelError(t *testing.T) {
 		require.False(t, IsNetworkLevelError(ErrSchemaMalformedResponse))
 		require.False(t, IsNetworkLevelError(ErrSchemaEmptyResponse))
 		require.False(t, IsNetworkLevelError(ErrSchemaMissingBlockType))
-		require.False(t, IsNetworkLevelError(ErrSchemaMissingAttType))
 	})
 
 	t.Run("nil_error", func(t *testing.T) {

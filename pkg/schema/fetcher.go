@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,7 +23,11 @@ var (
 	ErrSchemaEmptyResponse     = fmt.Errorf("schema field is empty in indexer response")
 	ErrSchemaMalformedResponse = fmt.Errorf("schema response is malformed or invalid JSON")
 	ErrSchemaMissingBlockType  = fmt.Errorf("schema missing required type Ethereum__Mainnet__Block")
-	ErrSchemaMissingAttType    = fmt.Errorf("schema missing required type Ethereum__Mainnet__AttestationRecord")
+)
+
+var (
+	blockTypeRegEx       = regexp.MustCompile(`type\s+Ethereum__Mainnet__Block\s*\{`)
+	attestationTypeRegEx = regexp.MustCompile(`type\s+Ethereum__Mainnet__AttestationRecord\s*\{`)
 )
 
 // AttestationRecordTypeDef is the GraphQL type definition for Ethereum__Mainnet__AttestationRecord.
@@ -79,21 +84,20 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (
 // AppendAttestationRecord appends the Ethereum__Mainnet__AttestationRecord type definition
 // to the base schema. If the type is already present, the schema is returned unchanged.
 func AppendAttestationRecord(baseSchema string) string {
-	if strings.Contains(baseSchema, "Ethereum__Mainnet__AttestationRecord") {
+	if attestationTypeRegEx.MatchString(baseSchema) {
 		return baseSchema
 	}
 	return strings.TrimSpace(baseSchema) + "\n\n" + AttestationRecordTypeDef + "\n"
 }
 
 // ValidateSchema checks that the schema contains the required type definitions.
-// Returns an error if Ethereum__Mainnet__Block or Ethereum__Mainnet__AttestationRecord is missing.
+// Returns an error if Ethereum__Mainnet__Block is missing.
 func ValidateSchema(schemaStr string) error {
-	if !strings.Contains(schemaStr, "Ethereum__Mainnet__Block") {
+	// TODO: Update this function to perform more comprehensive validation check beyond Block schema verification
+	if !blockTypeRegEx.MatchString(schemaStr) {
 		return ErrSchemaMissingBlockType
 	}
-	if !strings.Contains(schemaStr, "Ethereum__Mainnet__AttestationRecord") {
-		return ErrSchemaMissingAttType
-	}
+
 	return nil
 }
 
@@ -103,8 +107,7 @@ func ValidateSchema(schemaStr string) error {
 func IsDataLevelError(err error) bool {
 	return errors.Is(err, ErrSchemaMalformedResponse) ||
 		errors.Is(err, ErrSchemaEmptyResponse) ||
-		errors.Is(err, ErrSchemaMissingBlockType) ||
-		errors.Is(err, ErrSchemaMissingAttType)
+		errors.Is(err, ErrSchemaMissingBlockType)
 }
 
 // IsNetworkLevelError reports whether the given error is a network-level schema fetch error
