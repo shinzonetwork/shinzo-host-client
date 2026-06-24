@@ -46,6 +46,10 @@ var validResponse = Response{
 
 var testSchemaConfig = config.SchemaConfig{HTTPClientTimeoutSecs: 30}
 
+func testIndexerSchemaURL(srv *httptest.Server) string {
+	return srv.URL + config.DefaultIndexerSchemaEndpoint
+}
+
 func TestFetchSchema_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -55,7 +59,7 @@ func TestFetchSchema_Success(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	result, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__Block")
 	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord")
@@ -75,7 +79,7 @@ func TestFetchSchema_AppendsAttestationRecord(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	result, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord")
 	require.Contains(t, result, "attested_doc: String @index")
@@ -95,7 +99,7 @@ func TestFetchSchema_DoesNotDuplicateAttestationRecord(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	result, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 
 	count := strings.Count(result, "Ethereum__Mainnet__AttestationRecord")
@@ -104,7 +108,7 @@ func TestFetchSchema_DoesNotDuplicateAttestationRecord(t *testing.T) {
 
 func TestFetchSchema_NetworkError(t *testing.T) {
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, "http://127.0.0.1:1/api/v1/schema")
+	_, err := FetchSchema(context.Background(), client, "http://127.0.0.1:1"+config.DefaultIndexerSchemaEndpoint)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaFetchNetwork)
 }
@@ -116,7 +120,7 @@ func TestFetchSchema_HttpError(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "status 500")
 	require.ErrorIs(t, err, ErrSchemaFetchStatus)
@@ -130,7 +134,7 @@ func TestFetchSchema_MalformedJSON(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode schema response")
 	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
@@ -150,7 +154,7 @@ func TestFetchSchema_EmptySchemaField(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaEmptyResponse)
 }
@@ -169,7 +173,7 @@ func TestFetchSchema_MissingRequiredTypes(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "validate schema")
 }
@@ -186,7 +190,7 @@ func TestFetchSchema_OversizedPayload(t *testing.T) {
 	defer srv.Close()
 
 	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, srv.URL+"/api/v1/schema")
+	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
 }
@@ -245,4 +249,22 @@ func TestNewSchemaHTTPClient_CustomTimeout(t *testing.T) {
 	cfg := config.SchemaConfig{HTTPClientTimeoutSecs: 60}
 	client := NewSchemaHTTPClient(cfg)
 	require.Equal(t, 60*time.Second, client.Timeout)
+}
+
+func TestFetchSchema_StrictContentNegotiation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != "application/json" {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		err := json.NewEncoder(w).Encode(validResponse)
+		require.NoError(t, err)
+	}))
+	defer srv.Close()
+
+	client := NewSchemaHTTPClient(testSchemaConfig)
+	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
+	require.NoError(t, err)
+	require.Contains(t, result, "Ethereum__Mainnet__Block")
 }
