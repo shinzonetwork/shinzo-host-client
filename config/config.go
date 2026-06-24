@@ -21,6 +21,9 @@ const (
 	DefaultSchemaHTTPClientTimeout = 30
 )
 
+// ErrNegativeSchemaTimeout is returned when the schema HTTP client timeout is negative.
+var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must be non-negative")
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	Enabled                bool     `yaml:"enabled"`
@@ -210,7 +213,10 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Schema.IndexerSchemaEndpoint == "" {
 		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint
 	}
-	if cfg.Schema.HTTPClientTimeoutSecs == 0 {
+	switch {
+	case cfg.Schema.HTTPClientTimeoutSecs < 0:
+		return nil, fmt.Errorf("%w: got %d", ErrNegativeSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
+	case cfg.Schema.HTTPClientTimeoutSecs == 0:
 		cfg.Schema.HTTPClientTimeoutSecs = DefaultSchemaHTTPClientTimeout
 	}
 

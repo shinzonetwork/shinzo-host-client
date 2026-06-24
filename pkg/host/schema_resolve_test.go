@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -25,6 +26,7 @@ func TestResolveSchema(t *testing.T) {
 		name           string
 		indexerURL     string
 		schemaEndpoint string
+		ctx            context.Context
 		setupServer    func() *httptest.Server
 		wantEmbedded   bool
 	}{
@@ -102,6 +104,22 @@ func TestResolveSchema(t *testing.T) {
 			},
 			wantEmbedded: true,
 		},
+		{
+			name:           "context cancellation falls back to embedded",
+			schemaEndpoint: config.DefaultIndexerSchemaEndpoint,
+			ctx: func() context.Context {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
+				cancel()
+				return ctx
+			}(),
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+					time.Sleep(10 * time.Second)
+				}))
+			},
+			wantEmbedded: true,
+		},
 	}
 
 	embeddedSchema := localschema.GetSchema()
@@ -134,7 +152,11 @@ func TestResolveSchema(t *testing.T) {
 				},
 			}
 
-			result := resolveSchema(context.Background(), cfg)
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			result := resolveSchema(ctx, cfg)
 
 			if tt.wantEmbedded {
 				require.Equal(t, embeddedSchema, result)

@@ -319,3 +319,15 @@ func TestLoadConfig_SchemaHTTPClientTimeout_Default(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 30, cfg.Schema.HTTPClientTimeoutSecs)
 }
+
+func TestLoadConfig_SchemaHTTPClientTimeout_Negative(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: -5\n"), 0o600)
+	require.NoError(t, err)
+
+	_, err = LoadConfig(configPath)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNegativeSchemaTimeout)
+}
