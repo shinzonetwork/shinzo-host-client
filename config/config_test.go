@@ -343,3 +343,47 @@ func TestLoadConfig_SchemaHTTPClientTimeout_Excessive(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrExcessiveSchemaTimeout)
 }
+
+func TestLoadConfig_SchemaAuthToken(t *testing.T) {
+	tests := []struct {
+		name        string
+		yamlContent string
+		setEnv      func(t *testing.T)
+		wantToken   string
+	}{
+		{
+			name:        "env sets token",
+			yamlContent: `{}`,
+			setEnv:      func(t *testing.T) { t.Setenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN", "my-secret-tok") },
+			wantToken:   "my-secret-tok",
+		},
+		{
+			name:        "env unset keeps empty default",
+			yamlContent: `{}`,
+			setEnv:      func(_ *testing.T) {},
+			wantToken:   "",
+		},
+		{
+			name:        "YAML auth_token field ignored due to yaml dash tag",
+			yamlContent: "schema:\n  auth_token: \"should-be-ignored\"\n",
+			setEnv:      func(_ *testing.T) {},
+			wantToken:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.yaml")
+
+			err := os.WriteFile(configPath, []byte(tt.yamlContent), 0o600)
+			require.NoError(t, err)
+
+			tt.setEnv(t)
+
+			cfg, err := LoadConfig(configPath)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantToken, cfg.Schema.AuthToken)
+		})
+	}
+}

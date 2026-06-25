@@ -111,6 +111,9 @@ pruner:
 schema:
   indexer_schema_endpoint: /api/v1/schema
   http_client_timeout_secs: 30
+  # ⚠ auth_token is NOT configurable in this file (the field uses yaml:"-").
+  # You MUST set the token via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN environment variable.
+  # Example: INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN=my-secret-token
 logger:
   development: true
   level: "info"

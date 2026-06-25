@@ -82,6 +82,15 @@ type Config struct {
 type SchemaConfig struct {
 	IndexerSchemaEndpoint string `yaml:"indexer_schema_endpoint"`
 	HTTPClientTimeoutSecs int    `yaml:"http_client_timeout_secs"`
+	// AuthToken is the bearer token used to authenticate schema fetch requests
+	// against indexers with SCHEMA_AUTH_MODE=token (the default).
+	//
+	// IMPORTANT: This field uses yaml:"-", which means YAML configuration is
+	// SILENTLY IGNORED. The token MUST be provided via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN
+	// environment variable. Setting this field in config.yaml will NOT work —
+	// the host will start with an empty token, causing schema fetches to
+	// receive 401/503 and fall back to the embedded schema (fail-closed).
+	AuthToken string `yaml:"-"`
 }
 
 // ShinzoConfig represents configuration specific to the Shinzo host application.
@@ -213,6 +222,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT"); v != "" {
 		cfg.Schema.IndexerSchemaEndpoint = v
+	}
+
+	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN"); v != "" {
+		cfg.Schema.AuthToken = v
 	}
 	if cfg.Schema.IndexerSchemaEndpoint == "" {
 		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint

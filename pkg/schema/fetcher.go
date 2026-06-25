@@ -128,10 +128,29 @@ func IsNetworkLevelError(err error) bool {
 		errors.Is(err, ErrSchemaFetchStatus)
 }
 
+// authTransport wraps an http.RoundTripper to inject a Bearer token
+// into the Authorization header of every outgoing request.
+type authTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
+}
+
 // NewSchemaHTTPClient creates an HTTP client suitable for schema fetching,
-// using the timeout from the provided SchemaConfig.
+// using the timeout from the provided SchemaConfig. When AuthToken is non-empty,
+// the client's transport injects an Authorization: Bearer <token> header on
+// every outgoing request.
 func NewSchemaHTTPClient(cfg config.SchemaConfig) *http.Client {
+	var transport http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
+	if cfg.AuthToken != "" {
+		transport = &authTransport{base: transport, token: cfg.AuthToken}
+	}
 	return &http.Client{
-		Timeout: time.Duration(cfg.HTTPClientTimeoutSecs) * time.Second,
+		Timeout:   time.Duration(cfg.HTTPClientTimeoutSecs) * time.Second,
+		Transport: transport,
 	}
 }
