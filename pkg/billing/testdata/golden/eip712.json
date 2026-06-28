@@ -1,0 +1,16 @@
+{
+  "description": "EIP-712 QueryRequest signed by viem. RecoverQueryRequest must return address. privateKey is the public anvil/hardhat account 0, used only as a fixed test key.",
+  "privateKey": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "domain": {
+    "name": "ShinzoQueryBilling",
+    "version": "1",
+    "chainId": 91273002
+  },
+  "request": {
+    "queryHash": "0xf3a05d2e64ad331c93380da7fbec1f0a413b03065b33355794dd7ef12170807f",
+    "nonce": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "timestamp": 1735689600
+  },
+  "signature": "0x9123cd80c68cd34351511878e89b6466c0ca9f263d1af5138b83977a660621c4377dcc9ddbf8df42c3fbc1a489a84cdc9a1a0757bcbec2671e9a0f876be8d39e1c"
+}

@@ -1,0 +1,242 @@
+{
+  "vectors": [
+    {
+      "name": "empty_variables",
+      "query": "query Q { field }",
+      "variables": {},
+      "canonical": "{\"query\":\"query Q { field }\",\"variables\":{}}",
+      "hash": "0xf3a05d2e64ad331c93380da7fbec1f0a413b03065b33355794dd7ef12170807f"
+    },
+    {
+      "name": "realistic_block_range",
+      "query": "query Logs($from: Int!, $to: Int!) {\n  logs(filter: {blockNumber: {ge: $from, le: $to}}) {\n    address\n    topics\n  }\n}",
+      "variables": {
+        "from": 1000000,
+        "to": 1000100
+      },
+      "canonical": "{\"query\":\"query Logs($from: Int!, $to: Int!) {\\n  logs(filter: {blockNumber: {ge: $from, le: $to}}) {\\n    address\\n    topics\\n  }\\n}\",\"variables\":{\"from\":1000000,\"to\":1000100}}",
+      "hash": "0x9b06f6e21dcbdd710bc62d913c8059b4c3b680652003b0450506a8f0abb7bf0f"
+    },
+    {
+      "name": "object_key_reorder",
+      "query": "q",
+      "variables": {
+        "b": 2,
+        "a": 1
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"a\":1,\"b\":2}}",
+      "hash": "0xd204fe12f219b99468ee97cf6d47f914038244ee37dc49566b9fccb9a57e2d5a"
+    },
+    {
+      "name": "nested_object_keys",
+      "query": "q",
+      "variables": {
+        "filter": {
+          "y": 2,
+          "x": 1
+        },
+        "limit": 10
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"filter\":{\"x\":1,\"y\":2},\"limit\":10}}",
+      "hash": "0xeb28aa9344ba5608aade17501d07ee5296c7a55e9e3de85cdd50ecd1fcd24f76"
+    },
+    {
+      "name": "array_order_preserved",
+      "query": "q",
+      "variables": {
+        "ids": [
+          3,
+          1,
+          2
+        ]
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"ids\":[3,1,2]}}",
+      "hash": "0xa1a1fd6d01e49c65889b4398e77e108e5cc748e4181d11a7d56eaec2aaf73f11"
+    },
+    {
+      "name": "integer",
+      "query": "q",
+      "variables": {
+        "n": 1000
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":1000}}",
+      "hash": "0x30649ebca0339f9e0ae6cd6ee93cb21a4469a896d8d79ec49470480771b54e21"
+    },
+    {
+      "name": "integer_written_as_float",
+      "query": "q",
+      "variables": {
+        "n": 1000.0
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":1000}}",
+      "hash": "0x30649ebca0339f9e0ae6cd6ee93cb21a4469a896d8d79ec49470480771b54e21"
+    },
+    {
+      "name": "float_tenth",
+      "query": "q",
+      "variables": {
+        "n": 0.1
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":0.1}}",
+      "hash": "0x17ca3d772a6bc6f0d44f5c476054255e08a08b70882be95401166fc9bf21f4c7"
+    },
+    {
+      "name": "float_one_and_half",
+      "query": "q",
+      "variables": {
+        "n": 1.5
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":1.5}}",
+      "hash": "0x37ef5cdd3e2e5064f5e96308862612860ca3b313e32872c75e682cdae5586fb0"
+    },
+    {
+      "name": "small_exponent",
+      "query": "q",
+      "variables": {
+        "n": 1e-7
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":1e-7}}",
+      "hash": "0xa7d0e9ae8da23d86a4ea8eb92448b78d1ee2cd2bb41923dd8e250e1d6992034e"
+    },
+    {
+      "name": "negative_zero",
+      "query": "q",
+      "variables": {
+        "n": -0
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":0}}",
+      "hash": "0xedc5470556e27aa68b3ed5af00161cd3d00f6d8dff3b0e4aaf3ba8b9201173eb"
+    },
+    {
+      "name": "seventeen_significant_digits",
+      "query": "q",
+      "variables": {
+        "n": 0.30000000000000004
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":0.30000000000000004}}",
+      "hash": "0xb546fc335469d4af7d6c63aa2018e7f17b7e079b237aa0e3ff875ec122bfbe4a"
+    },
+    {
+      "name": "boundary_below_2_pow_53",
+      "query": "q",
+      "variables": {
+        "n": 9007199254740991
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"n\":9007199254740991}}",
+      "hash": "0x704d549ddcc03a3d1f37e0c8c8ad5d2e1312de6eb7cae249f3411186fa35c80d"
+    },
+    {
+      "name": "unicode_utf8",
+      "query": "q",
+      "variables": {
+        "s": "café"
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"s\":\"café\"}}",
+      "hash": "0x245f63e040cd9d14a35fdde89defe41b119c8e274bcbb2cb64a12331a08afb33"
+    },
+    {
+      "name": "backslash_in_string_value",
+      "query": "q",
+      "variables": {
+        "s": "caf\\u00e9"
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"s\":\"caf\\\\u00e9\"}}",
+      "hash": "0x44e26ed8f608d340d1db1fe4244bb507c2aff85a264c84a5773b6759427dfa5d"
+    },
+    {
+      "name": "emoji",
+      "query": "q",
+      "variables": {
+        "s": "🚀"
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"s\":\"🚀\"}}",
+      "hash": "0x2630f57a9ec66340f15d935826bece85a2559d55c43ee128aed28e7895455213"
+    },
+    {
+      "name": "html_chars_not_escaped",
+      "query": "q",
+      "variables": {
+        "s": "a \u003c b \u003e c \u0026 d"
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"s\":\"a \u003c b \u003e c \u0026 d\"}}",
+      "hash": "0x7be80360406babe49ed662bc45731270114e084831145bbf01a0d37b352dbdd9"
+    },
+    {
+      "name": "large_value_passed_as_string",
+      "query": "q",
+      "variables": {
+        "blockNumber": "90071992547409930"
+      },
+      "canonical": "{\"query\":\"q\",\"variables\":{\"blockNumber\":\"90071992547409930\"}}",
+      "hash": "0x04a18bc85bb91dd75bd5ca0bd718d37b20960376b272aef040a2dae92b4bd880"
+    }
+  ],
+  "rejects": [
+    {
+      "name": "exactly_2_pow_53",
+      "query": "q",
+      "variables": {
+        "n": 9007199254740992
+      }
+    },
+    {
+      "name": "exponent_1e21",
+      "query": "q",
+      "variables": {
+        "n": 1e21
+      }
+    },
+    {
+      "name": "large_integer_literal",
+      "query": "q",
+      "variables": {
+        "n": 90071992547409930
+      }
+    },
+    {
+      "name": "negative_large_magnitude",
+      "query": "q",
+      "variables": {
+        "n": -9007199254740992
+      }
+    },
+    {
+      "name": "nested_large_number",
+      "query": "q",
+      "variables": {
+        "a": {
+          "b": 9007199254740992
+        }
+      }
+    },
+    {
+      "name": "large_number_in_array",
+      "query": "q",
+      "variables": {
+        "a": [
+          1,
+          9007199254740992
+        ]
+      }
+    },
+    {
+      "name": "variables_is_array",
+      "query": "q",
+      "variables": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "variables_is_scalar",
+      "query": "q",
+      "variables": 5
+    },
+    {
+      "name": "variables_is_string",
+      "query": "q",
+      "variables": "hi"
+    }
+  ]
+}
