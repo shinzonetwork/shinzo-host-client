@@ -14,11 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 )
 
-// QueryResponse is the EIP-712 message a host signs to attest that it served a
-// query: which query (QueryHash), as which Host and Pool, how many rows, when
-// (RespondedAt, unix seconds), and over which source documents
-// (ResponseCidsHash). The accounting service recovers the host from the
-// signature.
+// QueryResponse is the EIP-712 message a host signs to attest it served a query.
+// The accounting service recovers the host from the signature. RespondedAt is in
+// unix seconds; ResponseCidsHash commits to the source documents the host read.
 type QueryResponse struct {
 	QueryHash        [32]byte
 	Host             common.Address
