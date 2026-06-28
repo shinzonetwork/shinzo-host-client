@@ -209,7 +209,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// proxy below uses our address.
 	var acpServer *defradbHttp.Server
 	if acpCfg.Enabled {
-		acpServer, err = startACPServer(ctx, acpCfg, defraNode, viewManager, cfg.DefraDB.URL)
+		acpServer, err = startACPServer(ctx, acpCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL)
 		if err != nil {
 			return nil, fmt.Errorf("acp server: %w", err)
 		}
@@ -701,17 +701,25 @@ func (h *Host) Close(ctx context.Context) error {
 func startACPServer(
 	ctx context.Context,
 	acpCfg acp.Config,
+	hubBaseURL string,
 	defraNode *node.Node,
 	viewManager *view.Manager,
 	defraURL string,
 ) (*defradbHttp.Server, error) {
-	authz, err := acp.NewSourceHubAuthorizer(acpCfg.SourceHubGRPC, acpCfg.SourceHubComet, acpCfg.PolicyID)
-	if err != nil {
-		return nil, fmt.Errorf("authorizer: %w", err)
+	if hubBaseURL == "" {
+		return nil, errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
 	}
+	// The host reads the hub over its Cosmos LCD (REST) port. HubBaseURL points
+	// at the CometBFT RPC port; the LCD is the same host on :1317.
+	lcdURL := "http://" + strings.Replace(hubBaseURL, ":26657", ":1317", 1)
+	hubClient := shinzohub.NewRPCClient(lcdURL, defraNode)
+	epochClock := acp.NewEpochClock(hubClient, acpCfg.EpochLength, epochPollInterval)
+	// "shinzo" is the chain's bech32 account prefix: the recovered EVM payer is
+	// encoded to it for the x/querybalance lookup.
+	authz := acp.NewBalanceAuthorizer(hubClient, epochClock, acpCfg.MinBalance(), "shinzo")
 
 	registry := acp.NewViewRegistry(viewManager)
-	mw := acp.NewMiddleware(acp.BearerJWTAuth{}, authz, registry, logger.Sugar)
+	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, logger.Sugar)
 
 	handler, err := defradbHttp.NewHandler(defraNode.DB)
 	if err != nil {
@@ -766,6 +774,11 @@ func startACPServer(
 // ACP-wrapped server. The server is local; a slow response indicates
 // startup is wedged and the host should fail rather than hang.
 const acpHealthCheckTimeout = 5 * time.Second
+
+// epochPollInterval bounds how often the balance gate re-reads the hub height to
+// learn the current settlement epoch. Balances only change at epoch close, so a
+// coarse interval is enough to invalidate the per-payer cache in time.
+const epochPollInterval = 30 * time.Second
 
 // GetMetricsHandler returns an HTTP handler for the metrics endpoint.
 func (h *Host) GetMetricsHandler() http.Handler {

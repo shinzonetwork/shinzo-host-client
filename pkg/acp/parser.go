@@ -1,7 +1,3 @@
-// Package acp implements the host-side access-control middleware. The
-// middleware authenticates each incoming GraphQL request, identifies which
-// view collections it touches, and forwards or rejects based on the
-// SourceHub subscriber tuples for the caller.
 package acp
 
 import (
@@ -56,10 +52,19 @@ const maxFragmentDepth = 16
 // 400 rather than forwarding a request whose top-level field set is
 // unsafe to determine.
 func ExtractCollections(r *http.Request) ([]string, error) {
-	query, operationName, err := extractGraphQLOperation(r)
+	req, err := parseGraphQLRequest(r)
 	if err != nil {
 		return nil, err
 	}
+	return collectionsFromQuery(req.Query, req.OperationName)
+}
+
+// collectionsFromQuery returns the top-level field names selected by query,
+// deduplicated and with aliases resolved, following fragment spreads and inline
+// fragments. operationName, when set, restricts the walk to that named
+// operation. An empty query returns nil so the caller can pass the request
+// through without gating.
+func collectionsFromQuery(query, operationName string) ([]string, error) {
 	if query == "" {
 		return nil, nil
 	}
@@ -147,52 +152,85 @@ func collectTopLevelFields(
 	return names, nil
 }
 
-// extractGraphQLOperation reads the GraphQL query and operationName from r.
-// On POST a non-empty URL `query` parameter takes precedence over the
-// body, matching defradb's handler. When the body path is taken, the
-// body is read into memory and r.Body is rewound so downstream handlers
-// can re-read it. On GET it reads URL params. Unsupported methods return
-// ("", "", nil) so the caller passes the request through without parsing.
-func extractGraphQLOperation(r *http.Request) (query, operationName string, err error) {
+// graphQLRequest is the parsed content of a GraphQL request: the operation, plus
+// the variables and the signed billing envelope carried under "extensions".
+// Variables and Extensions are nil when the transport does not carry them.
+type graphQLRequest struct {
+	Query         string
+	OperationName string
+	Variables     json.RawMessage
+	Extensions    json.RawMessage
+}
+
+// parseGraphQLRequest reads the GraphQL request from r across the supported
+// transports. On POST a non-empty URL `query` parameter takes precedence over
+// the body, matching defradb's handler. When the body path is taken, the body
+// is read into memory and r.Body is rewound so downstream handlers can re-read
+// it. Unsupported methods return a zero request so the caller passes the request
+// through without gating.
+func parseGraphQLRequest(r *http.Request) (graphQLRequest, error) {
 	switch r.Method {
 	case http.MethodGet:
-		return r.URL.Query().Get("query"), r.URL.Query().Get("operationName"), nil
+		q := r.URL.Query()
+		return graphQLRequest{
+			Query:         q.Get("query"),
+			OperationName: q.Get("operationName"),
+			Variables:     rawOrNil(q.Get("variables")),
+		}, nil
 
 	case http.MethodPost:
 		// Defradb prefers URL `query` over the body on POST. Mirror that
 		// so the middleware sees the same query defradb will execute.
 		if q := r.URL.Query().Get("query"); q != "" {
-			return q, r.URL.Query().Get("operationName"), nil
+			return graphQLRequest{
+				Query:         q,
+				OperationName: r.URL.Query().Get("operationName"),
+				Variables:     rawOrNil(r.URL.Query().Get("variables")),
+			}, nil
 		}
 		if r.Body == nil {
-			return "", "", nil
+			return graphQLRequest{}, nil
 		}
 		body, readErr := io.ReadAll(r.Body)
 		if readErr != nil {
-			return "", "", fmt.Errorf("read body: %w", readErr)
+			return graphQLRequest{}, fmt.Errorf("read body: %w", readErr)
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		if len(body) == 0 {
-			return "", "", nil
+			return graphQLRequest{}, nil
 		}
 
-		mediaType := contentTypeOf(r)
-		if mediaType == contentTypeGraphQL {
-			return string(body), "", nil
+		if contentTypeOf(r) == contentTypeGraphQL {
+			return graphQLRequest{Query: string(body)}, nil
 		}
 
 		var payload struct {
-			Query         string `json:"query"`
-			OperationName string `json:"operationName"`
+			Query         string          `json:"query"`
+			OperationName string          `json:"operationName"`
+			Variables     json.RawMessage `json:"variables"`
+			Extensions    json.RawMessage `json:"extensions"`
 		}
 		if jsonErr := json.Unmarshal(body, &payload); jsonErr != nil {
-			return "", "", fmt.Errorf("%w: %s", ErrMalformedQuery, jsonErr.Error())
+			return graphQLRequest{}, fmt.Errorf("%w: %s", ErrMalformedQuery, jsonErr.Error())
 		}
-		return payload.Query, payload.OperationName, nil
+		return graphQLRequest{
+			Query:         payload.Query,
+			OperationName: payload.OperationName,
+			Variables:     payload.Variables,
+			Extensions:    payload.Extensions,
+		}, nil
 
 	default:
-		return "", "", nil
+		return graphQLRequest{}, nil
 	}
+}
+
+// rawOrNil returns s as json.RawMessage, or nil when s is empty.
+func rawOrNil(s string) json.RawMessage {
+	if s == "" {
+		return nil
+	}
+	return json.RawMessage(s)
 }
 
 // contentTypeOf returns the media type portion of the request's

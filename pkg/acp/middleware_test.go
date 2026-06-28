@@ -3,309 +3,244 @@ package acp
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 )
 
-// Shared test constants used across the acp package's test suite.
 const (
+	testChainID          = 91273002
 	testViewFilteredLogs = "FilteredLogs"
 	testViewFilteredTxs  = "FilteredTxs"
 	testContractA        = "0xabc"
 	testContractB        = "0xdef"
-	testDIDAlice         = "did:key:alice"
-	testDIDEve           = "did:key:eve"
 	testOpBNamed         = "Bar"
 )
 
-// errTestAuthzFail simulates a transport-level failure from the
-// authorizer (e.g., SourceHub unreachable). Declared at package scope
-// so test assertions can branch on it via errors.Is.
 var errTestAuthzFail = errors.New("test: authorizer transport failure")
 
-// Non-graphql paths must bypass the gating logic entirely. The
-// registry and request are set up so that, if the path check were
-// removed, the request would be denied: the body references a view
-// the registry knows about and the authenticator refuses every caller.
-// Passing through under that configuration proves the path check is
-// the only thing skipping the gate.
+// A non-graphql path bypasses the gate entirely. The registry knows the view
+// and the authorizer would deny, so passing through proves only the path check
+// let it by.
 func TestMiddleware_NonGraphQLPathPassesThrough(t *testing.T) {
-	authz := newFakeAuthorizer()
+	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(noAuth{}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
 	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/v0/collections", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.True(t, next.called)
 	require.Empty(t, authz.calls, "non-graphql request must not invoke the authorizer")
 }
 
-// A graphql request that touches no view collections requires no
-// authentication and passes through to next.
-func TestMiddleware_NonViewQueryPassesWithoutAuth(t *testing.T) {
-	authz := newFakeAuthorizer()
+// A query touching no view collections is not billed and passes through without
+// a signature.
+func TestMiddleware_NonViewQueryPassesWithoutSignature(t *testing.T) {
+	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{}}
-	mw := NewMiddleware(noAuth{}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ Block { number } }"}`)
-	r := newGraphQLPost(body)
+	r := newGraphQLPost([]byte(`{"query":"{ Block { number } }"}`))
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.True(t, next.called)
 	require.Empty(t, authz.calls)
 }
 
-// A view collection without authentication is denied. The middleware
-// does not consult the authorizer because there is no caller identity
-// to evaluate.
-func TestMiddleware_ViewQueryWithoutAuthIs403(t *testing.T) {
-	authz := newFakeAuthorizer()
+// A view query with no signed extensions is denied; there is no payer to bill.
+func TestMiddleware_ViewQueryWithoutSignatureIs403(t *testing.T) {
+	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(noAuth{}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
+	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } }"}`))
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusForbidden, w.Code)
 	require.False(t, next.called)
 	require.Empty(t, authz.calls)
 }
 
-// Happy path: the caller is authenticated and the authorizer allows.
-// Middleware forwards to next.
-func TestMiddleware_ViewQueryWithValidAuth_Allowed(t *testing.T) {
-	authz := newFakeAuthorizer()
-	authz.allow(testDIDAlice, testContractA)
+// A funded payer's signed query is authorized and forwarded, and the authorizer
+// is consulted for the recovered payer address.
+func TestMiddleware_FundedSignedQueryAllowed(t *testing.T) {
+	priv, signer := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
+	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.True(t, next.called)
-	require.Equal(t, []authzCall{{testDIDAlice, testViewFilteredLogs, testContractA}}, authz.calls)
+	require.Equal(t, []common.Address{signer}, authz.calls)
 }
 
-// The authorizer denies the request; middleware returns 403 without
-// calling next.
-func TestMiddleware_ViewQueryDeniedByAuthorizer_403(t *testing.T) {
-	authz := newFakeAuthorizer() // default: deny everything
+// The authorizer denies an underfunded payer; the middleware returns 402.
+func TestMiddleware_UnderfundedDenied(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: false}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(stubAuth{did: testDIDEve}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
+	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
-	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Equal(t, http.StatusPaymentRequired, w.Code)
 	require.False(t, next.called)
-	require.Len(t, authz.calls, 1, "the authorizer must be consulted before denying")
+	require.Len(t, authz.calls, 1)
 }
 
-// A transport-level error from the authorizer (SourceHub unreachable,
-// gRPC failure, etc.) is an indeterminate result, not a deny. The
-// middleware maps it to 503 so the caller can retry once the backend
-// recovers.
-func TestMiddleware_ViewQueryAuthorizerError_503(t *testing.T) {
-	authz := newFakeAuthorizer()
-	authz.fail(testDIDAlice, testContractA, errTestAuthzFail)
+// A transport error from the authorizer is indeterminate, not a deny, and maps
+// to 503.
+func TestMiddleware_AuthorizerErrorIs503(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{err: errTestAuthzFail}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
+	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 	require.False(t, next.called)
 }
 
-// A view that is registered but missing its contract address fails
-// closed (503). The authorizer is never consulted because we don't have
-// an object_id to look up against.
-func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
-	authz := newFakeAuthorizer()
-	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: ""}} // registered, no address
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
+// A query that differs from the one signed fails the query_hash binding before
+// the balance is ever checked.
+func TestMiddleware_TamperedQueryRejected(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	mw := NewMiddleware(authz, reg, testChainID, nil)
+
+	ext, err := billing.SignRequest(testChainID, priv, "{ FilteredLogs { hash } }", nil, 1, 1735689600)
+	require.NoError(t, err)
+	// Serve a different field selection than was signed; both resolve to the
+	// same view so the request reaches verification.
+	body, err := json.Marshal(requestBody{Query: "{ FilteredLogs { number } }", Extensions: ext})
+	require.NoError(t, err)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-	require.False(t, next.called)
-	require.Empty(t, authz.calls, "fail-closed must not consult the authorizer")
-}
-
-// When a single request selects multiple views, all must be authorized.
-// One denial fails the whole request even if other views would have
-// been allowed.
-func TestMiddleware_MultipleViewsAllMustPass(t *testing.T) {
-	authz := newFakeAuthorizer()
-	authz.allow(testDIDAlice, testContractA)
-	// 0xdef is not in the allow map, so it defaults to deny.
-	reg := fakeRegistry{
-		views: map[string]string{
-			testViewFilteredLogs: testContractA,
-			testViewFilteredTxs:  testContractB,
-		},
-	}
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
-
-	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } FilteredTxs { hash } }"}`)
-	r := newGraphQLPost(body)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, newGraphQLPost(body))
 
 	require.Equal(t, http.StatusForbidden, w.Code)
 	require.False(t, next.called)
-	// The middleware short-circuits on first deny; at least one call
-	// must have happened, but the second view may not be consulted.
-	require.GreaterOrEqual(t, len(authz.calls), 1)
+	require.Empty(t, authz.calls, "verification must fail before the balance check")
 }
 
-// A request mixing a view and a primitive collection is gated only on
-// the view; the primitive part passes through.
-func TestMiddleware_MixedViewAndPrimitive_AuthorizedOnViewOnly(t *testing.T) {
-	authz := newFakeAuthorizer()
-	authz.allow(testDIDAlice, testContractA)
-	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
+// A request selecting more than one view cannot be attributed to a single pool
+// and is rejected.
+func TestMiddleware_MultiViewRejected(t *testing.T) {
+	authz := &fakeAuthorizer{}
+	reg := fakeRegistry{views: map[string]string{
+		testViewFilteredLogs: testContractA,
+		testViewFilteredTxs:  testContractB,
+	}}
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ Block { number } FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
+	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } FilteredTxs { hash } }"}`))
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.True(t, next.called)
-	require.Equal(t, []authzCall{{testDIDAlice, testViewFilteredLogs, testContractA}}, authz.calls,
-		"the authorizer must be consulted only for view collections")
-}
-
-// Body must remain readable by the wrapped handler. The middleware
-// reads the body to parse the GraphQL operation; if it does not rewind
-// r.Body, the wrapped handler sees an empty payload.
-func TestMiddleware_BodyForwardedToNextUnchanged(t *testing.T) {
-	authz := newFakeAuthorizer()
-	authz.allow(testDIDAlice, testContractA)
-	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
-
-	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
-	r := newGraphQLPost(body)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
-
-	require.Equal(t, body, next.bodyReceived, "downstream must see the original body")
-}
-
-// A malformed JSON body returns 400 immediately. The authorizer is not
-// consulted; we cannot determine what the request was asking for.
-func TestMiddleware_MalformedBodyIs400(t *testing.T) {
-	authz := newFakeAuthorizer()
-	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(stubAuth{did: testDIDAlice}, authz, reg, nil)
-
-	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	r := newGraphQLPost([]byte(`{"query": "{ Foo`)) // truncated
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.False(t, next.called)
 	require.Empty(t, authz.calls)
 }
 
-// GET requests are gated the same as POST: a view query without auth
-// returns 403.
-func TestMiddleware_GETViewQueryWithoutAuthIs403(t *testing.T) {
-	authz := newFakeAuthorizer()
-	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(noAuth{}, authz, reg, nil)
+// A view registered without a contract address fails closed; the authorizer is
+// never consulted.
+func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
+	authz := &fakeAuthorizer{}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: ""}}
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	r := httptest.NewRequest(http.MethodGet, GraphQLPath+"?query=%7B+FilteredLogs+%7B+hash+%7D+%7D", nil)
+	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } }"}`))
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, r)
 
-	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 	require.False(t, next.called)
+	require.Empty(t, authz.calls)
 }
 
-// An empty POST body on the graphql path has no collections to gate;
-// the request passes through and defradb decides how to respond.
-func TestMiddleware_EmptyBodyPassesThrough(t *testing.T) {
-	authz := newFakeAuthorizer()
+func TestMiddleware_MalformedBodyIs400(t *testing.T) {
+	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(noAuth{}, authz, reg, nil)
+	mw := NewMiddleware(authz, reg, testChainID, nil)
 
 	next := &recordingNext{}
-	srv := mw.Wrap(next)
-
-	r := newGraphQLPost(nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, r)
+	mw.Wrap(next).ServeHTTP(w, newGraphQLPost([]byte(`{"query": "{ Foo`)))
 
-	require.Equal(t, http.StatusOK, w.Code)
-	require.True(t, next.called)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.False(t, next.called)
+	require.Empty(t, authz.calls)
+}
+
+// The middleware reads the body to parse and verify; it must rewind r.Body so
+// the wrapped handler sees the original payload on the allow path.
+func TestMiddleware_BodyForwardedToNextUnchanged(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	mw := NewMiddleware(authz, reg, testChainID, nil)
+
+	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	sent, err := io.ReadAll(r.Body)
+	require.NoError(t, err)
+	r.Body = io.NopCloser(bytes.NewReader(sent))
+
+	next := &recordingNext{}
+	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), r)
+	require.Equal(t, sent, next.bodyReceived, "downstream must see the original body")
 }
 
 // --- helpers ---
+
+type requestBody struct {
+	Query      string             `json:"query"`
+	Variables  json.RawMessage    `json:"variables,omitempty"`
+	Extensions billing.Extensions `json:"extensions"`
+}
+
+func newKey(t *testing.T) (*ecdsa.PrivateKey, common.Address) {
+	t.Helper()
+	priv, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	return priv, crypto.PubkeyToAddress(priv.PublicKey)
+}
 
 func newGraphQLPost(body []byte) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, GraphQLPath, bytes.NewReader(body))
@@ -313,64 +248,30 @@ func newGraphQLPost(body []byte) *http.Request {
 	return r
 }
 
-// noAuth fails every CallerDID request with ErrAuthRequired, modelling
-// "the caller did not send a valid bearer token".
-type noAuth struct{}
-
-func (noAuth) CallerDID(*http.Request) (string, error) {
-	return "", ErrAuthRequired
+func signedGraphQLPost(t *testing.T, priv *ecdsa.PrivateKey, query string, vars json.RawMessage) *http.Request {
+	t.Helper()
+	ext, err := billing.SignRequest(testChainID, priv, query, vars, 1, 1735689600)
+	require.NoError(t, err)
+	body, err := json.Marshal(requestBody{Query: query, Variables: vars, Extensions: ext})
+	require.NoError(t, err)
+	return newGraphQLPost(body)
 }
 
-// stubAuth always reports the same DID; used in tests where the caller
-// identity is given.
-type stubAuth struct{ did string }
-
-func (s stubAuth) CallerDID(*http.Request) (string, error) {
-	return s.did, nil
-}
-
-type authzCall struct {
-	did  string
-	name string
-	addr string
-}
-
-type authzDecision struct {
+// fakeAuthorizer records every payer it is asked about and returns a fixed
+// decision. An unconfigured authorizer denies.
+type fakeAuthorizer struct {
 	allow bool
 	err   error
+	calls []common.Address
 }
 
-// fakeAuthorizer records every AuthorizeView call and returns a
-// pre-configured decision keyed by (callerDID, contractAddr). viewName
-// is captured in the recorded call but not part of the lookup key, so
-// tests declare expectations by (did, addr) alone. Unknown keys default
-// to deny so a test that forgets to set an expectation fails fast.
-type fakeAuthorizer struct {
-	decisions map[string]authzDecision
-	calls     []authzCall
+func (f *fakeAuthorizer) Authorize(_ context.Context, payer common.Address) (bool, error) {
+	f.calls = append(f.calls, payer)
+	return f.allow, f.err
 }
 
-func newFakeAuthorizer() *fakeAuthorizer {
-	return &fakeAuthorizer{decisions: make(map[string]authzDecision)}
-}
-
-func (f *fakeAuthorizer) allow(did, addr string) {
-	f.decisions[did+"|"+addr] = authzDecision{allow: true}
-}
-
-func (f *fakeAuthorizer) fail(did, addr string, err error) {
-	f.decisions[did+"|"+addr] = authzDecision{err: err}
-}
-
-func (f *fakeAuthorizer) AuthorizeView(_ context.Context, did, name, addr string) (bool, error) {
-	f.calls = append(f.calls, authzCall{did, name, addr})
-	d := f.decisions[did+"|"+addr]
-	return d.allow, d.err
-}
-
-// fakeRegistry treats every key in `views` as a registered view; an
-// empty-string value models "registered but no contract address" so
-// fail-closed behavior can be tested without touching view.Manager.
+// fakeRegistry treats every key in views as a registered view; an empty-string
+// value models "registered but no contract address" for fail-closed tests.
 type fakeRegistry struct {
 	views map[string]string
 }
@@ -388,9 +289,8 @@ func (f fakeRegistry) ContractAddress(name string) (string, bool) {
 	return addr, true
 }
 
-// recordingNext is the wrapped handler; tests inspect it to verify
-// whether the middleware forwarded the request and what body the
-// downstream handler observed.
+// recordingNext is the wrapped handler; tests inspect whether it was reached and
+// what body it observed.
 type recordingNext struct {
 	called       bool
 	bodyReceived []byte
