@@ -59,12 +59,20 @@ func ExtractCollections(r *http.Request) ([]string, error) {
 	return collectionsFromQuery(req.Query, req.OperationName)
 }
 
-// collectionsFromQuery returns the top-level field names selected by query,
-// deduplicated and with aliases resolved, following fragment spreads and inline
-// fragments. operationName, when set, restricts the walk to that named
-// operation. An empty query returns nil so the caller can pass the request
-// through without gating.
-func collectionsFromQuery(query, operationName string) ([]string, error) {
+// topLevelField is one top-level selection: ResponseKey is the key it appears
+// under in the response (its alias, or the field name when unaliased), and Name
+// is the underlying field.
+type topLevelField struct {
+	ResponseKey string
+	Name        string
+}
+
+// topLevelFields returns the top-level fields selected by query, following
+// fragment spreads and inline fragments, deduplicated by response key (fields
+// that share a response key merge into one in the response). operationName, when
+// set, restricts the walk to that named operation. An empty query returns nil so
+// the caller can pass the request through without gating.
+func topLevelFields(query, operationName string) ([]topLevelField, error) {
 	if query == "" {
 		return nil, nil
 	}
@@ -75,58 +83,94 @@ func collectionsFromQuery(query, operationName string) ([]string, error) {
 	}
 
 	seen := make(map[string]struct{})
-	var names []string
+	var fields []topLevelField
 	for _, op := range doc.Operations {
 		if operationName != "" && op.Name != operationName {
 			continue
 		}
-		opNames, err := collectTopLevelFields(op.SelectionSet, doc, seen, make(map[string]struct{}), 0)
+		opFields, err := collectTopLevelFields(op.SelectionSet, doc, seen, make(map[string]struct{}), 0)
 		if err != nil {
 			return nil, err
 		}
-		names = append(names, opNames...)
+		fields = append(fields, opFields...)
 	}
-	return names, nil
+	return fields, nil
 }
 
-// collectTopLevelFields walks a selection set and returns the names of
-// every top-level Field reachable from it, recursing into FragmentSpread
-// and InlineFragment along the way. seen deduplicates Field names across
-// the entire walk; visitedFrags blocks fragment-spread cycles by name.
-// depth is bounded by maxFragmentDepth.
+// collectionsFromQuery returns the distinct underlying field names selected at
+// the top level of query, with aliases resolved to the field name. Used to detect
+// which views a request touches. An empty query returns nil.
+func collectionsFromQuery(query, operationName string) ([]string, error) {
+	fields, err := topLevelFields(query, operationName)
+	if err != nil {
+		return nil, err
+	}
+	return collectionNames(fields), nil
+}
+
+// collectionNames returns the distinct underlying field names from fields, in
+// first-seen order.
+func collectionNames(fields []topLevelField) []string {
+	seen := make(map[string]struct{})
+	var names []string
+	for _, f := range fields {
+		if _, dup := seen[f.Name]; dup {
+			continue
+		}
+		seen[f.Name] = struct{}{}
+		names = append(names, f.Name)
+	}
+	return names
+}
+
+// responseKeys returns the response keys under which the field named name
+// appears. A view selected more than once (aliased) yields one key per selection.
+func responseKeys(fields []topLevelField, name string) []string {
+	var keys []string
+	for _, f := range fields {
+		if f.Name == name {
+			keys = append(keys, f.ResponseKey)
+		}
+	}
+	return keys
+}
+
+// collectTopLevelFields walks a selection set and returns every top-level field
+// reachable from it, recursing into FragmentSpread and InlineFragment. seen
+// deduplicates by response key (fields sharing a response key merge in the
+// response); visitedFrags blocks fragment-spread cycles by name; depth is bounded
+// by maxFragmentDepth.
 //
-// "Top-level" means a Field whose parent in the selection tree is either
-// the operation itself or another top-level fragment used at the
-// operation level. Selections nested inside a Field's own SelectionSet
-// describe that field's sub-shape and are not new top-level entries, so
-// they are not traversed here.
+// "Top-level" means a field whose parent is the operation itself or a top-level
+// fragment used at the operation level. Selections nested inside a field's own
+// SelectionSet describe that field's sub-shape and are not traversed here.
 func collectTopLevelFields(
 	sels ast.SelectionSet,
 	doc *ast.QueryDocument,
 	seen map[string]struct{},
 	visitedFrags map[string]struct{},
 	depth int,
-) ([]string, error) {
+) ([]topLevelField, error) {
 	if depth > maxFragmentDepth {
 		return nil, fmt.Errorf("%w: fragment depth exceeded %d", ErrMalformedQuery, maxFragmentDepth)
 	}
 
-	var names []string
+	var fields []topLevelField
 	for _, sel := range sels {
 		switch s := sel.(type) {
 		case *ast.Field:
-			if _, dup := seen[s.Name]; dup {
+			if _, dup := seen[s.Alias]; dup {
 				continue
 			}
-			seen[s.Name] = struct{}{}
-			names = append(names, s.Name)
+			seen[s.Alias] = struct{}{}
+			fields = append(fields, topLevelField{ResponseKey: s.Alias, Name: s.Name})
 
 		case *ast.InlineFragment:
 			nested, err := collectTopLevelFields(s.SelectionSet, doc, seen, visitedFrags, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			names = append(names, nested...)
+			fields = append(fields, nested...)
 
 		case *ast.FragmentSpread:
 			if _, cycle := visitedFrags[s.Name]; cycle {
@@ -134,10 +178,8 @@ func collectTopLevelFields(
 			}
 			frag := doc.Fragments.ForName(s.Name)
 			if frag == nil {
-				// Undeclared fragment. ParseQuery does not run validation,
-				// so the spread can reference a name that has no
-				// definition in the document. Reject as malformed rather
-				// than forward, since the resolved field set is undefined.
+				// ParseQuery does not validate, so a spread may name a fragment with
+				// no definition. Reject as malformed since the field set is undefined.
 				return nil, fmt.Errorf("%w: undeclared fragment %q", ErrMalformedQuery, s.Name)
 			}
 			visitedFrags[s.Name] = struct{}{}
@@ -146,10 +188,10 @@ func collectTopLevelFields(
 			if err != nil {
 				return nil, err
 			}
-			names = append(names, nested...)
+			fields = append(fields, nested...)
 		}
 	}
-	return names, nil
+	return fields, nil
 }
 
 // graphQLRequest is the parsed content of a GraphQL request: the operation, plus

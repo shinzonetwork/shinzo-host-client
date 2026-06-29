@@ -92,14 +92,14 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 		return
 	}
 
-	collections, err := collectionsFromQuery(req.Query, req.OperationName)
+	fields, err := topLevelFields(req.Query, req.OperationName)
 	if err != nil {
 		m.log.Warnw("billing.parse_failed", "err", err, "path", r.URL.Path)
 		http.Error(w, "bad graphql request", http.StatusBadRequest)
 		return
 	}
 
-	lookups, ok := m.collectViewLookups(w, collections)
+	lookups, ok := m.collectViewLookups(w, collectionNames(fields))
 	if !ok {
 		return
 	}
@@ -148,8 +148,18 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 		return
 	}
 
-	m.log.Infow("billing.allow", "payer", payer.Hex(), "view", lookups[0].Name)
-	next.ServeHTTP(w, r)
+	// Capture the response to count the rows the view served (its response key(s);
+	// other top-level fields are ignored).
+	cw := newCaptureWriter(w)
+	next.ServeHTTP(cw, r)
+	rows, served := viewRows(cw.body.Bytes(), responseKeys(fields, lookups[0].Name))
+	m.log.Infow("billing.allow",
+		"payer", payer.Hex(),
+		"view", lookups[0].Name,
+		"rows", rows,
+		"served", served,
+		"status", cw.status,
+	)
 }
 
 // collectViewLookups resolves each top-level collection name through the

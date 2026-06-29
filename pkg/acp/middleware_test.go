@@ -15,6 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 )
@@ -274,6 +276,53 @@ func TestMiddleware_FreshRequestPasses(t *testing.T) {
 
 	require.True(t, next.called, "a fresh request must reach the wrapped handler")
 	require.Len(t, authz.calls, 1)
+}
+
+// On allow the gate wraps the response writer to count rows; the served body
+// must still reach the client unchanged.
+func TestMiddleware_AllowForwardsResponseBody(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+
+	const served = `{"data":{"FilteredLogs":[{"hash":"a"},{"hash":"b"}]}}`
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(served))
+	})
+
+	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, r)
+
+	require.Equal(t, served, w.Body.String(), "client must receive defradb's response unchanged")
+}
+
+// A query mixing the single view with a base collection is allowed and served,
+// and the gate bills only the view's rows: the base collection is ignored.
+func TestMiddleware_MixedViewAndBaseCollectionAllowed(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	core, logs := observer.New(zap.InfoLevel)
+	mw := NewMiddleware(authz, reg, testChainID, 0, zap.New(core).Sugar())
+
+	const served = `{"data":{"FilteredLogs":[{"hash":"a"},{"hash":"b"}],"Block":[{"number":1},{"number":2},{"number":3}]}}`
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(served))
+	})
+
+	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } Block { number } }", nil)
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, r)
+
+	require.Len(t, authz.calls, 1, "a view+base query must be authorized, not rejected")
+	require.Equal(t, served, w.Body.String())
+	allow := logs.FilterMessage("billing.allow").All()
+	require.Len(t, allow, 1)
+	require.Equal(t, uint64(2), allow[0].ContextMap()["rows"], "bills the view's 2 rows, not the base collection's 3")
+	require.Equal(t, true, allow[0].ContextMap()["served"])
 }
 
 // --- helpers ---
