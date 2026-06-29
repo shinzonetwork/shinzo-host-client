@@ -115,6 +115,10 @@ type Host struct {
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.Manager // Manages view lifecycle and processing
 
+	// Indexers seen attesting, snapshotted into service records. Nil when
+	// recording is off.
+	attesters *observedAttesters
+
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
 
@@ -205,13 +209,26 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// middleware's view registry adapts the manager's accessors.
 	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
 
+	// Recording the served-query attesting set needs the host's observed
+	// attesters: the block-signature workers populate it and the serve path
+	// snapshots it. Built only when recording is on so the workers skip it
+	// otherwise.
+	var attesters *observedAttesters
+	if acpCfg.Enabled && acpCfg.ASBaseURL != "" {
+		window := acpCfg.AttesterWindow
+		if window <= 0 {
+			window = DefaultAttesterWindow
+		}
+		attesters = newObservedAttesters(window)
+	}
+
 	// When the middleware is enabled the host owns the GraphQL API. The
 	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.
 	// defraNode.APIURL is populated inside startACPServer so the playground
 	// proxy below uses our address.
 	var acpServer *defradbHttp.Server
 	if acpCfg.Enabled {
-		acpServer, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL)
+		acpServer, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL, attesters)
 		if err != nil {
 			return nil, fmt.Errorf("acp server: %w", err)
 		}
@@ -271,6 +288,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		config:                 cfg,
 		metrics:                server.NewHostMetrics(),
 		viewManager:            viewManager,
+		attesters:              attesters,
 	}
 
 	// Hook up metrics callback for view tracking
@@ -695,10 +713,10 @@ func (h *Host) Close(ctx context.Context) error {
 }
 
 // buildRecording constructs service-record submission when an accounting service
-// URL is configured; otherwise the gate serves without recording. The
-// attesting-set provider is not supplied yet, so records carry no attested
-// indexers.
-func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node) (*acp.Recording, error) {
+// URL is configured; otherwise the gate serves without recording. attesters
+// supplies the observed attesting set snapshotted into each record, and is
+// non-nil whenever an accounting service URL is set.
+func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters *observedAttesters) (*acp.Recording, error) {
 	if acpCfg.ASBaseURL == "" {
 		return nil, nil
 	}
@@ -708,7 +726,8 @@ func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *n
 	}
 	client := accounting.NewClient(acpCfg.ASBaseURL, acp.DefaultRecordTimeout)
 	return &acp.Recording{
-		Recorder: accounting.NewRecorder(client, nodeKey, acpCfg.ChainID),
+		Recorder:  accounting.NewRecorder(client, nodeKey, acpCfg.ChainID),
+		Attesters: attesters.Snapshot,
 	}, nil
 }
 
@@ -726,6 +745,7 @@ func startACPServer(
 	defraNode *node.Node,
 	viewManager *view.Manager,
 	defraURL string,
+	attesters *observedAttesters,
 ) (*defradbHttp.Server, error) {
 	if hubBaseURL == "" {
 		return nil, errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
@@ -741,7 +761,7 @@ func startACPServer(
 
 	registry := acp.NewViewRegistry(viewManager)
 
-	recording, err := buildRecording(acpCfg, internalCfg, defraNode)
+	recording, err := buildRecording(acpCfg, internalCfg, defraNode, attesters)
 	if err != nil {
 		return nil, err
 	}

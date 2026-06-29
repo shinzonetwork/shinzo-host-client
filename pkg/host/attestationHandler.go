@@ -437,6 +437,11 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 			return
 		}
 
+		// A verified peer signature is the host observing that indexer attesting.
+		if h.attesters != nil {
+			h.attesters.Observe(blockSig.SignatureIdentity)
+		}
+
 		if h.metrics != nil {
 			h.metrics.IncrementSignatureVerifications()
 		}

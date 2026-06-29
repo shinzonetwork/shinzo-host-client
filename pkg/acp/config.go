@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"strconv"
+	"time"
 )
 
 // ErrConfigIncomplete is returned by Config.Validate when the middleware is
@@ -20,6 +21,7 @@ const (
 	EnvMinQueryBalance = "SHINZO_MIN_QUERY_BALANCE"
 	EnvEpochLength     = "SHINZO_EPOCH_LENGTH"
 	EnvASBaseURL       = "SHINZO_AS_BASE_URL"
+	EnvAttesterWindow  = "SHINZO_ATTESTER_WINDOW"
 )
 
 // Config holds the runtime configuration for the query-billing middleware.
@@ -31,13 +33,16 @@ const (
 // integer string. EpochLength is the number of blocks per settlement epoch, used
 // to invalidate the cached balance once per epoch; it must match the accounting
 // service's value. ASBaseURL is the accounting service base URL; when empty, the
-// gate serves without recording.
+// gate serves without recording. AttesterWindow is how long an observed indexer
+// stays in the attesting set a served query records; 0 lets the host apply its
+// default.
 type Config struct {
 	Enabled         bool
 	ChainID         uint64
 	MinQueryBalance string
 	EpochLength     uint64
 	ASBaseURL       string
+	AttesterWindow  time.Duration
 }
 
 // LoadConfigFromEnv reads the middleware configuration from the process
@@ -59,6 +64,11 @@ func LoadConfigFromEnv() (Config, error) {
 		return cfg, err
 	}
 	cfg.EpochLength = length
+	window, err := parseDurationEnv(EnvAttesterWindow)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.AttesterWindow = window
 
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
@@ -103,6 +113,20 @@ func parseUintEnv(name string) (uint64, error) {
 		return 0, fmt.Errorf("%w: %s is not a valid unsigned integer: %v", ErrConfigIncomplete, name, err)
 	}
 	return v, nil
+}
+
+// parseDurationEnv reads name as a Go duration (e.g. "5m"). An unset variable is
+// zero with no error; a malformed value is an error.
+func parseDurationEnv(name string) (time.Duration, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s is not a valid duration: %v", ErrConfigIncomplete, name, err)
+	}
+	return d, nil
 }
 
 // parseBool returns true only for explicit truthy strings ("1", "t", "true",
