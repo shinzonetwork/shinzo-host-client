@@ -34,6 +34,11 @@ func nodeKeyToECDSA(priv defracrypto.PrivateKey) (*ecdsa.PrivateKey, error) {
 	if priv == nil {
 		return nil, ErrNoPrivateKey
 	}
+	// ToECDSA accepts any 32-byte scalar, so a secp256r1 identity would silently
+	// convert to a wrong key and host address. Reject non-secp256k1 up front.
+	if priv.Type() != defracrypto.KeyTypeSecp256k1 {
+		return nil, fmt.Errorf("%w, got %s", ErrUnexpectedKeyType, priv.Type())
+	}
 	key, err := ethcrypto.ToECDSA(priv.Raw())
 	if err != nil {
 		return nil, fmt.Errorf("convert node key to ecdsa: %w", err)

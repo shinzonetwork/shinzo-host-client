@@ -3,6 +3,7 @@ package signer
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,17 @@ func TestNodeKeyToECDSAMatchesGethKey(t *testing.T) {
 func TestNodeKeyToECDSANilKey(t *testing.T) {
 	if _, err := nodeKeyToECDSA(nil); err == nil {
 		t.Fatal("expected an error for a nil key, got nil")
+	}
+}
+
+// A non-secp256k1 identity must be rejected, not silently converted into a wrong key.
+func TestNodeKeyToECDSARejectsNonSecp256k1(t *testing.T) {
+	r1, err := defracrypto.GenerateKey(defracrypto.KeyTypeSecp256r1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nodeKeyToECDSA(r1); !errors.Is(err, ErrUnexpectedKeyType) {
+		t.Fatalf("want ErrUnexpectedKeyType for a secp256r1 key, got %v", err)
 	}
 }
 
