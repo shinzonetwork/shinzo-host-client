@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
@@ -168,8 +169,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		nodeOpts.SetDisableAPI(true)
 	}
 
+	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
-		cfg.ToInternalConfig(),
+		internalCfg,
 		defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()),
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
@@ -209,7 +211,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// proxy below uses our address.
 	var acpServer *defradbHttp.Server
 	if acpCfg.Enabled {
-		acpServer, err = startACPServer(ctx, acpCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL)
+		acpServer, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL)
 		if err != nil {
 			return nil, fmt.Errorf("acp server: %w", err)
 		}
@@ -326,7 +328,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if networkHandler != nil {
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
-		// Resolve bootstrap peers — auto-discover peer IDs for addresses that don't include them
+		// Resolve bootstrap peers: auto-discover peer IDs for addresses that don't include them
 		discoveryTimeout := time.Duration(cfg.DefraDB.P2P.PeerDiscoveryTimeoutMs) * time.Millisecond
 		bootstrapPeers := resolveBootstrapPeers(context.Background(), cfg.DefraDB.P2P.BootstrapPeers, discoveryTimeout)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
@@ -692,6 +694,24 @@ func (h *Host) Close(ctx context.Context) error {
 	return nil
 }
 
+// buildRecording constructs service-record submission when an accounting service
+// URL is configured; otherwise the gate serves without recording. The
+// attesting-set provider is not supplied yet, so records carry no attested
+// indexers.
+func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node) (*acp.Recording, error) {
+	if acpCfg.ASBaseURL == "" {
+		return nil, nil
+	}
+	nodeKey, err := signer.NodeECDSAKey(defraNode, internalCfg)
+	if err != nil {
+		return nil, fmt.Errorf("load node key for recording: %w", err)
+	}
+	client := accounting.NewClient(acpCfg.ASBaseURL, acp.DefaultRecordTimeout)
+	return &acp.Recording{
+		Recorder: accounting.NewRecorder(client, nodeKey, acpCfg.ChainID),
+	}, nil
+}
+
 // startACPServer constructs the host-owned GraphQL HTTP server: it wraps
 // defradb's API handler with the ACP middleware, binds the listener on
 // the resolved LAN address, points defraNode.APIURL at the address so
@@ -701,6 +721,7 @@ func (h *Host) Close(ctx context.Context) error {
 func startACPServer(
 	ctx context.Context,
 	acpCfg acp.Config,
+	internalCfg *defradb.Config,
 	hubBaseURL string,
 	defraNode *node.Node,
 	viewManager *view.Manager,
@@ -719,7 +740,12 @@ func startACPServer(
 	authz := acp.NewBalanceAuthorizer(hubClient, epochClock, acpCfg.MinBalance(), "shinzo")
 
 	registry := acp.NewViewRegistry(viewManager)
-	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, logger.Sugar)
+
+	recording, err := buildRecording(acpCfg, internalCfg, defraNode)
+	if err != nil {
+		return nil, err
+	}
+	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar)
 
 	handler, err := defradbHttp.NewHandler(defraNode.DB)
 	if err != nil {

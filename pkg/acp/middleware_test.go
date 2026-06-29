@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 )
 
@@ -38,7 +39,7 @@ var errTestAuthzFail = errors.New("test: authorizer transport failure")
 func TestMiddleware_NonGraphQLPathPassesThrough(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
@@ -57,7 +58,7 @@ func TestMiddleware_NonGraphQLPathPassesThrough(t *testing.T) {
 func TestMiddleware_NonViewQueryPassesWithoutSignature(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ Block { number } }"}`))
@@ -73,7 +74,7 @@ func TestMiddleware_NonViewQueryPassesWithoutSignature(t *testing.T) {
 func TestMiddleware_ViewQueryWithoutSignatureIs403(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } }"}`))
@@ -91,7 +92,7 @@ func TestMiddleware_FundedSignedQueryAllowed(t *testing.T) {
 	priv, signer := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
@@ -108,7 +109,7 @@ func TestMiddleware_UnderfundedDenied(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: false}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
@@ -126,7 +127,7 @@ func TestMiddleware_AuthorizerErrorIs503(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{err: errTestAuthzFail}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
@@ -143,7 +144,7 @@ func TestMiddleware_TamperedQueryRejected(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	ext, err := billing.SignRequest(testChainID, priv, "{ FilteredLogs { hash } }", nil, 1, 1735689600)
 	require.NoError(t, err)
@@ -169,7 +170,7 @@ func TestMiddleware_MultiViewRejected(t *testing.T) {
 		testViewFilteredLogs: testContractA,
 		testViewFilteredTxs:  testContractB,
 	}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } FilteredTxs { hash } }"}`))
@@ -186,7 +187,7 @@ func TestMiddleware_MultiViewRejected(t *testing.T) {
 func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: ""}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } }"}`))
@@ -201,7 +202,7 @@ func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
 func TestMiddleware_MalformedBodyIs400(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
 	w := httptest.NewRecorder()
@@ -218,7 +219,7 @@ func TestMiddleware_BodyForwardedToNextUnchanged(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
 	sent, err := io.ReadAll(r.Body)
@@ -237,7 +238,7 @@ func TestMiddleware_StaleRequestIs403(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil)
+	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil, nil)
 
 	query := "{ FilteredLogs { hash } }"
 	stale := uint64(time.Now().Add(-time.Hour).Unix())
@@ -261,7 +262,7 @@ func TestMiddleware_FreshRequestPasses(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil)
+	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil, nil)
 
 	query := "{ FilteredLogs { hash } }"
 	fresh := uint64(time.Now().Unix())
@@ -284,7 +285,7 @@ func TestMiddleware_AllowForwardsResponseBody(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	const served = `{"data":{"FilteredLogs":[{"hash":"a"},{"hash":"b"}]}}`
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -306,7 +307,7 @@ func TestMiddleware_MixedViewAndBaseCollectionAllowed(t *testing.T) {
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	core, logs := observer.New(zap.InfoLevel)
-	mw := NewMiddleware(authz, reg, testChainID, 0, zap.New(core).Sugar())
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, zap.New(core).Sugar())
 
 	const served = `{"data":{"FilteredLogs":[{"hash":"a"},{"hash":"b"}],"Block":[{"number":1},{"number":2},{"number":3}]}}`
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -323,6 +324,107 @@ func TestMiddleware_MixedViewAndBaseCollectionAllowed(t *testing.T) {
 	require.Len(t, allow, 1)
 	require.Equal(t, uint64(2), allow[0].ContextMap()["rows"], "bills the view's 2 rows, not the base collection's 3")
 	require.Equal(t, true, allow[0].ContextMap()["served"])
+}
+
+// On allow with a served view response the gate submits one service record
+// carrying the signed extensions, the view address, the counted rows, and the
+// observed attesting set.
+func TestMiddleware_RecordsServedQuery(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	rec := &fakeRecorder{}
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{
+		Recorder:  rec,
+		Attesters: func() []string { return []string{"idx1", "idx2"} },
+	}, nil)
+
+	query := "{ FilteredLogs { hash } }"
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, 1, 1735689600)
+	require.NoError(t, err)
+	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
+	require.NoError(t, err)
+
+	const served = `{"data":{"FilteredLogs":[{"hash":"a"},{"hash":"b"}]}}`
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(served))
+	})
+	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), newGraphQLPost(body))
+
+	require.Len(t, rec.inputs, 1)
+	in := rec.inputs[0]
+	require.Equal(t, ext, in.Extensions)
+	require.Equal(t, common.HexToAddress(testContractA), in.ViewAddress)
+	require.Equal(t, uint64(2), in.RowsQueried)
+	require.Equal(t, []string{"idx1", "idx2"}, in.AttestedIndexers)
+}
+
+// A query the gate allows but whose response carries no view rows (a failed
+// query returning data null) is served but not recorded: only served queries are
+// billed.
+func TestMiddleware_FailedQueryNotRecorded(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	rec := &fakeRecorder{}
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: rec}, nil)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":null,"errors":[{"message":"boom"}]}`))
+	})
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+
+	require.Equal(t, http.StatusOK, w.Code, "the query is served; only recording is skipped")
+	require.Empty(t, rec.inputs, "a failed query must not be recorded")
+}
+
+// A recorder error is logged and swallowed: the served response is unchanged,
+// because recording is best-effort.
+func TestMiddleware_RecordFailureStillServes(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	rec := &fakeRecorder{err: errors.New("accounting service unreachable")}
+	core, logs := observer.New(zap.InfoLevel)
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: rec}, zap.New(core).Sugar())
+
+	const served = `{"data":{"FilteredLogs":[{"hash":"a"}]}}`
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(served))
+	})
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, served, w.Body.String(), "a recording failure must not alter the served response")
+	require.Len(t, rec.inputs, 1, "the record was attempted")
+	require.Len(t, logs.FilterMessage("billing.record_failed").All(), 1, "the failure is logged")
+}
+
+// The record submission runs on a context detached from the request, so a client
+// that disconnects does not cancel the in-flight POST. Driving the request with an
+// already-cancelled context proves the recorder still receives a live,
+// deadline-bounded one.
+func TestMiddleware_RecordUsesDetachedContext(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	rec := &fakeRecorder{}
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: rec}, nil)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"FilteredLogs":[{"hash":"a"}]}}`))
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil).WithContext(ctx)
+	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), req)
+
+	require.Len(t, rec.inputs, 1)
+	require.NoError(t, rec.ctxErr, "recording must not inherit request-context cancellation")
+	require.True(t, rec.ctxHasDeadline, "recording context must be time-bounded")
 }
 
 // --- helpers ---
@@ -401,4 +503,21 @@ func (n *recordingNext) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		n.bodyReceived = body
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// fakeRecorder captures what the gate submits and snapshots the context's state
+// at call time, so tests can assert the submission and that recording runs on a
+// live, deadline-bounded context. err exercises the best-effort failure path.
+type fakeRecorder struct {
+	inputs         []accounting.RecordInput
+	ctxErr         error
+	ctxHasDeadline bool
+	err            error
+}
+
+func (f *fakeRecorder) Record(ctx context.Context, in accounting.RecordInput) error {
+	f.ctxErr = ctx.Err()
+	_, f.ctxHasDeadline = ctx.Deadline()
+	f.inputs = append(f.inputs, in)
+	return f.err
 }

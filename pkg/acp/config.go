@@ -19,6 +19,7 @@ const (
 	EnvChainID         = "SHINZO_CHAIN_ID"
 	EnvMinQueryBalance = "SHINZO_MIN_QUERY_BALANCE"
 	EnvEpochLength     = "SHINZO_EPOCH_LENGTH"
+	EnvASBaseURL       = "SHINZO_AS_BASE_URL"
 )
 
 // Config holds the runtime configuration for the query-billing middleware.
@@ -29,12 +30,14 @@ const (
 // the minimum x/querybalance a payer must hold to be served, as a base-10
 // integer string. EpochLength is the number of blocks per settlement epoch, used
 // to invalidate the cached balance once per epoch; it must match the accounting
-// service's value.
+// service's value. ASBaseURL is the accounting service base URL; when empty, the
+// gate serves without recording.
 type Config struct {
 	Enabled         bool
 	ChainID         uint64
 	MinQueryBalance string
 	EpochLength     uint64
+	ASBaseURL       string
 }
 
 // LoadConfigFromEnv reads the middleware configuration from the process
@@ -44,6 +47,7 @@ func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
 		Enabled:         parseBool(os.Getenv(EnvEnabled)),
 		MinQueryBalance: os.Getenv(EnvMinQueryBalance),
+		ASBaseURL:       os.Getenv(EnvASBaseURL),
 	}
 	id, err := parseUintEnv(EnvChainID)
 	if err != nil {

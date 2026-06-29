@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 )
 
@@ -27,9 +28,28 @@ const GraphQLPath = "/api/v0/graphql"
 // clock skew while bounding how long a captured signature can be replayed.
 const DefaultRequestMaxAge = 2 * time.Minute
 
+// DefaultRecordTimeout bounds the synchronous POST of a service record to the
+// accounting service. net/http holds a buffered reply until the handler returns,
+// so this also bounds how long a slow accounting service can delay the client's
+// response.
+const DefaultRecordTimeout = 5 * time.Second
+
 // Authorizer decides whether a payer may run a query.
 type Authorizer interface {
 	Authorize(ctx context.Context, payer common.Address) (bool, error)
+}
+
+// Recorder submits a service record for a served query.
+type Recorder interface {
+	Record(ctx context.Context, in accounting.RecordInput) error
+}
+
+// Recording configures service-record submission on the allow path. A nil
+// Recording (or nil Recorder) means the gate serves without recording. Attesters
+// returns the host's observed attesting set at serve time, or nil.
+type Recording struct {
+	Recorder  Recorder
+	Attesters func() []string
 }
 
 // Middleware gates incoming GraphQL queries on the billing model.
@@ -51,6 +71,7 @@ type Middleware struct {
 	registry      ViewRegistry
 	chainID       uint64
 	maxRequestAge time.Duration
+	recording     *Recording
 	log           *zap.SugaredLogger
 }
 
@@ -58,12 +79,13 @@ type Middleware struct {
 // collection names to view addresses via registry, and verifies request
 // signatures under chainID. maxRequestAge bounds how far a request's signed
 // timestamp may be from the host clock (0 disables the freshness check). A nil
-// log is replaced with a no-op logger.
-func NewMiddleware(authz Authorizer, registry ViewRegistry, chainID uint64, maxRequestAge time.Duration, log *zap.SugaredLogger) *Middleware {
+// recording serves without submitting service records. A nil log is replaced
+// with a no-op logger.
+func NewMiddleware(authz Authorizer, registry ViewRegistry, chainID uint64, maxRequestAge time.Duration, recording *Recording, log *zap.SugaredLogger) *Middleware {
 	if log == nil {
 		log = zap.NewNop().Sugar()
 	}
-	return &Middleware{authz: authz, registry: registry, chainID: chainID, maxRequestAge: maxRequestAge, log: log}
+	return &Middleware{authz: authz, registry: registry, chainID: chainID, maxRequestAge: maxRequestAge, recording: recording, log: log}
 }
 
 // Wrap returns an http.Handler that runs the gating policy before delegating to
@@ -160,6 +182,35 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 		"served", served,
 		"status", cw.status,
 	)
+	if served {
+		m.record(payer, ext, lookups[0], rows)
+	}
+}
+
+// record submits the service record for a served query. A failure is logged, not
+// returned: recording is best-effort and must not change what the client receives.
+// It runs on a context derived from context.Background(), not the request context,
+// so a client that disconnects does not cancel the in-flight submission.
+func (m *Middleware) record(payer common.Address, ext billing.Extensions, view viewLookup, rows uint64) {
+	if m.recording == nil || m.recording.Recorder == nil {
+		return
+	}
+	var attested []string
+	if m.recording.Attesters != nil {
+		attested = m.recording.Attesters()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultRecordTimeout)
+	defer cancel()
+
+	err := m.recording.Recorder.Record(ctx, accounting.RecordInput{
+		Extensions:       ext,
+		ViewAddress:      common.HexToAddress(view.Address),
+		RowsQueried:      rows,
+		AttestedIndexers: attested,
+	})
+	if err != nil {
+		m.log.Errorw("billing.record_failed", "payer", payer.Hex(), "view", view.Name, "err", err)
+	}
 }
 
 // collectViewLookups resolves each top-level collection name through the
