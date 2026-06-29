@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
+	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
 const (

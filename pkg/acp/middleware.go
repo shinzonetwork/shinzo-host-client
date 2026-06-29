@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
+	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
 // GraphQLPath is the request path the middleware gates. Requests with any other

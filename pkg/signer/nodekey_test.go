@@ -12,8 +12,8 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	defracrypto "github.com/sourcenetwork/defradb/crypto"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
 // testNodeKeyHex is the public anvil/hardhat account 0, used only as a fixed test

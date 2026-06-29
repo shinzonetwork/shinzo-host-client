@@ -13,8 +13,8 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pool"
+	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
 // The posted record carries the user's request fields verbatim and the host's

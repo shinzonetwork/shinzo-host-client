@@ -6,12 +6,13 @@ require (
 	github.com/cosmos/cosmos-sdk v0.53.5
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/gowebpki/jcs v1.0.1
 	github.com/ipfs/go-cid v0.6.0
 	github.com/libp2p/go-libp2p v0.47.0
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/rs/zerolog v1.35.1
+	github.com/rs/zerolog v1.34.0
+	github.com/shinzonetwork/shinzo-indexer-client v0.0.0-20251219184827-5722330739e8
+	github.com/shinzonetwork/shinzo-querysig v0.1.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.8
 	github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60
@@ -20,7 +21,6 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/vektah/gqlparser/v2 v2.5.36
 	go.uber.org/zap v1.27.1
-	golang.org/x/crypto v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -168,6 +168,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
 	github.com/gorilla/handlers v1.5.2 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
+	github.com/gowebpki/jcs v1.0.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
@@ -390,6 +391,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.21.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.52.0 // indirect

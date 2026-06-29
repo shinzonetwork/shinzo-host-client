@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/billing"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pool"
+	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
 // RecordInput is the billing context for one served query.
