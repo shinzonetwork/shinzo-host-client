@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
@@ -20,6 +21,11 @@ import (
 // GraphQLPath is the request path the middleware gates. Requests with any other
 // path are passed through to the wrapped handler unchanged.
 const GraphQLPath = "/api/v0/graphql"
+
+// DefaultRequestMaxAge bounds how far a request's signed timestamp may be from
+// the host clock before the gate rejects it. Two minutes absorbs client/host
+// clock skew while bounding how long a captured signature can be replayed.
+const DefaultRequestMaxAge = 2 * time.Minute
 
 // Authorizer decides whether a payer may run a query.
 type Authorizer interface {
@@ -33,6 +39,7 @@ type Authorizer interface {
 //   - No view collections         -> pass through (nothing to bill)
 //   - More than one view          -> 400 Bad Request (a record attributes one pool)
 //   - Missing/invalid signature   -> 403 Forbidden
+//   - Stale or future request     -> 403 Forbidden
 //   - Query/signature mismatch    -> 403 Forbidden
 //   - Authorizer reports an error -> 503 Service Unavailable
 //   - Balance below the minimum   -> 402 Payment Required
@@ -40,20 +47,23 @@ type Authorizer interface {
 //
 // Non-GraphQL paths bypass every step above.
 type Middleware struct {
-	authz    Authorizer
-	registry ViewRegistry
-	chainID  uint64
-	log      *zap.SugaredLogger
+	authz         Authorizer
+	registry      ViewRegistry
+	chainID       uint64
+	maxRequestAge time.Duration
+	log           *zap.SugaredLogger
 }
 
 // NewMiddleware returns a Middleware that authorizes via authz, resolves
 // collection names to view addresses via registry, and verifies request
-// signatures under chainID. A nil log is replaced with a no-op logger.
-func NewMiddleware(authz Authorizer, registry ViewRegistry, chainID uint64, log *zap.SugaredLogger) *Middleware {
+// signatures under chainID. maxRequestAge bounds how far a request's signed
+// timestamp may be from the host clock (0 disables the freshness check). A nil
+// log is replaced with a no-op logger.
+func NewMiddleware(authz Authorizer, registry ViewRegistry, chainID uint64, maxRequestAge time.Duration, log *zap.SugaredLogger) *Middleware {
 	if log == nil {
 		log = zap.NewNop().Sugar()
 	}
-	return &Middleware{authz: authz, registry: registry, chainID: chainID, log: log}
+	return &Middleware{authz: authz, registry: registry, chainID: chainID, maxRequestAge: maxRequestAge, log: log}
 }
 
 // Wrap returns an http.Handler that runs the gating policy before delegating to
@@ -110,6 +120,12 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	if err != nil {
 		m.log.Infow("billing.deny", "reason", "no_signature", "err", err.Error())
 		http.Error(w, "forbidden: missing request signature", http.StatusForbidden)
+		return
+	}
+
+	if err := billing.CheckFreshness(ext.RequestTimestamp, time.Now(), m.maxRequestAge); err != nil {
+		m.log.Infow("billing.deny", "reason", "stale_request", "err", err.Error())
+		http.Error(w, "forbidden: stale or future request", http.StatusForbidden)
 		return
 	}
 

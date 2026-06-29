@@ -719,7 +719,7 @@ func startACPServer(
 	authz := acp.NewBalanceAuthorizer(hubClient, epochClock, acpCfg.MinBalance(), "shinzo")
 
 	registry := acp.NewViewRegistry(viewManager)
-	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, logger.Sugar)
+	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, logger.Sugar)
 
 	handler, err := defradbHttp.NewHandler(defraNode.DB)
 	if err != nil {

@@ -3,6 +3,7 @@ package billing
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -52,6 +53,23 @@ func VerifyRequest(chainID uint64, query string, variables json.RawMessage, ext 
 	}
 
 	return RecoverQueryRequest(chainID, req, sig)
+}
+
+// CheckFreshness rejects a request whose signed timestamp is more than maxAge
+// from now in either direction, bounding how long a captured signature can be
+// replayed: the QueryRequest binds no host or pool and nothing tracks the nonce,
+// so without this the signature never expires. The timestamp is signed, so it
+// can't be altered without breaking recovery. A non-positive maxAge disables the
+// check; now is passed in so the caller owns the clock.
+func CheckFreshness(timestamp uint64, now time.Time, maxAge time.Duration) error {
+	if maxAge <= 0 {
+		return nil
+	}
+	signedAt := time.Unix(int64(timestamp), 0)
+	if now.Sub(signedAt).Abs() > maxAge {
+		return fmt.Errorf("request timestamp %s is outside the %s freshness window (now %s)", signedAt.UTC(), maxAge, now.UTC())
+	}
+	return nil
 }
 
 // decodeBytes32 decodes a 0x-prefixed hex value and requires exactly 32 bytes.

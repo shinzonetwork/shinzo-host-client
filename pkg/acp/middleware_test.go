@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -35,7 +36,7 @@ var errTestAuthzFail = errors.New("test: authorizer transport failure")
 func TestMiddleware_NonGraphQLPathPassesThrough(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	body := []byte(`{"query":"{ FilteredLogs { hash } }"}`)
@@ -54,7 +55,7 @@ func TestMiddleware_NonGraphQLPathPassesThrough(t *testing.T) {
 func TestMiddleware_NonViewQueryPassesWithoutSignature(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ Block { number } }"}`))
@@ -70,7 +71,7 @@ func TestMiddleware_NonViewQueryPassesWithoutSignature(t *testing.T) {
 func TestMiddleware_ViewQueryWithoutSignatureIs403(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } }"}`))
@@ -88,7 +89,7 @@ func TestMiddleware_FundedSignedQueryAllowed(t *testing.T) {
 	priv, signer := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
@@ -105,7 +106,7 @@ func TestMiddleware_UnderfundedDenied(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: false}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
@@ -123,7 +124,7 @@ func TestMiddleware_AuthorizerErrorIs503(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{err: errTestAuthzFail}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
@@ -140,7 +141,7 @@ func TestMiddleware_TamperedQueryRejected(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	ext, err := billing.SignRequest(testChainID, priv, "{ FilteredLogs { hash } }", nil, 1, 1735689600)
 	require.NoError(t, err)
@@ -166,7 +167,7 @@ func TestMiddleware_MultiViewRejected(t *testing.T) {
 		testViewFilteredLogs: testContractA,
 		testViewFilteredTxs:  testContractB,
 	}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } FilteredTxs { hash } }"}`))
@@ -183,7 +184,7 @@ func TestMiddleware_MultiViewRejected(t *testing.T) {
 func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: ""}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	r := newGraphQLPost([]byte(`{"query":"{ FilteredLogs { hash } }"}`))
@@ -198,7 +199,7 @@ func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
 func TestMiddleware_MalformedBodyIs400(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	next := &recordingNext{}
 	w := httptest.NewRecorder()
@@ -215,7 +216,7 @@ func TestMiddleware_BodyForwardedToNextUnchanged(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	mw := NewMiddleware(authz, reg, testChainID, nil)
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil)
 
 	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
 	sent, err := io.ReadAll(r.Body)
@@ -225,6 +226,54 @@ func TestMiddleware_BodyForwardedToNextUnchanged(t *testing.T) {
 	next := &recordingNext{}
 	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), r)
 	require.Equal(t, sent, next.bodyReceived, "downstream must see the original body")
+}
+
+// A request signed with a stale timestamp is rejected before authorization when
+// a freshness window is set, so a captured signature cannot be replayed long
+// after it was issued.
+func TestMiddleware_StaleRequestIs403(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil)
+
+	query := "{ FilteredLogs { hash } }"
+	stale := uint64(time.Now().Add(-time.Hour).Unix())
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, 1, stale)
+	require.NoError(t, err)
+	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
+	require.NoError(t, err)
+
+	next := &recordingNext{}
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, newGraphQLPost(body))
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.False(t, next.called)
+	require.Empty(t, authz.calls, "a stale request must be rejected before the balance check")
+}
+
+// A request signed within the freshness window clears the freshness gate and
+// reaches the wrapped handler.
+func TestMiddleware_FreshRequestPasses(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil)
+
+	query := "{ FilteredLogs { hash } }"
+	fresh := uint64(time.Now().Unix())
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, 1, fresh)
+	require.NoError(t, err)
+	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
+	require.NoError(t, err)
+
+	next := &recordingNext{}
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, newGraphQLPost(body))
+
+	require.True(t, next.called, "a fresh request must reach the wrapped handler")
+	require.Len(t, authz.calls, 1)
 }
 
 // --- helpers ---
