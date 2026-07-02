@@ -18,7 +18,7 @@ require (
 	github.com/sourcenetwork/lens/host-go v0.10.0
 	github.com/sourcenetwork/sourcehub v0.4.1-0.20260128164915-1bce44032618
 	github.com/stretchr/testify v1.11.1
-	github.com/vektah/gqlparser/v2 v2.5.33
+	github.com/vektah/gqlparser/v2 v2.5.36
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1
 )
