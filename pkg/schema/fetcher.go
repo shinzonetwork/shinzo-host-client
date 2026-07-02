@@ -36,8 +36,12 @@ var (
 //go:embed attestationRecord.graphql
 var AttestationRecordTypeDef string
 
-// Specifying max schema body size to prevent attacker from sending a large payload.
-const maxSchemaBodyBytes = 5 << 10 // 5 KB
+// maxSchemaBodyBytes caps the schema response size to mitigate DoS via oversized payloads.
+// 64 KB provides ~20x headroom over the current ~3.2 KB schema while keeping a tight
+// anomaly ceiling for unauthenticated fetches — NewSchemaHTTPClient does not enforce
+// a non-empty AuthToken, so the untrusted path is reachable today.
+// TODO: Once AuthToken is made required (remove the empty-token fallback in NewSchemaHTTPClient), bump to 512 << 10 for effectively permanent headroom.
+const maxSchemaBodyBytes = 64 << 10 // 64 KB
 
 // Response represents the JSON response from the indexer's schema endpoint.
 type Response struct {
