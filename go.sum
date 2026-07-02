@@ -2301,8 +2301,8 @@ github.com/sourcenetwork/corekv/memory v0.3.1 h1:+8REYpiwFMsiTkEe3RE/ZGI3Alrhgc/
 github.com/sourcenetwork/corekv/memory v0.3.1/go.mod h1:2vIJDWlvhwyO41tynkCkFFYTYrIsf1QGvAxBqVFV0bI=
 github.com/sourcenetwork/corekv/namespace v0.3.1 h1:XllaUw6cteZkJYC5tgcJ40c6hIMh7DUn2tk/fPjV35A=
 github.com/sourcenetwork/corekv/namespace v0.3.1/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
-github.com/sourcenetwork/corelog v0.0.8 h1:jCo0mFBpWrfhUCGzzN3uUtPGyQv3jnITdPO1s2ME3RY=
-github.com/sourcenetwork/corelog v0.0.8/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
+github.com/sourcenetwork/corelog v0.0.9 h1:wpoBbvju4wYtwpolfpGo8CrUVsRI8Gz1IeaXPQCW8yY=
+github.com/sourcenetwork/corelog v0.0.9/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
 github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60 h1:iOt0ljPIkfAz9j8+HyX3J9n4feNN36SZUUgLBWu2RtQ=
 github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=

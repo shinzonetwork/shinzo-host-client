@@ -11,7 +11,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/acp_core v0.8.1
-	github.com/sourcenetwork/corelog v0.0.8
+	github.com/sourcenetwork/corelog v0.0.9
 	github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.10.0
