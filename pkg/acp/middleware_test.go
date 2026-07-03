@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -350,6 +351,7 @@ func TestMiddleware_RecordsServedQuery(t *testing.T) {
 		_, _ = w.Write([]byte(served))
 	})
 	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), newGraphQLPost(body))
+	mw.Drain(context.Background())
 
 	require.Len(t, rec.inputs, 1)
 	in := rec.inputs[0]
@@ -395,6 +397,7 @@ func TestMiddleware_ErrorStatusServedNotRecorded(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Drain(context.Background())
 
 	require.Equal(t, http.StatusBadGateway, w.Code, "the error status reaches the client")
 	require.Equal(t, served, w.Body.String(), "the body reaches the client unchanged")
@@ -417,6 +420,7 @@ func TestMiddleware_RecordFailureStillServes(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Drain(context.Background())
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, served, w.Body.String(), "a recording failure must not alter the served response")
@@ -443,10 +447,66 @@ func TestMiddleware_RecordUsesDetachedContext(t *testing.T) {
 	cancel()
 	req := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil).WithContext(ctx)
 	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), req)
+	mw.Drain(context.Background())
 
 	require.Len(t, rec.inputs, 1)
 	require.NoError(t, rec.ctxErr, "recording must not inherit request-context cancellation")
 	require.True(t, rec.ctxHasDeadline, "recording context must be time-bounded")
+}
+
+// Recording runs off the request path: the handler returns while a slow record is
+// still in flight, and Drain then waits for it so shutdown does not lose it.
+func TestMiddleware_RecordRunsAsyncThenDrains(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	rec := &blockingRecorder{started: make(chan struct{}), release: make(chan struct{})}
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: rec}, nil)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"FilteredLogs":[{"hash":"a"}]}}`))
+	})
+	req := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+
+	served := make(chan struct{})
+	go func() {
+		mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), req)
+		close(served)
+	}()
+
+	<-rec.started // the record goroutine is inside Record, blocked on release
+	select {
+	case <-served:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the handler blocked on the record submission")
+	}
+	require.Equal(t, int64(0), rec.done.Load(), "the record must not finish before the handler returns")
+
+	close(rec.release)
+	mw.Drain(context.Background())
+	require.Equal(t, int64(1), rec.done.Load(), "Drain must wait for the in-flight record")
+}
+
+// A panic inside a record is recovered and logged, not left to crash the host:
+// net/http does not recover a panic from a goroutine the handler starts.
+func TestMiddleware_RecordPanicRecovered(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	core, logs := observer.New(zap.ErrorLevel)
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: panicRecorder{}}, zap.New(core).Sugar())
+
+	const served = `{"data":{"FilteredLogs":[{"hash":"a"}]}}`
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(served))
+	})
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Drain(context.Background())
+
+	require.Equal(t, http.StatusOK, w.Code, "a panicking record must not affect the served response")
+	require.Equal(t, served, w.Body.String())
+	require.Len(t, logs.FilterMessage("billing.record_panic").All(), 1, "the panic is recovered and logged")
 }
 
 // --- helpers ---
@@ -542,4 +602,26 @@ func (f *fakeRecorder) Record(ctx context.Context, in accounting.RecordInput) er
 	_, f.ctxHasDeadline = ctx.Deadline()
 	f.inputs = append(f.inputs, in)
 	return f.err
+}
+
+// blockingRecorder blocks in Record until release is closed, so a test can prove
+// the handler returns before the record finishes. done counts completed records.
+type blockingRecorder struct {
+	started chan struct{}
+	release chan struct{}
+	done    atomic.Int64
+}
+
+func (b *blockingRecorder) Record(context.Context, accounting.RecordInput) error {
+	close(b.started)
+	<-b.release
+	b.done.Add(1)
+	return nil
+}
+
+// panicRecorder panics on Record, exercising recovery in the record goroutine.
+type panicRecorder struct{}
+
+func (panicRecorder) Record(context.Context, accounting.RecordInput) error {
+	panic("recorder blew up")
 }

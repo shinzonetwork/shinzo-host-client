@@ -107,6 +107,7 @@ type Host struct {
 	processingCancel       context.CancelFunc  // For canceling the event processing goroutine
 	playgroundServer       *http.Server        // Playground HTTP server (if enabled)
 	acpServer              *defradbHttp.Server // ACP-wrapped GraphQL server (set when the ACP middleware owns the API port)
+	acpMiddleware          *acp.Middleware     // Billing gate; drained on Close so in-flight records are not lost
 	config                 *config.Config      // Host configuration including StartHeight
 
 	// EVENT-DRIVEN ATTESTATION SYSTEM: Only track attestation processing
@@ -227,8 +228,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// defraNode.APIURL is populated inside startACPServer so the playground
 	// proxy below uses our address.
 	var acpServer *defradbHttp.Server
+	var acpMiddleware *acp.Middleware
 	if acpCfg.Enabled {
-		acpServer, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL, attesters)
+		acpServer, acpMiddleware, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL, attesters)
 		if err != nil {
 			return nil, fmt.Errorf("acp server: %w", err)
 		}
@@ -285,6 +287,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		processingCancel:       func() {},
 		playgroundServer:       playgroundServer,
 		acpServer:              acpServer,
+		acpMiddleware:          acpMiddleware,
 		config:                 cfg,
 		metrics:                server.NewHostMetrics(),
 		viewManager:            viewManager,
@@ -694,6 +697,12 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
+	// The server no longer accepts requests, so drain the service records it
+	// already spawned before exit; they post to the accounting service, not defradb.
+	if h.acpMiddleware != nil {
+		h.acpMiddleware.Drain(ctx)
+	}
+
 	// ViewManager cleanup (no explicit close needed - just log)
 	if h.viewManager != nil {
 		logger.Sugar.Infof("🎯 ViewManager shutdown: %d active views", h.viewManager.GetViewCount())
@@ -746,9 +755,9 @@ func startACPServer(
 	viewManager *view.Manager,
 	defraURL string,
 	attesters *observedAttesters,
-) (*defradbHttp.Server, error) {
+) (*defradbHttp.Server, *acp.Middleware, error) {
 	if hubBaseURL == "" {
-		return nil, errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
+		return nil, nil, errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
 	}
 	// The host reads the hub over its Cosmos LCD (REST) port. HubBaseURL points
 	// at the CometBFT RPC port; the LCD is the same host on :1317.
@@ -763,13 +772,13 @@ func startACPServer(
 
 	recording, err := buildRecording(acpCfg, internalCfg, defraNode, attesters)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar)
 
 	handler, err := defradbHttp.NewHandler(defraNode.DB)
 	if err != nil {
-		return nil, fmt.Errorf("defradb handler: %w", err)
+		return nil, nil, fmt.Errorf("defradb handler: %w", err)
 	}
 
 	// Bind on host:port. Loopback hosts (localhost, 127.0.0.1, ::1) are
@@ -777,7 +786,7 @@ func startACPServer(
 	// connections and in-process loopback calls (e.g. healthcheck probes).
 	host, port, splitErr := net.SplitHostPort(defraURL)
 	if splitErr != nil {
-		return nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
+		return nil, nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
 	}
 	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
 		host = "0.0.0.0"
@@ -786,10 +795,10 @@ func startACPServer(
 
 	server, err := defradbHttp.NewServer(mw.Wrap(handler), options.NodeHTTP().SetAddress(listenAddr))
 	if err != nil {
-		return nil, fmt.Errorf("defradb server: %w", err)
+		return nil, nil, fmt.Errorf("defradb server: %w", err)
 	}
 	if err := server.SetListener(); err != nil {
-		return nil, fmt.Errorf("listener: %w", err)
+		return nil, nil, fmt.Errorf("listener: %w", err)
 	}
 
 	go func() {
@@ -806,14 +815,14 @@ func startACPServer(
 	healthClient, err := defradbHttp.NewClient(server.Address())
 	if err != nil {
 		_ = server.Shutdown(ctx)
-		return nil, fmt.Errorf("health client: %w", err)
+		return nil, nil, fmt.Errorf("health client: %w", err)
 	}
 	if err := healthClient.HealthCheck(healthCtx); err != nil {
 		_ = server.Shutdown(ctx)
-		return nil, fmt.Errorf("health check: %w", err)
+		return nil, nil, fmt.Errorf("health check: %w", err)
 	}
 
-	return server, nil
+	return server, mw, nil
 }
 
 // acpHealthCheckTimeout bounds the post-listen health check on the

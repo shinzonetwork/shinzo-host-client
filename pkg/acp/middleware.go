@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -28,11 +29,15 @@ const GraphQLPath = "/api/v0/graphql"
 // clock skew while bounding how long a captured signature can be replayed.
 const DefaultRequestMaxAge = 2 * time.Minute
 
-// DefaultRecordTimeout bounds the synchronous POST of a service record to the
-// accounting service. net/http holds a buffered reply until the handler returns,
-// so this also bounds how long a slow accounting service can delay the client's
-// response.
+// DefaultRecordTimeout bounds each service-record POST to the accounting service.
+// Recording runs off the request path, so this caps a record goroutine's lifetime,
+// not the client's response.
 const DefaultRecordTimeout = 5 * time.Second
+
+// defaultRecordConcurrency caps how many service records post at once, so a slow
+// accounting service cannot spawn unbounded goroutines. Past the cap the gate
+// blocks rather than drop a record.
+const defaultRecordConcurrency = 64
 
 // Authorizer decides whether a payer may run a query.
 type Authorizer interface {
@@ -73,6 +78,9 @@ type Middleware struct {
 	maxRequestAge time.Duration
 	recording     *Recording
 	log           *zap.SugaredLogger
+
+	recordSem chan struct{}  // bounds concurrent record submissions
+	recordWG  sync.WaitGroup // tracks in-flight records for Drain
 }
 
 // NewMiddleware returns a Middleware that authorizes via authz, resolves
@@ -85,7 +93,15 @@ func NewMiddleware(authz Authorizer, registry ViewRegistry, chainID uint64, maxR
 	if log == nil {
 		log = zap.NewNop().Sugar()
 	}
-	return &Middleware{authz: authz, registry: registry, chainID: chainID, maxRequestAge: maxRequestAge, recording: recording, log: log}
+	return &Middleware{
+		authz:         authz,
+		registry:      registry,
+		chainID:       chainID,
+		maxRequestAge: maxRequestAge,
+		recording:     recording,
+		log:           log,
+		recordSem:     make(chan struct{}, defaultRecordConcurrency),
+	}
 }
 
 // Wrap returns an http.Handler that runs the gating policy before delegating to
@@ -185,18 +201,53 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	// Bill only a 2xx response: a well-formed body can accompany a non-2xx
 	// status, and the client treats that as a failure.
 	if served && cw.status/100 == 2 {
-		m.record(payer, ext, lookups[0], rows)
+		m.submitRecord(payer, ext, lookups[0], rows)
 	}
 }
 
-// record submits the service record for a served query. A failure is logged, not
-// returned: recording is best-effort and must not change what the client receives.
-// It runs on a context derived from context.Background(), not the request context,
-// so a client that disconnects does not cancel the in-flight submission.
-func (m *Middleware) record(payer common.Address, ext billing.Extensions, view viewLookup, rows uint64) {
+// submitRecord posts the service record on a background goroutine so a slow
+// accounting service does not delay the client's response. Concurrency is bounded:
+// past the limit it blocks rather than drop a record. Drain waits for the in-flight
+// records at shutdown so none is lost.
+func (m *Middleware) submitRecord(payer common.Address, ext billing.Extensions, view viewLookup, rows uint64) {
 	if m.recording == nil || m.recording.Recorder == nil {
 		return
 	}
+	m.recordSem <- struct{}{}
+	m.recordWG.Go(func() {
+		defer func() {
+			<-m.recordSem
+			// net/http recovers a panic in the request goroutine but not one from a
+			// goroutine the handler starts, so recover here to keep a bad record from
+			// taking down the host.
+			if r := recover(); r != nil {
+				m.log.Errorw("billing.record_panic", "payer", payer.Hex(), "view", view.Name, "panic", r)
+			}
+		}()
+		m.record(payer, ext, view, rows)
+	})
+}
+
+// Drain waits for in-flight record submissions to finish, or until ctx is done.
+// The host calls it after the GraphQL server stops so records already accepted are
+// not lost on shutdown.
+func (m *Middleware) Drain(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		m.recordWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// record builds and submits the service record for a served query. A failure is
+// logged, not returned: recording is best-effort and must not change what the
+// client receives. It runs on a context derived from context.Background(), not the
+// request context, so a client that disconnects does not cancel the submission.
+func (m *Middleware) record(payer common.Address, ext billing.Extensions, view viewLookup, rows uint64) {
 	var attested []string
 	if m.recording.Attesters != nil {
 		attested = m.recording.Attesters()
