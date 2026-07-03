@@ -33,6 +33,20 @@ func (s *stubEpochSource) Epoch(context.Context) (uint64, error) {
 	return s.epoch, s.err
 }
 
+// gateBalanceReader signals when a read is in flight and blocks until released, so
+// a test can advance the epoch while a balance read is outstanding.
+type gateBalanceReader struct {
+	balance *big.Int
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gateBalanceReader) GetQueryBalance(context.Context, string) (*big.Int, error) {
+	g.entered <- struct{}{}
+	<-g.release
+	return g.balance, nil
+}
+
 func authorizer(hub QueryBalanceReader, epochs EpochSource, min int64) *BalanceAuthorizer {
 	return NewBalanceAuthorizer(hub, epochs, big.NewInt(min), "shinzo")
 }
@@ -167,5 +181,61 @@ func TestBalanceAuthorizerRereadsUnderfundedForTopup(t *testing.T) {
 	}
 	if hub.calls != 2 {
 		t.Errorf("expected a re-read after the underfunded result, got %d reads", hub.calls)
+	}
+}
+
+// TestBalanceAuthorizerDoesNotCacheUnderfunded checks below-minimum balances are
+// not stored: they never produce a cache hit, so caching them would only grow the
+// map with dead entries under many distinct underfunded payers.
+func TestBalanceAuthorizerDoesNotCacheUnderfunded(t *testing.T) {
+	hub := &stubBalanceReader{balance: big.NewInt(100)}
+	a := authorizer(hub, &stubEpochSource{epoch: 5}, 500)
+
+	for i := range 5 {
+		ok, err := a.Authorize(context.Background(), common.Address{byte(i + 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Fatal("underfunded payer was allowed")
+		}
+	}
+
+	a.mu.Lock()
+	n := len(a.cache)
+	a.mu.Unlock()
+	if n != 0 {
+		t.Errorf("below-minimum balances must not be cached, got %d entries", n)
+	}
+}
+
+// TestBalanceAuthorizerDropsStaleEpochWrite checks a balance read that starts in
+// one epoch and finishes after the epoch advanced is not cached under the new
+// epoch, which would otherwise serve that stale balance for the rest of it.
+func TestBalanceAuthorizerDropsStaleEpochWrite(t *testing.T) {
+	hub := &gateBalanceReader{balance: big.NewInt(1000), entered: make(chan struct{}), release: make(chan struct{})}
+	epochs := &stubEpochSource{epoch: 5}
+	a := authorizer(hub, epochs, 500)
+	payer := common.Address{0x01}
+
+	done := make(chan struct{})
+	var authErr error
+	go func() {
+		_, authErr = a.Authorize(context.Background(), payer)
+		close(done)
+	}()
+
+	<-hub.entered // the balance read is in flight, having snapshotted epoch 5
+	epochs.epoch = 6
+	// A concurrent query in epoch 6 resets the cache before the epoch-5 read returns.
+	a.cachedFunded(6, common.Address{0x02})
+	close(hub.release) // let the epoch-5 read finish and attempt its write
+	<-done
+
+	if authErr != nil {
+		t.Fatal(authErr)
+	}
+	if a.cachedFunded(6, payer) {
+		t.Error("a balance read against the previous epoch was cached under the new one")
 	}
 }

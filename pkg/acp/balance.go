@@ -67,17 +67,24 @@ func (a *BalanceAuthorizer) Authorize(ctx context.Context, payer common.Address)
 	if err != nil {
 		return false, fmt.Errorf("read query balance for %s: %w", addr, err)
 	}
+	funded := balance.Cmp(a.minBalance) >= 0
 
+	// Cache only a funded balance from the epoch we validated against. Writing
+	// after the epoch advanced would serve a stale balance under the new epoch, and
+	// caching a below-minimum balance would never hit while still growing the map.
 	a.mu.Lock()
-	a.cache[payer] = balance
+	if a.cacheEpoch == epoch && funded {
+		a.cache[payer] = balance
+	}
 	a.mu.Unlock()
 
-	return balance.Cmp(a.minBalance) >= 0, nil
+	return funded, nil
 }
 
-// cachedFunded reports whether payer has a cached balance meeting the minimum for
-// the current epoch, dropping the cache when the epoch advances. A below-minimum
-// balance returns false so the caller re-reads it.
+// cachedFunded reports whether payer has a funded balance cached for the current
+// epoch, dropping the cache when the epoch advances. Only funded balances are
+// cached, so a hit means funded; a below-minimum or unseen payer is a miss and is
+// re-read.
 func (a *BalanceAuthorizer) cachedFunded(epoch uint64, payer common.Address) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -87,6 +94,6 @@ func (a *BalanceAuthorizer) cachedFunded(epoch uint64, payer common.Address) boo
 		a.cacheEpoch = epoch
 		return false
 	}
-	balance, found := a.cache[payer]
-	return found && balance.Cmp(a.minBalance) >= 0
+	_, found := a.cache[payer]
+	return found
 }
