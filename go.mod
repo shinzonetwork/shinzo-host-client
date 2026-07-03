@@ -12,7 +12,7 @@ require (
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/acp_core v0.8.1
 	github.com/sourcenetwork/corelog v0.0.9
-	github.com/sourcenetwork/defradb v1.0.0-rc1.0.20260702200429-ff2648320d13
+	github.com/sourcenetwork/defradb v1.0.0-rc1.0.20260703215640-12058a9e0656
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.11.0
 	github.com/sourcenetwork/sourcehub v0.4.1-0.20260128164915-1bce44032618
