@@ -14,7 +14,7 @@ require (
 	github.com/sourcenetwork/corelog v0.0.9
 	github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60
 	github.com/sourcenetwork/immutable v0.3.0
-	github.com/sourcenetwork/lens/host-go v0.10.0
+	github.com/sourcenetwork/lens/host-go v0.11.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1
