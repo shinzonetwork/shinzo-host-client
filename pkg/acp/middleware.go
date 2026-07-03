@@ -182,7 +182,9 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 		"served", served,
 		"status", cw.status,
 	)
-	if served {
+	// Bill only a 2xx response: a well-formed body can accompany a non-2xx
+	// status, and the client treats that as a failure.
+	if served && cw.status/100 == 2 {
 		m.record(payer, ext, lookups[0], rows)
 	}
 }

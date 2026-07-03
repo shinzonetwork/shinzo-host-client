@@ -379,6 +379,28 @@ func TestMiddleware_FailedQueryNotRecorded(t *testing.T) {
 	require.Empty(t, rec.inputs, "a failed query must not be recorded")
 }
 
+// A response can carry view rows under a non-2xx status; the client treats that
+// as an error, so the gate must not record it. Only successful responses are billed.
+func TestMiddleware_ErrorStatusServedNotRecorded(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	rec := &fakeRecorder{}
+	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: rec}, nil)
+
+	const served = `{"data":{"FilteredLogs":[{"hash":"a"},{"hash":"b"}]}}`
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(served))
+	})
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+
+	require.Equal(t, http.StatusBadGateway, w.Code, "the error status reaches the client")
+	require.Equal(t, served, w.Body.String(), "the body reaches the client unchanged")
+	require.Empty(t, rec.inputs, "a non-2xx response must not be billed")
+}
+
 // A recorder error is logged and swallowed: the served response is unchanged,
 // because recording is best-effort.
 func TestMiddleware_RecordFailureStillServes(t *testing.T) {
