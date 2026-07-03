@@ -25,7 +25,7 @@ jobs:
     outputs:
       short_sha: ${{ steps.short_sha.outputs.sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Get short SHA
         id: short_sha
