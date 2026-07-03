@@ -408,7 +408,7 @@ func TestConfigureLens_WithoutLensCID(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	v := &View{
@@ -431,7 +431,7 @@ func TestConfigureLens_WithLensCID(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
 	require.NoError(t, err)
 
 	v := &View{

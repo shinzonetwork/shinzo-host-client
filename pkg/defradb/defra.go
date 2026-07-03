@@ -13,14 +13,13 @@ import (
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defracontext"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/keyring"
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/sourcenetwork/immutable"
-	"github.com/sourcenetwork/immutable/enumerable"
 )
 
 // DefaultConfig provides the default configuration used when no config is supplied.
@@ -219,13 +218,24 @@ func GetOrCreateNodeIdentity(cfg *Config) (identity.Identity, error) {
 	return getOrCreateNodeIdentity(cfg)
 }
 
+// WithIdentityContext returns a new context with the identity value set.
+// Thin wrapper over defracontext.WithIdentity for callers that already import this package.
+func WithIdentityContext(ctx context.Context, id identity.Identity) context.Context {
+	return defracontext.WithIdentity(ctx, id)
+}
+
+// IdentityFromContext returns the identity stored in the context, if any.
+// Thin wrapper over defracontext.IdentityFrom for callers that already import this package.
+func IdentityFromContext(ctx context.Context) (identity.Identity, bool) {
+	return defracontext.IdentityFrom(ctx)
+}
 // GetIdentityContext returns a context with the node identity attached.
 func GetIdentityContext(ctx context.Context, cfg *Config) (context.Context, error) {
 	nodeIdentity, err := getOrCreateNodeIdentity(cfg)
 	if err != nil {
 		return ctx, err
 	}
-	return identity.WithContext(ctx, immutable.Some[identity.Identity](nodeIdentity)), nil
+	return defracontext.WithIdentity(ctx, nodeIdentity), nil
 }
 
 // CreateLibP2PKeyFromIdentity derives a deterministic libp2p Ed25519 private
@@ -328,38 +338,9 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
-	// Apply badger memory configuration if specified
-	var storeOpts []func(*options.NodeOptions)
-	if cfg.DefraDB.Store.BlockCacheMB > 0 {
-		size := cfg.DefraDB.Store.BlockCacheMB << BlockCacheMB
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerBlockCacheSize = size })
-		logger.Sugar.Infof("Badger block cache size: %dMB", cfg.DefraDB.Store.BlockCacheMB)
-	}
-	if cfg.DefraDB.Store.MemTableMB > 0 {
-		size := cfg.DefraDB.Store.MemTableMB << MemTableMB
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerMemTableSize = size })
-		logger.Sugar.Infof("Badger memtable size: %dMB", cfg.DefraDB.Store.MemTableMB)
-	}
-	if cfg.DefraDB.Store.IndexCacheMB > 0 {
-		size := cfg.DefraDB.Store.IndexCacheMB << IndexCacheMB
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerIndexCacheSize = size })
-		logger.Sugar.Infof("Badger index cache size: %dMB", cfg.DefraDB.Store.IndexCacheMB)
-	}
-	if cfg.DefraDB.Store.NumCompactors > 0 {
-		n := cfg.DefraDB.Store.NumCompactors
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumCompactors = n })
-		logger.Sugar.Infof("Badger num compactors: %d", cfg.DefraDB.Store.NumCompactors)
-	}
-	if cfg.DefraDB.Store.NumLevelZeroTables > 0 {
-		n := cfg.DefraDB.Store.NumLevelZeroTables
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumLevelZeroTables = n })
-		logger.Sugar.Infof("Badger L0 tables before compaction: %d", cfg.DefraDB.Store.NumLevelZeroTables)
-	}
-	if cfg.DefraDB.Store.NumLevelZeroTablesStall > 0 {
-		n := cfg.DefraDB.Store.NumLevelZeroTablesStall
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumLevelZeroTablesStall = n })
-		logger.Sugar.Infof("Badger L0 tables stall threshold: %d", cfg.DefraDB.Store.NumLevelZeroTablesStall)
-	}
+	// Badger tuning knobs (BlockCacheMB, MemTableMB, IndexCacheMB, NumCompactors,
+	// NumLevelZeroTables, NumLevelZeroTablesStall) were removed from NodeStoreOptions
+	// in defradb v1.0.0-rc1. Any corresponding config fields are intentionally ignored.
 	vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB
 	if vlogSizeMB <= 0 {
 		vlogSizeMB = 64
@@ -380,9 +361,7 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 
 	// Collect all options: builder + badger extras + user-provided options
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}
-	if len(storeOpts) > 0 {
-		allOpts = append(allOpts, enumerable.New(storeOpts))
-	}
+	
 	allOpts = append(allOpts, nodeOpts...)
 
 	defraNode, err := node.New(ctx, allOpts...)
@@ -409,7 +388,7 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 		}
 	}
 
-	err = defraNode.DB.CreateP2PCollections(ctx, collectionsOfInterest)
+	err = defraNode.DB.AddP2PCollections(ctx, collectionsOfInterest)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add collections of interest %v: %w", collectionsOfInterest, err)
 	}
@@ -597,32 +576,9 @@ func (c *Client) Start(ctx context.Context) error { // nolint:funlen
 	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
-	// Apply badger memory configuration if specified
-	var storeOpts []func(*options.NodeOptions)
-	if c.config.DefraDB.Store.BlockCacheMB > 0 {
-		size := c.config.DefraDB.Store.BlockCacheMB << BlockCacheMB
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerBlockCacheSize = size })
-	}
-	if c.config.DefraDB.Store.MemTableMB > 0 {
-		size := c.config.DefraDB.Store.MemTableMB << MemTableMB
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerMemTableSize = size })
-	}
-	if c.config.DefraDB.Store.IndexCacheMB > 0 {
-		size := c.config.DefraDB.Store.IndexCacheMB << IndexCacheMB
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerIndexCacheSize = size })
-	}
-	if c.config.DefraDB.Store.NumCompactors > 0 {
-		n := c.config.DefraDB.Store.NumCompactors
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumCompactors = n })
-	}
-	if c.config.DefraDB.Store.NumLevelZeroTables > 0 {
-		n := c.config.DefraDB.Store.NumLevelZeroTables
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumLevelZeroTables = n })
-	}
-	if c.config.DefraDB.Store.NumLevelZeroTablesStall > 0 {
-		n := c.config.DefraDB.Store.NumLevelZeroTablesStall
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumLevelZeroTablesStall = n })
-	}
+	// Badger tuning knobs (BlockCacheMB, MemTableMB, IndexCacheMB, NumCompactors,
+	// NumLevelZeroTables, NumLevelZeroTablesStall) were removed from NodeStoreOptions
+	// in defradb v1.0.0-rc1. Any corresponding config fields are intentionally ignored.
 	{
 		vlogSizeMB := c.config.DefraDB.Store.ValueLogFileSizeMB
 		if vlogSizeMB <= 0 {
@@ -643,9 +599,6 @@ func (c *Client) Start(ctx context.Context) error { // nolint:funlen
 
 	// Collect all options
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}
-	if len(storeOpts) > 0 {
-		allOpts = append(allOpts, enumerable.New(storeOpts))
-	}
 
 	c.node, err = node.New(ctx, allOpts...)
 	if err != nil {
@@ -694,7 +647,7 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 		return ErrEmptySchema
 	}
 
-	_, err := c.node.DB.AddSchema(ctx, schema)
+	_, err := c.node.DB.AddCollection(ctx, schema)
 	if err != nil {
 		if strings.Contains(err.Error(), "collection already exists") {
 			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)

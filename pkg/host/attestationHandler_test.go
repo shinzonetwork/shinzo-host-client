@@ -751,7 +751,7 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
 
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 
@@ -799,7 +799,7 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr2)
 	require.NoError(t, err)
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
 	// Create host with a real BlockSignatureVerifier
@@ -1027,7 +1027,7 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
 	// Create host with BlockSignatureVerifier and metrics
@@ -1070,7 +1070,7 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
 	h := &Host{
@@ -1108,7 +1108,7 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
 	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics()}
@@ -1185,7 +1185,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
 	metrics := server.NewHostMetrics()
@@ -1396,7 +1396,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
-	doc, err := col.Get(ctx, docIDTyped)
+	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
 	metrics := server.NewHostMetrics()
