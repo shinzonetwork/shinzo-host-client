@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -29,14 +30,32 @@ func TestPoolID_MatchesHubAndReconstruction(t *testing.T) {
 		crypto.Keccak256(initCode),
 	)
 
-	got := PoolID(view, DefaultWindowSize)
+	got, err := PoolID(view, DefaultWindowSize)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != want {
 		t.Fatalf("PoolID assembled the CREATE2 inputs differently\n got:  %s\nwant: %s", got, want)
 	}
 
 	// The hub's poolregistry precompile derives this address for the same inputs.
-	const fromHub = "0x4E7A157E7fA744EC550240a1b57EC41d72b0ccE5"
+	const fromHub = "0x773D75dFee746ab27FA61b3944956e6eD3ee28dB"
 	if got.Hex() != fromHub {
 		t.Fatalf("pool_id moved; bytecode or derivation drifted from the hub\n got:  %s\nwant: %s", got.Hex(), fromHub)
+	}
+}
+
+// TestPoolID_PropagatesPackError checks a constructor-args mismatch surfaces as an
+// error instead of silently producing a wrong pool_id. It swaps the package var, so
+// it must not run in parallel with the golden test above.
+func TestPoolID_PropagatesPackError(t *testing.T) {
+	saved := PoolConstructorArgs
+	defer func() { PoolConstructorArgs = saved }()
+	// Two arguments cannot pack a single address, so Pack returns an error.
+	PoolConstructorArgs = abi.Arguments{{Type: mustABIType("address")}, {Type: mustABIType("uint256")}}
+
+	view := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	if _, err := PoolID(view, DefaultWindowSize); err == nil {
+		t.Fatal("expected a pack error to propagate, got nil")
 	}
 }

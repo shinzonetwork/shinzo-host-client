@@ -61,7 +61,10 @@ func (r *Recorder) Record(ctx context.Context, in RecordInput) error {
 		return fmt.Errorf("decode extensions: %w", err)
 	}
 
-	poolID := pool.PoolID(in.ViewAddress, pool.DefaultWindowSize)
+	poolID, err := pool.PoolID(in.ViewAddress, pool.DefaultWindowSize)
+	if err != nil {
+		return fmt.Errorf("derive pool id: %w", err)
+	}
 	respondedAt := uint64(r.now().Unix())
 	cids := []string{}
 

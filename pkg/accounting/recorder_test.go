@@ -50,7 +50,8 @@ func TestRecorder_Record(t *testing.T) {
 		AttestedIndexers: []string{"idx1", "idx2"},
 	}))
 
-	poolID := pool.PoolID(view, pool.DefaultWindowSize)
+	poolID, err := pool.PoolID(view, pool.DefaultWindowSize)
+	require.NoError(t, err)
 
 	require.Equal(t, ext.Nonce, posted.Nonce)
 	require.Equal(t, ext.QueryHash, posted.QueryHash)

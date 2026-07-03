@@ -6,6 +6,7 @@ package pool
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,11 +21,15 @@ const DefaultWindowSize = 10000
 const deployer = "0x0000000000000000000000000000000000000213"
 
 // PoolID returns the CREATE2 address ShinzoHub deploys the pool for
-// (viewAddr, windowSize) at.
-func PoolID(viewAddr common.Address, windowSize uint64) common.Address {
+// (viewAddr, windowSize) at. It errors if the constructor args cannot be packed,
+// so an ABI mismatch surfaces instead of producing a wrong id.
+func PoolID(viewAddr common.Address, windowSize uint64) (common.Address, error) {
 	salt := poolSalt(viewAddr, windowSize)
-	initCode := buildInitCode(viewAddr)
-	return crypto.CreateAddress2(common.HexToAddress(deployer), salt, crypto.Keccak256(initCode))
+	initCode, err := buildInitCode(viewAddr)
+	if err != nil {
+		return common.Address{}, err
+	}
+	return crypto.CreateAddress2(common.HexToAddress(deployer), salt, crypto.Keccak256(initCode)), nil
 }
 
 // poolSalt is keccak256(viewAddress || bigEndian(windowSize)).
@@ -37,10 +42,12 @@ func poolSalt(viewAddr common.Address, windowSize uint64) [32]byte {
 
 // buildInitCode is PoolBytecode followed by the abi-encoded view address. The
 // window size differentiates pools through the salt, not the constructor.
-// Packing a single address never fails.
-func buildInitCode(viewAddr common.Address) []byte {
-	args, _ := PoolConstructorArgs.Pack(viewAddr)
-	return append(append([]byte{}, PoolBytecode...), args...)
+func buildInitCode(viewAddr common.Address) ([]byte, error) {
+	args, err := PoolConstructorArgs.Pack(viewAddr)
+	if err != nil {
+		return nil, fmt.Errorf("pack pool constructor args: %w", err)
+	}
+	return append(append([]byte{}, PoolBytecode...), args...), nil
 }
 
 // mustABIType parses an ABI type or panics; the argument is a compile-time
