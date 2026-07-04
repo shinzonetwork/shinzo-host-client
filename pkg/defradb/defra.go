@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defracontext"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -229,6 +229,7 @@ func WithIdentityContext(ctx context.Context, id identity.Identity) context.Cont
 func IdentityFromContext(ctx context.Context) (identity.Identity, bool) {
 	return defracontext.IdentityFrom(ctx)
 }
+
 // GetIdentityContext returns a context with the node identity attached.
 func GetIdentityContext(ctx context.Context, cfg *Config) (context.Context, error) {
 	nodeIdentity, err := getOrCreateNodeIdentity(cfg)
@@ -361,7 +362,7 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 
 	// Collect all options: builder + badger extras + user-provided options
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}
-	
+
 	allOpts = append(allOpts, nodeOpts...)
 
 	defraNode, err := node.New(ctx, allOpts...)

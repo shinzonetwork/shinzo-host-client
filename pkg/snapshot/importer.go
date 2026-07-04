@@ -172,7 +172,7 @@ func verifyHeaderAgainstSig(header *kvSnapshotHeader, sig *SignatureData) error 
 
 func buildImportMappingJSON(ctx context.Context, defraNode *node.Node, mappings []*client.CollectionFieldMapping) ([]byte, error) {
 	if len(mappings) != 1 {
-		return nil, fmt.Errorf("expected exactly 1 field mapping, got %d", len(mappings))
+		return nil, fmt.Errorf("got %d: %w", len(mappings), ErrExpectedOneFieldMapping)
 	}
 	m := mappings[0]
 
@@ -181,7 +181,7 @@ func buildImportMappingJSON(ctx context.Context, defraNode *node.Node, mappings 
 		return nil, fmt.Errorf("resolve collection %q: %w", m.CollectionID, err)
 	}
 	if len(cols) == 0 {
-		return nil, fmt.Errorf("collection %q not found locally", m.CollectionID)
+		return nil, fmt.Errorf("collection %q: %w", m.CollectionID, ErrCollectionNotFound)
 	}
 
 	importMapping := kvImportFieldMapping{
@@ -203,8 +203,9 @@ func importKVs(ctx context.Context, defraNode *node.Node, gr *gzip.Reader, heade
 	var count int
 	var err error
 
+	var mappingJSON []byte
 	if len(header.FieldMappings) > 0 {
-		mappingJSON, err := buildImportMappingJSON(ctx, defraNode, header.FieldMappings)
+		mappingJSON, err = buildImportMappingJSON(ctx, defraNode, header.FieldMappings)
 		if err != nil {
 			return 0, fmt.Errorf("build field mapping: %w", err)
 		}
