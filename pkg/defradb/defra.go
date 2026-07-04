@@ -218,18 +218,6 @@ func GetOrCreateNodeIdentity(cfg *Config) (identity.Identity, error) {
 	return getOrCreateNodeIdentity(cfg)
 }
 
-// WithIdentityContext returns a new context with the identity value set.
-// Thin wrapper over defracontext.WithIdentity for callers that already import this package.
-func WithIdentityContext(ctx context.Context, id identity.Identity) context.Context {
-	return defracontext.WithIdentity(ctx, id)
-}
-
-// IdentityFromContext returns the identity stored in the context, if any.
-// Thin wrapper over defracontext.IdentityFrom for callers that already import this package.
-func IdentityFromContext(ctx context.Context) (identity.Identity, bool) {
-	return defracontext.IdentityFrom(ctx)
-}
-
 // GetIdentityContext returns a context with the node identity attached.
 func GetIdentityContext(ctx context.Context, cfg *Config) (context.Context, error) {
 	nodeIdentity, err := getOrCreateNodeIdentity(cfg)
