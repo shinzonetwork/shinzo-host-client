@@ -38,8 +38,8 @@ func extractDocIDFromMutationResult(t *testing.T, result *client.RequestResult, 
 	t.Helper()
 	dataMap, ok := result.GQL.Data.(map[string]any)
 	require.True(t, ok, "expected map[string]any data")
-	createKey := fmt.Sprintf("create_%s", collectionName)
-	raw := dataMap[createKey]
+	addKey := fmt.Sprintf("add_%s", collectionName)
+	raw := dataMap[addKey]
 
 	switch list := raw.(type) {
 	case []any:
@@ -624,7 +624,7 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 
 	// Write a document to trigger events (even though it's not a relay, it exercises the subscription path)
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 500,
 			blockHash: "0xeventtest",
 			merkleRoot: "eventmerkle",
@@ -723,7 +723,7 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 
 	// Create a BlockSignature document in DefraDB
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 42,
 			blockHash: "0xblockhash",
 			merkleRoot: "abcdef1234567890",
@@ -776,7 +776,7 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 
 	// Create a BlockSignature document with invalid signature (will fail verification)
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 55,
 			blockHash: "0xblockhash55",
 			merkleRoot: "dead",
@@ -1004,7 +1004,7 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 
 	// Create a BlockSignature document with cids populated
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 88,
 			blockHash: "0xblockhash88",
 			merkleRoot: "deadbeefcafe",
@@ -1052,7 +1052,7 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 
 	// Create a BlockSignature with blockNumber=0 to test type handling
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 0,
 			blockHash: "0xzeroblock",
 			merkleRoot: "abc123",
@@ -1091,7 +1091,7 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 
 	// Create a BlockSignature with empty merkleRoot
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 99,
 			merkleRoot: "",
 			signatureType: "ES256K"
@@ -1162,7 +1162,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	cidListStr := strings.Join(quoted, ", ")
 
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 123,
 			blockHash: "0xhash",
 			merkleRoot: "%s",
@@ -1214,7 +1214,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 
 	// Create a BlockSignature document
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 77,
 			blockHash: "0xblockhash77",
 			merkleRoot: "cafebabe",
@@ -1373,7 +1373,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	cidListStr := strings.Join(quoted, ", ")
 
 	mutation := fmt.Sprintf(`mutation {
-		create_%s(input: {
+		add_%s(input: {
 			blockNumber: 124,
 			blockHash: "0xmismatch",
 			merkleRoot: "%s",
@@ -1470,7 +1470,7 @@ func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 
 	// Write docs to various collections to trigger event routing
 	for _, col := range []string{constants.CollectionBlock, constants.CollectionTransaction, constants.CollectionLog} {
-		mutation := fmt.Sprintf(`mutation { create_%s(input: {blockNumber: 1}) { _docID } }`, col)
+		mutation := fmt.Sprintf(`mutation { add_%s(input: {blockNumber: 1}) { _docID } }`, col)
 		defraNode.DB.ExecRequest(ctx, mutation)
 	}
 
