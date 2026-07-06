@@ -14,9 +14,23 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
+
+// kvImportFieldMapping matches the JSON format expected by DefraDB's ImportRawKVsWithMapping.
+type kvImportFieldMapping struct {
+	CollectionName    string               `json:"collectionName"`
+	CollectionShortID uint32               `json:"collectionShortID"`
+	Fields            []kvImportFieldEntry `json:"fields"`
+}
+
+type kvImportFieldEntry struct {
+	Name    string `json:"name"`
+	FieldID string `json:"fieldID"`
+	ShortID uint32 `json:"shortID"`
+}
 
 // ImportResult holds the block range of an import operation.
 type ImportResult struct {
@@ -156,13 +170,46 @@ func verifyHeaderAgainstSig(header *kvSnapshotHeader, sig *SignatureData) error 
 	return nil
 }
 
+func buildImportMappingJSON(ctx context.Context, defraNode *node.Node, mappings []*client.CollectionFieldMapping) ([]byte, error) {
+	if len(mappings) != 1 {
+		return nil, fmt.Errorf("got %d: %w", len(mappings), ErrExpectedOneFieldMapping)
+	}
+	m := mappings[0]
+
+	cols, err := defraNode.DB.GetCollections(ctx, options.GetCollections().SetCollectionID(m.CollectionID))
+	if err != nil {
+		return nil, fmt.Errorf("resolve collection %q: %w", m.CollectionID, err)
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("collection %q: %w", m.CollectionID, ErrCollectionNotFound)
+	}
+
+	importMapping := kvImportFieldMapping{
+		CollectionName:    cols[0].Name(),
+		CollectionShortID: m.CollectionShortID,
+	}
+	for shortID, fieldID := range m.FieldIDMapping {
+		importMapping.Fields = append(importMapping.Fields, kvImportFieldEntry{
+			FieldID: fieldID,
+			ShortID: shortID,
+		})
+	}
+
+	return json.Marshal(importMapping)
+}
+
 // importKVs imports raw KV pairs from the gzip reader into DefraDB.
 func importKVs(ctx context.Context, defraNode *node.Node, gr *gzip.Reader, header *kvSnapshotHeader) (int, error) {
 	var count int
 	var err error
 
+	var mappingJSON []byte
 	if len(header.FieldMappings) > 0 {
-		count, err = defraNode.DB.ImportRawKVsWithMapping(ctx, gr, header.FieldMappings)
+		mappingJSON, err = buildImportMappingJSON(ctx, defraNode, header.FieldMappings)
+		if err != nil {
+			return 0, fmt.Errorf("build field mapping: %w", err)
+		}
+		count, err = defraNode.DB.ImportRawKVsWithMapping(ctx, gr, mappingJSON)
 	} else {
 		count, err = defraNode.DB.ImportRawKVs(ctx, gr)
 	}

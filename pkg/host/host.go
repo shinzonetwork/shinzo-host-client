@@ -783,7 +783,7 @@ func startACPServer(
 	}
 	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar)
 
-	handler, err := defradbHttp.NewHandler(defraNode.DB)
+	handler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
 	if err != nil {
 		return nil, nil, fmt.Errorf("defradb handler: %w", err)
 	}
@@ -1001,12 +1001,12 @@ func isPlaygroundEnabled() bool {
 func applySchema(ctx context.Context, defraNode *node.Node, schemaStr string) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, schemaStr)
+	_, err := defraNode.DB.AddCollection(ctx, schemaStr)
 	if err != nil && strings.Contains(err.Error(), "collection already exists") {
 		fmt.Println("Schema already exists, trying to add new types individually...")
 		// Try adding Config__LastProcessedPage separately in case it's new
 		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int }`
-		_, configErr := defraNode.DB.AddSchema(ctx, configSchema)
+		_, configErr := defraNode.DB.AddCollection(ctx, configSchema)
 		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
 			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)
 		}

@@ -462,7 +462,7 @@ func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 	// Insert some blocks with different block numbers
 	for _, num := range []int{10, 20, 30} {
 		mutation := fmt.Sprintf(`mutation {
-			create_Ethereum__Mainnet__Block(input: {
+			add_Ethereum__Mainnet__Block(input: {
 				hash: "0xhash%d",
 				number: %d,
 				timestamp: "2025-01-01T00:00:00Z"
@@ -488,7 +488,7 @@ func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 
 	// Insert a single block
 	mutation := `mutation {
-		create_Ethereum__Mainnet__Block(input: {
+		add_Ethereum__Mainnet__Block(input: {
 			hash: "0xsingleblockhash",
 			number: 42,
 			timestamp: "2025-01-01T00:00:00Z"

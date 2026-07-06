@@ -282,7 +282,7 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 	maxRetries := 10
 
 	for attempt := range maxRetries {
-		doc, err = col.Get(ctx, docIDTyped)
+		doc, err = col.GetDocument(ctx, docIDTyped)
 		if err == nil && doc != nil {
 			break
 		}

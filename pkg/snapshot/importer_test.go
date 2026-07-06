@@ -736,9 +736,9 @@ func TestImportWithVerification_HappyPathWithFieldMappings(t *testing.T) {
 
 	result, err := ImportWithVerification(ctx, defraNode, path, sig)
 	// Field mapping remapping requires real collection IDs registered in DefraDB;
-	// with mock IDs we exercise the ImportRawKVsWithMapping branch but get a remap error.
+	// with mock IDs we fail resolving the collection before import.
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "import raw KVs")
+	require.Contains(t, err.Error(), "build field mapping")
 	require.Nil(t, result)
 }
 

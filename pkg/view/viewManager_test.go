@@ -287,9 +287,9 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	vm := NewManager(defraNode, t.TempDir())
 
 	// Create source collections first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
 	require.NoError(t, err)
 
 	// Create mock views
@@ -334,7 +334,7 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	vm.wasmRegistry = nil
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	views := []View{
@@ -398,7 +398,7 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -497,11 +497,11 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	vm := NewManager(defraNode, t.TempDir())
 
 	// Create source collections first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Block { number: Int }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Block { number: Int }")
 	require.NoError(t, err)
 
 	// Create views with duplicate names
@@ -562,7 +562,7 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -590,7 +590,7 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	}
 
 	// Create source collection with full name
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -629,7 +629,7 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	}
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String, topics: [String] }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String, topics: [String] }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -717,7 +717,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -748,7 +748,7 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -831,7 +831,7 @@ func TestViewManager_MetricsCallbackError(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	// Should not fail even if metrics callback returns nil
@@ -905,7 +905,7 @@ func TestViewManager_ContractAddress_StoredAndRetrieved(t *testing.T) {
 
 	vm := NewManager(defraNode, t.TempDir())
 
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	const addr = "0xc5d55f9a4e8788abaaf74d4772c2a4afe60a23a3"
@@ -938,7 +938,7 @@ func TestViewManager_ContractAddress_EmptyAddressReturnsFalse(t *testing.T) {
 
 	vm := NewManager(defraNode, t.TempDir())
 
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	v := &View{
@@ -970,7 +970,7 @@ func TestViewManager_IsActive(t *testing.T) {
 
 	vm := NewManager(defraNode, t.TempDir())
 
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	addressed := &View{

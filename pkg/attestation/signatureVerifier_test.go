@@ -339,7 +339,7 @@ func TestDefraSignatureVerifier_Verify_Success_WithMetrics(t *testing.T) {
 
 	createDocMutation := `
 		mutation {
-			create_TestDoc(input: {name: "test-for-verify"}) {
+			add_TestDoc(input: {name: "test-for-verify"}) {
 				_docID
 				name
 				_version {
@@ -383,7 +383,7 @@ func TestDefraSignatureVerifier_Verify_Success_NilMetrics(t *testing.T) {
 
 	createDocMutation := `
 		mutation {
-			create_TestDoc(input: {name: "test-for-verify-nil-metrics"}) {
+			add_TestDoc(input: {name: "test-for-verify-nil-metrics"}) {
 				_docID
 				name
 				_version {
