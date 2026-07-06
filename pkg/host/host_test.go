@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -1425,11 +1426,50 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	// First call should succeed (adding schema)
-	err = applySchema(ctx, defraNode)
+	err = applySchema(ctx, defraNode, localschema.GetSchema())
 	require.NoError(t, err)
 
 	// Second call should also succeed (schema already exists path)
-	err = applySchema(ctx, defraNode)
+	err = applySchema(ctx, defraNode, localschema.GetSchema())
+	require.NoError(t, err)
+}
+
+func Test_ApplySchema_DynamicFetchApplied_WithRealDefraDB(t *testing.T) {
+	ctx := context.Background()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := localschema.Response{
+			Network: testSchemaNetwork,
+			Schema:  testSchemaBlock,
+		}
+		err := json.NewEncoder(w).Encode(resp)
+		require.NoError(t, err)
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		HostConfig: config.HostConfig{
+			Snapshot: config.SnapshotConfig{
+				IndexerURL: srv.URL,
+			},
+		},
+		Schema: config.SchemaConfig{
+			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
+			HTTPClientTimeoutSecs: 5,
+		},
+	}
+
+	resolvedSchema := resolveSchema(ctx, cfg)
+	require.NotEqual(t, localschema.GetSchema(), resolvedSchema)
+	require.Contains(t, resolvedSchema, "Ethereum__Mainnet__Block")
+	require.Contains(t, resolvedSchema, "Ethereum__Mainnet__AttestationRecord")
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	err = applySchema(ctx, defraNode, resolvedSchema)
 	require.NoError(t, err)
 }
 
