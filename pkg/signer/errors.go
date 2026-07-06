@@ -7,6 +7,9 @@ var (
 	ErrKeyFileNotFound = errors.New("could not find defra_identity.key in any common location, please ensure the key file exists or provide a store path in config")
 	// ErrNoPrivateKey is returned when an identity does not contain a private key.
 	ErrNoPrivateKey = errors.New("identity does not have a private key")
+	// ErrUnexpectedKeyType is returned when the node identity is not secp256k1, the
+	// only key type that maps to an Ethereum signing key.
+	ErrUnexpectedKeyType = errors.New("node identity is not a secp256k1 key")
 	// ErrUnexpectedKeyLength is returned when an Ed25519 key is neither 32 nor 64 bytes.
 	ErrUnexpectedKeyLength = errors.New("unexpected Ed25519 key length: expected 32 or 64 bytes")
 	// ErrNoPublicKey is returned when an identity does not contain a public key.

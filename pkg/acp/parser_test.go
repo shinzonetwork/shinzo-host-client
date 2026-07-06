@@ -53,6 +53,16 @@ func TestExtractCollections_DeduplicatesRepeatedSelections(t *testing.T) {
 	require.Equal(t, []string{"Logs"}, got)
 }
 
+// An aliased, repeated view alongside a base collection: the view resolves to one
+// name with both response keys, the base collection to its own.
+func TestTopLevelFields_KeysAndNames(t *testing.T) {
+	fields, err := topLevelFields("{ a: FilteredLogs { hash } b: FilteredLogs { hash } Block { number } }", "")
+	require.NoError(t, err)
+	require.Equal(t, []string{testViewFilteredLogs, "Block"}, collectionNames(fields))
+	require.Equal(t, []string{"a", "b"}, responseKeys(fields, testViewFilteredLogs))
+	require.Equal(t, []string{"Block"}, responseKeys(fields, "Block"))
+}
+
 // When operationName is set, only that operation's selections are returned.
 // This matters for clients that send multi-operation documents and pick at
 // request time; gating the unselected operations would cause false denials.
