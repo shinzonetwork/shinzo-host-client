@@ -1,16 +1,14 @@
 package attestation
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
 	"sync"
 
 	gocid "github.com/ipfs/go-cid"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/node"
 )
 
 // BlockSignature represents a block signature from an indexer.
@@ -174,8 +172,8 @@ func (v *BlockSignatureVerifier) VerifyCIDListAgainstMerkleRoot(sig *BlockSignat
 	return v.VerifyCIDsAgainstBlockSignature(sig.CIDs, sig)
 }
 
-// ComputeMerkleRootFromStrings computes a merkle root from CID strings
-// This must match defradb/internal/core/block/block_signing.go.
+// ComputeMerkleRootFromStrings parses the CID strings and computes their Merkle
+// root via defra's ComputeMerkleRoot, the same function the indexer signs with.
 func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 	if len(cidStrings) == 0 {
 		return nil
@@ -195,33 +193,7 @@ func ComputeMerkleRootFromStrings(cidStrings []string) []byte {
 		return nil
 	}
 
-	sort.Slice(parsedCids, func(i, j int) bool {
-		return bytes.Compare(parsedCids[i].Bytes(), parsedCids[j].Bytes()) < 0
-	})
-
-	hashes := make([][]byte, len(parsedCids))
-	for i, c := range parsedCids {
-		hash := sha256.Sum256(c.Bytes())
-		hashes[i] = hash[:]
-	}
-
-	for len(hashes) > 1 {
-		var newHashes [][]byte
-		for i := 0; i < len(hashes); i += 2 {
-			if i+1 < len(hashes) {
-				combined := make([]byte, 0, len(hashes[i])+len(hashes[i+1]))
-				combined = append(combined, hashes[i]...)
-				combined = append(combined, hashes[i+1]...)
-				hash := sha256.Sum256(combined)
-				newHashes = append(newHashes, hash[:])
-				continue
-			}
-			newHashes = append(newHashes, hashes[i])
-		}
-		hashes = newHashes
-	}
-
-	return hashes[0]
+	return node.ComputeMerkleRoot(parsedCids)
 }
 
 // BlockCIDCollector collects CIDs for documents in a block for block signature verification.
