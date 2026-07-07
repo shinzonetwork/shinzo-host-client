@@ -4,6 +4,7 @@ const (
 	httpClientTimeoutMins  = 5
 	sha256CombinedByteSize = 64
 	merkleArity            = 2
+	snapshotVersion        = 2
 )
 
 // Wire-format identifiers used by snapshot import.

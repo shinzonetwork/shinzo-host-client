@@ -11,7 +11,5 @@ var ( //nolint:revive
 	ErrBlockSigCountMismatch   = errors.New("block sig root count mismatch")                   //nolint:revive
 	ErrBlockSigRootMismatch    = errors.New("block sig root mismatch")                         //nolint:revive
 	ErrUnsupportedSigType      = errors.New("unsupported signature type")                      //nolint:revive
-	ErrInvalidSignature        = errors.New("invalid signature")                               //nolint:revive
-	ErrExpectedOneFieldMapping = errors.New("expected exactly 1 field mapping")                //nolint:revive
-	ErrCollectionNotFound      = errors.New("collection not found locally")                    //nolint:revive
+	ErrInvalidSignature = errors.New("invalid signature") //nolint:revive
 )

@@ -14,7 +14,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
-	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -299,8 +298,9 @@ func TestVerifySignature_InvalidSignature_Secp256k1(t *testing.T) {
 	// Could be "invalid signature" or "verify" depending on the crypto implementation.
 }
 
-// buildTestSnapshot creates a gzipped KV snapshot file for testing and returns
-// the path along with the header used.
+// buildTestSnapshot creates a gzipped KV snapshot file for testing and returns the path.
+// For version 2 snapshots it writes the required uint32(0) outer terminator so that
+// importKVsSections exits cleanly on an empty body.
 func buildTestSnapshot(t *testing.T, header kvSnapshotHeader) string {
 	t.Helper()
 
@@ -317,7 +317,13 @@ func buildTestSnapshot(t *testing.T, header kvSnapshotHeader) string {
 	_, err = gw.Write(headerBytes)
 	require.NoError(t, err)
 
-	// Write empty KV data (no actual key-value pairs).
+	if header.Version >= 2 {
+		// Write outer terminator so the section loop exits immediately.
+		binary.BigEndian.PutUint32(lenBuf[:], 0)
+		_, err = gw.Write(lenBuf[:])
+		require.NoError(t, err)
+	}
+
 	require.NoError(t, gw.Close())
 
 	path := filepath.Join(t.TempDir(), "test-snapshot.gz")
@@ -715,19 +721,17 @@ func TestImportWithVerification_HappyPathWithFieldMappings(t *testing.T) {
 
 	sig := buildValidSigForBlockRoots(t, headerRoots)
 
+	// v2 snapshot: FieldMappings stores the ExportFieldMapping JSON keyed by
+	// collection name. No sections are written, so import completes with 0 pairs.
 	path := buildTestSnapshot(t, kvSnapshotHeader{
 		Magic:               snapshotMagic,
-		Version:             1,
+		Version:             2,
 		StartBlock:          0,
 		EndBlock:            5,
 		CreatedAt:           testFixedTimestamp,
 		BlockSigMerkleRoots: headerRoots,
-		FieldMappings: []*client.CollectionFieldMapping{
-			{
-				CollectionID:      "bafkreitest",
-				CollectionShortID: 1,
-				FieldIDMapping:    map[uint32]string{1: "bafkreifield1"},
-			},
+		FieldMappings: map[string]json.RawMessage{
+			"Ethereum__Mainnet__Block": json.RawMessage(`{"collectionName":"Ethereum__Mainnet__Block","collectionShortID":1,"fields":[]}`),
 		},
 	})
 
@@ -735,11 +739,10 @@ func TestImportWithVerification_HappyPathWithFieldMappings(t *testing.T) {
 	require.NoError(t, err)
 
 	result, err := ImportWithVerification(ctx, defraNode, path, sig)
-	// Field mapping remapping requires real collection IDs registered in DefraDB;
-	// with mock IDs we fail resolving the collection before import.
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "build field mapping")
-	require.Nil(t, result)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int64(0), result.StartBlock)
+	require.Equal(t, int64(5), result.EndBlock)
 }
 
 func TestVerifySignature_VerifyReturnsError(t *testing.T) {
