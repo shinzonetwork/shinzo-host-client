@@ -13,24 +13,9 @@ import (
 	"path/filepath"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
-	"github.com/sourcenetwork/defradb/client"
-	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
-
-// kvImportFieldMapping matches the JSON format expected by DefraDB's ImportRawKVsWithMapping.
-type kvImportFieldMapping struct {
-	CollectionName    string               `json:"collectionName"`
-	CollectionShortID uint32               `json:"collectionShortID"`
-	Fields            []kvImportFieldEntry `json:"fields"`
-}
-
-type kvImportFieldEntry struct {
-	Name    string `json:"name"`
-	FieldID string `json:"fieldID"`
-	ShortID uint32 `json:"shortID"`
-}
 
 // ImportResult holds the block range of an import operation.
 type ImportResult struct {
@@ -38,15 +23,17 @@ type ImportResult struct {
 	EndBlock   int64 `json:"end_block"`
 }
 
-// kvSnapshotHeader matches the header written by the indexer's KV snapshot format.
+// kvSnapshotHeader is the JSON header embedded at the start of every KV snapshot.
+// Version 1: single flat KV stream after the header.
+// Version 2: named collection sections after the header (see WriteSnapshot).
 type kvSnapshotHeader struct {
-	Magic               string                           `json:"magic"`
-	Version             int                              `json:"version"`
-	StartBlock          int64                            `json:"start_block"`
-	EndBlock            int64                            `json:"end_block"`
-	CreatedAt           string                           `json:"created_at"`
-	BlockSigMerkleRoots []string                         `json:"block_sig_merkle_roots,omitempty"`
-	FieldMappings       []*client.CollectionFieldMapping `json:"field_mappings,omitempty"`
+	Magic               string                     `json:"magic"`
+	Version             int                        `json:"version"`
+	StartBlock          int64                      `json:"start_block"`
+	EndBlock            int64                      `json:"end_block"`
+	CreatedAt           string                     `json:"created_at"`
+	BlockSigMerkleRoots []string                   `json:"block_sig_merkle_roots,omitempty"`
+	FieldMappings       map[string]json.RawMessage `json:"field_mappings,omitempty"`
 }
 
 // ImportWithVerification verifies the cryptographic signature and Merkle root,
@@ -170,53 +157,62 @@ func verifyHeaderAgainstSig(header *kvSnapshotHeader, sig *SignatureData) error 
 	return nil
 }
 
-func buildImportMappingJSON(ctx context.Context, defraNode *node.Node, mappings []*client.CollectionFieldMapping) ([]byte, error) {
-	if len(mappings) != 1 {
-		return nil, fmt.Errorf("got %d: %w", len(mappings), ErrExpectedOneFieldMapping)
+// importKVs dispatches to the v2 section-based importer or the v1 flat-stream fallback.
+func importKVs(ctx context.Context, defraNode *node.Node, gr *gzip.Reader, header *kvSnapshotHeader) (int, error) {
+	if header.Version >= 2 {
+		return importKVsSections(ctx, defraNode, gr, header)
 	}
-	m := mappings[0]
-
-	cols, err := defraNode.DB.GetCollections(ctx, options.GetCollections().SetCollectionID(m.CollectionID))
-	if err != nil {
-		return nil, fmt.Errorf("resolve collection %q: %w", m.CollectionID, err)
-	}
-	if len(cols) == 0 {
-		return nil, fmt.Errorf("collection %q: %w", m.CollectionID, ErrCollectionNotFound)
-	}
-
-	importMapping := kvImportFieldMapping{
-		CollectionName:    cols[0].Name(),
-		CollectionShortID: m.CollectionShortID,
-	}
-	for shortID, fieldID := range m.FieldIDMapping {
-		importMapping.Fields = append(importMapping.Fields, kvImportFieldEntry{
-			FieldID: fieldID,
-			ShortID: shortID,
-		})
-	}
-
-	return json.Marshal(importMapping)
+	return importKVsFlat(ctx, defraNode, gr)
 }
 
-// importKVs imports raw KV pairs from the gzip reader into DefraDB.
-func importKVs(ctx context.Context, defraNode *node.Node, gr *gzip.Reader, header *kvSnapshotHeader) (int, error) {
-	var count int
-	var err error
-
-	var mappingJSON []byte
-	if len(header.FieldMappings) > 0 {
-		mappingJSON, err = buildImportMappingJSON(ctx, defraNode, header.FieldMappings)
-		if err != nil {
-			return 0, fmt.Errorf("build field mapping: %w", err)
+// importKVsSections reads the v2 named-section wire format:
+//
+//	[4-byte name_len][name][KV pairs + uint32(0) sentinel] × N
+//	[uint32(0)] ← outer terminator
+//
+// Each call to ImportRawKVs/ImportRawKVsWithMapping consumes exactly one
+// section's KV data (stopping at the section's own sentinel), leaving the
+// reader positioned at the next section's name_len field.
+func importKVsSections(ctx context.Context, defraNode *node.Node, r io.Reader, header *kvSnapshotHeader) (int, error) {
+	total := 0
+	for {
+		var nameLen uint32
+		if err := binary.Read(r, binary.BigEndian, &nameLen); err != nil {
+			return total, fmt.Errorf("read section name length: %w", err)
 		}
-		count, err = defraNode.DB.ImportRawKVsWithMapping(ctx, gr, mappingJSON)
-	} else {
-		count, err = defraNode.DB.ImportRawKVs(ctx, gr)
+		if nameLen == 0 {
+			break
+		}
+
+		nameBuf := make([]byte, nameLen)
+		if _, err := io.ReadFull(r, nameBuf); err != nil {
+			return total, fmt.Errorf("read section name: %w", err)
+		}
+		colName := string(nameBuf)
+
+		var (
+			n   int
+			err error
+		)
+		if mapping, ok := header.FieldMappings[colName]; ok {
+			n, err = defraNode.DB.ImportRawKVsWithMapping(ctx, r, []byte(mapping))
+		} else {
+			n, err = defraNode.DB.ImportRawKVs(ctx, r)
+		}
+		if err != nil {
+			return total, fmt.Errorf("import section %q: %w", colName, err)
+		}
+		total += n
 	}
+	return total, nil
+}
+
+// importKVsFlat handles the v1 single flat-stream format.
+func importKVsFlat(ctx context.Context, defraNode *node.Node, r io.Reader) (int, error) {
+	count, err := defraNode.DB.ImportRawKVs(ctx, r)
 	if err != nil {
 		return 0, fmt.Errorf("import raw KVs: %w", err)
 	}
-
 	return count, nil
 }
 
