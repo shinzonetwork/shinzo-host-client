@@ -3,6 +3,7 @@ module github.com/shinzonetwork/shinzo-host-client
 go 1.26
 
 require (
+	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
 	github.com/cosmos/cosmos-sdk v0.53.5
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/gorilla/websocket v1.5.3
@@ -14,14 +15,13 @@ require (
 	github.com/shinzonetwork/shinzo-querysig v0.1.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
-	github.com/sourcenetwork/defradb v1.0.0-rc1.0.20260703215640-12058a9e0656
+	github.com/sourcenetwork/defradb v1.0.1-0.20260707165346-cc1993c8e3fa
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.11.0
-	github.com/sourcenetwork/sourcehub v0.4.1-0.20260128164915-1bce44032618
 	github.com/stretchr/testify v1.11.1
 	github.com/vektah/gqlparser/v2 v2.5.36
 	go.uber.org/zap v1.28.0
-  golang.org/x/sync v0.20.0
+	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -62,7 +62,6 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/NathanBaulch/protoc-gen-cobra v1.2.1 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
-	github.com/TBD54566975/ssi-sdk v0.0.4-alpha // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/awalterschulze/gographviz v2.0.3+incompatible // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
@@ -140,8 +139,7 @@ require (
 	github.com/emicklei/dot v1.11.0 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
-	github.com/ethereum/go-ethereum v1.17.0 // indirect
-  github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -340,8 +338,8 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/skip-mev/block-sdk/v2 v2.1.5 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
+	github.com/sourcenetwork/acp_core v0.8.1 // indirect
 	github.com/sourcenetwork/corekv v0.3.2 // indirect
-  github.com/sourcenetwork/acp_core v0.8.1 // indirect
 	github.com/sourcenetwork/corekv/badger v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/blockstore v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/chunk v0.3.1 // indirect
@@ -415,7 +413,6 @@ require (
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260508192327-42602be52be6 // indirect
 	golang.org/x/term v0.43.0 // indirect
