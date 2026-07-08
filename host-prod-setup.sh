@@ -5,9 +5,9 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWBT2F45LH7Gy6EadTE3sm7PKofyJ3RXcCnKufdu4L5c4M' # IND1
-      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDYXkjdncFL3X1SaaYBpFi4XfWskbXv4y5gYdTvmGm3bo' # IND2
-      - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWNLCXZEVZoM6NwU1i7zAZDscEZHhynsF74M5hP99sptM9' # IND3
+      - '/ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT' # IND1
+      - '/ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5' # IND2
+      - '/ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT' # IND3
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -133,7 +133,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.6.5-ethereum-mainnet
     user: "1001:1001" # update to match your user and group id.
     mem_limit: 16g
     mem_reservation: 13g
@@ -167,8 +167,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
-      - "443:443"   
+      - "8080:8080"  
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
@@ -192,9 +191,8 @@ http {
   }
 
   server {
-    listen 80;
-    listen 443 ssl;
-    server_name api.shinzo.network;
+    listen 8080;
+    server_name _;
 
     ssl_certificate     /etc/nginx/ssl/nginx.crt;
     ssl_certificate_key /etc/nginx/ssl/nginx.key;
