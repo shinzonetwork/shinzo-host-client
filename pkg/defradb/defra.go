@@ -350,7 +350,6 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 
 	// Collect all options: builder + badger extras + user-provided options
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}
-
 	allOpts = append(allOpts, nodeOpts...)
 
 	defraNode, err := node.New(ctx, allOpts...)

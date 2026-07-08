@@ -14,7 +14,7 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Set up Go
       uses: actions/setup-go@v6
@@ -22,7 +22,7 @@ jobs:
         go-version-file: 'go.mod'
 
     - name: Cache Go build
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cache/go-build
@@ -30,6 +30,11 @@ jobs:
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
+
+    - name: Linting - golangci-lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.12.2
 
     - name: Download test WASM file
       run: |
@@ -39,6 +44,18 @@ jobs:
     - name: Run tests
       env:
         GCP_GETH_RPC_URL: ${{ secrets.GCP_GETH_RPC_URL }}
-        GCP_GETH_WS_URL:  ${{ secrets.GCP_GETH_WS_URL }}
+        GCP_GETH_WS_URL: ${{ secrets.GCP_GETH_WS_URL }}
         GCP_GETH_API_KEY: ${{ secrets.GCP_GETH_API_KEY }}
-      run: go test -count=1 -timeout=3m -v ./pkg/...
+      run: |
+        go test -count=1 -timeout=3m \
+          -covermode=atomic \
+          -coverprofile=coverage.out \
+          ./pkg/...
+    
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v7
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: shinzonetwork/shinzo-host-client
+        files: coverage.out
+        fail_ci_if_error: true
