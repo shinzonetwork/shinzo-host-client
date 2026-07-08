@@ -112,7 +112,7 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Re
 			return fmt.Errorf("failed to set vote_count: %w", err)
 		}
 
-		return col.Save(ctx, existingDoc)
+		return col.SaveDocument(ctx, existingDoc)
 	}
 
 	// Create new document
@@ -138,7 +138,7 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Re
 		return fmt.Errorf("failed to create attestation document: %w", err)
 	}
 
-	return col.Save(ctx, doc)
+	return col.SaveDocument(ctx, doc)
 }
 
 // mergeStringListField reads an existing string list field from a document and merges
@@ -210,7 +210,7 @@ func lookupExistingAttestation(ctx context.Context, defraNode *node.Node, col cl
 		return nil, err
 	}
 
-	return col.Get(ctx, docID)
+	return col.GetDocument(ctx, docID)
 }
 
 // extractDocIDFromResult extracts the first _docID string from a GQL query result.
@@ -334,7 +334,7 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 		}
 	}
 
-	return col.SaveMany(ctx, docs)
+	return col.SaveManyDocuments(ctx, docs)
 }
 
 // HandleDocumentAttestation is the main handler for processing document attestations.

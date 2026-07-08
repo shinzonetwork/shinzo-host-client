@@ -15,6 +15,19 @@ import (
 // CollectionName is the name of the collection where we store Shinzo-specific documents in DefraDB.
 const CollectionName = "shinzo"
 
+// Default configuration values for schema fetching.
+const (
+	DefaultIndexerSchemaEndpoint   = "/api/v1/schema"
+	DefaultSchemaHTTPClientTimeout = 30
+	MaxSchemaHTTPClientTimeout     = 300
+)
+
+// ErrNegativeSchemaTimeout is returned when the schema HTTP client timeout is negative.
+var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must be non-negative")
+
+// ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
+var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	Enabled                bool     `yaml:"enabled"`
@@ -59,9 +72,25 @@ type LoggerConfig struct {
 type Config struct {
 	DefraDB    DefraDBConfig `yaml:"defradb"`
 	Shinzo     ShinzoConfig  `yaml:"shinzo"`
+	Schema     SchemaConfig  `yaml:"schema"`
 	Logger     LoggerConfig  `yaml:"logger"`
 	HostConfig HostConfig    `yaml:"host"`
 	Pruner     pruner.Config `yaml:"pruner"`
+}
+
+// SchemaConfig represents configuration for dynamic schema fetching.
+type SchemaConfig struct {
+	IndexerSchemaEndpoint string `yaml:"indexer_schema_endpoint"`
+	HTTPClientTimeoutSecs int    `yaml:"http_client_timeout_secs"`
+	// AuthToken is the bearer token used to authenticate schema fetch requests
+	// against indexers with SCHEMA_AUTH_MODE=token (the default).
+	//
+	// IMPORTANT: This field uses yaml:"-", which means YAML configuration is
+	// SILENTLY IGNORED. The token MUST be provided via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN
+	// environment variable. Setting this field in config.yaml will NOT work —
+	// the host will start with an empty token, causing schema fetches to
+	// receive 401/503 and fall back to the embedded schema (fail-closed).
+	AuthToken string `yaml:"-"`
 }
 
 // ShinzoConfig represents configuration specific to the Shinzo host application.
@@ -182,6 +211,32 @@ func LoadConfig(path string) (*Config, error) {
 
 	if v := os.Getenv("BOOTSTRAP_PEERS"); v != "" {
 		cfg.DefraDB.P2P.BootstrapPeers = strings.Split(v, ",")
+	}
+
+	// DEFRA_URL overrides defradb.url at runtime, so deployment artifacts
+	// can pick a different bind address (e.g. 0.0.0.0:9181 instead of the
+	// loopback-only default) without editing the YAML.
+	if v := os.Getenv("DEFRA_URL"); v != "" {
+		cfg.DefraDB.URL = v
+	}
+
+	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT"); v != "" {
+		cfg.Schema.IndexerSchemaEndpoint = v
+	}
+
+	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN"); v != "" {
+		cfg.Schema.AuthToken = v
+	}
+	if cfg.Schema.IndexerSchemaEndpoint == "" {
+		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint
+	}
+	switch {
+	case cfg.Schema.HTTPClientTimeoutSecs < 0:
+		return nil, fmt.Errorf("%w: got %d", ErrNegativeSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
+	case cfg.Schema.HTTPClientTimeoutSecs > MaxSchemaHTTPClientTimeout:
+		return nil, fmt.Errorf("%w: got %d", ErrExcessiveSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
+	case cfg.Schema.HTTPClientTimeoutSecs == 0:
+		cfg.Schema.HTTPClientTimeoutSecs = DefaultSchemaHTTPClientTimeout
 	}
 
 	return &cfg, nil

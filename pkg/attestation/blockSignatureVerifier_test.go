@@ -11,6 +11,7 @@ import (
 	mh "github.com/multiformats/go-multihash"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -487,6 +488,24 @@ func TestComputeMerkleRootFromStrings(t *testing.T) {
 				require.Equal(t, 32, len(result), "SHA-256 root should be 32 bytes")
 			}
 		})
+	}
+}
+
+// TestComputeMerkleRootFromStrings_MatchesDefra guards against the host ever
+// drifting from the algorithm the indexer signs with. Odd counts are the case a
+// divergent reimplementation gets wrong.
+func TestComputeMerkleRootFromStrings_MatchesDefra(t *testing.T) {
+	for _, n := range []int{1, 2, 3, 5, 7, 9} {
+		strs := make([]string, n)
+		cids := make([]gocid.Cid, n)
+		for i := range n {
+			strs[i] = makeCID(fmt.Sprintf("defra-match-%d", i))
+			c, err := gocid.Decode(strs[i])
+			require.NoError(t, err)
+			cids[i] = c
+		}
+		require.Equal(t, node.ComputeMerkleRoot(cids), ComputeMerkleRootFromStrings(strs),
+			"host merkle must equal defra's for %d CIDs", n)
 	}
 }
 

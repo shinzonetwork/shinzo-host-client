@@ -68,7 +68,7 @@ docker run -d \
   -p 9181:9181 \
   -p 9182:9182 \
   -p 9171:9171 \
-  -v $(pwd)/data/defradb:/app/.defra/data \
+  -v $(pwd)/data/defradb:/app/.defra \
   -v $(pwd)/data/lens:/app/.lens \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -e DEFRA_URL=0.0.0.0:9181 \

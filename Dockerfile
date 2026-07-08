@@ -118,7 +118,7 @@ COPY --from=builder /app/config/config.yaml /app/config.yaml
 COPY --from=builder /app/playground/dist /app/playground/dist
 
 # Create directories for data persistence
-RUN mkdir -p .defra/data .lens && \
+RUN mkdir -p .defra .lens && \
     chown -R shinzo:shinzo /app
 
 # Switch to non-root user
@@ -134,7 +134,7 @@ ENV LOG_STACKTRACE=false
 # 9182: GraphQL Playground (if enabled)
 EXPOSE 9181 9182 9171
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9181 || exit 1
+HEALTHCHECK --interval=15s --timeout=30s --start-period=120s --retries=10 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/metrics || exit 1
 
 CMD ["./host"]

@@ -143,19 +143,7 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 			return views, len(views), fmt.Errorf("decode LCD response: %w", err)
 		}
 
-		for _, lv := range page.Views {
-			if lv.Data == "" {
-				log().Debugf("📡 view %s (contract %s) has no bundle bytes; skipping", lv.Name, lv.ContractAddress)
-				continue
-			}
-			v, err := ProcessViewFromWireFormat(lv.Data)
-			if err != nil {
-				log().Warnf("📡 failed to decode bundle for view %s (contract %s): %v", lv.Name, lv.ContractAddress, err)
-				continue
-			}
-			log().Debugf("📡 fetched view %s (contract %s)", lv.Name, lv.ContractAddress)
-			views = append(views, v)
-		}
+		views = append(views, decodeLCDViews(page.Views)...)
 
 		nextKey = page.Pagination.NextKey
 		if nextKey == "" {
@@ -165,4 +153,27 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 
 	log().Infof("📡 ShinzoHub query complete: found %d registered views", len(views))
 	return views, len(views), nil
+}
+
+// decodeLCDViews decodes each LCDView's bundle and copies the contract
+// address onto the resulting view.View. Entries with empty or malformed
+// bundle data are logged and skipped so a single bad view does not block
+// the rest of the page.
+func decodeLCDViews(lvs []LCDView) []view.View {
+	out := make([]view.View, 0, len(lvs))
+	for _, lv := range lvs {
+		if lv.Data == "" {
+			log().Debugf("📡 view %s (contract %s) has no bundle bytes; skipping", lv.Name, lv.ContractAddress)
+			continue
+		}
+		v, err := ProcessViewFromWireFormat(lv.Data)
+		if err != nil {
+			log().Warnf("📡 failed to decode bundle for view %s (contract %s): %v", lv.Name, lv.ContractAddress, err)
+			continue
+		}
+		v.ContractAddress = lv.ContractAddress
+		log().Debugf("📡 fetched view %s (contract %s)", lv.Name, lv.ContractAddress)
+		out = append(out, v)
+	}
+	return out
 }

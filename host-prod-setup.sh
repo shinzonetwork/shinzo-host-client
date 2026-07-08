@@ -5,8 +5,9 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooW9vHms1Uyzai3j8L3ZykcPhLYXoHifzrhgKP6HaTmszbV'
-      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDUN4xrdREQ4qcAbRmHb1otefmwi6F3a9FTsZdconUHUZ' # IND2
+      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWBT2F45LH7Gy6EadTE3sm7PKofyJ3RXcCnKufdu4L5c4M' # IND1
+      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDYXkjdncFL3X1SaaYBpFi4XfWskbXv4y5gYdTvmGm3bo' # IND2
+      - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWNLCXZEVZoM6NwU1i7zAZDscEZHhynsF74M5hP99sptM9' # IND3
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -71,7 +72,7 @@ shinzo:
     # In blocklist mode a document is rejected if it matches any enabled group.
     groups:
       - name: "uniswap-v3"       # Human-readable label (for logs)
-        enabled: true             # Set to false to disable this group without removing it
+        enabled: false             # Set to false to disable this group without removing it
         # Contract filters - match documents by on-chain address.
         # "types" controls which collection types this address applies to:
         #   "transaction" - matches tx.to field
@@ -91,7 +92,7 @@ shinzo:
             # topic2: "0x..."    # Optional: filter by indexed param 2
             # topic3: "0x..."    # Optional: filter by indexed param 3
       - name: "stablecoins"
-        enabled: true
+        enabled: false
         contracts:
           - name: "USDT"
             address: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
@@ -107,7 +108,7 @@ pruner:
   max_blocks: 2000         # Number of blocks to retain
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
-  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
+  prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
 logger:
   development: false
   level: "error"
@@ -125,8 +126,6 @@ host:
         end: 24528999
 EOF
 
-&&
-
 sudo tee ~/docker-compose.yml <<'EOF'
 networks:
   shinzo-net:
@@ -135,7 +134,7 @@ networks:
 services:
   shinzo-host:
     image: ghcr.io/shinzonetwork/shinzo-host-client:standard
-    user: "1003:1006" # update to match your user and group id.
+    user: "1001:1001" # update to match your user and group id.
     mem_limit: 16g
     mem_reservation: 13g
     restart: unless-stopped
@@ -147,9 +146,9 @@ services:
       - "444:9182"  # GraphQL Playground 
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
-      - ~/data/defradb:/app/.defra/data
+      - ~/data/defradb:/app/.defra
       - ~/data/keys:/app/.defra/keys
-      - ~/data/lens:/app/.lens
+      - ~/data/lens:/app/.defra/lens`
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
@@ -157,6 +156,7 @@ services:
       - LOG_LEVEL=error
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
+      - ALLOWED_ORIGINS=https://*.shinzo.network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/metrics"]
       interval: 15s
@@ -167,9 +167,12 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8080:8080"
+      - "80:80"
+      - "443:443"   
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ~/ssl/nginx.key:/etc/nginx/ssl/nginx.key:ro
     depends_on:
       - shinzo-host
     networks:
@@ -177,56 +180,132 @@ services:
     restart: unless-stopped
 EOF
 
-&&
-
 sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
 
 http {
-  # Only allow this origin for CORS
+  resolver 127.0.0.11 valid=10s;
+
   map $http_origin $cors_origin {
     default "";
     "https://explorer.shinzo.network" $http_origin;
   }
 
   server {
-    listen 8080;
-    server_name _;
+    listen 80;
+    listen 443 ssl;
+    server_name api.shinzo.network;
 
-    # CORS headers for ALL responses from this server
-    add_header 'Access-Control-Allow-Origin' $cors_origin always;
-    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-    add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
-    add_header 'Access-Control-Max-Age' 3600 always;
-    add_header 'Vary' 'Origin' always;
+    ssl_certificate     /etc/nginx/ssl/nginx.crt;
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
 
-    # Generic preflight handler (OPTIONS to any path)
-    location / {
-      if ($request_method = OPTIONS) {
-        return 204;
-      }
+    set $backend "shinzo-host";
 
-      proxy_pass http://shinzo-host:9181;
-      proxy_set_header Host $host;
-    }
-
-    # Metrics endpoint
     location = /metrics {
       if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
         return 204;
       }
-
-      proxy_pass http://shinzo-host:8080/metrics;
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:8080/metrics;
       proxy_set_header Host $host;
     }
 
-    # GraphQL endpoint
-    location = /api/v0/graphql {
+    location = /health {
       if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
         return 204;
       }
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:8080/health;
+      proxy_set_header Host $host;
+    }
 
-      proxy_pass http://shinzo-host:9181/api/v0/graphql;
+    location = /registration {
+      if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
+        return 204;
+      }
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:8080/registration;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /registration-app {
+      if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
+        return 204;
+      }
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:8080/registration-app;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /api/v0/graphql {
+      if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
+        return 204;
+      }
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:9181/api/v0/graphql;
+      proxy_set_header Host $host;
+    }
+
+    location / {
+      if ($request_method = OPTIONS) {
+        add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+        add_header 'Access-Control-Max-Age'       3600 always;
+        add_header 'Vary'                         'Origin' always;
+        return 204;
+      }
+      add_header 'Access-Control-Allow-Origin'  $cors_origin always;
+      add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+      add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
+      add_header 'Vary'                         'Origin' always;
+      proxy_pass http://$backend:9181;
       proxy_set_header Host $host;
     }
   }

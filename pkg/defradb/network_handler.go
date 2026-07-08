@@ -247,7 +247,8 @@ func (nh *NetworkHandler) startReconnectionLoop() {
 	nh.startNoPeersEventListener()
 }
 
-// startNoPeersEventListener subscribes to P2PNoPeers events and triggers immediate reconnection.
+// startNoPeersEventListener subscribes to P2PNoPeers events and forces an
+// immediate reconnect when the node has lost all of its active peers.
 func (nh *NetworkHandler) startNoPeersEventListener() {
 	if nh.node == nil || nh.node.DB == nil {
 		return
@@ -269,7 +270,12 @@ func (nh *NetworkHandler) startNoPeersEventListener() {
 					return
 				}
 				if _, ok := msg.Data.(event.P2PNoPeers); ok {
-					nh.forceReconnectAll()
+					// P2PNoPeers fires whenever a publish finds no subscribers on its
+					// topic, which is normal for freshly created documents. Only force a
+					// reconnect on a genuine mesh loss, when no active peers remain.
+					if peers, err := nh.node.DB.ActivePeers(nh.ctx); err == nil && len(peers) == 0 {
+						nh.forceReconnectAll()
+					}
 				}
 			}
 		}

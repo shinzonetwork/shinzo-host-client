@@ -9,6 +9,6 @@ sudo rm /tmp/nginx.csr
 # Install dependencies and start the host
 sudo apt-get update &&
 sudo apt-get install -y docker.io docker-compose nginx &&
-sudo mkdir -p ~/data/defradb ~/data/keys ~/data/lens &&
-sudo chown -R 1003:1006 ~/data/defradb ~/data/keys ~/data/lens &&
+sudo mkdir -p ~/data/defradb ~/data/lens &&
+sudo chown -R 1001:1001 ~/data/defradb ~/data/lens &&
 docker-compose up -d

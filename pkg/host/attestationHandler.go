@@ -80,6 +80,7 @@ var (
 	transactionCollectionID string //nolint:gochecknoglobals
 	logCollectionID         string //nolint:gochecknoglobals
 	accessListCollectionID  string //nolint:gochecknoglobals
+	attRecCollectionID      string //nolint:gochecknoglobals
 )
 
 // collectionIDToName - mapping for ID to Name.
@@ -123,6 +124,9 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 		case constants.CollectionAccessListEntry:
 			accessListCollectionID = col.CollectionID()
 			collectionIDToName[accessListCollectionID] = constants.CollectionAccessListEntry
+		case constants.CollectionAttestationRecord:
+			attRecCollectionID = col.CollectionID()
+			collectionIDToName[attRecCollectionID] = constants.CollectionAttestationRecord
 		}
 	}
 
@@ -222,12 +226,8 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 
 			if msg.Name == event.UpdateName {
 				update, ok := msg.Data.(event.Update)
-				if !ok || !update.IsRelay {
+				if !ok {
 					continue
-				}
-
-				if h.metrics != nil {
-					h.metrics.IncrementDocumentsReceived()
 				}
 
 				collectionName, known := collectionIDToName[update.CollectionID]
@@ -235,14 +235,25 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 					continue
 				}
 
+				if h.pruneQueue != nil {
+					h.pruneQueue.Push(collectionName, update.DocID)
+				}
+
+				// Local writes skip the metric and verification: "documents received"
+				// only counts inbound peer traffic, and a BlockSignature only needs
+				// verification when a peer sent it.
+				if !update.IsRelay {
+					continue
+				}
+
+				if h.metrics != nil {
+					h.metrics.IncrementDocumentsReceived()
+				}
 				if collectionsWithMetrics[collectionName] && h.metrics != nil {
 					h.metrics.IncrementDocumentByType(collectionName)
 				}
 				if collectionName == constants.CollectionBlockSignature {
 					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
-				}
-				if h.pruneQueue != nil {
-					h.pruneQueue.Push(collectionName, update.DocID)
 				}
 			}
 		}
@@ -271,7 +282,7 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 	maxRetries := 10
 
 	for attempt := range maxRetries {
-		doc, err = col.Get(ctx, docIDTyped)
+		doc, err = col.GetDocument(ctx, docIDTyped)
 		if err == nil && doc != nil {
 			break
 		}
@@ -424,6 +435,11 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 	if h.blockSignatureVerifier != nil {
 		if !h.verifyBlockSignature(blockSig) {
 			return
+		}
+
+		// A verified peer signature is the host observing that indexer attesting.
+		if h.attesters != nil {
+			h.attesters.Observe(blockSig.SignatureIdentity)
 		}
 
 		if h.metrics != nil {

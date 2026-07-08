@@ -287,9 +287,9 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	vm := NewManager(defraNode, t.TempDir())
 
 	// Create source collections first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
 	require.NoError(t, err)
 
 	// Create mock views
@@ -334,7 +334,7 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	vm.wasmRegistry = nil
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	views := []View{
@@ -398,7 +398,7 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -497,11 +497,11 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	vm := NewManager(defraNode, t.TempDir())
 
 	// Create source collections first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Transaction { hash: String }")
 	require.NoError(t, err)
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Block { number: Int }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Block { number: Int }")
 	require.NoError(t, err)
 
 	// Create views with duplicate names
@@ -562,7 +562,7 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -590,7 +590,7 @@ func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
 	}
 
 	// Create source collection with full name
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -629,7 +629,7 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	}
 
 	// Create source collection
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String, topics: [String] }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String, topics: [String] }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -717,7 +717,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -748,7 +748,7 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	err = vm.RegisterView(ctx, v)
@@ -831,7 +831,7 @@ func TestViewManager_MetricsCallbackError(t *testing.T) {
 	}
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
 
 	// Should not fail even if metrics callback returns nil
@@ -891,4 +891,123 @@ func TestDeduplicateViews_ComplexScenarios(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestViewManager_ContractAddress_StoredAndRetrieved registers a view with a
+// non-empty ContractAddress and verifies Manager.ContractAddress returns the
+// stored value.
+func TestViewManager_ContractAddress_StoredAndRetrieved(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	require.NoError(t, err)
+
+	const addr = "0xc5d55f9a4e8788abaaf74d4772c2a4afe60a23a3"
+	v := &View{
+		Name:            "AddressedView",
+		ContractAddress: addr,
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type AddressedView { address: String }",
+		},
+	}
+
+	require.NoError(t, vm.RegisterView(ctx, v))
+
+	got, ok := vm.ContractAddress("AddressedView")
+	require.True(t, ok, "expected ContractAddress lookup to succeed for a registered addressed view")
+	require.Equal(t, addr, got)
+}
+
+// TestViewManager_ContractAddress_EmptyAddressReturnsFalse registers a view
+// whose ContractAddress is the empty string and verifies the accessor returns
+// ("", false). The boolean lets callers gate on presence without inferring it
+// from the string.
+func TestViewManager_ContractAddress_EmptyAddressReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	require.NoError(t, err)
+
+	v := &View{
+		Name: "UnaddressedView",
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type UnaddressedView { address: String }",
+		},
+	}
+
+	require.NoError(t, vm.RegisterView(ctx, v))
+
+	got, ok := vm.ContractAddress("UnaddressedView")
+	require.False(t, ok, "expected ContractAddress lookup to fail for a view registered without an address")
+	require.Equal(t, "", got)
+}
+
+// TestViewManager_IsActive registers two views (one with a contract address,
+// one without) and verifies IsActive returns true for both, false for an
+// unregistered name. IsActive must report registration independently of
+// whether an address is present so callers can distinguish "not a view"
+// from "view without address".
+func TestViewManager_IsActive(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
+	require.NoError(t, err)
+
+	addressed := &View{
+		Name:            "AddressedView",
+		ContractAddress: "0xc5d55f9a4e8788abaaf74d4772c2a4afe60a23a3",
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type AddressedView { address: String }",
+		},
+	}
+	unaddressed := &View{
+		Name: "UnaddressedView",
+		Data: viewbundle.View{
+			Query: queryEthLogAddr,
+			Sdl:   "type UnaddressedView { address: String }",
+		},
+	}
+	require.NoError(t, vm.RegisterView(ctx, addressed))
+	require.NoError(t, vm.RegisterView(ctx, unaddressed))
+
+	require.True(t, vm.IsActive("AddressedView"))
+	require.True(t, vm.IsActive("UnaddressedView"))
+	require.False(t, vm.IsActive("NeverRegistered"))
+}
+
+// TestViewManager_ContractAddress_UnknownViewReturnsFalse verifies that a
+// lookup for a name not in the registry returns ("", false).
+func TestViewManager_ContractAddress_UnknownViewReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	vm := NewManager(defraNode, t.TempDir())
+
+	got, ok := vm.ContractAddress("NeverRegistered")
+	require.False(t, ok)
+	require.Equal(t, "", got)
 }

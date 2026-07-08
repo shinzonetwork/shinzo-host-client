@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -237,18 +238,39 @@ func TestRegistrationAppHandler_SuccessRedirect(t *testing.T) {
 		healthy:  true,
 		defraReg: DefraPKRegistration{PublicKey: "0xabc", SignedPKMsg: "0xdef"},
 		peerReg:  PeerIDRegistration{PeerID: "0xpeer1", SignedPeerMsg: "0xsig1"},
+		peerInfo: &P2PInfo{
+			Self: &PeerInfo{
+				ID:        "12D3KooWTestPeer",
+				Addresses: []string{"/ip4/0.0.0.0/tcp/9171"},
+			},
+		},
 	}
 	hs := newHS(mock, "")
 
 	req := httptest.NewRequest(http.MethodGet, "/registration-app", nil)
+	req.Host = "35.239.160.177:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "host.example.com")
 	w := httptest.NewRecorder()
 
 	hs.registrationAppHandler(w, req)
 
 	require.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	loc := w.Header().Get("Location")
-	require.Contains(t, loc, "https://registration.shinzo.network/")
-	require.Contains(t, loc, "defraPublicKey=")
+	redirectURL, err := url.Parse(loc)
+	require.NoError(t, err)
+	require.Equal(t, "https", redirectURL.Scheme)
+	require.Equal(t, "registration.shinzo.network", redirectURL.Host)
+	require.Equal(t, "/host-registration", redirectURL.Path)
+	query := redirectURL.Query()
+	require.Equal(t, "host", query.Get("role"))
+	require.Equal(t, "0x5368696e7a6f204e6574776f726b20686f737420726567697374726174696f6e", query.Get("signedMessage"))
+	require.Equal(t, "0xabc", query.Get("defraPublicKey"))
+	require.Equal(t, "0xdef", query.Get("defraPublicKeySignedMessage"))
+	require.Equal(t, "/ip4/35.239.160.177/tcp/9171/p2p/12D3KooWTestPeer", query.Get("connectionString"))
+	require.Equal(t, "https://host.example.com/api/v0/graphql", query.Get("endpointAddress"))
+	require.Empty(t, query.Get("peerId"))
+	require.Empty(t, query.Get("peerSignedMessage"))
 }
 
 func TestRegistrationAppHandler_NilHost(t *testing.T) {
@@ -480,27 +502,44 @@ func TestNewHealthServer_NilMetrics(t *testing.T) {
 
 func TestGetRegistrationData_NilHost(t *testing.T) {
 	hs := newHS(nil, "")
-	reg, err := hs.getRegistrationData()
+	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	reg, err := hs.getRegistrationData(req)
 	require.Error(t, err)
 	require.Nil(t, reg)
 }
 
 func TestGetRegistrationData_WithHost(t *testing.T) {
 	mock := &mockHealthChecker{
-		defraReg: DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
-		peerReg:  PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
+		defraReg: DefraPKRegistration{
+			PublicKey:   "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+			SignedPKMsg: testRegSignedPKMsg,
+		},
+		peerReg: PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
+		peerInfo: &P2PInfo{
+			Self: &PeerInfo{
+				ID:        "12D3KooWTestPeer",
+				Addresses: []string{"/ip4/198.51.100.10/tcp/9171"},
+			},
+		},
 	}
 	hs := newHS(mock, "")
 
-	reg, err := hs.getRegistrationData()
+	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	req.Host = "203.0.113.25:8080"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "host.example.com")
+	reg, err := hs.getRegistrationData(req)
 	require.NoError(t, err)
 	require.NotNil(t, reg)
 	require.True(t, reg.Enabled)
 	// The function normalizes hex strings
-	require.Equal(t, "0xabc", reg.DefraPKRegistration.PublicKey)
+	require.Equal(t, "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", reg.DefraPKRegistration.PublicKey)
 	require.Equal(t, "0xdef", reg.DefraPKRegistration.SignedPKMsg)
 	require.Equal(t, "0xpeer1", reg.PeerIDRegistration.PeerID)
 	require.Equal(t, "0xsig1", reg.PeerIDRegistration.SignedPeerMsg)
+	require.NotEmpty(t, reg.DID)
+	require.Equal(t, "/ip4/203.0.113.25/tcp/9171/p2p/12D3KooWTestPeer", reg.ConnectionString)
+	require.Equal(t, "https://host.example.com/api/v0/graphql", reg.EndpointAddress)
 }
 
 func TestGetRegistrationData_SignError(t *testing.T) {
@@ -509,7 +548,8 @@ func TestGetRegistrationData_SignError(t *testing.T) {
 	}
 	hs := newHS(mock, "")
 
-	reg, err := hs.getRegistrationData()
+	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	reg, err := hs.getRegistrationData(req)
 	require.Error(t, err)
 	require.NotNil(t, reg)
 	require.False(t, reg.Enabled)

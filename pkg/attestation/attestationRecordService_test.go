@@ -200,7 +200,7 @@ func TestPostAttestationRecord(t *testing.T) {
 
 	createTestDocMutation := `
 		mutation {
-			create_TestDoc(input: {name: "test-document"}) {
+			add_TestDoc(input: {name: "test-document"}) {
 				_docID
 				name
 				_version {
@@ -436,7 +436,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 	// Create two test documents
 	createDoc1Mutation := `
 		mutation {
-			create_TestDoc(input: {name: "test-document-1"}) {
+			add_TestDoc(input: {name: "test-document-1"}) {
 				_docID
 				name
 				_version {
@@ -453,7 +453,7 @@ func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
 
 	createDoc2Mutation := `
 		mutation {
-			create_TestDoc(input: {name: "test-document-2"}) {
+			add_TestDoc(input: {name: "test-document-2"}) {
 				_docID
 				name
 				_version {
@@ -1963,7 +1963,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 	// Create some records in the view-specific collection
 	createMutation := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "view-doc-1", source_doc: ["src-1"], CIDs: ["cid-v1"]}) {
+			add_%s(input: {attested_doc: "view-doc-1", source_doc: ["src-1"], CIDs: ["cid-v1"]}) {
 				_docID
 			}
 		}
@@ -1973,7 +1973,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 
 	createMutation2 := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "view-doc-2", source_doc: ["src-2"], CIDs: ["cid-v2"]}) {
+			add_%s(input: {attested_doc: "view-doc-2", source_doc: ["src-2"], CIDs: ["cid-v2"]}) {
 				_docID
 			}
 		}
@@ -1983,7 +1983,7 @@ func TestGetAttestationRecordsByViewName_WithDocIds(t *testing.T) {
 
 	createMutation3 := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "view-doc-3", source_doc: ["src-3"], CIDs: ["cid-v3"]}) {
+			add_%s(input: {attested_doc: "view-doc-3", source_doc: ["src-3"], CIDs: ["cid-v3"]}) {
 				_docID
 			}
 		}
@@ -2040,7 +2040,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 	// Create some records
 	createMutation := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "all-doc-1", source_doc: ["src-1"], CIDs: [%q]}) {
+			add_%s(input: {attested_doc: "all-doc-1", source_doc: ["src-1"], CIDs: [%q]}) {
 				_docID
 			}
 		}
@@ -2050,7 +2050,7 @@ func TestGetAttestationRecordsByViewName_WithoutDocIds(t *testing.T) {
 
 	createMutation2 := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "all-doc-2", source_doc: ["src-2"], CIDs: ["cid-a2"]}) {
+			add_%s(input: {attested_doc: "all-doc-2", source_doc: ["src-2"], CIDs: ["cid-a2"]}) {
 				_docID
 			}
 		}
@@ -2100,7 +2100,7 @@ func TestGetAttestationRecordsByViewName_EmptyDocIds(t *testing.T) {
 	// Create a record
 	createMutation := fmt.Sprintf(`
 		mutation {
-			create_%s(input: {attested_doc: "empty-doc-1", source_doc: ["src-1"], CIDs: ["cid-e1"]}) {
+			add_%s(input: {attested_doc: "empty-doc-1", source_doc: ["src-1"], CIDs: ["cid-e1"]}) {
 				_docID
 			}
 		}

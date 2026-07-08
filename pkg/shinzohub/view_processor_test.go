@@ -98,7 +98,7 @@ func TestViewProcessor_SetupViewInDefraDB(t *testing.T) {
 	processor := NewViewProcessor(defraNode)
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Log { address: String, topics: [String] }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Log { address: String, topics: [String] }")
 	require.NoError(t, err)
 
 	// Create test view
@@ -131,7 +131,7 @@ func TestViewProcessor_SetupViewInDefraDB_WithoutLenses(t *testing.T) {
 	processor := NewViewProcessor(defraNode)
 
 	// Create source collection first
-	_, err = defraNode.DB.AddSchema(ctx, "type Log { address: String, topics: [String] }")
+	_, err = defraNode.DB.AddCollection(ctx, "type Log { address: String, topics: [String] }")
 	require.NoError(t, err)
 
 	// Create view without lenses (GitHub Actions compatible)

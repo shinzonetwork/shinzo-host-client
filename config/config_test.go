@@ -229,3 +229,161 @@ func TestLoadConfig_BootstrapPeersEnvOverride(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"peer1", "peer2", "peer3"}, cfg.DefraDB.P2P.BootstrapPeers)
 }
+
+func TestLoadConfig_DefraURLEnvOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("DEFRA_URL", "0.0.0.0:9181")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "0.0.0.0:9181", cfg.DefraDB.URL)
+}
+
+func TestLoadConfig_DefraURLEnvUnsetKeepsYAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("DEFRA_URL", "")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "localhost:9181", cfg.DefraDB.URL)
+}
+
+func TestLoadConfig_IndexerSchemaEndpoint_YAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: /custom/v2/schema\n"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "/custom/v2/schema", cfg.Schema.IndexerSchemaEndpoint)
+}
+
+func TestLoadConfig_IndexerSchemaEndpoint_EnvOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: "+DefaultIndexerSchemaEndpoint+"\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("INDEXER_SCHEMA_ENDPOINT", "/env/v3/schema")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "/env/v3/schema", cfg.Schema.IndexerSchemaEndpoint)
+}
+
+func TestLoadConfig_IndexerSchemaEndpoint_Default(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("{}"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, DefaultIndexerSchemaEndpoint, cfg.Schema.IndexerSchemaEndpoint)
+}
+
+func TestLoadConfig_SchemaHTTPClientTimeout_YAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 60\n"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, 60, cfg.Schema.HTTPClientTimeoutSecs)
+}
+
+func TestLoadConfig_SchemaHTTPClientTimeout_Default(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("{}"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, 30, cfg.Schema.HTTPClientTimeoutSecs)
+}
+
+func TestLoadConfig_SchemaHTTPClientTimeout_Negative(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: -5\n"), 0o600)
+	require.NoError(t, err)
+
+	_, err = LoadConfig(configPath)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNegativeSchemaTimeout)
+}
+
+func TestLoadConfig_SchemaHTTPClientTimeout_Excessive(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 999999\n"), 0o600)
+	require.NoError(t, err)
+
+	_, err = LoadConfig(configPath)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrExcessiveSchemaTimeout)
+}
+
+func TestLoadConfig_SchemaAuthToken(t *testing.T) {
+	tests := []struct {
+		name        string
+		yamlContent string
+		setEnv      func(t *testing.T)
+		wantToken   string
+	}{
+		{
+			name:        "env sets token",
+			yamlContent: `{}`,
+			setEnv:      func(t *testing.T) { t.Setenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN", "my-secret-tok") },
+			wantToken:   "my-secret-tok",
+		},
+		{
+			name:        "env unset keeps empty default",
+			yamlContent: `{}`,
+			setEnv:      func(_ *testing.T) {},
+			wantToken:   "",
+		},
+		{
+			name:        "YAML auth_token field ignored due to yaml dash tag",
+			yamlContent: "schema:\n  auth_token: \"should-be-ignored\"\n",
+			setEnv:      func(_ *testing.T) {},
+			wantToken:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.yaml")
+
+			err := os.WriteFile(configPath, []byte(tt.yamlContent), 0o600)
+			require.NoError(t, err)
+
+			tt.setEnv(t)
+
+			cfg, err := LoadConfig(configPath)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantToken, cfg.Schema.AuthToken)
+		})
+	}
+}

@@ -107,7 +107,13 @@ pruner:
   max_blocks: 2000         # Number of blocks to retain
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
-  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
+  prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
+schema:
+  indexer_schema_endpoint: /api/v1/schema
+  http_client_timeout_secs: 30
+  # ⚠ auth_token is NOT configurable in this file (the field uses yaml:"-").
+  # You MUST set the token via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN environment variable.
+  # Example: INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN=my-secret-token
 logger:
   development: true
   level: "info"

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -49,26 +48,6 @@ type PeerInfo struct {
 	ID        string   `json:"id"`
 	Addresses []string `json:"addresses"`
 	PublicKey string   `json:"public_key,omitempty"`
-}
-
-// DisplayRegistration represents the registration status and signed messages for display in the health endpoint.
-type DisplayRegistration struct {
-	Enabled             bool                `json:"enabled"`
-	Message             string              `json:"message"`
-	DefraPKRegistration DefraPKRegistration `json:"defra_pk_registration,omitzero"`
-	PeerIDRegistration  PeerIDRegistration  `json:"peer_id_registration,omitzero"`
-}
-
-// DefraPKRegistration represents the registration information for the host's DefraDB public key, including the signed message.
-type DefraPKRegistration struct {
-	PublicKey   string `json:"public_key,omitempty"`
-	SignedPKMsg string `json:"signed_pk_message,omitempty"`
-}
-
-// PeerIDRegistration represents the registration information for the host's P2P peer ID, including the signed message.
-type PeerIDRegistration struct {
-	PeerID        string `json:"peer_id,omitempty"`
-	SignedPeerMsg string `json:"signed_peer_message,omitempty"`
 }
 
 // HealthResponse represents the health check response.
@@ -188,35 +167,6 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// getRegistrationData returns the signed registration data for the indexer.
-func (hs *HealthServer) getRegistrationData() (*DisplayRegistration, error) {
-	if hs.host == nil {
-		return nil, ErrHostNotAvailable
-	}
-
-	const registrationMessage = "Shinzo Network host registration"
-	defraReg, peerReg, signErr := hs.host.SignMessages(registrationMessage)
-	registration := &DisplayRegistration{
-		Enabled: signErr == nil,
-		Message: normalizeHex(hex.EncodeToString([]byte(registrationMessage))),
-	}
-	if signErr != nil {
-		return registration, signErr
-	}
-
-	// Normalize signed fields to 0x-prefixed hex strings for API consumers.
-	registration.DefraPKRegistration = DefraPKRegistration{
-		PublicKey:   normalizeHex(defraReg.PublicKey),
-		SignedPKMsg: normalizeHex(defraReg.SignedPKMsg),
-	}
-	registration.PeerIDRegistration = PeerIDRegistration{
-		PeerID:        normalizeHex(peerReg.PeerID),
-		SignedPeerMsg: normalizeHex(peerReg.SignedPeerMsg),
-	}
-
-	return registration, nil
-}
-
 // registrationHandler handles readiness probe requests.
 func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -258,7 +208,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		registration, _ := hs.getRegistrationData()
+		registration, _ := hs.getRegistrationData(r)
 		response.Registration = registration
 	}
 
@@ -269,26 +219,6 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
-}
-
-// registrationAppHandler redirects to the registration app with registration data as query params.
-func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Request) {
-	registration, err := hs.getRegistrationData()
-	if err != nil || registration == nil || !registration.Enabled {
-		http.Error(w, "Registration data not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	redirectURL := fmt.Sprintf(
-		"https://registration.shinzo.network/?role=host&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
-		registration.Message,
-		registration.PeerIDRegistration.PeerID,
-		registration.PeerIDRegistration.SignedPeerMsg,
-		registration.DefraPKRegistration.PublicKey,
-		registration.DefraPKRegistration.SignedPKMsg,
-	)
-
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
 // metricsHandler provides basic metrics in JSON format.
@@ -381,17 +311,4 @@ func (hs *HealthServer) getHealthStatusPageHTML() []byte {
 	// Fallback to embedded version (for production or if file not found)
 	logger.Sugar.Debug("Using embedded health status page")
 	return []byte(embeddedHealthStatusPageHTML)
-}
-
-// normalizeHex ensures a string is represented as a 0x-prefixed hex string.
-// If the string is empty, it is returned unchanged.
-func normalizeHex(s string) string {
-	if s == "" {
-		return s
-	}
-	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
-		// Normalize any 0X to 0x for consistency.
-		return "0x" + s[2:]
-	}
-	return "0x" + s
 }
