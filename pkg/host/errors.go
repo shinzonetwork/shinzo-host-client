@@ -13,4 +13,6 @@ var ( //nolint:revive
 	ErrNoPeerIDMismatchInfo = errors.New("error does not contain peer ID mismatch info") //nolint:revive
 	ErrMissingFilterFields  = errors.New("document missing required filter fields")      //nolint:revive
 	ErrEmptyMerkleRoot      = errors.New("empty merkleRoot")
+
+	errHubBaseURLMissing = errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
 )
