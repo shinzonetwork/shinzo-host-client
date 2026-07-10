@@ -122,7 +122,7 @@ type viewLookup struct {
 	Address string
 }
 
-func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next http.Handler) {
+func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next http.Handler) { //nolint:funlen // linear guard-clause pipeline; splitting obscures the request flow
 	req, err := parseGraphQLRequest(r)
 	if err != nil {
 		m.log.Warnw("billing.parse_failed", "err", err, "path", r.URL.Path)
@@ -201,7 +201,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	// Bill only a 2xx response: a well-formed body can accompany a non-2xx
 	// status, and the client treats that as a failure.
 	if served && cw.status/100 == 2 {
-		m.submitRecord(payer, ext, lookups[0], rows)
+		m.submitRecord(payer, ext, lookups[0], rows) //nolint:contextcheck // record runs on a background context by design so a client disconnect does not cancel billing submission
 	}
 }
 
@@ -287,19 +287,24 @@ func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []str
 	return lookups, true
 }
 
+var (
+	errNoExtensions       = errors.New("no extensions")
+	errNoRequestSignature = errors.New("no request signature")
+)
+
 // parseExtensions decodes the signed billing envelope from a request's
 // extensions. An absent envelope, or one without a signature, is an error: a
 // billed query must carry a request signature.
 func parseExtensions(raw json.RawMessage) (billing.Extensions, error) {
 	if len(raw) == 0 {
-		return billing.Extensions{}, errors.New("no extensions")
+		return billing.Extensions{}, errNoExtensions
 	}
 	var ext billing.Extensions
 	if err := json.Unmarshal(raw, &ext); err != nil {
 		return billing.Extensions{}, fmt.Errorf("parse extensions: %w", err)
 	}
 	if ext.RequestSignature == "" {
-		return billing.Extensions{}, errors.New("no request signature")
+		return billing.Extensions{}, errNoRequestSignature
 	}
 	return ext, nil
 }

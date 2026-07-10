@@ -12,4 +12,5 @@ var (
 	ErrLCDEmptyData                  = errors.New("LCD response carries empty data")
 	ErrLCDHTTPStatus                 = errors.New("LCD returned non-OK HTTP status")
 	errDecodeBundleInvalidWireFormat = errors.New("decode bundle: invalid wire format")
+	errInvalidBalanceAmount          = errors.New("invalid balance amount")
 )

@@ -734,7 +734,7 @@ func (h *Host) Close(ctx context.Context) error {
 // non-nil whenever an accounting service URL is set.
 func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters *observedAttesters) (*acp.Recording, error) {
 	if acpCfg.ASBaseURL == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // (nil recording, nil error) signals billing is disabled, a valid state
 	}
 	nodeKey, err := signer.NodeECDSAKey(defraNode, internalCfg)
 	if err != nil {
@@ -764,7 +764,7 @@ func startACPServer(
 	attesters *observedAttesters,
 ) (*defradbHttp.Server, *acp.Middleware, error) {
 	if hubBaseURL == "" {
-		return nil, nil, errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
+		return nil, nil, errHubBaseURLMissing
 	}
 	// The host reads the hub over its Cosmos LCD (REST) port. HubBaseURL points
 	// at the CometBFT RPC port; the LCD is the same host on :1317.

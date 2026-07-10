@@ -47,8 +47,8 @@ func (g *gateBalanceReader) GetQueryBalance(context.Context, string) (*big.Int, 
 	return g.balance, nil
 }
 
-func authorizer(hub QueryBalanceReader, epochs EpochSource, min int64) *BalanceAuthorizer {
-	return NewBalanceAuthorizer(hub, epochs, big.NewInt(min), "shinzo")
+func authorizer(hub QueryBalanceReader, epochs EpochSource, minBalance int64) *BalanceAuthorizer {
+	return NewBalanceAuthorizer(hub, epochs, big.NewInt(minBalance), "shinzo")
 }
 
 // TestBalanceAuthorizerAllowsFundedAndEncodesAddress checks a funded payer is

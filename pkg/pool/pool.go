@@ -23,7 +23,7 @@ const deployer = "0x0000000000000000000000000000000000000213"
 // PoolID returns the CREATE2 address ShinzoHub deploys the pool for
 // (viewAddr, windowSize) at. It errors if the constructor args cannot be packed,
 // so an ABI mismatch surfaces instead of producing a wrong id.
-func PoolID(viewAddr common.Address, windowSize uint64) (common.Address, error) {
+func PoolID(viewAddr common.Address, windowSize uint64) (common.Address, error) { //nolint:revive // PoolID reads clearly at call sites; renaming to ID churns the public API
 	salt := poolSalt(viewAddr, windowSize)
 	initCode, err := buildInitCode(viewAddr)
 	if err != nil {
