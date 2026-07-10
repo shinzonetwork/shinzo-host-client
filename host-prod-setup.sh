@@ -142,7 +142,7 @@ services:
     networks:
       - shinzo-net
     ports:
-      - "9181:9181"  # DefraDB API (internal network access)
+      - "443:9181"  # DefraDB API (internal network access)
       - "444:9182"  # GraphQL Playground 
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
@@ -167,7 +167,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8080:8080"  
+      - "80:8080"  
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
