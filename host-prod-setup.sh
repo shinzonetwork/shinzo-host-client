@@ -190,8 +190,9 @@ http {
   }
 
   server {
-    listen 8080;
-    server_name _;
+    listen 80;
+    listen 443 ssl;
+    server_name api.shinzo.network;
 
     ssl_certificate     /etc/nginx/ssl/nginx.crt;
     ssl_certificate_key /etc/nginx/ssl/nginx.key;
