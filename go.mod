@@ -12,7 +12,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/rs/zerolog v1.35.1
-	github.com/shinzonetwork/shinzo-querysig v0.1.0
+	github.com/shinzonetwork/shinzo-querysig v0.1.2
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
 	github.com/sourcenetwork/defradb v1.0.1-0.20260711015645-7c0bdf1359dc
