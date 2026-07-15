@@ -66,6 +66,7 @@ type Recording struct {
 //   - Missing/invalid signature   -> 403 Forbidden
 //   - Stale or future request     -> 403 Forbidden
 //   - Query/signature mismatch    -> 403 Forbidden
+//   - Zero pool address           -> 403 Forbidden
 //   - Authorizer reports an error -> 503 Service Unavailable
 //   - Balance below the minimum   -> 402 Payment Required
 //   - Funded                      -> pass through
@@ -116,10 +117,9 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// viewLookup pairs a collection name with its resolved contract address.
+// viewLookup is a collection name confirmed to be a registered view.
 type viewLookup struct {
-	Name    string
-	Address string
+	Name string
 }
 
 func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next http.Handler) { //nolint:funlen // linear guard-clause pipeline; splitting obscures the request flow
@@ -174,6 +174,13 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 		return
 	}
 
+	// Reject the zero pool address; a billed query must bill to a real pool.
+	if common.HexToAddress(ext.PoolAddress) == (common.Address{}) {
+		m.log.Infow("billing.deny", "reason", "zero_pool", "payer", payer.Hex(), "view", lookups[0].Name)
+		http.Error(w, "forbidden: query names no pool", http.StatusForbidden)
+		return
+	}
+
 	allowed, err := m.authz.Authorize(r.Context(), payer)
 	if err != nil {
 		m.log.Errorw("billing.error", "payer", payer.Hex(), "view", lookups[0].Name, "err", err)
@@ -194,6 +201,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	m.log.Infow("billing.allow",
 		"payer", payer.Hex(),
 		"view", lookups[0].Name,
+		"pool", ext.PoolAddress,
 		"rows", rows,
 		"served", served,
 		"status", cw.status,
@@ -221,7 +229,7 @@ func (m *Middleware) submitRecord(payer common.Address, ext billing.Extensions, 
 			// goroutine the handler starts, so recover here to keep a bad record from
 			// taking down the host.
 			if r := recover(); r != nil {
-				m.log.Errorw("billing.record_panic", "payer", payer.Hex(), "view", view.Name, "panic", r)
+				m.log.Errorw("billing.record_panic", "payer", payer.Hex(), "view", view.Name, "pool", ext.PoolAddress, "panic", r)
 			}
 		}()
 		m.record(payer, ext, view, rows)
@@ -257,12 +265,11 @@ func (m *Middleware) record(payer common.Address, ext billing.Extensions, view v
 
 	err := m.recording.Recorder.Record(ctx, accounting.RecordInput{
 		Extensions:       ext,
-		ViewAddress:      common.HexToAddress(view.Address),
 		RowsQueried:      rows,
 		AttestedIndexers: attested,
 	})
 	if err != nil {
-		m.log.Errorw("billing.record_failed", "payer", payer.Hex(), "view", view.Name, "err", err)
+		m.log.Errorw("billing.record_failed", "payer", payer.Hex(), "view", view.Name, "pool", ext.PoolAddress, "err", err)
 	}
 }
 
@@ -276,13 +283,12 @@ func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []str
 		if !m.registry.IsView(name) {
 			continue
 		}
-		addr, ok := m.registry.ContractAddress(name)
-		if !ok {
+		if _, ok := m.registry.ContractAddress(name); !ok {
 			m.log.Errorw("billing.view_without_address", "view", name, "action", "fail_closed")
 			http.Error(w, "view metadata unavailable", http.StatusServiceUnavailable)
 			return nil, false
 		}
-		lookups = append(lookups, viewLookup{Name: name, Address: addr})
+		lookups = append(lookups, viewLookup{Name: name})
 	}
 	return lookups, true
 }

@@ -1669,8 +1669,8 @@ github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNX
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 h1:n661drycOFuPLCN3Uc8sB6B/s6Z4t2xvBgU1htSHuq8=
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-querysig v0.1.0 h1:8CHT412q2lgfhSmv4Cjk4uEzqa0ps4osMzEmjfowQNA=
-github.com/shinzonetwork/shinzo-querysig v0.1.0/go.mod h1:d/FWP7CszdfXk7joYUkRf7pOVOmOKESOIeNQv112/Aw=
+github.com/shinzonetwork/shinzo-querysig v0.1.2 h1:R3F7PcD5fpFn3qXeo194UMBVvky2Hkqtv8FPvUON9dU=
+github.com/shinzonetwork/shinzo-querysig v0.1.2/go.mod h1:ZLIvsynHkwq93e0/84Bumim6YKV6KmAEDDFR/IMEY6M=
 github.com/shinzonetwork/viewbundle-go v0.1.1 h1:GTSh7bYHqEzZSSJHAySdaciLDq+TyvBwY6jmyX9udYk=
 github.com/shinzonetwork/viewbundle-go v0.1.1/go.mod h1:ReyzLhb5FpubGtY29yiLD/qnCV+p8wdwu3yQZx8X+XE=
 github.com/shirou/gopsutil v3.21.11+incompatible h1:+1+c1VGhc88SSonWP6foOcLhvnKlUeu/erjjvaPEYiI=
