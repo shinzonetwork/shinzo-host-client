@@ -147,7 +147,7 @@ services:
     volumes:
       - ~/data/defradb:/app/.defra
       - ~/data/keys:/app/.defra/keys
-      - ~/data/lens:/app/.defra/lens`
+      - ~/data/lens:/app/.defra/lens
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
@@ -166,7 +166,8 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "80:8080"  
+      - "8080:8080"  # health/registration surface the dashboard probes
+      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
@@ -192,6 +193,7 @@ http {
   server {
     listen 80;
     listen 443 ssl;
+    listen 8080;
     server_name api.shinzo.network;
 
     ssl_certificate     /etc/nginx/ssl/nginx.crt;
