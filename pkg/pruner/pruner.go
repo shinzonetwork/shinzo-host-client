@@ -206,12 +206,13 @@ func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
 	logger.Sugar.Infof("Pruning %d docs (%d blocks) — queue had %d docs, keeping %d (max_blocks=%d × docs_per_block=%d)",
 		excess, result.BlockCount, totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock)
 
-	return p.purgeFromDrainResult(ctx, result)
+	return p.purgeFromDrainResult(ctx, q, result)
 }
 
-// purgeFromDrainResult deletes documents from a DrainResult.
-// Deletes dependent collections first, then the block collection last.
-func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) error {
+// purgeFromDrainResult deletes documents from a DrainResult, dependent collections first and
+// the block collection last. A collection whose purge fails is re-queued rather than dropped,
+// so its docs are retried on the next cycle instead of leaking from the store.
+func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result *DrainResult) error {
 	startTime := time.Now()
 	totalPurged := int64(0)
 
@@ -223,7 +224,8 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 		}
 		purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
 		if err != nil {
-			logger.Sugar.Errorf("Failed to purge %s: %v", colName, err)
+			logger.Sugar.Warnf("Failed to purge %s, re-queuing %d docs: %v", colName, len(docIDs), err)
+			q.Requeue(colName, docIDs)
 		} else {
 			totalPurged += purged
 		}
@@ -232,7 +234,8 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 	if blockIDs, ok := result.DocIDsByCollection[p.collections.BlockCollection]; ok && len(blockIDs) > 0 {
 		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockIDs)
 		if err != nil {
-			logger.Sugar.Errorf("Failed to purge blocks: %v", err)
+			logger.Sugar.Warnf("Failed to purge blocks, re-queuing %d docs: %v", len(blockIDs), err)
+			q.Requeue(p.collections.BlockCollection, blockIDs)
 		} else {
 			totalPurged += purged
 		}
