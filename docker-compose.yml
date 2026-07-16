@@ -4,7 +4,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.6.5-ethereum-mainnet
     platform: linux/amd64
     mem_reservation: 15g
     restart: unless-stopped
@@ -12,7 +12,7 @@ services:
     networks:
       - shinzo-net
     ports:
-      - "9181:9181"  # DefraDB API (internal network access)
+      - "443:9181"  # DefraDB API (internal network access)
       - "444:9182"  # GraphQL Playground 
       - "9171:9171"  # P2P networking (still needs external access)
     # volumes:

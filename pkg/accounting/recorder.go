@@ -10,17 +10,14 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/pool"
 	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
 // RecordInput is the billing context for one served query.
 type RecordInput struct {
 	// Extensions carries the user's signed request: RequestSignature, Nonce,
-	// QueryHash, and RequestTimestamp.
+	// QueryHash, RequestTimestamp, and the PoolAddress the query bills to.
 	Extensions billing.Extensions
-	// ViewAddress is the on-chain address of the served view; pool_id derives from it.
-	ViewAddress common.Address
 	// RowsQueried is the number of rows the view served.
 	RowsQueried uint64
 	// AttestedIndexers is the set of indexers the host saw attesting around the
@@ -61,17 +58,14 @@ func (r *Recorder) Record(ctx context.Context, in RecordInput) error {
 		return fmt.Errorf("decode extensions: %w", err)
 	}
 
-	poolID, err := pool.PoolID(in.ViewAddress, pool.DefaultWindowSize)
-	if err != nil {
-		return fmt.Errorf("derive pool id: %w", err)
-	}
-	respondedAt := uint64(r.now().Unix())
+	respondedAt := uint64(r.now().Unix()) //nolint:gosec // Unix seconds for the current time is always within uint64 range
 	cids := []string{}
 
+	// The billed pool is the one the payer signed into the request.
 	signature, err := billing.SignQueryResponse(r.chainID, r.signer, billing.QueryResponse{
 		QueryHash:        req.QueryHash,
 		Host:             r.hostAddress,
-		Pool:             poolID,
+		Pool:             req.Pool,
 		RowsQueried:      in.RowsQueried,
 		RespondedAt:      respondedAt,
 		ResponseCidsHash: billing.ResponseCidsHash(cids),
@@ -82,7 +76,7 @@ func (r *Recorder) Record(ctx context.Context, in RecordInput) error {
 
 	return r.client.Submit(ctx, ServiceRecord{
 		Nonce:             in.Extensions.Nonce,
-		PoolID:            poolID.Hex(),
+		PoolID:            req.Pool.Hex(),
 		QueryHash:         in.Extensions.QueryHash,
 		HostAddress:       r.hostAddress.Hex(),
 		RequestTimestamp:  in.Extensions.RequestTimestamp,

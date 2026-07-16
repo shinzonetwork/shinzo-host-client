@@ -13,7 +13,6 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/pool"
 	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
 
@@ -29,7 +28,9 @@ func TestRecorder_Record(t *testing.T) {
 	userKey, err := ethcrypto.GenerateKey()
 	require.NoError(t, err)
 	userAddr := ethcrypto.PubkeyToAddress(userKey.PublicKey)
-	ext, err := billing.SignRequest(chainID, userKey, "query { FilteredLogs { hash } }", nil, 3, 1735689600)
+
+	signedPool := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	ext, err := billing.SignRequest(chainID, userKey, "query { FilteredLogs { hash } }", nil, signedPool, 3, 1735689600)
 	require.NoError(t, err)
 
 	var posted ServiceRecord
@@ -42,23 +43,18 @@ func TestRecorder_Record(t *testing.T) {
 	rec := NewRecorder(NewClient(srv.URL, time.Second), hostKey, chainID)
 	rec.now = func() time.Time { return time.Unix(1735690000, 0) }
 
-	view := common.HexToAddress("0x00000000000000000000000000000000000000aa")
 	require.NoError(t, rec.Record(context.Background(), RecordInput{
 		Extensions:       ext,
-		ViewAddress:      view,
 		RowsQueried:      7,
 		AttestedIndexers: []string{"idx1", "idx2"},
 	}))
-
-	poolID, err := pool.PoolID(view, pool.DefaultWindowSize)
-	require.NoError(t, err)
 
 	require.Equal(t, ext.Nonce, posted.Nonce)
 	require.Equal(t, ext.QueryHash, posted.QueryHash)
 	require.Equal(t, ext.RequestSignature, posted.RequestSignature)
 	require.Equal(t, ext.RequestTimestamp, posted.RequestTimestamp)
 	require.Equal(t, hostAddr.Hex(), posted.HostAddress)
-	require.Equal(t, poolID.Hex(), posted.PoolID)
+	require.Equal(t, signedPool.Hex(), posted.PoolID)
 	require.Equal(t, uint64(7), posted.RowsQueried)
 	require.Equal(t, uint64(1735690000), posted.RespondedAt)
 	require.Equal(t, []string{"idx1", "idx2"}, posted.AttestedIndexers)
@@ -72,7 +68,7 @@ func TestRecorder_Record(t *testing.T) {
 	recovered, err := billing.RecoverQueryResponse(chainID, billing.QueryResponse{
 		QueryHash:        queryHash,
 		Host:             hostAddr,
-		Pool:             poolID,
+		Pool:             signedPool,
 		RowsQueried:      7,
 		RespondedAt:      1735690000,
 		ResponseCidsHash: billing.ResponseCidsHash([]string{}),
@@ -90,6 +86,7 @@ func TestRecorder_Record(t *testing.T) {
 		QueryHash: queryHash,
 		Nonce:     nonce,
 		Timestamp: posted.RequestTimestamp,
+		Pool:      signedPool,
 	}, reqSig)
 	require.NoError(t, err)
 	require.Equal(t, userAddr, payer, "request signature must recover to the payer")
@@ -108,7 +105,6 @@ func TestRecorder_Record_MalformedExtensions(t *testing.T) {
 	rec := NewRecorder(NewClient(srv.URL, time.Second), hostKey, 91273002)
 	err = rec.Record(context.Background(), RecordInput{
 		Extensions:  billing.Extensions{QueryHash: "0xnothex"},
-		ViewAddress: common.HexToAddress("0x00000000000000000000000000000000000000aa"),
 		RowsQueried: 1,
 	})
 	require.Error(t, err)

@@ -5,9 +5,9 @@ defradb:
   p2p:
     enabled: true
     bootstrap_peers:
-      - '/ip4/34.63.13.57/tcp/9171/p2p/12D3KooWBT2F45LH7Gy6EadTE3sm7PKofyJ3RXcCnKufdu4L5c4M' # IND1
-      - '/ip4/35.208.241.78/tcp/9171/p2p/12D3KooWDYXkjdncFL3X1SaaYBpFi4XfWskbXv4y5gYdTvmGm3bo' # IND2
-      - '/ip4/35.209.45.53/tcp/9171/p2p/12D3KooWNLCXZEVZoM6NwU1i7zAZDscEZHhynsF74M5hP99sptM9' # IND3
+      - '/ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT' # IND1
+      - '/ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5' # IND2
+      - '/ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT' # IND3
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -28,8 +28,7 @@ defradb:
 shinzo:
   minimum_attestations: 1
   start_height: 0 # Indexer auto-detects from chain tip
-  # hub_base_url: rpc.devnet.shinzo.network:26657
-  hub_base_url: rpc.develop.devnet.shinzo.network:26657
+  hub_base_url: testnet.shinzo.network:26657
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
@@ -108,7 +107,7 @@ pruner:
   max_blocks: 2000         # Number of blocks to retain
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
-  prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
+  prune_history: false      # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
 logger:
   development: false
   level: "error"
@@ -133,7 +132,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.6.5-ethereum-mainnet
     user: "1001:1001" # update to match your user and group id.
     mem_limit: 16g
     mem_reservation: 13g
@@ -142,13 +141,13 @@ services:
     networks:
       - shinzo-net
     ports:
-      - "9181:9181"  # DefraDB API (internal network access)
+      - "443:9181"  # DefraDB API (internal network access)
       - "444:9182"  # GraphQL Playground 
       - "9171:9171"  # P2P networking (still needs external access)
     volumes:
       - ~/data/defradb:/app/.defra
       - ~/data/keys:/app/.defra/keys
-      - ~/data/lens:/app/.defra/lens`
+      - ~/data/lens:/app/.defra/lens
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
@@ -167,8 +166,8 @@ services:
   nginx:
     image: nginx:alpine
     ports:
+      - "8080:8080"  # health/registration surface the dashboard probes
       - "80:80"
-      - "443:443"   
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
@@ -194,6 +193,7 @@ http {
   server {
     listen 80;
     listen 443 ssl;
+    listen 8080;
     server_name api.shinzo.network;
 
     ssl_certificate     /etc/nginx/ssl/nginx.crt;

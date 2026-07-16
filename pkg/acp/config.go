@@ -14,6 +14,9 @@ import (
 // errors.Is; the formatted error names the offending env var for debugging.
 var ErrConfigIncomplete = errors.New("acp middleware enabled without required config")
 
+// decimalBase is the radix for parsing the query-balance integer strings.
+const decimalBase = 10
+
 // Environment variable names the middleware reads at startup.
 const (
 	EnvEnabled         = "ACP_MIDDLEWARE_ENABLED"
@@ -88,7 +91,7 @@ func (c Config) Validate() error {
 	if c.EpochLength == 0 {
 		return fmt.Errorf("%w: %s is required", ErrConfigIncomplete, EnvEpochLength)
 	}
-	if _, ok := new(big.Int).SetString(c.MinQueryBalance, 10); !ok {
+	if _, ok := new(big.Int).SetString(c.MinQueryBalance, decimalBase); !ok {
 		return fmt.Errorf("%w: %s must be a base-10 integer, got %q", ErrConfigIncomplete, EnvMinQueryBalance, c.MinQueryBalance)
 	}
 	return nil
@@ -97,7 +100,7 @@ func (c Config) Validate() error {
 // MinBalance returns MinQueryBalance as a big.Int. It assumes Validate has
 // already accepted the value.
 func (c Config) MinBalance() *big.Int {
-	n, _ := new(big.Int).SetString(c.MinQueryBalance, 10)
+	n, _ := new(big.Int).SetString(c.MinQueryBalance, decimalBase)
 	return n
 }
 
@@ -110,7 +113,7 @@ func parseUintEnv(name string) (uint64, error) {
 	}
 	v, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s is not a valid unsigned integer: %v", ErrConfigIncomplete, name, err)
+		return 0, fmt.Errorf("%w: %s is not a valid unsigned integer: %w", ErrConfigIncomplete, name, err)
 	}
 	return v, nil
 }
@@ -124,7 +127,7 @@ func parseDurationEnv(name string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(raw)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s is not a valid duration: %v", ErrConfigIncomplete, name, err)
+		return 0, fmt.Errorf("%w: %s is not a valid duration: %w", ErrConfigIncomplete, name, err)
 	}
 	return d, nil
 }
