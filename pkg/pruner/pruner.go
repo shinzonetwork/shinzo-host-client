@@ -202,8 +202,8 @@ func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
 		return nil
 	}
 
-	logger.Sugar.Infof("Pruning %d docs (%d blocks) — queue had %d docs, keeping %d (max_blocks=%d × docs_per_block=%d)",
-		excess, result.BlockCount, totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock)
+	logger.Sugar.Infof("Pruning %d docs (%d blocks), queue had %d docs, keeping %d (max_blocks=%d × docs_per_block=%d, prune_history=%v)",
+		excess, result.BlockCount, totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock, p.cfg.PruneHistory)
 
 	return p.purgeFromDrainResult(ctx, q, result)
 }
