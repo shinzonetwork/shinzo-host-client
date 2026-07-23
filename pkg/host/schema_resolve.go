@@ -14,6 +14,11 @@ import (
 // embedded schema. On fetch failure the embedded schema is returned and the
 // error is logged.
 func resolveSchema(ctx context.Context, cfg *config.Config) string {
+	if cfg.Schema.SkipFetch {
+		logger.Sugar.Info("Schema fetch skipped (SKIP_SCHEMA_FETCH / schema.skip_fetch set), using embedded schema")
+		return schema.GetSchema()
+	}
+
 	parsedURL, parseErr := url.Parse(cfg.HostConfig.Snapshot.IndexerURL)
 
 	var resolvedSchema string
