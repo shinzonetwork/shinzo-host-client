@@ -34,8 +34,8 @@ func TestHostIntegration_ShinzoHubViewFetching(t *testing.T) {
 	// Enable debug logging to see SDL schemas
 	testConfig.Logger.Development = true
 
-	// Use ShinzoHub devnet RPC URL from config.yaml
-	testConfig.Shinzo.HubBaseURL = "rpc.devnet.shinzo.network:26657"
+	// Use ShinzoHub devnet hostname
+	testConfig.Shinzo.HubBaseURL = "rpc.devnet.shinzo.network"
 
 	h, err := StartHostingWithEventSubscription(&testConfig)
 	require.NoError(t, err)

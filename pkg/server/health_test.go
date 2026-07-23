@@ -119,6 +119,34 @@ func TestHealthHandler_GET_HTML(t *testing.T) {
 	require.NotEmpty(t, w.Body.Bytes())
 }
 
+func TestHealthHandler_GET_HTML_InjectsShinzoHubRESTBase(t *testing.T) {
+	hs := &HealthServer{shinzoHubRESTBase: "http://testnet.shinzo.network:1317"}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+
+	hs.healthHandler(w, req)
+
+	body := w.Body.String()
+	require.Contains(t, body, "const SHINZOHUB_REST_BASE = 'http://testnet.shinzo.network:1317';")
+	require.NotContains(t, body, "{{SHINZOHUB_REST_BASE}}")
+}
+
+func TestHealthHandler_GET_HTML_EmptyShinzoHubRESTBase(t *testing.T) {
+	hs := newHS(nil, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+
+	hs.healthHandler(w, req)
+
+	body := w.Body.String()
+	require.Contains(t, body, "const SHINZOHUB_REST_BASE = '';")
+	require.NotContains(t, body, "{{SHINZOHUB_REST_BASE}}")
+}
+
 func TestHealthHandler_POST_MethodNotAllowed(t *testing.T) {
 	hs := newHS(nil, "")
 
@@ -484,15 +512,16 @@ func TestNewHealthServer(t *testing.T) {
 	mock := &mockHealthChecker{healthy: true}
 	metrics := NewHostMetrics()
 
-	hs := NewHealthServer(9999, mock, "http://localhost:9181", metrics)
+	hs := NewHealthServer(9999, mock, "http://localhost:9181", metrics, "http://testnet.shinzo.network:1317")
 	require.NotNil(t, hs)
 	require.NotNil(t, hs.server)
 	require.Equal(t, ":9999", hs.server.Addr)
 	require.Equal(t, "http://localhost:9181", hs.defraURL)
+	require.Equal(t, "http://testnet.shinzo.network:1317", hs.shinzoHubRESTBase)
 }
 
 func TestNewHealthServer_NilMetrics(t *testing.T) {
-	hs := NewHealthServer(9999, nil, "", nil)
+	hs := NewHealthServer(9999, nil, "", nil, "")
 	require.NotNil(t, hs)
 }
 
@@ -670,7 +699,7 @@ func TestHealthServer_StartStop(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close() // free the port for the server to use
 
-	hs := NewHealthServer(port, nil, "", nil)
+	hs := NewHealthServer(port, nil, "", nil, "")
 
 	// Start() calls ListenAndServe which blocks, so run it in a goroutine
 	errCh := make(chan error, 1)
