@@ -1698,3 +1698,28 @@ func TestHost_Close_Full(t *testing.T) {
 	err = h.Close(ctx)
 	require.NoError(t, err)
 }
+
+func TestResolveSchema_SkipFetch(t *testing.T) {
+	// Server that must never be called when SkipFetch is set.
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("resolveSchema made an HTTP request despite SkipFetch being enabled")
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		HostConfig: config.HostConfig{
+			Snapshot: config.SnapshotConfig{
+				IndexerURL: srv.URL, // a reachable, valid URL — only SkipFetch should stop the fetch
+			},
+		},
+		Schema: config.SchemaConfig{
+			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
+			HTTPClientTimeoutSecs: 5,
+			SkipFetch:             true,
+		},
+	}
+
+	result := resolveSchema(context.Background(), cfg)
+
+	require.Equal(t, localschema.GetSchema(), result)
+}
