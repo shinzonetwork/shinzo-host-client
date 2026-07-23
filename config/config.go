@@ -91,6 +91,11 @@ type SchemaConfig struct {
 	// the host will start with an empty token, causing schema fetches to
 	// receive 401/503 and fall back to the embedded schema (fail-closed).
 	AuthToken string `yaml:"-"`
+	// SkipFetch bypasses the remote schema fetch entirely and uses the
+	// embedded schema instead. Set this to avoid the up-to-HTTPClientTimeoutSecs
+	// startup stall when the indexer schema endpoint is slow or unreachable.
+	// Overridable at runtime via the SKIP_SCHEMA_FETCH environment variable.
+	SkipFetch bool `yaml:"skip_fetch"`
 }
 
 // ShinzoConfig represents configuration specific to the Shinzo host application.
@@ -227,6 +232,14 @@ func LoadConfig(path string) (*Config, error) {
 	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN"); v != "" {
 		cfg.Schema.AuthToken = v
 	}
+	if v := os.Getenv("SKIP_SCHEMA_FETCH"); v != "" {
+		skip, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SKIP_SCHEMA_FETCH value %q: %w", v, err)
+		}
+		cfg.Schema.SkipFetch = skip
+	}
+
 	if cfg.Schema.IndexerSchemaEndpoint == "" {
 		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint
 	}

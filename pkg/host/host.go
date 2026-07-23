@@ -145,6 +145,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	logger.Init(cfg.Logger.Development, "./logs")
+	logger.Sugar.Info("🚀 Starting Shinzo host...")
 
 	// Load ACP middleware configuration from the environment before any
 	// defradb work so a misconfigured host fails fast instead of starting
@@ -171,6 +172,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts.DB().SetLensRuntime("wazero")
 
 	schemaCtx, schemaCtxCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Schema.HTTPClientTimeoutSecs)*time.Second)
+
+	logger.Sugar.Infof("Resolving schema (timeout %ds)...", cfg.Schema.HTTPClientTimeoutSecs)
 	resolvedSchema := resolveSchema(schemaCtx, cfg)
 	schemaCtxCancel()
 
@@ -182,6 +185,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	internalCfg := cfg.ToInternalConfig()
+	logger.Sugar.Info("Starting DefraDB node (first run can take ~30-60s)...")
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
 		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),

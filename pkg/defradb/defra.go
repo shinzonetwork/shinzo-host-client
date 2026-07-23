@@ -352,6 +352,7 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}
 	allOpts = append(allOpts, nodeOpts...)
 
+	logger.Sugar.Info("Creating DefraDB node (opening store, initializing WASM runtime)...")
 	defraNode, err := node.New(ctx, allOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create defra node: %w ", err)
