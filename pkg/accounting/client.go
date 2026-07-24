@@ -6,12 +6,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+const (
+	okStatusClass    = 2
+	errBodyReadLimit = 512
+)
+
+var errAccountingStatus = errors.New("accounting service returned non-2xx status")
 
 // ServiceRecord is the JSON body the host POSTs to the accounting service. Hash,
 // address, and signature fields are 0x-prefixed hex; timestamps are unix seconds.
@@ -69,9 +77,9 @@ func (c *Client) Submit(ctx context.Context, record ServiceRecord) error {
 		_ = resp.Body.Close()
 	}()
 
-	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("accounting service returned %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	if resp.StatusCode/100 != okStatusClass {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+		return fmt.Errorf("%w: %d: %s", errAccountingStatus, resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil
 }

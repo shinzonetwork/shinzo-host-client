@@ -65,7 +65,7 @@ func (r *Recorder) Record(ctx context.Context, in RecordInput) error {
 	if err != nil {
 		return fmt.Errorf("derive pool id: %w", err)
 	}
-	respondedAt := uint64(r.now().Unix())
+	respondedAt := uint64(r.now().Unix()) //nolint:gosec // Unix seconds is always positive //nolint:gosec // Unix seconds is always positive
 	cids := []string{}
 
 	signature, err := billing.SignQueryResponse(r.chainID, r.signer, billing.QueryResponse{

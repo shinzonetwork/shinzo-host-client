@@ -12,6 +12,7 @@ import (
 // passed through unbuffered.
 type captureWriter struct {
 	http.ResponseWriter
+
 	status    int
 	streaming bool
 	body      bytes.Buffer

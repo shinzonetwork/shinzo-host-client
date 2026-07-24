@@ -3,7 +3,6 @@ package acp
 import (
 	"bytes"
 	"context"
-	"errors"
 	"math/big"
 	"testing"
 
@@ -47,8 +46,8 @@ func (g *gateBalanceReader) GetQueryBalance(context.Context, string) (*big.Int, 
 	return g.balance, nil
 }
 
-func authorizer(hub QueryBalanceReader, epochs EpochSource, min int64) *BalanceAuthorizer {
-	return NewBalanceAuthorizer(hub, epochs, big.NewInt(min), "shinzo")
+func authorizer(hub QueryBalanceReader, epochs EpochSource, minBalance int64) *BalanceAuthorizer {
+	return NewBalanceAuthorizer(hub, epochs, big.NewInt(minBalance), "shinzo")
 }
 
 // TestBalanceAuthorizerAllowsFundedAndEncodesAddress checks a funded payer is
@@ -102,7 +101,7 @@ func TestBalanceAuthorizerExactMinimumAllowed(t *testing.T) {
 }
 
 func TestBalanceAuthorizerPropagatesReadError(t *testing.T) {
-	a := authorizer(&stubBalanceReader{err: errors.New("hub down")}, &stubEpochSource{epoch: 1}, 500)
+	a := authorizer(&stubBalanceReader{err: errHubDown}, &stubEpochSource{epoch: 1}, 500)
 	if _, err := a.Authorize(context.Background(), common.Address{0x01}); err == nil {
 		t.Fatal("expected the read error to propagate, got nil")
 	}
@@ -110,7 +109,7 @@ func TestBalanceAuthorizerPropagatesReadError(t *testing.T) {
 
 func TestBalanceAuthorizerPropagatesEpochError(t *testing.T) {
 	hub := &stubBalanceReader{balance: big.NewInt(1000)}
-	a := authorizer(hub, &stubEpochSource{err: errors.New("no height")}, 500)
+	a := authorizer(hub, &stubEpochSource{err: errNoHeight}, 500)
 	if _, err := a.Authorize(context.Background(), common.Address{0x01}); err == nil {
 		t.Fatal("expected the epoch error to propagate, got nil")
 	}

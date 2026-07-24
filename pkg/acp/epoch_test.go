@@ -2,7 +2,6 @@ package acp
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -94,7 +93,7 @@ func TestEpochClockRefreshesAfterInterval(t *testing.T) {
 }
 
 func TestEpochClockFirstReadErrorPropagates(t *testing.T) {
-	c := NewEpochClock(&stubHeightReader{err: errors.New("no height")}, 1000, time.Minute)
+	c := NewEpochClock(&stubHeightReader{err: errNoHeight}, 1000, time.Minute)
 	if _, err := c.Epoch(context.Background()); err == nil {
 		t.Fatal("expected the first height read error to propagate, got nil")
 	}
@@ -110,7 +109,7 @@ func TestEpochClockKeepsLastEpochOnRefreshError(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock = clock.Add(2 * time.Minute)
-	h.err = errors.New("hub down")
+	h.err = errHubDown
 	epoch, err := c.Epoch(context.Background())
 	if err != nil {
 		t.Fatalf("a refresh failure must not error once an epoch is known: %v", err)

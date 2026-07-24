@@ -47,7 +47,7 @@ func TestRecorder_Record(t *testing.T) {
 		Extensions:       ext,
 		ViewAddress:      view,
 		RowsQueried:      7,
-		AttestedIndexers: []string{"idx1", "idx2"},
+		AttestedIndexers: []string{testIdx1, "idx2"},
 	}))
 
 	poolID, err := pool.PoolID(view, pool.DefaultWindowSize)
@@ -61,7 +61,7 @@ func TestRecorder_Record(t *testing.T) {
 	require.Equal(t, poolID.Hex(), posted.PoolID)
 	require.Equal(t, uint64(7), posted.RowsQueried)
 	require.Equal(t, uint64(1735690000), posted.RespondedAt)
-	require.Equal(t, []string{"idx1", "idx2"}, posted.AttestedIndexers)
+	require.Equal(t, []string{testIdx1, "idx2"}, posted.AttestedIndexers)
 
 	rawHash, err := hexutil.Decode(posted.QueryHash)
 	require.NoError(t, err)

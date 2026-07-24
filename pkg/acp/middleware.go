@@ -34,6 +34,13 @@ const DefaultRequestMaxAge = 2 * time.Minute
 // not the client's response.
 const DefaultRecordTimeout = 5 * time.Second
 
+// ErrNoExtensions and ErrNoRequestSignature are returned by parseExtensions
+// when a billed query arrives without the signed billing envelope it must carry.
+var (
+	ErrNoExtensions       = errors.New("no extensions")
+	ErrNoRequestSignature = errors.New("no request signature")
+)
+
 // defaultRecordConcurrency caps how many service records post at once, so a slow
 // accounting service cannot spawn unbounded goroutines. Past the cap the gate
 // blocks rather than drop a record.
@@ -122,7 +129,7 @@ type viewLookup struct {
 	Address string
 }
 
-func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next http.Handler) {
+func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next http.Handler) { //nolint:funlen // linear request-gating pipeline, clearer as one function
 	req, err := parseGraphQLRequest(r)
 	if err != nil {
 		m.log.Warnw("billing.parse_failed", "err", err, "path", r.URL.Path)
@@ -201,7 +208,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	// Bill only a 2xx response: a well-formed body can accompany a non-2xx
 	// status, and the client treats that as a failure.
 	if served && cw.status/100 == 2 {
-		m.submitRecord(payer, ext, lookups[0], rows)
+		m.submitRecord(payer, ext, lookups[0], rows) //nolint:contextcheck // billing record must outlive the request context
 	}
 }
 
@@ -292,14 +299,14 @@ func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []str
 // billed query must carry a request signature.
 func parseExtensions(raw json.RawMessage) (billing.Extensions, error) {
 	if len(raw) == 0 {
-		return billing.Extensions{}, errors.New("no extensions")
+		return billing.Extensions{}, ErrNoExtensions
 	}
 	var ext billing.Extensions
 	if err := json.Unmarshal(raw, &ext); err != nil {
 		return billing.Extensions{}, fmt.Errorf("parse extensions: %w", err)
 	}
 	if ext.RequestSignature == "" {
-		return billing.Extensions{}, errors.New("no request signature")
+		return billing.Extensions{}, ErrNoRequestSignature
 	}
 	return ext, nil
 }
