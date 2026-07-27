@@ -1,0 +1,11 @@
+name: Zenhub sizing trigger
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  sync-zenhub-estimate:
+    uses: shinzonetwork/docs/.github/workflows/zenhub-sizing.yml@main
+    secrets:
+      ZENHUB_API_KEY: ${{ secrets.ZENHUB_API_KEY }}
