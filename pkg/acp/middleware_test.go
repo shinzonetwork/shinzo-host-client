@@ -34,6 +34,10 @@ const (
 	testOpBNamed          = "Bar"
 )
 
+// testPool is a non-zero pool the test requests sign against; the gate rejects a
+// zero pool.
+var testPool = common.HexToAddress("0x00000000000000000000000000000000000000bb")
+
 var (
 	errTestAuthzFail       = errors.New("test: authorizer transport failure")
 	errHubDown             = errors.New("hub down")
@@ -154,7 +158,7 @@ func TestMiddleware_TamperedQueryRejected(t *testing.T) {
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
-	ext, err := billing.SignRequest(testChainID, priv, testQueryFilteredLogs, nil, 1, 1735689600)
+	ext, err := billing.SignRequest(testChainID, priv, testQueryFilteredLogs, nil, testPool, 1, 1735689600)
 	require.NoError(t, err)
 	// Serve a different field selection than was signed; both resolve to the
 	// same view so the request reaches verification.
@@ -168,6 +172,29 @@ func TestMiddleware_TamperedQueryRejected(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code)
 	require.False(t, next.called)
 	require.Empty(t, authz.calls, "verification must fail before the balance check")
+}
+
+// A request that signs the zero pool address is rejected before the balance
+// check: a billed query must name a real pool.
+func TestMiddleware_ZeroPoolRejected(t *testing.T) {
+	priv, _ := newKey(t)
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
+
+	query := "{ FilteredLogs { hash } }"
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, common.Address{}, 1, 1735689600)
+	require.NoError(t, err)
+	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
+	require.NoError(t, err)
+
+	next := &recordingNext{}
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, newGraphQLPost(body))
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.False(t, next.called)
+	require.Empty(t, authz.calls, "a zero-pool request must be rejected before the balance check")
 }
 
 // A request selecting more than one view cannot be attributed to a single pool
@@ -250,7 +277,7 @@ func TestMiddleware_StaleRequestIs403(t *testing.T) {
 
 	query := testQueryFilteredLogs
 	stale := uint64(time.Now().Add(-time.Hour).Unix()) //nolint:gosec // test timestamp is always positive
-	ext, err := billing.SignRequest(testChainID, priv, query, nil, 1, stale)
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, testPool, 1, stale)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
 	require.NoError(t, err)
@@ -274,7 +301,7 @@ func TestMiddleware_FreshRequestPasses(t *testing.T) {
 
 	query := testQueryFilteredLogs
 	fresh := uint64(time.Now().Unix()) //nolint:gosec // test timestamp is always positive
-	ext, err := billing.SignRequest(testChainID, priv, query, nil, 1, fresh)
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, testPool, 1, fresh)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
 	require.NoError(t, err)
@@ -335,8 +362,8 @@ func TestMiddleware_MixedViewAndBaseCollectionAllowed(t *testing.T) {
 }
 
 // On allow with a served view response the gate submits one service record
-// carrying the signed extensions, the view address, the counted rows, and the
-// observed attesting set.
+// carrying the signed extensions, the counted rows, and the observed attesting
+// set.
 func TestMiddleware_RecordsServedQuery(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
@@ -348,7 +375,7 @@ func TestMiddleware_RecordsServedQuery(t *testing.T) {
 	}, nil)
 
 	query := testQueryFilteredLogs
-	ext, err := billing.SignRequest(testChainID, priv, query, nil, 1, 1735689600)
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, testPool, 1, 1735689600)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
 	require.NoError(t, err)
@@ -363,7 +390,6 @@ func TestMiddleware_RecordsServedQuery(t *testing.T) {
 	require.Len(t, rec.inputs, 1)
 	in := rec.inputs[0]
 	require.Equal(t, ext, in.Extensions)
-	require.Equal(t, common.HexToAddress(testContractA), in.ViewAddress)
 	require.Equal(t, uint64(2), in.RowsQueried)
 	require.Equal(t, []string{"idx1", "idx2"}, in.AttestedIndexers)
 }
@@ -539,7 +565,7 @@ func newGraphQLPost(body []byte) *http.Request {
 
 func signedGraphQLPost(t *testing.T, priv *ecdsa.PrivateKey, query string, vars json.RawMessage) *http.Request {
 	t.Helper()
-	ext, err := billing.SignRequest(testChainID, priv, query, vars, 1, 1735689600)
+	ext, err := billing.SignRequest(testChainID, priv, query, vars, testPool, 1, 1735689600)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Variables: vars, Extensions: ext})
 	require.NoError(t, err)

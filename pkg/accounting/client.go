@@ -14,12 +14,13 @@ import (
 	"time"
 )
 
-const (
-	okStatusClass    = 2
-	errBodyReadLimit = 512
-)
+// maxErrorBodyBytes caps how much of a non-success response body is read into
+// the returned error.
+const maxErrorBodyBytes = 512
 
-var errAccountingStatus = errors.New("accounting service returned non-2xx status")
+// errAccountingStatus is wrapped when the accounting service answers a service
+// record with a non-success HTTP status.
+var errAccountingStatus = errors.New("accounting service returned non-success status")
 
 // ServiceRecord is the JSON body the host POSTs to the accounting service. Hash,
 // address, and signature fields are 0x-prefixed hex; timestamps are unix seconds.
@@ -77,8 +78,8 @@ func (c *Client) Submit(ctx context.Context, record ServiceRecord) error {
 		_ = resp.Body.Close()
 	}()
 
-	if resp.StatusCode/100 != okStatusClass {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyReadLimit))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return fmt.Errorf("%w: %d: %s", errAccountingStatus, resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil

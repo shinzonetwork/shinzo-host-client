@@ -7,8 +7,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "443:443"  # HTTPS
-      - "80:80"    # HTTP (redirects to HTTPS)
+      - "8080:8080"  # health/registration surface the dashboard probes
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro

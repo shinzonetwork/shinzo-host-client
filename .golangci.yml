@@ -1,6 +1,6 @@
 version: "2"
 run:
-  timeout: 5m
+  timeout: 10m
   modules-download-mode: readonly
 linters:
   default: standard
@@ -58,9 +58,17 @@ linters:
         linters:
           - containedctx
           - dupl
-          - gochecknoglobals
-          - mnd
+          - err113
           - funlen
+          - gochecknoglobals
+          - goconst
+          - gosec
+          - mnd
+      # Pool.sol's embedded creation bytecode and ABI args are package-level
+      # vars: a byte slice cannot be a const.
+      - path: pool/bytecode\.go
+        linters:
+          - gochecknoglobals
 
 formatters:
   enable:

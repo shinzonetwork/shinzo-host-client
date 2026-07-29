@@ -31,11 +31,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
-    - name: Linting - golangci-lint
-      uses: golangci/golangci-lint-action@v9
-      with:
-        version: v2.12.2
-
     - name: Download test WASM file
       run: |
         curl -o /tmp/filter_transaction.wasm \

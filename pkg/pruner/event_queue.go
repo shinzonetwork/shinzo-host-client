@@ -205,6 +205,34 @@ func (q *EventQueue) DrainBlocks(count int) *DrainResult {
 	return result
 }
 
+// Requeue re-inserts entries at the front of the queue. A purge that fails drained its docs
+// without deleting them; they are the oldest entries, so they go back to the front to be
+// pruned again on the next cycle.
+func (q *EventQueue) Requeue(collectionName string, docIDs []string) {
+	colType, ok := q.collectionEnums[collectionName]
+	if !ok {
+		return
+	}
+
+	entries := make([]eventEntry, 0, len(docIDs))
+	blocks := 0
+	for _, docID := range docIDs {
+		uuid, err := extractUUID(docID)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, eventEntry{Collection: colType, UUID: uuid})
+		if colType == colBlock {
+			blocks++
+		}
+	}
+
+	q.mu.Lock()
+	q.entries = append(entries, q.entries...)
+	q.blockCount += blocks
+	q.mu.Unlock()
+}
+
 // Len returns the total number of entries in the queue.
 func (q *EventQueue) Len() int {
 	q.mu.Lock()

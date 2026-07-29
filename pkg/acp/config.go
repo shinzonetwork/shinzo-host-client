@@ -14,7 +14,8 @@ import (
 // errors.Is; the formatted error names the offending env var for debugging.
 var ErrConfigIncomplete = errors.New("acp middleware enabled without required config")
 
-const base10 = 10
+// decimalBase is the radix for parsing the query-balance integer strings.
+const decimalBase = 10
 
 // Environment variable names the middleware reads at startup.
 const (
@@ -90,7 +91,7 @@ func (c Config) Validate() error {
 	if c.EpochLength == 0 {
 		return fmt.Errorf("%w: %s is required", ErrConfigIncomplete, EnvEpochLength)
 	}
-	if _, ok := new(big.Int).SetString(c.MinQueryBalance, base10); !ok {
+	if _, ok := new(big.Int).SetString(c.MinQueryBalance, decimalBase); !ok {
 		return fmt.Errorf("%w: %s must be a base-10 integer, got %q", ErrConfigIncomplete, EnvMinQueryBalance, c.MinQueryBalance)
 	}
 	return nil
@@ -99,7 +100,7 @@ func (c Config) Validate() error {
 // MinBalance returns MinQueryBalance as a big.Int. It assumes Validate has
 // already accepted the value.
 func (c Config) MinBalance() *big.Int {
-	n, _ := new(big.Int).SetString(c.MinQueryBalance, base10)
+	n, _ := new(big.Int).SetString(c.MinQueryBalance, decimalBase)
 	return n
 }
 

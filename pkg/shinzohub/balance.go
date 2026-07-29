@@ -9,7 +9,8 @@ import (
 	"net/http"
 )
 
-const base10 = 10
+// decimalBase is the radix for parsing the hub's integer balance strings.
+const decimalBase = 10
 
 // GetQueryBalance returns the spendable query balance for a bech32 address from
 // the hub's x/querybalance module. A never-funded address reports "0", so a zero
@@ -52,9 +53,9 @@ func (c *RPCClient) GetQueryBalance(ctx context.Context, bech32Address string) (
 	if wrap.Amount == "" {
 		return big.NewInt(0), nil
 	}
-	amount, ok := new(big.Int).SetString(wrap.Amount, base10)
+	amount, ok := new(big.Int).SetString(wrap.Amount, decimalBase)
 	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidBalanceAmount, wrap.Amount)
+		return nil, fmt.Errorf("%w: %q", errInvalidBalanceAmount, wrap.Amount)
 	}
 	return amount, nil
 }
