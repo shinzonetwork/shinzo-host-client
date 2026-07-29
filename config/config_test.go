@@ -416,3 +416,29 @@ func TestLoadConfig_InvalidSkipSchemaFetchEnv(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid INDEXER_SCHEMA_SKIP_FETCH")
 }
+
+func TestLoadConfig_SkipSchemaFetchYAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  skip_fetch: true\n"), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.True(t, cfg.Schema.SkipFetch)
+}
+
+func TestLoadConfig_SkipSchemaFetchEnvDisablesYAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("schema:\n  skip_fetch: true\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("INDEXER_SCHEMA_SKIP_FETCH", "false")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.False(t, cfg.Schema.SkipFetch)
+}
