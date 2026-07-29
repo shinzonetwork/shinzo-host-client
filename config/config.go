@@ -94,7 +94,7 @@ type SchemaConfig struct {
 	// SkipFetch bypasses the remote schema fetch entirely and uses the
 	// embedded schema instead. Set this to avoid the up-to-HTTPClientTimeoutSecs
 	// startup stall when the indexer schema endpoint is slow or unreachable.
-	// Overridable at runtime via the SKIP_SCHEMA_FETCH environment variable.
+	// Overridable at runtime via the INDEXER_SCHEMA_SKIP_FETCH environment variable.
 	SkipFetch bool `yaml:"skip_fetch"`
 }
 
@@ -232,10 +232,10 @@ func LoadConfig(path string) (*Config, error) {
 	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN"); v != "" {
 		cfg.Schema.AuthToken = v
 	}
-	if v := os.Getenv("SKIP_SCHEMA_FETCH"); v != "" {
+	if v := os.Getenv("INDEXER_SCHEMA_SKIP_FETCH"); v != "" {
 		skip, err := strconv.ParseBool(v)
 		if err != nil {
-			return nil, fmt.Errorf("invalid SKIP_SCHEMA_FETCH value %q: %w", v, err)
+			return nil, fmt.Errorf("invalid INDEXER_SCHEMA_SKIP_FETCH value %q: %w", v, err)
 		}
 		cfg.Schema.SkipFetch = skip
 	}

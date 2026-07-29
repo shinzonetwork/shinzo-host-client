@@ -396,7 +396,7 @@ func TestLoadConfig_SkipSchemaFetchEnvOverride(t *testing.T) {
 	err := os.WriteFile(configPath, []byte("schema:\n  skip_fetch: false\n"), 0o600)
 	require.NoError(t, err)
 
-	t.Setenv("SKIP_SCHEMA_FETCH", "true")
+	t.Setenv("INDEXER_SCHEMA_SKIP_FETCH", "true")
 
 	cfg, err := LoadConfig(configPath)
 	require.NoError(t, err)
@@ -410,9 +410,9 @@ func TestLoadConfig_InvalidSkipSchemaFetchEnv(t *testing.T) {
 	err := os.WriteFile(configPath, []byte("schema:\n  skip_fetch: false\n"), 0o600)
 	require.NoError(t, err)
 
-	t.Setenv("SKIP_SCHEMA_FETCH", "not_a_bool")
+	t.Setenv("INDEXER_SCHEMA_SKIP_FETCH", "not_a_bool")
 
 	_, err = LoadConfig(configPath)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid SKIP_SCHEMA_FETCH")
+	require.Contains(t, err.Error(), "invalid INDEXER_SCHEMA_SKIP_FETCH")
 }

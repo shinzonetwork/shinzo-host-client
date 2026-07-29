@@ -114,7 +114,7 @@ schema:
   # Skip the remote schema fetch entirely and use the embedded schema.
   # Useful when the indexer schema endpoint is slow or unreachable — avoids
   # the up-to-http_client_timeout_secs startup stall. Defaults to false.
-  # Can also be set at runtime with the SKIP_SCHEMA_FETCH env var.
+  # Can also be set at runtime with the INDEXER_SCHEMA_SKIP_FETCH env var.
   skip_fetch: false
   # ⚠ auth_token is NOT configurable in this file (the field uses yaml:"-").
   # You MUST set the token via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN environment variable.

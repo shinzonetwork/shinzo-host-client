@@ -15,7 +15,7 @@ import (
 // error is logged.
 func resolveSchema(ctx context.Context, cfg *config.Config) string {
 	if cfg.Schema.SkipFetch {
-		logger.Sugar.Info("Schema fetch skipped (SKIP_SCHEMA_FETCH / schema.skip_fetch set), using embedded schema")
+		logger.Sugar.Info("Schema fetch skipped (INDEXER_SCHEMA_SKIP_FETCH / schema.skip_fetch set), using embedded schema")
 		return schema.GetSchema()
 	}
 
