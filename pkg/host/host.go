@@ -185,7 +185,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	internalCfg := cfg.ToInternalConfig()
-	logger.Sugar.Info("Starting DefraDB node (first run can take ~30-60s)...")
+	logger.Sugar.Info("Starting DefraDB node (first run can take some time)...")
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
 		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),
