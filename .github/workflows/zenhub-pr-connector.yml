@@ -1,11 +1,10 @@
-name: Auto Connect Zenhub
+name: Zenhub PR Connector
 
 on:
   pull_request:
     types: [opened, edited]
 
 jobs:
-  call_zenhub_connector:
+  connect-zenhub:
     uses: shinzonetwork/docs/.github/workflows/zenhub-connect.yml@main
-    secrets:
-      ZENHUB_API_KEY: ${{ secrets.ZENHUB_API_KEY }}  
+    secrets: inherit
