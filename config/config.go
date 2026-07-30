@@ -96,7 +96,7 @@ type SchemaConfig struct {
 // ShinzoConfig represents configuration specific to the Shinzo host application.
 type ShinzoConfig struct {
 	MinimumAttestations int    `yaml:"minimum_attestations"`
-	HubBaseURL          string `yaml:"hub_base_url"`
+	HubBaseURL          string `yaml:"hub_base_url"` // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
 	StartHeight         uint64 `yaml:"start_height"`
 
 	// P2P Control Settings

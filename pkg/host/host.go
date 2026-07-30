@@ -59,6 +59,35 @@ func maxInt(a, b int) int {
 	return b
 }
 
+const (
+	// shinzoHubRPCPort is the CometBFT RPC port ShinzoHub listens on.
+	shinzoHubRPCPort = "26657"
+	// shinzoHubLCDPort is the Cosmos LCD (REST) port ShinzoHub listens on.
+	shinzoHubLCDPort = "1317"
+)
+
+// shinzoHubURLs holds the URLs derived from a ShinzoHub hostname for each protocol
+// the host talks to it over.
+type shinzoHubURLs struct {
+	rpc string
+	ws  string
+	lcd string
+}
+
+// deriveShinzoHubURLs builds the RPC, WebSocket, and LCD (REST) URLs from a bare
+// ShinzoHub hostname (config.Shinzo.HubBaseURL — no scheme, no port). Returns the
+// zero value if hostname is empty.
+func deriveShinzoHubURLs(hostname string) shinzoHubURLs {
+	if hostname == "" {
+		return shinzoHubURLs{}
+	}
+	return shinzoHubURLs{
+		rpc: "http://" + hostname + ":" + shinzoHubRPCPort,
+		ws:  "ws://" + hostname + ":" + shinzoHubRPCPort + "/websocket",
+		lcd: "http://" + hostname + ":" + shinzoHubLCDPort,
+	}
+}
+
 // DefaultConfig provides a template for host configuration with sensible defaults.
 var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglobals
 	cfg := &config.Config{
@@ -306,15 +335,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		return newHost.metrics
 	})
 
-	// Build RPC, WebSocket, and LCD URLs from the hub base URL
-	// (e.g., "shinzohub-rpc.infra.source.network:26657"). The Cosmos LCD listens
-	// on a separate port (1317 by convention) on the same host.
-	var rpcURL, wsURL, lcdURL string
-	if cfg.Shinzo.HubBaseURL != "" {
-		rpcURL = "http://" + cfg.Shinzo.HubBaseURL
-		wsURL = "ws://" + cfg.Shinzo.HubBaseURL + "/websocket"
-		lcdURL = "http://" + strings.Replace(cfg.Shinzo.HubBaseURL, ":26657", ":1317", 1)
-	}
+	// Build RPC, WebSocket, and LCD URLs from the hub hostname (e.g. "testnet.shinzo.network").
+	hubURLs := deriveShinzoHubURLs(cfg.Shinzo.HubBaseURL)
+	rpcURL, wsURL, lcdURL := hubURLs.rpc, hubURLs.ws, hubURLs.lcd
 
 	// One client serves both the startup backfill and the live-event hydration.
 	var rpcClient *shinzohub.RPCClient
@@ -437,7 +460,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if port == 0 {
 		port = 8080
 	}
-	newHost.healthServer = server.NewHealthServer(port, newHost, healthDefraURL, newHost.metrics)
+	newHost.healthServer = server.NewHealthServer(port, newHost, healthDefraURL, newHost.metrics, lcdURL)
 
 	// Start health server in background
 	go func() {
@@ -766,9 +789,8 @@ func startACPServer(
 	if hubBaseURL == "" {
 		return nil, nil, errHubBaseURLMissing
 	}
-	// The host reads the hub over its Cosmos LCD (REST) port. HubBaseURL points
-	// at the CometBFT RPC port; the LCD is the same host on :1317.
-	lcdURL := "http://" + strings.Replace(hubBaseURL, ":26657", ":1317", 1)
+	// The host reads the hub over its Cosmos LCD (REST) port.
+	lcdURL := deriveShinzoHubURLs(hubBaseURL).lcd
 	hubClient := shinzohub.NewRPCClient(lcdURL, defraNode)
 	epochClock := acp.NewEpochClock(hubClient, acpCfg.EpochLength, epochPollInterval)
 	// "shinzo" is the chain's bech32 account prefix: the recovered EVM payer is
@@ -977,7 +999,8 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 		if testConfig.DefraDB.URL != "" {
 			healthDefraURL = "http://" + testConfig.DefraDB.URL
 		}
-		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics)
+		testLCDURL := deriveShinzoHubURLs(testConfig.Shinzo.HubBaseURL).lcd
+		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics, testLCDURL)
 
 		// Start the new health server
 		go func() {

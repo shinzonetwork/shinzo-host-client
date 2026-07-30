@@ -21,10 +21,11 @@ var healthStatusPagePath = filepath.Join("pkg", "server", "health_status_page.ht
 
 // HealthServer provides HTTP endpoints for health checks and metrics.
 type HealthServer struct {
-	server      *http.Server
-	host        HealthChecker
-	defraURL    string
-	hostMetrics http.Handler
+	server            *http.Server
+	host              HealthChecker
+	defraURL          string
+	hostMetrics       http.Handler
+	shinzoHubRESTBase string
 }
 
 // HealthChecker interface for checking host health.
@@ -74,7 +75,17 @@ type MetricsResponse struct {
 var startTime = time.Now() // nolint:gochecknoglobals
 
 // NewHealthServer creates a new health server.
-func NewHealthServer(port int, host HealthChecker, defraURL string, metricsHandler http.Handler) *HealthServer {
+// shinzoHubRESTBase is the base URL (scheme + host) of the ShinzoHub Cosmos LCD/REST
+// API, e.g. "http://testnet.shinzo.network:1317". It's injected into the health status
+// page so the browser can query ShinzoHub for host registration status. May be empty
+// if the hub base URL is not configured.
+func NewHealthServer(
+	port int,
+	host HealthChecker,
+	defraURL string,
+	metricsHandler http.Handler,
+	shinzoHubRESTBase string,
+) *HealthServer {
 	mux := http.NewServeMux()
 
 	hs := &HealthServer{
@@ -84,9 +95,10 @@ func NewHealthServer(port int, host HealthChecker, defraURL string, metricsHandl
 			ReadTimeout:  defaultHTTPClientTimeout * healthTimeoutMultiplier,
 			WriteTimeout: defaultHTTPClientTimeout * healthTimeoutMultiplier,
 		},
-		host:        host,
-		defraURL:    defraURL,
-		hostMetrics: metricsHandler,
+		host:              host,
+		defraURL:          defraURL,
+		hostMetrics:       metricsHandler,
+		shinzoHubRESTBase: shinzoHubRESTBase,
 	}
 
 	// Register routes
@@ -294,6 +306,14 @@ func (hs *HealthServer) checkDefraDB() bool {
 // getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version
 // This allows hot-reloading during development without rebuilding.
 func (hs *HealthServer) getHealthStatusPageHTML() []byte {
+	raw := hs.loadHealthStatusPageTemplate()
+	rendered := strings.ReplaceAll(string(raw), "{{SHINZOHUB_REST_BASE}}", hs.shinzoHubRESTBase)
+	return []byte(rendered)
+}
+
+// loadHealthStatusPageTemplate reads the raw HTML template from disk, falling back to
+// the embedded version.
+func (hs *HealthServer) loadHealthStatusPageTemplate() []byte {
 	// Try to read from disk first (for development hot-reload)
 	// Check multiple possible paths relative to where the binary might be running
 	possiblePaths := []string{

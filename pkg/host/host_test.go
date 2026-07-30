@@ -484,7 +484,7 @@ func TestHost_Close_WithHealthServer(t *testing.T) {
 	ctx := context.Background()
 
 	metrics := server.NewHostMetrics()
-	hs := server.NewHealthServer(0, nil, "", metrics)
+	hs := server.NewHealthServer(0, nil, "", metrics, "")
 
 	host := &Host{
 		DefraNode:              nil,
@@ -1688,7 +1688,7 @@ func TestHost_Close_Full(t *testing.T) {
 		processingCancel:       func() {},
 		metrics:                metrics,
 		processingPipeline:     NewProcessingPipeline(ctx, &Host{config: DefaultConfig, metrics: metrics}, 10, 1, 5, 50, false),
-		healthServer:           server.NewHealthServer(0, nil, "", metrics),
+		healthServer:           server.NewHealthServer(0, nil, "", metrics, ""),
 	}
 
 	h.processingPipeline.Start()
