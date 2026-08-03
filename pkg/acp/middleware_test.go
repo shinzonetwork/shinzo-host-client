@@ -3,7 +3,6 @@ package acp
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -34,7 +33,7 @@ const (
 
 // testPool is a non-zero pool the test requests sign against; the gate rejects a
 // zero pool.
-var testPool = common.HexToAddress("0x00000000000000000000000000000000000000bb")
+var testPool = billing.Address(common.HexToAddress("0x00000000000000000000000000000000000000bb"))
 
 var errTestAuthzFail = errors.New("test: authorizer transport failure")
 
@@ -176,7 +175,7 @@ func TestMiddleware_ZeroPoolRejected(t *testing.T) {
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	query := "{ FilteredLogs { hash } }"
-	ext, err := billing.SignRequest(testChainID, priv, query, nil, common.Address{}, 1, 1735689600)
+	ext, err := billing.SignRequest(testChainID, priv, query, nil, billing.Address{}, 1, 1735689600)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
 	require.NoError(t, err)
@@ -543,11 +542,11 @@ type requestBody struct {
 	Extensions billing.Extensions `json:"extensions"`
 }
 
-func newKey(t *testing.T) (*ecdsa.PrivateKey, common.Address) {
+func newKey(t *testing.T) (*secp256k1.PrivateKey, common.Address) {
 	t.Helper()
-	priv, err := crypto.GenerateKey()
+	priv, err := secp256k1.GeneratePrivateKey()
 	require.NoError(t, err)
-	return priv, crypto.PubkeyToAddress(priv.PublicKey)
+	return priv, common.Address(billing.PubkeyToAddress(priv.PubKey()))
 }
 
 func newGraphQLPost(body []byte) *http.Request {
@@ -556,7 +555,7 @@ func newGraphQLPost(body []byte) *http.Request {
 	return r
 }
 
-func signedGraphQLPost(t *testing.T, priv *ecdsa.PrivateKey, query string, vars json.RawMessage) *http.Request {
+func signedGraphQLPost(t *testing.T, priv *secp256k1.PrivateKey, query string, vars json.RawMessage) *http.Request {
 	t.Helper()
 	ext, err := billing.SignRequest(testChainID, priv, query, vars, testPool, 1, 1735689600)
 	require.NoError(t, err)
