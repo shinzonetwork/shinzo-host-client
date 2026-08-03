@@ -2,13 +2,11 @@ package accounting
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/shinzonetwork/shinzo-querysig/billing"
 )
@@ -29,8 +27,8 @@ type RecordInput struct {
 // record to the accounting service.
 type Recorder struct {
 	client      *Client
-	signer      *ecdsa.PrivateKey
-	hostAddress common.Address
+	signer      *secp256k1.PrivateKey
+	hostAddress billing.Address
 	chainID     uint64
 	now         func() time.Time
 }
@@ -38,11 +36,11 @@ type Recorder struct {
 // NewRecorder returns a Recorder that signs responses with signer (the host's
 // node key) under chainID and submits records via client. The host address is
 // the Ethereum address signer recovers to.
-func NewRecorder(client *Client, signer *ecdsa.PrivateKey, chainID uint64) *Recorder {
+func NewRecorder(client *Client, signer *secp256k1.PrivateKey, chainID uint64) *Recorder {
 	return &Recorder{
 		client:      client,
 		signer:      signer,
-		hostAddress: ethcrypto.PubkeyToAddress(signer.PublicKey),
+		hostAddress: billing.PubkeyToAddress(signer.PubKey()),
 		chainID:     chainID,
 		now:         time.Now,
 	}
@@ -62,7 +60,7 @@ func (r *Recorder) Record(ctx context.Context, in RecordInput) error {
 	cids := []string{}
 
 	// The billed pool is the one the payer signed into the request.
-	signature, err := billing.SignQueryResponse(r.chainID, r.signer, billing.QueryResponse{
+	signature := billing.SignQueryResponse(r.chainID, r.signer, billing.QueryResponse{
 		QueryHash:        req.QueryHash,
 		Host:             r.hostAddress,
 		Pool:             req.Pool,
@@ -70,9 +68,6 @@ func (r *Recorder) Record(ctx context.Context, in RecordInput) error {
 		RespondedAt:      respondedAt,
 		ResponseCidsHash: billing.ResponseCidsHash(cids),
 	})
-	if err != nil {
-		return fmt.Errorf("sign query response: %w", err)
-	}
 
 	return r.client.Submit(ctx, ServiceRecord{
 		Nonce:             in.Extensions.Nonce,

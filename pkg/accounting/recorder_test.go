@@ -8,9 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-querysig/billing"
@@ -21,15 +20,16 @@ import (
 func TestRecorder_Record(t *testing.T) {
 	const chainID = 91273002
 
-	hostKey, err := ethcrypto.GenerateKey()
+	hostKey, err := secp256k1.GeneratePrivateKey()
 	require.NoError(t, err)
-	hostAddr := ethcrypto.PubkeyToAddress(hostKey.PublicKey)
+	hostAddr := billing.PubkeyToAddress(hostKey.PubKey())
 
-	userKey, err := ethcrypto.GenerateKey()
+	userKey, err := secp256k1.GeneratePrivateKey()
 	require.NoError(t, err)
-	userAddr := ethcrypto.PubkeyToAddress(userKey.PublicKey)
+	userAddr := billing.PubkeyToAddress(userKey.PubKey())
 
-	signedPool := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	signedPool, err := billing.ParseAddress("0x00000000000000000000000000000000000000bb")
+	require.NoError(t, err)
 	ext, err := billing.SignRequest(chainID, userKey, "query { FilteredLogs { hash } }", nil, signedPool, 3, 1735689600)
 	require.NoError(t, err)
 
@@ -94,7 +94,7 @@ func TestRecorder_Record(t *testing.T) {
 
 // A malformed Extensions must fail before anything is POSTed.
 func TestRecorder_Record_MalformedExtensions(t *testing.T) {
-	hostKey, err := ethcrypto.GenerateKey()
+	hostKey, err := secp256k1.GeneratePrivateKey()
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
