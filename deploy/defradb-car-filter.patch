@@ -1,0 +1,129 @@
+diff --git a/internal/db/p2p/p2p.go b/internal/db/p2p/p2p.go
+index 4fba9dc..056b983 100644
+--- a/internal/db/p2p/p2p.go
++++ b/internal/db/p2p/p2p.go
+@@ -764,7 +764,7 @@ func (p *P2P) processPushlogRequest(ctx context.Context, req pushlogRequest) erro
+ 		}
+ 
+ 		// Run the replication filter before writing any blocks to storage.
+-		if !p.filterAllowsReplication(ctx, req.CollectionID, req.DocID, block) {
++		if !p.filterAllowsReplication(ctx, req.CollectionID, req.DocID, block, req.CAR) {
+ 			return nil
+ 		}
+ 
+@@ -878,7 +878,7 @@ func (p *P2P) processPushlogBatchRequest(
+ 			}
+ 		}
+ 
+-		if !p.filterAllowsReplication(ctx, req.CollectionID, doc.DocID, block) {
++		if !p.filterAllowsReplication(ctx, req.CollectionID, doc.DocID, block, doc.CAR) {
+ 			continue
+ 		}
+ 
+diff --git a/internal/db/p2p/replication_filter.go b/internal/db/p2p/replication_filter.go
+index a4d5061..6dcc94a 100644
+--- a/internal/db/p2p/replication_filter.go
++++ b/internal/db/p2p/replication_filter.go
+@@ -11,7 +11,13 @@
+ package p2p
+ 
+ import (
++	"bytes"
+ 	"context"
++	"errors"
++	"io"
++
++	"github.com/fxamacker/cbor/v2"
++	car "github.com/ipld/go-car/v2"
+ 
+ 	coreblock "github.com/sourcenetwork/defradb/internal/core/block"
+ )
+@@ -23,14 +29,88 @@ func (p *P2P) filterAllowsReplication(
+ 	collectionID string,
+ 	docID string,
+ 	block *coreblock.Block,
++	carData []byte,
+ ) bool {
+ 	if p.replicationFilter == nil {
+ 		return true
+ 	}
+ 	fields := extractFieldsFromBlock(block)
++	if len(carData) > 0 {
++		var err error
++		fields, err = extractFieldsFromCAR(carData)
++		if err != nil {
++			// Malformed CAR data is rejected before it can reach storage.
++			return false
++		}
++	}
+ 	return p.replicationFilter.AllowReplication(ctx, collectionID, docID, fields)
+ }
+ 
++// extractFieldsFromCAR resolves the field blocks linked by the current composite
++// root. The root alone only exposes link names, which is insufficient for
++// address/topic allowlists; the linked blocks contain the current field values.
++func extractFieldsFromCAR(carData []byte) (map[string]any, error) {
++	reader, err := car.NewBlockReader(bytes.NewReader(carData))
++	if err != nil {
++		return nil, err
++	}
++	if len(reader.Roots) == 0 {
++		return nil, ErrEmptyCARRoots
++	}
++
++	rootCID := reader.Roots[0]
++	blocks := make(map[string]*coreblock.Block)
++	var rootBlock *coreblock.Block
++
++	for {
++		carBlock, nextErr := reader.Next()
++		if errors.Is(nextErr, io.EOF) {
++			break
++		}
++		if nextErr != nil {
++			return nil, nextErr
++		}
++
++		decoded, decodeErr := coreblock.GetFromBytes(carBlock.RawData())
++		if decodeErr != nil {
++			// Signature and encryption blocks are part of the CAR but do not carry
++			// document field values.
++			continue
++		}
++		blocks[carBlock.Cid().String()] = decoded
++		if carBlock.Cid().Equals(rootCID) {
++			rootBlock = decoded
++		}
++	}
++
++	if rootBlock == nil {
++		return nil, ErrCARRootBlockNotFound
++	}
++
++	fields := extractFieldsFromBlock(rootBlock)
++	for _, link := range rootBlock.Links {
++		fieldBlock := blocks[link.Link.Cid.String()]
++		if fieldBlock == nil {
++			continue
++		}
++
++		name := fieldBlock.Delta.GetFieldName()
++		if name == "" {
++			name = link.Name
++		}
++		if name != "" {
++			var value any
++			if data := fieldBlock.Delta.GetData(); data != nil {
++				if err := cbor.Unmarshal(data, &value); err != nil {
++					return nil, err
++				}
++			}
++			fields[name] = value
++		}
++	}
++	return fields, nil
++}
++
+ // extractFieldsFromBlock extracts field name → decoded value from a block's CRDT delta.
+ func extractFieldsFromBlock(block *coreblock.Block) map[string]any {
+ 	if block == nil {

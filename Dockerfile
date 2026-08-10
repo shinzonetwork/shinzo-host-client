@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     tzdata \
     make \
     build-essential \
+    patch \
     pkg-config \
     wget \
     tar \
@@ -67,6 +68,11 @@ ENV CGO_LDFLAGS="-L/usr/local/lib"
 
 # Copy source code
 COPY . .
+
+# DefraDB's pre-storage filter receives only the composite root delta. Apply a
+# narrow test-deployment patch so address/topic filters can inspect the current
+# field blocks contained in the incoming CAR before anything is persisted.
+RUN bash ./deploy/patch-defradb.sh
 
 # Build the application with playground
 RUN set -ex && \
