@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     tzdata \
     make \
     build-essential \
+    patch \
     pkg-config \
     wget \
     tar \
@@ -67,6 +68,11 @@ ENV CGO_LDFLAGS="-L/usr/local/lib"
 
 # Copy source code
 COPY . .
+
+# DefraDB's pre-storage filter receives only the composite root delta. Apply a
+# narrow test-deployment patch so address/topic filters can inspect the current
+# field blocks contained in the incoming CAR before anything is persisted.
+RUN bash ./deploy/patch-defradb.sh
 
 # Build the application with playground
 RUN set -ex && \
@@ -130,9 +136,11 @@ ENV LOG_SOURCE=false
 ENV LOG_STACKTRACE=false
 
 # Expose ports
+# 8080: host health, metrics, and registration payload
 # 9181: DefraDB API
 # 9182: GraphQL Playground (if enabled)
-EXPOSE 9181 9182 9171
+# 9171: P2P replication
+EXPOSE 8080 9171 9181 9182
 
 HEALTHCHECK --interval=15s --timeout=30s --start-period=120s --retries=10 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/metrics || exit 1

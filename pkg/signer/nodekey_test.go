@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	defracrypto "github.com/sourcenetwork/defradb/crypto"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
@@ -38,11 +36,11 @@ func TestNodeKeyToECDSAMatchesGethKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := ethcrypto.HexToECDSA(testNodeKeyHex)
+	want, err := billing.KeyFromHex(testNodeKeyHex)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(ethcrypto.FromECDSA(got), ethcrypto.FromECDSA(want)) {
+	if !bytes.Equal(got.Serialize(), want.Serialize()) {
 		t.Error("converted key bytes differ from the geth key for the same input")
 	}
 }
@@ -72,21 +70,22 @@ func TestNodeKeySignsRecoverableResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostAddr := ethcrypto.PubkeyToAddress(key.PublicKey)
+	hostAddr := billing.PubkeyToAddress(key.PubKey())
 
+	pool, err := billing.ParseAddress("0x2222222222222222222222222222222222222222")
+	if err != nil {
+		t.Fatal(err)
+	}
 	const chainID = 91273002
 	resp := billing.QueryResponse{
 		QueryHash:        [32]byte{0x01},
 		Host:             hostAddr,
-		Pool:             common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		Pool:             pool,
 		RowsQueried:      10,
 		RespondedAt:      1735689600,
 		ResponseCidsHash: billing.ResponseCidsHash(nil),
 	}
-	sig, err := billing.SignQueryResponse(chainID, key, resp)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sig := billing.SignQueryResponse(chainID, key, resp)
 	recovered, err := billing.RecoverQueryResponse(chainID, resp, sig)
 	if err != nil {
 		t.Fatal(err)
@@ -110,11 +109,11 @@ func TestNodeECDSAKeyFromFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := ethcrypto.HexToECDSA(testNodeKeyHex)
+	want, err := billing.KeyFromHex(testNodeKeyHex)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(ethcrypto.FromECDSA(got), ethcrypto.FromECDSA(want)) {
+	if !bytes.Equal(got.Serialize(), want.Serialize()) {
 		t.Error("key loaded from the store differs from the expected key")
 	}
 }

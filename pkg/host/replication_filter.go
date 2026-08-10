@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
@@ -14,6 +15,9 @@ import (
 // event topics, and block-number ranges defined in the configuration.
 type EventReplicationFilter struct {
 	cfg config.EventFilterConfig
+
+	collectionNamesMu sync.RWMutex
+	collectionNames   map[string]string
 }
 
 // NewEventReplicationFilter creates a filter from the given config.
@@ -23,7 +27,24 @@ func NewEventReplicationFilter(cfg config.EventFilterConfig) *EventReplicationFi
 	if !cfg.Enabled {
 		return nil
 	}
-	return &EventReplicationFilter{cfg: cfg}
+	return &EventReplicationFilter{
+		cfg:             cfg,
+		collectionNames: make(map[string]string),
+	}
+}
+
+// SetCollectionNames binds DefraDB's runtime collection IDs to their schema
+// names. ReplicationFilter receives CollectionID values, not collection names,
+// so the host must populate this map after applying the schema and before
+// connecting to bootstrap peers.
+func (f *EventReplicationFilter) SetCollectionNames(collectionNames map[string]string) {
+	f.collectionNamesMu.Lock()
+	defer f.collectionNamesMu.Unlock()
+
+	f.collectionNames = make(map[string]string, len(collectionNames))
+	for id, name := range collectionNames {
+		f.collectionNames[id] = name
+	}
 }
 
 // AllowReplication implements client.ReplicationFilter.
@@ -33,8 +54,10 @@ func (f *EventReplicationFilter) AllowReplication(
 	_ string,
 	fields map[string]any,
 ) bool {
+	collectionName := f.resolveCollectionName(collectionID)
+
 	// Structural collections always pass — we never filter blocks or block signatures.
-	switch collectionID {
+	switch collectionName {
 	case constants.CollectionBlock:
 		return f.allowBlock(fields)
 	case constants.CollectionBlockSignature, constants.CollectionSnapshotSignature:
@@ -47,7 +70,7 @@ func (f *EventReplicationFilter) AllowReplication(
 		return false
 	}
 
-	switch collectionID {
+	switch collectionName {
 	case constants.CollectionTransaction:
 		return f.allowTransaction(fields)
 	case constants.CollectionLog:
@@ -55,9 +78,21 @@ func (f *EventReplicationFilter) AllowReplication(
 	case constants.CollectionAccessListEntry:
 		return f.allowAccessListEntry(fields)
 	default:
-		// Unknown collection — let it through.
-		return true
+		// Unknown runtime IDs must fail closed in allowlist mode. This prevents a
+		// missing ID binding from silently disabling the storage filter.
+		return f.cfg.Mode == filterModeBlocklist
 	}
+}
+
+func (f *EventReplicationFilter) resolveCollectionName(collectionID string) string {
+	// Preserve collection-name inputs used by unit tests and non-Defra callers.
+	if strings.HasPrefix(collectionID, constants.CollectionChain+"__") {
+		return collectionID
+	}
+
+	f.collectionNamesMu.RLock()
+	defer f.collectionNamesMu.RUnlock()
+	return f.collectionNames[collectionID]
 }
 
 // ---------------------------------------------------------------------------

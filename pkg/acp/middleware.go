@@ -181,7 +181,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 		return
 	}
 
-	allowed, err := m.authz.Authorize(r.Context(), payer)
+	allowed, err := m.authz.Authorize(r.Context(), common.Address(payer))
 	if err != nil {
 		m.log.Errorw("billing.error", "payer", payer.Hex(), "view", lookups[0].Name, "err", err)
 		http.Error(w, "authorization backend unavailable", http.StatusServiceUnavailable)
@@ -209,7 +209,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	// Bill only a 2xx response: a well-formed body can accompany a non-2xx
 	// status, and the client treats that as a failure.
 	if served && cw.status/100 == 2 {
-		m.submitRecord(payer, ext, lookups[0], rows) //nolint:contextcheck // record runs on a background context by design so a client disconnect does not cancel billing submission
+		m.submitRecord(common.Address(payer), ext, lookups[0], rows) //nolint:contextcheck // record runs on a background context by design so a client disconnect does not cancel billing submission
 	}
 }
 
