@@ -160,7 +160,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	})
 
 	var replicationFilter client.ReplicationFilter
+	var eventReplicationFilter *EventReplicationFilter
 	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
+		eventReplicationFilter = f
 		replicationFilter = f
 	}
 
@@ -206,6 +208,21 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	err = applySchema(ctx, defraNode, resolvedSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
+	}
+
+	// DefraDB invokes ReplicationFilter with runtime collection IDs. Bind those
+	// IDs to schema names before any bootstrap peer can send documents.
+	if eventReplicationFilter != nil {
+		collections, err := defraNode.DB.GetCollections(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("bind replication filter collections: %w", err)
+		}
+		collectionNames := make(map[string]string, len(collections))
+		for _, collection := range collections {
+			collectionNames[collection.CollectionID()] = collection.Name()
+		}
+		eventReplicationFilter.SetCollectionNames(collectionNames)
+		logger.Sugar.Infof("Bound %d collection IDs to the event replication filter", len(collectionNames))
 	}
 
 	// Bootstrap from historical snapshots before P2P starts

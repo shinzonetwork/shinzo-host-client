@@ -145,14 +145,14 @@ func TestAllowReplication(t *testing.T) {
 			want:         true,
 		},
 		{
-			name: "unknown collection always allowed",
+			name: "unknown collection fails closed in allowlist mode",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
 				Mode:    filterModeAllowlist,
 			},
 			collectionID: "SomeUnknownCollection",
 			fields:       map[string]any{},
-			want:         true,
+			want:         false,
 		},
 		{
 			name: "block range rejection for transaction",
@@ -180,6 +180,39 @@ func TestAllowReplication(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestAllowReplication_ResolvesRuntimeCollectionID(t *testing.T) {
+	f := NewEventReplicationFilter(config.EventFilterConfig{
+		Enabled: true,
+		Mode:    filterModeAllowlist,
+		Groups: []config.FilterGroup{
+			{
+				Enabled: true,
+				Contracts: []config.ContractFilter{
+					{Address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", Types: []string{colTypeLog}},
+				},
+			},
+		},
+	})
+	require.NotNil(t, f)
+
+	f.SetCollectionNames(map[string]string{
+		"bafy-runtime-log-collection-id": constants.CollectionLog,
+	})
+
+	require.True(t, f.AllowReplication(
+		context.Background(),
+		"bafy-runtime-log-collection-id",
+		"usdc-doc",
+		map[string]any{gqlFieldAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"},
+	))
+	require.False(t, f.AllowReplication(
+		context.Background(),
+		"bafy-runtime-log-collection-id",
+		"non-usdc-doc",
+		map[string]any{gqlFieldAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7"},
+	))
 }
 
 // ---------------------------------------------------------------------------
