@@ -130,9 +130,11 @@ ENV LOG_SOURCE=false
 ENV LOG_STACKTRACE=false
 
 # Expose ports
+# 8080: host health, metrics, and registration payload
 # 9181: DefraDB API
 # 9182: GraphQL Playground (if enabled)
-EXPOSE 9181 9182 9171
+# 9171: P2P replication
+EXPOSE 8080 9171 9181 9182
 
 HEALTHCHECK --interval=15s --timeout=30s --start-period=120s --retries=10 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/metrics || exit 1
