@@ -29,16 +29,23 @@ func NewServer(defraAPIURL string) (http.Handler, error) {
 		return nil, err
 	}
 
-	// Create a reverse proxy for GraphQL API requests
+	// Create a reverse proxy for the single public GraphQL query endpoint.
+	// DefraDB exposes additional administrative and mutation-capable API routes;
+	// those must remain reachable only on the private 9181 listener.
 	proxy := httputil.NewSingleHostReverseProxy(defraURL)
 
-	// Proxy all API requests to defradb
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v0/graphql", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
 		// Update the request URL to point to defradb
 		r.URL.Scheme = defraURL.Scheme
 		r.URL.Host = defraURL.Host
 		proxy.ServeHTTP(w, r)
 	})
+	mux.HandleFunc("/api/", http.NotFound)
 
 	// Proxy health-check
 	mux.HandleFunc("/health-check", func(w http.ResponseWriter, r *http.Request) {
@@ -61,11 +68,10 @@ func NewServer(defraAPIURL string) (http.Handler, error) {
 	}
 	fileServer := http.FileServer(http.FS(sub))
 
-	// Serve playground at root, but only if it's not an API request
+	// Serve playground at root. API paths are handled by the more-specific
+	// routes above and never fall through to the static file server.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// If it's an API request, proxy it
-		if strings.HasPrefix(r.URL.Path, "/api/") ||
-			r.URL.Path == "/health-check" ||
+		if r.URL.Path == "/health-check" ||
 			r.URL.Path == "/openapi.json" {
 			r.URL.Scheme = defraURL.Scheme
 			r.URL.Host = defraURL.Host
