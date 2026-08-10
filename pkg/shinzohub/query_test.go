@@ -195,10 +195,9 @@ func TestFetchAllRegisteredViews_LCDNotConfigured(t *testing.T) {
 	require.Contains(t, err.Error(), "LCD URL not configured")
 }
 
-// FetchAllRegisteredViews must carry the LCDView contract address onto the
-// decoded view.View. The LCD response is the only place the address is
-// available during the startup backfill; dropping it at decode time would
-// force callers to do a second per-view query to recover it.
+// FetchAllRegisteredViews must carry the LCD view address onto the decoded
+// view.View. The deployed testnet uses `address`; `contract_address` remains
+// supported for compatibility with older hubs and API drafts.
 func TestFetchAllRegisteredViews_PopulatesContractAddress(t *testing.T) {
 	bundleA := makeTestBundle(t, testViewNameA)
 	bundleB := makeTestBundle(t, testViewNameB)
@@ -209,7 +208,7 @@ func TestFetchAllRegisteredViews_PopulatesContractAddress(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			lcdFieldViews: []LCDView{
-				{Name: testViewNameA, Creator: "shinzo1a", ContractAddress: contractA, Data: bundleA, Height: "1"},
+				{Name: testViewNameA, Creator: "shinzo1a", Address: contractA, Data: bundleA, Height: "1"},
 				{Name: testViewNameB, Creator: "shinzo1b", ContractAddress: contractB, Data: bundleB, Height: "2"},
 			},
 			lcdFieldPagination: map[string]any{lcdFieldNextKey: nil},

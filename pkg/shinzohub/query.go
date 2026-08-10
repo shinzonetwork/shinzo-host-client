@@ -45,9 +45,19 @@ func NewRPCClient(lcdURL string, defraNode *node.Node) *RPCClient {
 type LCDView struct {
 	Name            string `json:"name"`
 	Creator         string `json:"creator"`
+	Address         string `json:"address"`
 	ContractAddress string `json:"contract_address"`
 	Data            string `json:"data"`
 	Height          string `json:"height"`
+}
+
+// onChainAddress accepts both the field emitted by the deployed testnet hub
+// (`address`) and the legacy/API-draft field (`contract_address`).
+func (v LCDView) onChainAddress() string {
+	if v.Address != "" {
+		return v.Address
+	}
+	return v.ContractAddress
 }
 
 // GetViewBundle fetches the base64-encoded wire bundle for a registered view
@@ -162,17 +172,18 @@ func (c *RPCClient) FetchAllRegisteredViews(ctx context.Context) ([]view.View, i
 func decodeLCDViews(lvs []LCDView) []view.View {
 	out := make([]view.View, 0, len(lvs))
 	for _, lv := range lvs {
+		contractAddress := lv.onChainAddress()
 		if lv.Data == "" {
-			log().Debugf("📡 view %s (contract %s) has no bundle bytes; skipping", lv.Name, lv.ContractAddress)
+			log().Debugf("📡 view %s (contract %s) has no bundle bytes; skipping", lv.Name, contractAddress)
 			continue
 		}
 		v, err := ProcessViewFromWireFormat(lv.Data)
 		if err != nil {
-			log().Warnf("📡 failed to decode bundle for view %s (contract %s): %v", lv.Name, lv.ContractAddress, err)
+			log().Warnf("📡 failed to decode bundle for view %s (contract %s): %v", lv.Name, contractAddress, err)
 			continue
 		}
-		v.ContractAddress = lv.ContractAddress
-		log().Debugf("📡 fetched view %s (contract %s)", lv.Name, lv.ContractAddress)
+		v.ContractAddress = contractAddress
+		log().Debugf("📡 fetched view %s (contract %s)", lv.Name, contractAddress)
 		out = append(out, v)
 	}
 	return out
