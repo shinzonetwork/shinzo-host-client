@@ -23,6 +23,9 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     container_name: shinzo-host
+    # A signal during startup is only serviced once startup finishes, so this has to cover
+    # startup as well as the shutdown timeout, or the process is killed mid-shutdown.
+    stop_grace_period: 90s
     volumes:
       - ~/data/defradb:/app/.defra
       - ~/data/keys:/app/.defra/keys

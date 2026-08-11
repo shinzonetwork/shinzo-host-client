@@ -88,18 +88,34 @@ func (p *Pruner) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop signals the pruner to stop and waits for it to complete.
-func (p *Pruner) Stop() {
+// Stop signals the pruner to stop and waits for the current cycle, giving up when ctx
+// expires. Nothing in the purge path can be cancelled, so a cycle can outlast any budget;
+// the queue is saved either way so the work resumes after a restart.
+func (p *Pruner) Stop(ctx context.Context) {
 	p.mu.Lock()
 	if !p.isRunning {
 		p.mu.Unlock()
 		return
 	}
+	p.isRunning = false
 	p.mu.Unlock()
 
 	logger.Sugar.Infof("Pruner stopping, waiting for current operation to finish...")
 	close(p.stopChan)
-	p.wg.Wait()
+
+	stopped := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		// Saving is still safe: the queue snapshots under its own lock, so a cycle that
+		// is still unwinding cannot tear the file.
+		logger.Sugar.Warn("Pruner did not stop within the shutdown budget, saving the queue anyway")
+	}
 
 	// Save queue to disk for fast restart
 	if p.queue != nil {
@@ -111,10 +127,6 @@ func (p *Pruner) Stop() {
 			logger.Sugar.Infof("Prune queue saved successfully")
 		}
 	}
-
-	p.mu.Lock()
-	p.isRunning = false
-	p.mu.Unlock()
 
 	logger.Sugar.Info("Pruner stopped")
 }
