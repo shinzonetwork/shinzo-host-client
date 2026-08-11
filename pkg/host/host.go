@@ -711,7 +711,7 @@ func (h *Host) Close(ctx context.Context) error {
 
 	// Stop pruner and save queue to disk
 	if h.pruner != nil {
-		h.pruner.Stop()
+		h.pruner.Stop(ctx)
 		h.pruner = nil
 	}
 

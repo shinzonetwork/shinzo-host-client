@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 )
 
@@ -231,6 +232,23 @@ func (q *EventQueue) Requeue(collectionName string, docIDs []string) {
 	q.entries = append(entries, q.entries...)
 	q.blockCount += blocks
 	q.mu.Unlock()
+}
+
+// RequeueDrained returns a drain result's docs to the queue for the given collections. DrainDocs
+// empties every collection up front, so a cycle that ends before reaching them all has to put the
+// rest back; nothing else re-adds an already-replicated document. Requeue prepends, so the
+// collections go back in reverse to leave the queue in dependents-before-blocks order.
+func (q *EventQueue) RequeueDrained(result *DrainResult, collections []string) (docs int, cols int) {
+	for _, name := range slices.Backward(collections) {
+		docIDs := result.DocIDsByCollection[name]
+		if len(docIDs) == 0 {
+			continue
+		}
+		q.Requeue(name, docIDs)
+		docs += len(docIDs)
+		cols++
+	}
+	return docs, cols
 }
 
 // Len returns the total number of entries in the queue.
