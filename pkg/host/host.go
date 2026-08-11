@@ -498,6 +498,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		newHost.pruneQueue = pruneQueue
 	}
 
+	// Started after the pruner so it can report the queue length.
+	go newHost.reportStats(processingCtx)
+
 	if cfg.HostConfig.OpenBrowserOnStart {
 		go func() {
 			time.Sleep(openBrowserDelaySecs * time.Second)
