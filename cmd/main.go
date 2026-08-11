@@ -4,11 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
 )
+
+// shutdownTimeout bounds Close. It has to stay under the container's stop grace period,
+// or the process is killed part-way through the shutdown.
+const shutdownTimeout = 30 * time.Second
 
 func findConfigFile() string {
 	possiblePaths := []string{
@@ -27,6 +33,11 @@ func findConfigFile() string {
 }
 
 func main() {
+	// Registered before startup so a signal arriving during it is not left unhandled.
+	// The buffer holds it until the shutdown below.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	configPath := findConfigFile()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -38,9 +49,14 @@ func main() {
 		panic(fmt.Errorf("failed to start hosting: %w", err))
 	}
 
-	defer func() { _ = myHost.Close(context.Background()) }()
+	// Shutdown is signal-driven because a deferred Close does not run when the process
+	// is terminated by a signal.
+	sig := <-stop
+	fmt.Fprintf(os.Stderr, "received %s, shutting down\n", sig)
 
-	for {
-		time.Sleep(1 * time.Second) // Run forever unless stopped
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := myHost.Close(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "shutdown error: %v\n", err)
 	}
 }

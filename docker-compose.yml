@@ -9,6 +9,9 @@ services:
     mem_reservation: 15g
     restart: unless-stopped
     container_name: shinzo-host
+    # Longer than the host's shutdown timeout, so it saves the prune queue, drains
+    # in-flight service records and closes DefraDB before it is killed.
+    stop_grace_period: 45s
     networks:
       - shinzo-net
     ports:
