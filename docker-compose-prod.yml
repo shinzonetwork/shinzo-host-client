@@ -33,6 +33,9 @@ services:
       - ~/config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181  # Change port here if needed
+      # The pubsub ingest queue sizes its byte budget from this. Unset, the process
+      # falls back to a fixed 1 GiB budget instead of a share of its memory limit.
+      - GOMEMLIMIT=14GiB
       - LOG_LEVEL=error
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
