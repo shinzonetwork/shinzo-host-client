@@ -2,6 +2,7 @@ package pruner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,6 +11,32 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
+
+const (
+	// purgeBatchSize is how many documents are handed to DefraDB per call. It sets how
+	// often a purge can notice a stop, not the transaction size: DefraDB commits in its
+	// own smaller chunks regardless.
+	purgeBatchSize = 1000
+	// purgeProgressInterval bounds how often a long purge reports progress, so the line
+	// stays useful on a purge that runs for hours without flooding a short one.
+	purgeProgressInterval = 30 * time.Second
+)
+
+// errStopped ends a purge early because the pruner is shutting down. Its documents are
+// re-queued, so the work resumes rather than being lost.
+var errStopped = errors.New("pruner stopped")
+
+// stopping reports why further work should be abandoned, or nil to carry on.
+func (p *Pruner) stopping(ctx context.Context) error {
+	select {
+	case <-p.stopChan:
+		return errStopped
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
 
 // Pruner handles periodic removal of old blockchain documents from DefraDB.
 // With an EventQueue set, it drains docIDs tracked from P2P replication
@@ -23,6 +50,10 @@ type Pruner struct {
 	stopChan    chan struct{}
 	wg          sync.WaitGroup
 	mu          sync.RWMutex
+
+	// purgeDocs deletes one batch of documents. Nil outside tests, where the collection's own
+	// PurgeByDocIDs is used; a purge is otherwise only reachable through a running node.
+	purgeDocs func(ctx context.Context, docIDs []client.DocID) error
 
 	// Metrics
 	lastPruneTime     time.Time
@@ -88,33 +119,43 @@ func (p *Pruner) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop signals the pruner to stop and waits for it to complete.
-func (p *Pruner) Stop() {
+// Stop signals the pruner to stop, waits for the current cycle to unwind, and saves the
+// queue. It gives up waiting when ctx expires and saves anyway: the queue file is the
+// only record of what still needs pruning, and a cycle can outlast any shutdown budget.
+func (p *Pruner) Stop(ctx context.Context) {
 	p.mu.Lock()
 	if !p.isRunning {
 		p.mu.Unlock()
 		return
 	}
-	p.mu.Unlock()
-
-	logger.Sugar.Infof("Pruner stopping, waiting for current operation to finish...")
-	close(p.stopChan)
-	p.wg.Wait()
-
-	// Save queue to disk for fast restart
-	if p.queue != nil {
-		queueLen := p.queue.Len()
-		logger.Sugar.Infof("Saving prune queue to disk (%d entries)...", queueLen)
-		if err := p.queue.Save(); err != nil {
-			logger.Sugar.Errorf("Failed to save prune queue: %v", err)
-		} else {
-			logger.Sugar.Infof("Prune queue saved successfully")
-		}
-	}
-
-	p.mu.Lock()
 	p.isRunning = false
 	p.mu.Unlock()
+
+	logger.Sugar.Info("Pruner stopping, waiting for the current cycle to finish")
+	close(p.stopChan)
+
+	stopped := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		// Save is safe here: it snapshots under the queue's own lock, so a purge still
+		// unwinding cannot tear the file.
+		logger.Sugar.Warn("Pruner did not stop within the shutdown budget, saving the queue anyway")
+	}
+
+	if p.queue != nil {
+		queueLen := p.queue.Len()
+		if err := p.queue.Save(); err != nil {
+			logger.Sugar.Errorf("Failed to save prune queue (%d entries): %v", queueLen, err)
+		} else {
+			logger.Sugar.Infof("Saved prune queue (%d entries)", queueLen)
+		}
+	}
 
 	logger.Sugar.Info("Pruner stopped")
 }
@@ -193,6 +234,11 @@ func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
 		// Queue is underfilled (e.g., after a crash restart where the queue was lost).
 		// Do NOT fall back to filter-based pruning — the DB may contain snapshot-
 		// imported data that should not be pruned. Only prune what the queue tracks.
+		//
+		// Logged so a queue that never reaches the threshold is distinguishable from a
+		// pruner that is not running.
+		logger.Sugar.Infof("Prune skipped: queue has %d docs, threshold %d (max_blocks=%d × docs_per_block=%d)",
+			totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock)
 		return nil
 	}
 
@@ -209,44 +255,54 @@ func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
 }
 
 // purgeFromDrainResult deletes documents from a DrainResult, dependent collections first and
-// the block collection last. A collection whose purge fails is re-queued rather than dropped,
-// so its docs are retried on the next cycle instead of leaking from the store.
+// the block collection last. Anything left unpurged goes back on the queue rather than being
+// dropped, whether a single collection failed or a stop ended the cycle early, so it is retried
+// on a later cycle instead of leaking from the store.
 func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result *DrainResult) error {
 	startTime := time.Now()
-	totalPurged := int64(0)
+	totalSubmitted := int64(0)
 
-	// Dependent collections first, block collection last
-	for _, colName := range p.collections.DependentCollections {
+	// Dependents before blocks, so a block is never removed ahead of the documents that
+	// reference it.
+	order := make([]string, 0, len(p.collections.DependentCollections)+1)
+	order = append(order, p.collections.DependentCollections...)
+	order = append(order, p.collections.BlockCollection)
+
+	for i, colName := range order {
 		docIDs, ok := result.DocIDsByCollection[colName]
 		if !ok || len(docIDs) == 0 {
 			continue
 		}
-		purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
-		if err != nil {
-			logger.Sugar.Warnf("Failed to purge %s, re-queuing %d docs: %v", colName, len(docIDs), err)
-			q.Requeue(colName, docIDs)
-		} else {
-			totalPurged += purged
+
+		submitted, err := p.purgeByDocIDs(ctx, colName, docIDs)
+		if err == nil {
+			// A failed collection is re-queued and purged again later, so counting its
+			// partial progress here would count those documents twice.
+			totalSubmitted += submitted
+			continue
 		}
+
+		// Either path puts back whatever was drained, including anything already purged.
+		// Re-purging a document that is gone is a single lookup, whereas dropping it leaks
+		// the document.
+		if errors.Is(err, errStopped) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			// This collection and every one after it are still drained, so all of them go back.
+			docs, cols := q.RequeueDrained(result, order[i:])
+			logger.Sugar.Infof("Prune stopped during %s, re-queued %d docs across %d collections",
+				colName, docs, cols)
+			return nil
+		}
+
+		q.Requeue(colName, docIDs)
+		logger.Sugar.Warnf("Failed to purge %s, re-queued %d docs: %v", colName, len(docIDs), err)
 	}
 
-	if blockIDs, ok := result.DocIDsByCollection[p.collections.BlockCollection]; ok && len(blockIDs) > 0 {
-		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockIDs)
-		if err != nil {
-			logger.Sugar.Warnf("Failed to purge blocks, re-queuing %d docs: %v", len(blockIDs), err)
-			q.Requeue(p.collections.BlockCollection, blockIDs)
-		} else {
-			totalPurged += purged
-		}
-	}
-
-	elapsed := time.Since(startTime)
-	logger.Sugar.Infof("Prune complete: removed %d docs for %d blocks in %v",
-		totalPurged, result.BlockCount, elapsed)
+	logger.Sugar.Infof("Prune cycle done: submitted %d docs for %d blocks in %v",
+		totalSubmitted, result.BlockCount, time.Since(startTime))
 
 	p.mu.Lock()
 	p.totalBlocksPruned += int64(result.BlockCount)
-	p.totalDocsPruned += totalPurged
+	p.totalDocsPruned += totalSubmitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
 
@@ -458,13 +514,22 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 	if len(docIDs) == 0 {
 		return 0, nil
 	}
+	if err := p.stopping(ctx); err != nil {
+		return 0, err
+	}
 
 	startTime := time.Now()
 	logger.Sugar.Infof("Purging %d documents from %s", len(docIDs), collectionName)
 
-	col, err := p.defraNode.DB.GetCollectionByName(ctx, collectionName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get collection %s: %w", collectionName, err)
+	purge := p.purgeDocs
+	if purge == nil {
+		col, err := p.defraNode.DB.GetCollectionByName(ctx, collectionName)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get collection %s: %w", collectionName, err)
+		}
+		purge = func(ctx context.Context, ids []client.DocID) error {
+			return col.PurgeByDocIDs(ctx, ids, p.cfg.PruneHistory)
+		}
 	}
 
 	clientDocIDs := make([]client.DocID, 0, len(docIDs))
@@ -477,14 +542,34 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 		clientDocIDs = append(clientDocIDs, docID)
 	}
 
-	if err := col.PurgeByDocIDs(ctx, clientDocIDs, p.cfg.PruneHistory); err != nil {
-		return 0, err
+	// Submitted in batches so a stop is honoured part-way through. DefraDB commits its
+	// own transactions inside each call and does not check the context, so without this
+	// the whole list runs to completion however long it takes.
+	var submitted int64
+	lastProgress := startTime
+	for i := 0; i < len(clientDocIDs); i += purgeBatchSize {
+		if err := p.stopping(ctx); err != nil {
+			return submitted, err
+		}
+
+		end := min(i+purgeBatchSize, len(clientDocIDs))
+		if err := purge(ctx, clientDocIDs[i:end]); err != nil {
+			return submitted, err
+		}
+		submitted += int64(end - i)
+
+		if time.Since(lastProgress) >= purgeProgressInterval {
+			logger.Sugar.Infof("Purging %s: %d/%d submitted in %v",
+				collectionName, submitted, len(clientDocIDs), time.Since(startTime))
+			lastProgress = time.Now()
+		}
 	}
 
-	count := int64(len(clientDocIDs))
-	logger.Sugar.Infof("Purged %d/%d documents from %s in %v",
-		count, len(docIDs), collectionName, time.Since(startTime))
-	return count, nil
+	// Submitted, not deleted: PurgeByDocIDs reports only an error, and a document that
+	// was already gone purges silently, so this cannot distinguish the two.
+	logger.Sugar.Infof("Submitted %d/%d documents from %s in %v",
+		submitted, len(docIDs), collectionName, time.Since(startTime))
+	return submitted, nil
 }
 
 // ─── Block number queries ────────────────────────────────────────────────────
