@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
 	github.com/cosmos/cosmos-sdk v0.53.5
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/ethereum/go-ethereum v1.17.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/ipfs/go-cid v0.6.2
@@ -15,7 +16,7 @@ require (
 	github.com/shinzonetwork/shinzo-querysig v0.2.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
-	github.com/sourcenetwork/defradb v1.0.1-0.20260724174804-b05811e709e1
+	github.com/sourcenetwork/defradb v1.0.1-0.20260812150722-467dc1ad8b2f
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.11.0
 	github.com/stretchr/testify v1.11.1
@@ -127,7 +128,6 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/desertbit/timer v1.0.1 // indirect
 	github.com/dgraph-io/badger/v4 v4.9.1 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.4.0 // indirect
