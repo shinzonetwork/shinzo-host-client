@@ -57,19 +57,19 @@ type Pruner struct {
 	purgeDocs func(ctx context.Context, docIDs []client.DocID) error
 
 	// Metrics
-	lastPruneTime     time.Time
-	totalBlocksPruned int64
-	totalDocsPruned   int64
-	isRunning         bool
+	lastPruneTime      time.Time
+	totalBlocksPruned  int64
+	totalDocsSubmitted int64
+	isRunning          bool
 }
 
 // Metrics holds pruning statistics.
 type Metrics struct {
-	Enabled           bool      `json:"enabled"`
-	IsRunning         bool      `json:"is_running"`
-	LastPruneTime     time.Time `json:"last_prune_time"`
-	TotalBlocksPruned int64     `json:"total_blocks_pruned"`
-	TotalDocsPruned   int64     `json:"total_docs_pruned"`
+	Enabled            bool      `json:"enabled"`
+	IsRunning          bool      `json:"is_running"`
+	LastPruneTime      time.Time `json:"last_prune_time"`
+	TotalBlocksPruned  int64     `json:"total_blocks_pruned"`
+	TotalDocsSubmitted int64     `json:"total_docs_submitted"`
 }
 
 // NewPruner creates a new Pruner instance.
@@ -169,11 +169,11 @@ func (p *Pruner) GetMetrics() Metrics {
 	defer p.mu.RUnlock()
 
 	return Metrics{
-		Enabled:           p.cfg.Enabled,
-		IsRunning:         p.isRunning,
-		LastPruneTime:     p.lastPruneTime,
-		TotalBlocksPruned: p.totalBlocksPruned,
-		TotalDocsPruned:   p.totalDocsPruned,
+		Enabled:            p.cfg.Enabled,
+		IsRunning:          p.isRunning,
+		LastPruneTime:      p.lastPruneTime,
+		TotalBlocksPruned:  p.totalBlocksPruned,
+		TotalDocsSubmitted: p.totalDocsSubmitted,
 	}
 }
 
@@ -300,7 +300,7 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result
 
 	p.mu.Lock()
 	p.totalBlocksPruned += int64(result.BlockCount)
-	p.totalDocsPruned += totalSubmitted
+	p.totalDocsSubmitted += totalSubmitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
 
@@ -337,17 +337,17 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	logger.Sugar.Infof("Startup cleanup: pruning blocks %d-%d (%d blocks, keeping %d-%d)",
 		lowest, cutoffBlock, toPrune, cutoffBlock+1, highest)
 
-	totalPurged, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
+	totalSubmitted, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
 	if err != nil {
 		logger.Sugar.Errorf("Startup: failed to prune blocks %d-%d: %v", lowest, cutoffBlock, err)
 		return err
 	}
 
-	logger.Sugar.Infof("Startup cleanup complete: purged %d documents", totalPurged)
+	logger.Sugar.Infof("Startup cleanup complete: submitted %d documents", totalSubmitted)
 
 	p.mu.Lock()
 	p.totalBlocksPruned += toPrune
-	p.totalDocsPruned += totalPurged
+	p.totalDocsSubmitted += totalSubmitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
 
@@ -384,14 +384,14 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 	logger.Sugar.Infof("Filter-based prune: %d excess blocks (%d-%d), pruning %d-%d",
 		excess, lowest, highest, lowest, cutoff)
 
-	purged, err := p.pruneBlockRange(ctx, lowest, cutoff)
+	submitted, err := p.pruneBlockRange(ctx, lowest, cutoff)
 	if err != nil {
 		return err
 	}
 
 	p.mu.Lock()
 	p.totalBlocksPruned += excess
-	p.totalDocsPruned += purged
+	p.totalDocsSubmitted += submitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
 
@@ -402,7 +402,7 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 // Uses order+limit queries to get docIDs, then purges them.
 // Safe to call with concurrent P2P replication — merge handles missing blocks gracefully.
 func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
-	totalPurged := int64(0)
+	totalSubmitted := int64(0)
 
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
@@ -415,29 +415,29 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 			continue
 		}
 		if len(docIDs) > 0 {
-			purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
+			submitted, err := p.purgeByDocIDs(ctx, colName, docIDs)
 			if err != nil {
 				logger.Sugar.Warnf("pruneBlockRange: failed to purge %s: %v", colName, err)
 			} else {
-				totalPurged += purged
+				totalSubmitted += submitted
 			}
 		}
 	}
 
 	blockDocIDs, err := p.queryOldestDocIDs(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, endBlock)
 	if err != nil {
-		return totalPurged, fmt.Errorf("query failed for blocks: %w", err)
+		return totalSubmitted, fmt.Errorf("query failed for blocks: %w", err)
 	}
 	if len(blockDocIDs) > 0 {
-		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockDocIDs)
+		submitted, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockDocIDs)
 		if err != nil {
-			return totalPurged, fmt.Errorf("failed to purge blocks: %w", err)
+			return totalSubmitted, fmt.Errorf("failed to purge blocks: %w", err)
 		}
-		totalPurged += purged
+		totalSubmitted += submitted
 	}
 
-	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
-	return totalPurged, nil
+	logger.Sugar.Infof("pruneBlockRange: submitted %d docs for blocks %d-%d", totalSubmitted, startBlock, endBlock)
+	return totalSubmitted, nil
 }
 
 // ─── Document operations ─────────────────────────────────────────────────────
