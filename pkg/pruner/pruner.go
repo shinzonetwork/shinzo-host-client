@@ -259,6 +259,7 @@ func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
 func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result *DrainResult) error {
 	startTime := time.Now()
 	totalSubmitted := int64(0)
+	blocksPruned := int64(0)
 
 	// Dependents before blocks, so a block is never removed ahead of the documents that
 	// reference it.
@@ -277,6 +278,9 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result
 			// A failed collection is re-queued and purged again later, so counting its
 			// partial progress here would count those documents twice.
 			totalSubmitted += submitted
+			if colName == p.collections.BlockCollection {
+				blocksPruned = int64(result.BlockCount)
+			}
 			continue
 		}
 
@@ -299,7 +303,9 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result
 		totalSubmitted, result.BlockCount, time.Since(startTime))
 
 	p.mu.Lock()
-	p.totalBlocksPruned += int64(result.BlockCount)
+	// Only blocks whose own purge succeeded. A re-queued block collection is drained and
+	// counted again on a later cycle, so counting it here counts those blocks twice.
+	p.totalBlocksPruned += blocksPruned
 	p.totalDocsSubmitted += totalSubmitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()

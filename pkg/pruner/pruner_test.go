@@ -2,6 +2,7 @@ package pruner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,6 +159,45 @@ func TestPurgeStopsOnCancelledContext(t *testing.T) {
 	submitted, err := p.purgeByDocIDs(ctx, testLogCollection, []string{testDocID(1)})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, submitted)
+}
+
+// A block collection whose purge fails is re-queued, so the same blocks are drained and
+// counted again later. Counting them on the failed cycle too makes the total exceed the
+// blocks that were ever pruned.
+func TestBlockCounterIgnoresAFailedBlockPurge(t *testing.T) {
+	cols := DefaultCollectionConfig()
+
+	q := NewEventQueue(cols)
+	q.Push(cols.BlockCollection, testDocID(1))
+	result := q.DrainDocs(1)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.BlockCount)
+
+	p := &Pruner{cfg: &Config{Enabled: true}, collections: cols, stopChan: make(chan struct{})}
+	p.purgeDocs = func(context.Context, []client.DocID) error {
+		return errors.New("purge failed")
+	}
+
+	require.NoError(t, p.purgeFromDrainResult(context.Background(), q, result))
+
+	require.Zero(t, p.totalBlocksPruned, "blocks that were re-queued must not count as pruned")
+	require.Equal(t, 1, q.BlockCount(), "guard: the blocks are back on the queue")
+}
+
+// The counter still moves on the path that did purge.
+func TestBlockCounterCountsASuccessfulBlockPurge(t *testing.T) {
+	cols := DefaultCollectionConfig()
+
+	q := NewEventQueue(cols)
+	q.Push(cols.BlockCollection, testDocID(1))
+	result := q.DrainDocs(1)
+	require.NotNil(t, result)
+
+	p := &Pruner{cfg: &Config{Enabled: true}, collections: cols, stopChan: make(chan struct{})}
+	p.purgeDocs = func(context.Context, []client.DocID) error { return nil }
+
+	require.NoError(t, p.purgeFromDrainResult(context.Background(), q, result))
+	require.Equal(t, int64(1), p.totalBlocksPruned)
 }
 
 // DrainDocs empties every collection up front, so a cycle that stops part-way has to re-queue the
