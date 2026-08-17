@@ -108,6 +108,63 @@ func TestDeriveConnectionString_PublicNodeAddress(t *testing.T) {
 	require.Equal(t, "/ip4/65.21.94.184/tcp/9171/p2p/"+testPeerID, deriveConnectionString(r, p2p))
 }
 
+func TestIsRoutableEndpointHost(t *testing.T) {
+	routable := []string{
+		"host.example.com",
+		"shinzo-testnet-host01.natsai.xyz:443",
+		"65.21.94.184:8080",
+		"[2001:db8::1]:8080",
+	}
+	for _, host := range routable {
+		require.True(t, isRoutableEndpointHost(host), host)
+	}
+
+	unreachable := []string{
+		"localhost:8080",
+		"LocalHost",
+		"127.0.0.1:8080",
+		"172.17.0.2:8080",
+		"10.128.0.90",
+		"[::1]:8080",
+		"",
+	}
+	for _, host := range unreachable {
+		require.False(t, isRoutableEndpointHost(host), host)
+	}
+}
+
+func TestDeriveEndpointAddress_Localhost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	r.Host = "localhost:8080"
+
+	require.Empty(t, deriveEndpointAddress(r))
+}
+
+func TestDeriveEndpointAddress_ContainerAddress(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	r.Host = "172.17.0.2:8080"
+
+	require.Empty(t, deriveEndpointAddress(r))
+}
+
+func TestDeriveEndpointAddress_ForwardedHost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	r.Host = "172.17.0.2:8080"
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "shinzo-testnet-host01.natsai.xyz")
+
+	require.Equal(t, "https://shinzo-testnet-host01.natsai.xyz/api/v0/graphql", deriveEndpointAddress(r))
+}
+
+// A proxy that forwards an unreachable host should not mask a usable one on the request.
+func TestDeriveEndpointAddress_FallsThroughUnreachableForwardedHost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	r.Host = "65.21.94.184:8080"
+	r.Header.Set("X-Forwarded-Host", "localhost")
+
+	require.Equal(t, "http://65.21.94.184:8080/api/v0/graphql", deriveEndpointAddress(r))
+}
+
 func TestDeriveConnectionString_NoPeerInfo(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
 	r.Host = "65.21.94.184:8080"

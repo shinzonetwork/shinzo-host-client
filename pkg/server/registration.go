@@ -145,13 +145,13 @@ func deriveEndpointAddress(r *http.Request) string {
 	}
 
 	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
-	if host == "" {
+	if !isRoutableEndpointHost(host) {
 		host = r.Host
 	}
-	if host == "" && r.URL != nil {
+	if !isRoutableEndpointHost(host) && r.URL != nil {
 		host = r.URL.Host
 	}
-	if host == "" {
+	if !isRoutableEndpointHost(host) {
 		return ""
 	}
 
@@ -252,5 +252,29 @@ func isPublicIP4(ip net.IP) bool {
 	if ip == nil || ip.To4() == nil {
 		return false
 	}
+	return isRoutableIP(ip)
+}
+
+// isRoutableIP reports whether ip is reachable from outside this machine.
+func isRoutableIP(ip net.IP) bool {
 	return !ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast()
+}
+
+// isRoutableEndpointHost reports whether host can be reached from outside this machine.
+// Hostnames are accepted as-is; only localhost and non-routable literal addresses are not.
+func isRoutableEndpointHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return isRoutableIP(ip)
+	}
+	return true
 }
