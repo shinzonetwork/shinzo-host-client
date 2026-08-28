@@ -197,7 +197,7 @@ func (hs *HealthServer) deriveConnectionString(r *http.Request, p2p *P2PInfo) st
 
 func (hs *HealthServer) registrationHostIP(r *http.Request) string {
 	ip := requestHostIP(r)
-	if ip != "" && !isPrivateIP(net.ParseIP(ip)) {
+	if ip != "" && isPublicRegistrationIP(net.ParseIP(ip)) {
 		return ip
 	}
 	if hs.registrationPublicHost != "" {
@@ -206,6 +206,13 @@ func (hs *HealthServer) registrationHostIP(r *http.Request) string {
 		}
 	}
 	return ""
+}
+
+func isPublicRegistrationIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return !ip.IsLoopback() && !ip.IsUnspecified() && !isPrivateIP(ip)
 }
 
 func isUnusableRegistrationHost(host string) bool {
