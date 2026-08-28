@@ -21,11 +21,12 @@ var healthStatusPagePath = filepath.Join("pkg", "server", "health_status_page.ht
 
 // HealthServer provides HTTP endpoints for health checks and metrics.
 type HealthServer struct {
-	server            *http.Server
-	host              HealthChecker
-	defraURL          string
-	hostMetrics       http.Handler
-	shinzoHubRESTBase string
+	server                 *http.Server
+	host                   HealthChecker
+	defraURL               string
+	registrationPublicHost string
+	hostMetrics            http.Handler
+	shinzoHubRESTBase      string
 }
 
 // HealthChecker interface for checking host health.
@@ -85,6 +86,7 @@ func NewHealthServer(
 	defraURL string,
 	metricsHandler http.Handler,
 	shinzoHubRESTBase string,
+	registrationPublicHost string,
 ) *HealthServer {
 	mux := http.NewServeMux()
 
@@ -95,10 +97,11 @@ func NewHealthServer(
 			ReadTimeout:  defaultHTTPClientTimeout * healthTimeoutMultiplier,
 			WriteTimeout: defaultHTTPClientTimeout * healthTimeoutMultiplier,
 		},
-		host:              host,
-		defraURL:          defraURL,
-		hostMetrics:       metricsHandler,
-		shinzoHubRESTBase: shinzoHubRESTBase,
+		host:                   host,
+		defraURL:               defraURL,
+		registrationPublicHost: registrationPublicHost,
+		hostMetrics:            metricsHandler,
+		shinzoHubRESTBase:      shinzoHubRESTBase,
 	}
 
 	// Register routes

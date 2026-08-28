@@ -460,7 +460,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if port == 0 {
 		port = 8080
 	}
-	newHost.healthServer = server.NewHealthServer(port, newHost, healthDefraURL, newHost.metrics, lcdURL)
+	newHost.healthServer = server.NewHealthServer(port, newHost, healthDefraURL, newHost.metrics, lcdURL, cfg.HostConfig.RegistrationPublicHost)
 
 	// Start health server in background
 	go func() {
@@ -1000,7 +1000,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 			healthDefraURL = "http://" + testConfig.DefraDB.URL
 		}
 		testLCDURL := deriveShinzoHubURLs(testConfig.Shinzo.HubBaseURL).lcd
-		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics, testLCDURL)
+		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics, testLCDURL, cfg.HostConfig.RegistrationPublicHost)
 
 		// Start the new health server
 		go func() {

@@ -165,10 +165,11 @@ type BlockRangeFilter struct {
 
 // HostConfig represents configuration specific to the Shinzo host application.
 type HostConfig struct {
-	LensRegistryPath   string         `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
-	HealthServerPort   int            `yaml:"health_server_port"`    // Port for the health server (default: 8080)
-	OpenBrowserOnStart bool           `yaml:"open_browser_on_start"` // Auto-open metrics page in browser on startup (default: false)
-	Snapshot           SnapshotConfig `yaml:"snapshot"`              // Snapshot bootstrap configuration
+	LensRegistryPath       string         `yaml:"lens_registry_path"`        // At this path, we will store the lens' wasm files
+	HealthServerPort       int            `yaml:"health_server_port"`        // Port for the health server (default: 8080)
+	RegistrationPublicHost string         `yaml:"registration_public_host"`  // Public host:port for /registration when behind Docker or a proxy
+	OpenBrowserOnStart     bool           `yaml:"open_browser_on_start"`     // Auto-open metrics page in browser on startup (default: false)
+	Snapshot               SnapshotConfig `yaml:"snapshot"`                  // Snapshot bootstrap configuration
 }
 
 // SnapshotConfig configures historical snapshot download and import on startup.
@@ -226,6 +227,13 @@ func LoadConfig(path string) (*Config, error) {
 
 	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN"); v != "" {
 		cfg.Schema.AuthToken = v
+	}
+
+	// REGISTRATION_PUBLIC_HOST supplies the internet-reachable host:port used in
+	// /registration when the incoming request only exposes loopback or private
+	// addresses (typical Docker deployments without X-Forwarded-Host).
+	if v := os.Getenv("REGISTRATION_PUBLIC_HOST"); v != "" {
+		cfg.HostConfig.RegistrationPublicHost = v
 	}
 	if cfg.Schema.IndexerSchemaEndpoint == "" {
 		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint
