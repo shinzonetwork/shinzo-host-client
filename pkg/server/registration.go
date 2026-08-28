@@ -145,13 +145,13 @@ func deriveEndpointAddress(r *http.Request) string {
 	}
 
 	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
-	if host == "" {
+	if !isRoutableEndpointHost(host) {
 		host = r.Host
 	}
-	if host == "" && r.URL != nil {
+	if !isRoutableEndpointHost(host) && r.URL != nil {
 		host = r.URL.Host
 	}
-	if host == "" {
+	if !isRoutableEndpointHost(host) {
 		return ""
 	}
 
@@ -162,6 +162,8 @@ func deriveEndpointAddress(r *http.Request) string {
 	}).String()
 }
 
+// deriveConnectionString suggests the multiaddr to register, preferring the address the
+// request arrived on over the node's own. Returns empty if neither is publicly routable.
 func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if p2p == nil || p2p.Self == nil || p2p.Self.ID == "" {
 		return ""
@@ -174,9 +176,6 @@ func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 
 	if addr := firstUsableP2PAddress(p2p.Self.Addresses); addr != "" {
 		return fmt.Sprintf("%s/p2p/%s", addr, p2p.Self.ID)
-	}
-	if len(p2p.Self.Addresses) > 0 && p2p.Self.Addresses[0] != "" {
-		return fmt.Sprintf("%s/p2p/%s", p2p.Self.Addresses[0], p2p.Self.ID)
 	}
 	return ""
 }
@@ -210,7 +209,7 @@ func hostIP(host string) string {
 	}
 	host = strings.Trim(host, "[]")
 	ip := net.ParseIP(host)
-	if ip == nil || ip.To4() == nil {
+	if !isPublicIP4(ip) {
 		return ""
 	}
 	return ip.String()
@@ -243,8 +242,39 @@ func isUsableIP4Multiaddr(addr string) bool {
 		if parts[i] != "ip4" {
 			continue
 		}
-		ip := net.ParseIP(parts[i+1])
-		return ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsUnspecified()
+		return isPublicIP4(net.ParseIP(parts[i+1]))
 	}
 	return false
+}
+
+// isPublicIP4 reports whether ip is an IPv4 address routable from outside this machine.
+func isPublicIP4(ip net.IP) bool {
+	if ip == nil || ip.To4() == nil {
+		return false
+	}
+	return isRoutableIP(ip)
+}
+
+// isRoutableIP reports whether ip is reachable from outside this machine.
+func isRoutableIP(ip net.IP) bool {
+	return !ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast()
+}
+
+// isRoutableEndpointHost reports whether host can be reached from outside this machine.
+// Hostnames are accepted as-is; only localhost and non-routable literal addresses are not.
+func isRoutableEndpointHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return isRoutableIP(ip)
+	}
+	return true
 }
