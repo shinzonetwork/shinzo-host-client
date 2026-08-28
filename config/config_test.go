@@ -258,6 +258,20 @@ func TestLoadConfig_DefraURLEnvUnsetKeepsYAML(t *testing.T) {
 	require.Equal(t, "localhost:9181", cfg.DefraDB.URL)
 }
 
+func TestLoadConfig_RegistrationPublicHostEnvOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	err := os.WriteFile(configPath, []byte("{}\n"), 0o600)
+	require.NoError(t, err)
+
+	t.Setenv("REGISTRATION_PUBLIC_HOST", "203.0.113.25:8080")
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Equal(t, "203.0.113.25:8080", cfg.HostConfig.RegistrationPublicHost)
+}
+
 func TestLoadConfig_IndexerSchemaEndpoint_YAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")

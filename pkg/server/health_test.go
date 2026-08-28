@@ -512,7 +512,7 @@ func TestNewHealthServer(t *testing.T) {
 	mock := &mockHealthChecker{healthy: true}
 	metrics := NewHostMetrics()
 
-	hs := NewHealthServer(9999, mock, "http://localhost:9181", metrics, "http://testnet.shinzo.network:1317")
+	hs := NewHealthServer(9999, mock, "http://localhost:9181", metrics, "http://testnet.shinzo.network:1317", "")
 	require.NotNil(t, hs)
 	require.NotNil(t, hs.server)
 	require.Equal(t, ":9999", hs.server.Addr)
@@ -521,7 +521,7 @@ func TestNewHealthServer(t *testing.T) {
 }
 
 func TestNewHealthServer_NilMetrics(t *testing.T) {
-	hs := NewHealthServer(9999, nil, "", nil, "")
+	hs := NewHealthServer(9999, nil, "", nil, "", "")
 	require.NotNil(t, hs)
 }
 
@@ -699,7 +699,7 @@ func TestHealthServer_StartStop(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close() // free the port for the server to use
 
-	hs := NewHealthServer(port, nil, "", nil, "")
+	hs := NewHealthServer(port, nil, "", nil, "", "")
 
 	// Start() calls ListenAndServe which blocks, so run it in a goroutine
 	errCh := make(chan error, 1)

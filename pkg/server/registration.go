@@ -69,9 +69,9 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 	} else {
 		logger.Sugar.Debugf("failed to derive registration DID: %v", err)
 	}
-	registration.EndpointAddress = deriveEndpointAddress(r)
+	registration.EndpointAddress = hs.deriveEndpointAddress(r)
 	if p2p, err := hs.host.GetPeerInfo(); err == nil {
-		registration.ConnectionString = deriveConnectionString(r, p2p)
+		registration.ConnectionString = hs.deriveConnectionString(r, p2p)
 	}
 
 	return registration, nil
@@ -130,9 +130,9 @@ func deriveDID(publicKeyHex string) (string, error) {
 	return didDoc.String(), nil
 }
 
-func deriveEndpointAddress(r *http.Request) string {
+func (hs *HealthServer) deriveEndpointAddress(r *http.Request) string {
 	if r == nil {
-		return ""
+		return hs.publicGraphQLEndpoint("")
 	}
 
 	proto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
@@ -151,10 +151,24 @@ func deriveEndpointAddress(r *http.Request) string {
 	if host == "" && r.URL != nil {
 		host = r.URL.Host
 	}
+	if isUnusableRegistrationHost(host) {
+		host = hs.registrationPublicHost
+	}
 	if host == "" {
 		return ""
 	}
 
+	return hs.publicGraphQLEndpointWithScheme(proto, host)
+}
+
+func (hs *HealthServer) publicGraphQLEndpoint(host string) string {
+	return hs.publicGraphQLEndpointWithScheme("http", host)
+}
+
+func (hs *HealthServer) publicGraphQLEndpointWithScheme(proto, host string) string {
+	if host == "" {
+		return ""
+	}
 	return (&url.URL{
 		Scheme: proto,
 		Host:   host,
@@ -162,13 +176,13 @@ func deriveEndpointAddress(r *http.Request) string {
 	}).String()
 }
 
-func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
+func (hs *HealthServer) deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if p2p == nil || p2p.Self == nil || p2p.Self.ID == "" {
 		return ""
 	}
 
 	port := p2pPort(p2p.Self.Addresses)
-	if ip := requestHostIP(r); ip != "" {
+	if ip := hs.registrationHostIP(r); ip != "" {
 		return fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, p2p.Self.ID)
 	}
 
@@ -179,6 +193,45 @@ func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 		return fmt.Sprintf("%s/p2p/%s", p2p.Self.Addresses[0], p2p.Self.ID)
 	}
 	return ""
+}
+
+func (hs *HealthServer) registrationHostIP(r *http.Request) string {
+	ip := requestHostIP(r)
+	if ip != "" && !isPrivateIP(net.ParseIP(ip)) {
+		return ip
+	}
+	if hs.registrationPublicHost != "" {
+		if publicIP := hostIP(hs.registrationPublicHost); publicIP != "" {
+			return publicIP
+		}
+	}
+	return ""
+}
+
+func isUnusableRegistrationHost(host string) bool {
+	if host == "" {
+		return true
+	}
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		host = splitHost
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsUnspecified() || isPrivateIP(ip)
+}
+
+func isPrivateIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	// Treat RFC1918, link-local, and Docker bridge ranges as non-public for registration.
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
 func firstForwardedValue(value string) string {
@@ -244,7 +297,7 @@ func isUsableIP4Multiaddr(addr string) bool {
 			continue
 		}
 		ip := net.ParseIP(parts[i+1])
-		return ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsUnspecified()
+		return ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsUnspecified() && !isPrivateIP(ip)
 	}
 	return false
 }
