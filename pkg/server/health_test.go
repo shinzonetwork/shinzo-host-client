@@ -897,6 +897,7 @@ func TestDefraQueryURL(t *testing.T) {
 	cases := map[string]string{
 		"0.0.0.0:9181":              "http://127.0.0.1:9181/api/v0/graphql",
 		"[::]:9181":                 "http://127.0.0.1:9181/api/v0/graphql",
+		":1234":                     "http://127.0.0.1:1234/api/v0/graphql",
 		"localhost:9181":            "http://localhost:9181/api/v0/graphql",
 		"http://localhost:9181":     "http://localhost:9181/api/v0/graphql",
 		"https://defra.example.com": "https://defra.example.com/api/v0/graphql",
