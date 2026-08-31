@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"runtime"
+	"runtime/metrics"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
@@ -44,10 +45,17 @@ func (h *Host) reportStats(ctx context.Context) {
 	prev := h.metrics.GetSnapshot()
 	prevBlock := h.GetCurrentBlock()
 
+	// objects plus unused is the bytes held by in-use spans.
+	samples := []metrics.Sample{
+		{Name: "/memory/classes/heap/objects:bytes"},
+		{Name: "/memory/classes/heap/unused:bytes"},
+		{Name: "/gc/heap/goal:bytes"},
+		{Name: "/gc/cycles/total:gc-cycles"},
+	}
+
 	// Seeded so the first line reports an interval delta like every line after it.
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	prevGC := mem.NumGC
+	metrics.Read(samples)
+	prevGC := metricUint64(samples[3])
 
 	for {
 		select {
@@ -57,9 +65,10 @@ func (h *Host) reportStats(ctx context.Context) {
 			cur := h.metrics.GetSnapshot()
 			block := h.GetCurrentBlock()
 
-			// Brief stop-the-world, acceptable once per interval. Read here because a
-			// deployment may not expose pprof, leaving no other view of the heap.
-			runtime.ReadMemStats(&mem)
+			metrics.Read(samples)
+			heapInUse := metricUint64(samples[0]) + metricUint64(samples[1])
+			gcGoal := metricUint64(samples[2])
+			gcCycles := metricUint64(samples[3])
 
 			logger.Sugar.Infof(
 				"host stats: block=%d advance=%d docs=%d txs=%d logs=%d blockSigs=%d "+
@@ -78,13 +87,22 @@ func (h *Host) reportStats(ctx context.Context) {
 				cur.ViewsActive,
 				cur.LastProcessingTime,
 				h.pruneQueueLen(),
-				mem.HeapInuse/bytesPerMiB,
-				mem.NextGC/bytesPerMiB,
-				mem.NumGC-prevGC,
+				heapInUse/bytesPerMiB,
+				gcGoal/bytesPerMiB,
+				gcCycles-prevGC,
 				runtime.NumGoroutine(),
 			)
 
-			prev, prevBlock, prevGC = cur, block, mem.NumGC
+			prev, prevBlock, prevGC = cur, block, gcCycles
 		}
 	}
+}
+
+// metricUint64 reads a uint64 metric. An unrecognised name reads as zero, since
+// Value.Uint64 panics on one.
+func metricUint64(s metrics.Sample) uint64 {
+	if s.Value.Kind() != metrics.KindUint64 {
+		return 0
+	}
+	return s.Value.Uint64()
 }

@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"runtime/metrics"
 	"testing"
 	"time"
 
@@ -65,4 +66,21 @@ func TestReportStatsStopsWithContext(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("reportStats did not return after its context was cancelled")
 	}
+}
+
+// An unrecognised name would panic Value.Uint64, and reportStats runs on its own
+// goroutine.
+func TestMetricUint64(t *testing.T) {
+	samples := []metrics.Sample{
+		{Name: "/gc/cycles/total:gc-cycles"},
+		{Name: "/gc/cycles/total:gc-cycles-not-a-metric"},
+	}
+	metrics.Read(samples)
+
+	require.Equal(t, metrics.KindUint64, samples[0].Value.Kind())
+	require.Equal(t, samples[0].Value.Uint64(), metricUint64(samples[0]))
+
+	require.Equal(t, metrics.KindBad, samples[1].Value.Kind())
+	require.NotPanics(t, func() { metricUint64(samples[1]) })
+	require.Zero(t, metricUint64(samples[1]))
 }
