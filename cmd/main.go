@@ -35,6 +35,9 @@ const (
 // own use, which is also why no listener here should ever be given a nil handler.
 func newDebugMux() *http.ServeMux {
 	mux := http.NewServeMux()
+	// The level is read once at corelog init, so without this the only way to change it is
+	// a container recreate, which drops the in-memory prune queue.
+	mux.HandleFunc(logger.LevelPath, logger.LevelHandler)
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
