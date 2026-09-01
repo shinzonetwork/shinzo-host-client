@@ -22,6 +22,10 @@ const (
 	purgeProgressInterval = 30 * time.Second
 )
 
+// dependentBlockNumberField names the block a dependent document belongs to. The block collection
+// names its own field through CollectionConfig.
+const dependentBlockNumberField = "blockNumber"
+
 // errStopped ends a purge early because the pruner is shutting down. Its documents are
 // re-queued, so the work resumes rather than being lost.
 var errStopped = errors.New("pruner stopped")
@@ -47,9 +51,13 @@ type Pruner struct {
 	collections CollectionConfig
 	defraNode   *node.Node
 	queue       PrunerQueue // EventQueue (the only implementation in host)
-	stopChan    chan struct{}
-	wg          sync.WaitGroup
-	mu          sync.RWMutex
+	// retainHistory disables the height sweep, for a node bootstrapped with history it should keep.
+	retainHistory bool
+	// heightPrunable is the subset of DependentCollections carrying dependentBlockNumberField.
+	heightPrunable []string
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	mu             sync.RWMutex
 
 	// purgeDocs deletes one batch of documents. Set only by tests; in production it is nil
 	// and the collection's own PurgeByDocIDs is used, since a purge is otherwise only
@@ -89,6 +97,11 @@ func NewPruner(cfg *Config, defraNode *node.Node, collections ...CollectionConfi
 // SetQueue sets the queue implementation for queue-based pruning.
 func (p *Pruner) SetQueue(queue PrunerQueue) {
 	p.queue = queue
+}
+
+// SetRetainHistory keeps blocks below the retention window instead of pruning them by height.
+func (p *Pruner) SetRetainHistory(retain bool) {
+	p.retainHistory = retain
 }
 
 // Start begins the pruning loop in a background goroutine.
@@ -181,6 +194,8 @@ func (p *Pruner) GetMetrics() Metrics {
 func (p *Pruner) pruneLoop(ctx context.Context) {
 	defer p.wg.Done()
 
+	p.heightPrunable = p.resolveHeightPrunable(ctx)
+
 	// Run startup cleanup only for indexer queues (no P2P) or when no queue is set.
 	// For event queues (hosts), skip startup cleanup — the DB may contain snapshot-
 	// imported data that should not be pruned. Only queue-tracked data gets pruned.
@@ -211,17 +226,43 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 	}
 }
 
+// resolveHeightPrunable returns the dependent collections the height sweep can order on. One
+// without the field is bounded only by the queue.
+func (p *Pruner) resolveHeightPrunable(ctx context.Context) []string {
+	prunable := make([]string, 0, len(p.collections.DependentCollections))
+	var skipped []string
+
+	for _, name := range p.collections.DependentCollections {
+		col, err := p.defraNode.DB.GetCollectionByName(ctx, name)
+		if err != nil {
+			skipped = append(skipped, name)
+			continue
+		}
+		if _, ok := col.Version().GetFieldByName(dependentBlockNumberField); !ok {
+			skipped = append(skipped, name)
+			continue
+		}
+		prunable = append(prunable, name)
+	}
+
+	if len(skipped) > 0 {
+		logger.Sugar.Warnf("Height prune skips %v: no %s field, so these are bounded only by the queue",
+			skipped, dependentBlockNumberField)
+	}
+	return prunable
+}
+
 // runPrune executes the appropriate pruning strategy based on queue type and state.
 func (p *Pruner) runPrune(ctx context.Context) error {
 	if p.queue == nil {
-		return p.filterBasedPrune(ctx)
+		return p.pruneBeyondRetention(ctx, p.cfg.MaxDocsPerCycle)
 	}
 
 	switch q := p.queue.(type) {
 	case *EventQueue:
 		return p.runEventQueuePrune(ctx, q)
 	default:
-		return p.filterBasedPrune(ctx)
+		return p.pruneBeyondRetention(ctx, p.cfg.MaxDocsPerCycle)
 	}
 }
 
@@ -230,31 +271,40 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 // arrive in non-deterministic order — block docs may arrive before their
 // dependent docs (transactions, logs, etc.).
 func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
+	drained, err := p.drainQueue(ctx, q)
+	if err != nil {
+		return err
+	}
+	if p.retainHistory {
+		return nil
+	}
+	return p.pruneBeyondRetention(ctx, p.cfg.MaxDocsPerCycle-drained)
+}
+
+// drainQueue removes the queue's excess over max_docs, within the cycle's budget, and returns how
+// much of the budget it used.
+func (p *Pruner) drainQueue(ctx context.Context, q *EventQueue) (int64, error) {
 	totalDocs := int64(q.Len())
 	maxDocs := p.cfg.MaxDocs()
 
 	if totalDocs <= maxDocs {
-		// Queue is underfilled (e.g., after a crash restart where the queue was lost).
-		// Do NOT fall back to filter-based pruning — the DB may contain snapshot-
-		// imported data that should not be pruned. Only prune what the queue tracks.
-		//
 		// Logged so a queue that never reaches the threshold is distinguishable from a
 		// pruner that is not running.
 		logger.Sugar.Infof("Prune skipped: queue has %d docs, threshold %d (max_blocks=%d × docs_per_block=%d)",
 			totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock)
-		return nil
+		return 0, nil
 	}
 
-	excess := int(totalDocs - maxDocs)
-	result := q.DrainDocs(excess)
+	excess := min(totalDocs-maxDocs, p.cfg.MaxDocsPerCycle)
+	result := q.DrainDocs(int(excess))
 	if result == nil {
-		return nil
+		return 0, nil
 	}
 
 	logger.Sugar.Infof("Pruning %d docs (%d blocks), queue had %d docs, keeping %d (max_blocks=%d × docs_per_block=%d, prune_history=%v)",
 		excess, result.BlockCount, totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock, p.cfg.PruneHistory)
 
-	return p.purgeFromDrainResult(ctx, q, result)
+	return excess, p.purgeFromDrainResult(ctx, q, result)
 }
 
 // purgeFromDrainResult deletes documents from a DrainResult, dependent collections first and
@@ -348,7 +398,7 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	logger.Sugar.Infof("Startup cleanup: pruning blocks %d-%d (%d blocks, keeping %d-%d)",
 		lowest, cutoffBlock, toPrune, cutoffBlock+1, highest)
 
-	totalSubmitted, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
+	totalSubmitted, blocksPruned, err := p.pruneBelow(ctx, cutoffBlock, p.cfg.MaxDocsPerCycle)
 	if err != nil {
 		logger.Sugar.Errorf("Startup: failed to prune blocks %d-%d: %v", lowest, cutoffBlock, err)
 		return err
@@ -357,7 +407,7 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	logger.Sugar.Infof("Startup cleanup complete: submitted %d documents", totalSubmitted)
 
 	p.mu.Lock()
-	p.totalBlocksPruned += toPrune
+	p.totalBlocksPruned += blocksPruned
 	p.totalDocsSubmitted += totalSubmitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
@@ -365,43 +415,35 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	return nil
 }
 
-// filterBasedPrune checks the actual DB block count and prunes excess blocks.
-// Used by the indexer queue (no P2P) and as a fallback when the queue is underfilled.
-func (p *Pruner) filterBasedPrune(ctx context.Context) error {
+// pruneBeyondRetention removes documents for blocks below the retention window, whether or not the
+// queue knows about them, within the budget left for this cycle. The cutoff is measured from the
+// highest block the node holds.
+func (p *Pruner) pruneBeyondRetention(ctx context.Context, budget int64) error {
+	if budget <= 0 {
+		return nil
+	}
+
 	highest, err := p.getHighestBlockNumber(ctx)
 	if err != nil {
 		return err
 	}
-	if highest == 0 {
+
+	cutoff := highest - p.cfg.MaxBlocks
+	if cutoff <= 0 {
+		// The node holds no more than the retention window, including when the store is empty.
 		return nil
 	}
 
-	lowest, err := p.getLowestBlockNumber(ctx)
+	submitted, blocks, err := p.pruneBelow(ctx, cutoff, budget)
 	if err != nil {
 		return err
 	}
-	if lowest == 0 {
+	if submitted == 0 {
 		return nil
-	}
-
-	dbBlockCount := highest - lowest + 1
-	if dbBlockCount <= p.cfg.MaxBlocks {
-		return nil
-	}
-
-	excess := dbBlockCount - p.cfg.MaxBlocks
-	cutoff := lowest + excess - 1
-
-	logger.Sugar.Infof("Filter-based prune: %d excess blocks (%d-%d), pruning %d-%d",
-		excess, lowest, highest, lowest, cutoff)
-
-	submitted, err := p.pruneBlockRange(ctx, lowest, cutoff)
-	if err != nil {
-		return err
 	}
 
 	p.mu.Lock()
-	p.totalBlocksPruned += excess
+	p.totalBlocksPruned += blocks
 	p.totalDocsSubmitted += submitted
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
@@ -409,54 +451,78 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 	return nil
 }
 
-// pruneBlockRange removes all documents for blocks in [startBlock, endBlock].
-// Uses order+limit queries to get docIDs, then purges them.
-// Safe to call with concurrent P2P replication — merge handles missing blocks gracefully.
-func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
-	totalSubmitted := int64(0)
-
-	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
-		startBlock, endBlock, endBlock-startBlock+1)
-
-	// Dependent collections first, block collection last
-	for _, colName := range p.collections.DependentCollections {
-		docIDs, err := p.queryOldestDocIDs(ctx, colName, "blockNumber", endBlock)
+// pruneBelow removes documents at or below cutoff, dependent collections before the block
+// collection, so a block is not removed ahead of the documents that reference it. A stop ends the
+// cycle where it is; what is left is found again by the next one.
+//
+// Safe to run alongside P2P replication: a merge for a removed block is handled as a new document.
+func (p *Pruner) pruneBelow(ctx context.Context, cutoff, budget int64) (submitted, blocks int64, err error) {
+	for _, colName := range p.heightPrunable {
+		purged, err := p.purgeCollectionBelow(ctx, colName, dependentBlockNumberField, cutoff, budget-submitted)
 		if err != nil {
-			logger.Sugar.Warnf("pruneBlockRange: query failed for %s (skipping): %v", colName, err)
+			if abandoned(err) {
+				return submitted, blocks, nil
+			}
+			logger.Sugar.Warnf("Prune below %d: %s skipped: %v", cutoff, colName, err)
 			continue
 		}
-		if len(docIDs) > 0 {
-			submitted, err := p.purgeByDocIDs(ctx, colName, docIDs)
-			if err != nil {
-				logger.Sugar.Warnf("pruneBlockRange: failed to purge %s: %v", colName, err)
-			} else {
-				totalSubmitted += submitted
-			}
-		}
+		submitted += purged
 	}
 
-	blockDocIDs, err := p.queryOldestDocIDs(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, endBlock)
+	blocks, err = p.purgeCollectionBelow(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, cutoff, budget-submitted)
 	if err != nil {
-		return totalSubmitted, fmt.Errorf("query failed for blocks: %w", err)
-	}
-	if len(blockDocIDs) > 0 {
-		submitted, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockDocIDs)
-		if err != nil {
-			return totalSubmitted, fmt.Errorf("failed to purge blocks: %w", err)
+		if abandoned(err) {
+			return submitted, 0, nil
 		}
-		totalSubmitted += submitted
+		return submitted, 0, fmt.Errorf("prune below %d: %s: %w", cutoff, p.collections.BlockCollection, err)
+	}
+	submitted += blocks
+
+	if submitted > 0 {
+		logger.Sugar.Infof("Prune below %d: submitted %d documents across %d blocks", cutoff, submitted, blocks)
+	}
+	return submitted, blocks, nil
+}
+
+// abandoned reports whether an error ended the work rather than failed it, so the caller stops
+// instead of moving on to the next collection.
+func abandoned(err error) bool {
+	return errors.Is(err, errStopped) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// purgeCollectionBelow removes one collection's documents at or below cutoff, up to the query
+// limit. Each collection is checked on its own, because a dependent can hold older blocks than the
+// block collection does.
+func (p *Pruner) purgeCollectionBelow(ctx context.Context, collectionName, fieldName string, cutoff, limit int64) (int64, error) {
+	oldest, found, err := p.edgeBlockNumber(ctx, collectionName, fieldName, "ASC")
+	if err != nil {
+		return 0, err
+	}
+	if !found || oldest > cutoff {
+		return 0, nil
 	}
 
-	logger.Sugar.Infof("pruneBlockRange: submitted %d docs for blocks %d-%d", totalSubmitted, startBlock, endBlock)
-	return totalSubmitted, nil
+	docIDs, err := p.queryOldestDocIDs(ctx, collectionName, fieldName, cutoff, limit)
+	if err != nil {
+		return 0, err
+	}
+	if len(docIDs) == 0 {
+		return 0, nil
+	}
+
+	return p.purgeByDocIDs(ctx, collectionName, docIDs)
 }
 
 // ─── Document operations ─────────────────────────────────────────────────────
 
 // queryOldestDocIDs queries for docIDs where fieldName <= maxBlockNumber using order+limit.
 // Works on P2P-replicated data where filter queries return empty results.
-func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldName string, maxBlockNumber int64) ([]string, error) {
-	limit := 50000
+func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldName string, maxBlockNumber, limit int64) ([]string, error) {
+	// A limit of zero is unlimited to the query planner, so a spent budget stops here.
+	if limit <= 0 {
+		return nil, nil
+	}
+
 	query := fmt.Sprintf(`query {
 		%s(order: { %s: ASC }, limit: %d) {
 			_docID
@@ -584,67 +650,59 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 // ─── Block number queries ────────────────────────────────────────────────────
 
 func (p *Pruner) getLowestBlockNumber(ctx context.Context) (int64, error) {
-	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: ASC}, limit: 1) {
-			` + p.collections.BlockNumberField + `
-		}
-	}`
-
-	result := p.defraNode.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0, result.GQL.Errors[0]
-	}
-
-	return p.extractBlockNumber(result.GQL.Data)
+	lowest, _, err := p.edgeBlockNumber(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, "ASC")
+	return lowest, err
 }
 
 func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
-	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: DESC}, limit: 1) {
-			` + p.collections.BlockNumberField + `
+	highest, _, err := p.edgeBlockNumber(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, "DESC")
+	return highest, err
+}
+
+// edgeBlockNumber reads the block number at one end of a collection's ordering. The bool is false
+// when the collection is empty, which a zero block number cannot be distinguished from otherwise.
+func (p *Pruner) edgeBlockNumber(ctx context.Context, collectionName, fieldName, direction string) (int64, bool, error) {
+	query := fmt.Sprintf(`query {
+		%s(order: { %s: %s }, limit: 1) {
+			%s
 		}
-	}`
+	}`, collectionName, fieldName, direction, fieldName)
 
 	result := p.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return 0, result.GQL.Errors[0]
+		return 0, false, result.GQL.Errors[0]
 	}
 
-	return p.extractBlockNumber(result.GQL.Data)
+	return extractBlockNumber(result.GQL.Data, collectionName, fieldName)
 }
 
-func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
+func extractBlockNumber(gqlData any, collectionName, fieldName string) (int64, bool, error) {
 	data, ok := gqlData.(map[string]any)
 	if !ok {
-		return 0, nil
+		return 0, false, nil
 	}
 
-	blocksRaw := data[p.collections.BlockCollection]
-
-	if blocksTyped, ok := blocksRaw.([]map[string]any); ok {
-		if len(blocksTyped) == 0 {
-			return 0, nil
+	// DefraDB returns []map[string]any or []any depending on context; both reach here.
+	var first map[string]any
+	switch docs := data[collectionName].(type) {
+	case []map[string]any:
+		if len(docs) == 0 {
+			return 0, false, nil
 		}
-		if number, ok := blocksTyped[0][p.collections.BlockNumberField]; ok {
-			return parseBlockNumber(number)
+		first = docs[0]
+	case []any:
+		if len(docs) == 0 {
+			return 0, false, nil
 		}
-		return 0, nil
+		if first, ok = docs[0].(map[string]any); !ok {
+			return 0, false, nil
+		}
+	default:
+		return 0, false, nil
 	}
 
-	blocks, ok := blocksRaw.([]any)
-	if !ok || len(blocks) == 0 {
-		return 0, nil
-	}
-
-	block, ok := blocks[0].(map[string]any)
-	if !ok {
-		return 0, nil
-	}
-
-	if number, ok := block[p.collections.BlockNumberField]; ok {
-		return parseBlockNumber(number)
-	}
-	return 0, nil
+	number, err := parseBlockNumber(first[fieldName])
+	return number, err == nil, err
 }
 
 func parseBlockNumber(number any) (int64, error) {

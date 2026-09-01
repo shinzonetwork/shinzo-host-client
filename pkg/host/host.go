@@ -489,6 +489,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 		p := pruner.NewPruner(&cfg.Pruner, defraNode)
 		p.SetQueue(pruneQueue)
+		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)

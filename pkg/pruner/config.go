@@ -1,5 +1,7 @@
 package pruner
 
+const defaultMaxDocsPerCycle = 50000
+
 // Config represents pruner configuration for removing old documents.
 type Config struct {
 	Enabled         bool  `yaml:"enabled"`
@@ -8,6 +10,9 @@ type Config struct {
 	PruneThreshold  int64 `yaml:"prune_threshold"` // Deprecated: kept for backward compatibility, unused by pruner
 	IntervalSeconds int   `yaml:"interval_seconds"`
 	PruneHistory    bool  `yaml:"prune_history"`
+	// MaxDocsPerCycle bounds the documents one cycle removes, across the queue drain and the
+	// height sweep together. Set it above the arrival rate over one interval, or the store grows.
+	MaxDocsPerCycle int64 `yaml:"max_docs_per_cycle"`
 }
 
 // CollectionConfig defines which collections to prune and how.
@@ -54,5 +59,8 @@ func (c *Config) SetDefaults() {
 	}
 	if c.IntervalSeconds <= 0 {
 		c.IntervalSeconds = 60
+	}
+	if c.MaxDocsPerCycle <= 0 {
+		c.MaxDocsPerCycle = defaultMaxDocsPerCycle
 	}
 }
