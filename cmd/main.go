@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -35,34 +36,46 @@ const (
 // own use, which is also why no listener here should ever be given a nil handler.
 func newDebugMux() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+	// Symbolisation takes its address list in the request body, so it also accepts POST.
+	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("POST /debug/pprof/symbol", pprof.Symbol)
 	return mux
 }
 
 // serveDebug starts the debug listener on addr. The listener is what makes the endpoints
 // reachable, so leaving the address unset turns them off without a rebuild.
-func serveDebug(addr string) {
+//
+// Binds synchronously, so an address that cannot be served is returned as an error
+// instead of failing later in the background.
+func serveDebug(addr string) error {
 	if os.Getenv("PPROF_BLOCK_MUTEX") != "" {
 		runtime.SetBlockProfileRate(blockProfileRate)
 		runtime.SetMutexProfileFraction(1)
 	}
 
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           newDebugMux(),
 		ReadHeaderTimeout: debugReadHeaderTimeout,
 	}
 
+	fmt.Fprintf(os.Stderr, "debug endpoints listening on %s\n", listener.Addr())
+
 	go func() {
-		fmt.Fprintf(os.Stderr, "debug endpoints listening on %s\n", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintf(os.Stderr, "debug listener stopped: %v\n", err)
 		}
 	}()
+
+	return nil
 }
 
 func findConfigFile() string {
@@ -83,7 +96,9 @@ func findConfigFile() string {
 
 func main() {
 	if addr := os.Getenv("PPROF_ADDR"); addr != "" {
-		serveDebug(addr)
+		if err := serveDebug(addr); err != nil {
+			fmt.Fprintf(os.Stderr, "debug listener not started: %v\n", err)
+		}
 	}
 
 	// Registered before startup so a signal arriving during it is not left unhandled.
