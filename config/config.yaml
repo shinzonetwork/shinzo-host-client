@@ -107,6 +107,7 @@ pruner:
   docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
+  max_docs_per_cycle: 50000 # Documents removed per cycle, across the queue drain and the height sweep. Must exceed the arrival rate over one interval.
 schema:
   indexer_schema_endpoint: /api/v1/schema
   http_client_timeout_secs: 30
