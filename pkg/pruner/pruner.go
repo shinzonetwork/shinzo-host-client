@@ -237,6 +237,11 @@ func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
 		// Queue is underfilled (e.g., after a crash restart where the queue was lost).
 		// Do NOT fall back to filter-based pruning — the DB may contain snapshot-
 		// imported data that should not be pruned. Only prune what the queue tracks.
+		//
+		// Logged so a queue that never reaches the threshold is distinguishable from a
+		// pruner that is not running.
+		logger.Sugar.Infof("Prune skipped: queue has %d docs, threshold %d (max_blocks=%d × docs_per_block=%d)",
+			totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock)
 		return nil
 	}
 
