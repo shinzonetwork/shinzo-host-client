@@ -12,14 +12,51 @@ import (
 func TestDebugMuxServesProfiles(t *testing.T) {
 	mux := newDebugMux()
 
-	for _, path := range []string{"/debug/pprof/", "/debug/pprof/heap", "/debug/pprof/cmdline"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/debug/pprof/"},
+		{http.MethodGet, "/debug/pprof/heap"},
+		{http.MethodGet, "/debug/pprof/cmdline"},
+		{http.MethodGet, "/debug/pprof/symbol"},
+		{http.MethodPost, "/debug/pprof/symbol"},
+	}
+
+	for _, c := range cases {
+		req := httptest.NewRequest(c.method, c.path, nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
-			t.Errorf("%s: got %d, want %d", path, rec.Code, http.StatusOK)
+			t.Errorf("%s %s: got %d, want %d", c.method, c.path, rec.Code, http.StatusOK)
 		}
+	}
+}
+
+func TestDebugMuxRejectsWritesToReadEndpoints(t *testing.T) {
+	mux := newDebugMux()
+
+	for _, path := range []string{"/debug/pprof/", "/debug/pprof/heap", "/debug/pprof/cmdline"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s: got %d, want %d", path, rec.Code, http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func TestServeDebugReportsAnUnusableAddress(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve a port: %v", err)
+	}
+	defer func() { _ = held.Close() }()
+
+	if err := serveDebug(held.Addr().String()); err == nil {
+		t.Error("serveDebug accepted an address already in use")
 	}
 }
 
@@ -49,24 +86,18 @@ func TestServeDebugServesProfilingOnly(t *testing.T) {
 		t.Fatalf("failed to release the reserved port: %v", err)
 	}
 
-	serveDebug(addr)
+	if err := serveDebug(addr); err != nil {
+		t.Fatalf("serveDebug(%s): %v", addr, err)
+	}
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	get := func(path string) int {
-		// serveDebug starts listening in the background, so the first attempts can race it.
-		var lastErr error
-		for range 50 {
-			resp, err := client.Get("http://" + addr + path)
-			if err != nil {
-				lastErr = err
-				time.Sleep(20 * time.Millisecond)
-				continue
-			}
-			defer func() { _ = resp.Body.Close() }()
-			return resp.StatusCode
+		resp, err := client.Get("http://" + addr + path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
 		}
-		t.Fatalf("%s: debug listener never came up: %v", path, lastErr)
-		return 0
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode
 	}
 
 	for _, path := range []string{"/debug/pprof/", "/debug/pprof/cmdline"} {
