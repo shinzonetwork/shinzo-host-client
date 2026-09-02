@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,26 @@ func TestDebugMuxRejectsWritesToReadEndpoints(t *testing.T) {
 
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("POST %s: got %d, want %d", path, rec.Code, http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func TestDebugMuxServesStorageCounters(t *testing.T) {
+	mux := newDebugMux()
+
+	req := httptest.NewRequest(http.MethodGet, "/debug/vars", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// The write counters are what this endpoint is served for, and an empty expvar set
+	// would answer 200 just the same.
+	for _, name := range []string{"badger_write_bytes_user", "badger_write_bytes_compaction"} {
+		if !strings.Contains(rec.Body.String(), name) {
+			t.Errorf("%s missing from /debug/vars", name)
 		}
 	}
 }
