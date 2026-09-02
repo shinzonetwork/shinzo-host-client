@@ -180,9 +180,9 @@ func TestPruneHandlesBlockZero(t *testing.T) {
 	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentBlockNumberField))
 }
 
-// The drain and the height sweep share one budget, so a cycle that spends it draining does not
-// then run an unbounded sweep.
-func TestQueueDrainAndHeightSweepShareTheCycleBudget(t *testing.T) {
+// A queue far enough over its threshold to spend the whole drain budget must still leave the
+// sweep able to run.
+func TestHeightSweepRunsWhenTheDrainSpendsItsBudget(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{
 		Enabled: true, MaxBlocks: 5, DocsPerBlock: 1, MaxDocsPerCycle: 4,
 	})
@@ -196,8 +196,12 @@ func TestQueueDrainAndHeightSweepShareTheCycleBudget(t *testing.T) {
 
 	require.NoError(t, p.runPrune(context.Background()))
 
+	// 9 queued against a threshold of 5, capped at 4.
 	require.Equal(t, 5, q.Len())
-	require.Len(t, blockNumbers(t, n, logCollection, dependentBlockNumberField), 20)
+	// The cutoff is 15, and the sweep spends its own 4 on the oldest logs.
+	require.Equal(t, []int64{5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+		blockNumbers(t, n, logCollection, dependentBlockNumberField))
+	// Blocks come last and the sweep budget is gone by then.
 	require.Len(t, blockNumbers(t, n, blockCollection, blockNumberColumn), 20)
 }
 
@@ -296,13 +300,9 @@ func TestDrainQueueStopsAtThePerCycleLimit(t *testing.T) {
 		q.Push(logCollection, testDocID(i))
 	}
 
-	drained, err := p.drainQueue(context.Background(), q)
-	require.NoError(t, err)
-	require.Equal(t, int64(25), drained)
+	require.NoError(t, p.drainQueue(context.Background(), q))
 	require.Equal(t, 175, q.Len())
 
-	drained, err = p.drainQueue(context.Background(), q)
-	require.NoError(t, err)
-	require.Equal(t, int64(25), drained)
+	require.NoError(t, p.drainQueue(context.Background(), q))
 	require.Equal(t, 150, q.Len())
 }

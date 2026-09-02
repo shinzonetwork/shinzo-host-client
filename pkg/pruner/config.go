@@ -10,8 +10,8 @@ type Config struct {
 	PruneThreshold  int64 `yaml:"prune_threshold"` // Deprecated: kept for backward compatibility, unused by pruner
 	IntervalSeconds int   `yaml:"interval_seconds"`
 	PruneHistory    bool  `yaml:"prune_history"`
-	// MaxDocsPerCycle bounds the documents one cycle removes, across the queue drain and the
-	// height sweep together. Set it above the arrival rate over one interval, or the store grows.
+	// MaxDocsPerCycle bounds what each of the queue drain and the height sweep removes in one
+	// cycle. Set it above the arrival rate over one interval, or the store grows.
 	MaxDocsPerCycle int64 `yaml:"max_docs_per_cycle"`
 }
 
