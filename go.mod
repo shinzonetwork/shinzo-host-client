@@ -16,7 +16,7 @@ require (
 	github.com/shinzonetwork/shinzo-querysig v0.2.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
-	github.com/sourcenetwork/defradb v1.0.1-0.20260724174804-b05811e709e1
+	github.com/sourcenetwork/defradb v1.0.1-0.20260901123234-07461cb2c4dd
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.11.0
 	github.com/stretchr/testify v1.12.1
