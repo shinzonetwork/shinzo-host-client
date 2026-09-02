@@ -271,19 +271,19 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 // arrive in non-deterministic order — block docs may arrive before their
 // dependent docs (transactions, logs, etc.).
 func (p *Pruner) runEventQueuePrune(ctx context.Context, q *EventQueue) error {
-	drained, err := p.drainQueue(ctx, q)
-	if err != nil {
+	if err := p.drainQueue(ctx, q); err != nil {
 		return err
 	}
 	if p.retainHistory {
 		return nil
 	}
-	return p.pruneBeyondRetention(ctx, p.cfg.MaxDocsPerCycle-drained)
+	// Budgeted separately from the drain: the two select different documents, and a queue far
+	// enough over its threshold would otherwise leave the sweep nothing.
+	return p.pruneBeyondRetention(ctx, p.cfg.MaxDocsPerCycle)
 }
 
-// drainQueue removes the queue's excess over max_docs, within the cycle's budget, and returns how
-// much of the budget it used.
-func (p *Pruner) drainQueue(ctx context.Context, q *EventQueue) (int64, error) {
+// drainQueue removes the queue's excess over max_docs, within the cycle's budget.
+func (p *Pruner) drainQueue(ctx context.Context, q *EventQueue) error {
 	totalDocs := int64(q.Len())
 	maxDocs := p.cfg.MaxDocs()
 
@@ -292,19 +292,19 @@ func (p *Pruner) drainQueue(ctx context.Context, q *EventQueue) (int64, error) {
 		// pruner that is not running.
 		logger.Sugar.Infof("Prune skipped: queue has %d docs, threshold %d (max_blocks=%d × docs_per_block=%d)",
 			totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock)
-		return 0, nil
+		return nil
 	}
 
 	excess := min(totalDocs-maxDocs, p.cfg.MaxDocsPerCycle)
 	result := q.DrainDocs(int(excess))
 	if result == nil {
-		return 0, nil
+		return nil
 	}
 
 	logger.Sugar.Infof("Pruning %d docs (%d blocks), queue had %d docs, keeping %d (max_blocks=%d × docs_per_block=%d, prune_history=%v)",
 		excess, result.BlockCount, totalDocs, maxDocs, p.cfg.MaxBlocks, p.cfg.DocsPerBlock, p.cfg.PruneHistory)
 
-	return excess, p.purgeFromDrainResult(ctx, q, result)
+	return p.purgeFromDrainResult(ctx, q, result)
 }
 
 // purgeFromDrainResult deletes documents from a DrainResult, dependent collections first and
