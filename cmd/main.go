@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"expvar"
 	"fmt"
 	"net"
 	"net/http"
@@ -43,6 +44,7 @@ func newDebugMux() *http.ServeMux {
 	// Symbolisation takes its address list in the request body, so it also accepts POST.
 	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("POST /debug/pprof/symbol", pprof.Symbol)
+	mux.Handle("GET /debug/vars", expvar.Handler())
 	return mux
 }
 
