@@ -1000,7 +1000,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 			healthDefraURL = "http://" + testConfig.DefraDB.URL
 		}
 		testLCDURL := deriveShinzoHubURLs(testConfig.Shinzo.HubBaseURL).lcd
-		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics, testLCDURL, cfg.HostConfig.RegistrationPublicHost)
+		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics, testLCDURL, testConfig.HostConfig.RegistrationPublicHost)
 
 		// Start the new health server
 		go func() {
