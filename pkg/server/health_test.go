@@ -869,3 +869,42 @@ func TestGetHealthStatusPageHTML_SecondPath(t *testing.T) {
 	// Verify it loaded actual HTML content (not an empty fallback)
 	require.Contains(t, string(html), "<html", "loaded content should be valid HTML")
 }
+
+// ---------------------------------------------------------------------------
+// checkDefraDB address handling
+// ---------------------------------------------------------------------------
+
+// The form deployments actually configure: no scheme and a wildcard host.
+func TestCheckDefraDB_SchemelessWildcardAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "0.0.0.0:0") //nolint:gosec // test server
+	require.NoError(t, err)
+
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		ReadHeaderTimeout: defaultTimeout,
+	}
+	go func() { _ = srv.Serve(listener) }()
+	defer func() { _ = srv.Close() }()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	hs := newHS(nil, fmt.Sprintf("0.0.0.0:%d", port))
+	require.True(t, hs.checkDefraDB())
+}
+
+func TestDefraQueryURL(t *testing.T) {
+	cases := map[string]string{
+		"0.0.0.0:9181":              "http://127.0.0.1:9181/api/v0/graphql",
+		"[::]:9181":                 "http://127.0.0.1:9181/api/v0/graphql",
+		":1234":                     "http://127.0.0.1:1234/api/v0/graphql",
+		"localhost:9181":            "http://localhost:9181/api/v0/graphql",
+		"http://localhost:9181":     "http://localhost:9181/api/v0/graphql",
+		"https://defra.example.com": "https://defra.example.com/api/v0/graphql",
+		"http://proxy:8080/defra":   "http://proxy:8080/defra/api/v0/graphql",
+		"http://localhost:9181/":    "http://localhost:9181/api/v0/graphql",
+	}
+	for addr, want := range cases {
+		require.Equal(t, want, defraQueryURL(addr), addr)
+	}
+}

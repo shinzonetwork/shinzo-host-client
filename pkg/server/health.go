@@ -5,7 +5,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,7 +284,35 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 // defaultHTTPClientTimeout is the default timeout for HTTP client requests in health checks and registration data fetching.
 const defaultHTTPClientTimeout = 5 * time.Second
 
-// checkDefraDB checks if DefraDB is accessible.
+// graphQLPath is DefraDB's query endpoint.
+const graphQLPath = "/api/v0/graphql"
+
+// defraQueryURL builds the GraphQL endpoint URL for a configured DefraDB address.
+//
+// The address is a listen address, so it may carry no scheme and may be a wildcard such
+// as 0.0.0.0. A request needs both filled in: http is assumed, and a wildcard is reached
+// through loopback.
+func defraQueryURL(addr string) string {
+	if !strings.Contains(addr, "://") {
+		addr = "http://" + addr
+	}
+	u, err := url.Parse(addr)
+	if err != nil {
+		return addr + graphQLPath
+	}
+
+	if host, port, splitErr := net.SplitHostPort(u.Host); splitErr == nil {
+		switch host {
+		case "0.0.0.0", "::", "":
+			u.Host = net.JoinHostPort("127.0.0.1", port)
+		}
+	}
+	// Append so an address with a path prefix keeps it.
+	u.Path = strings.TrimSuffix(u.Path, "/") + graphQLPath
+	return u.String()
+}
+
+// checkDefraDB reports whether DefraDB answers on its query endpoint.
 func (hs *HealthServer) checkDefraDB() bool {
 	if hs.defraURL == "" {
 		return true // Embedded mode, assume healthy
@@ -294,7 +324,7 @@ func (hs *HealthServer) checkDefraDB() bool {
 	}
 
 	client := &http.Client{Timeout: defaultHTTPClientTimeout}
-	resp, err := client.Get(hs.defraURL + "/api/v0/graphql")
+	resp, err := client.Get(defraQueryURL(hs.defraURL))
 	if err != nil {
 		return false
 	}
