@@ -17,6 +17,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,6 +62,27 @@ func TestParseTimeoutOrDefault(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseTimeoutOrDefault(tt.timeoutStr, tt.defaultDuration)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDefraProbeAddress(t *testing.T) {
+	const configured = "localhost:9181"
+	const bound = "http://192.0.2.10:9181"
+
+	tests := []struct {
+		name      string
+		defraNode *node.Node
+		expected  string
+	}{
+		{"no node", nil, configured},
+		{"api disabled", &node.Node{}, configured},
+		{"api bound", &node.Node{APIURL: bound}, bound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, defraProbeAddress(tt.defraNode, configured))
 		})
 	}
 }

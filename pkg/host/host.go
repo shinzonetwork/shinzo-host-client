@@ -88,6 +88,15 @@ func deriveShinzoHubURLs(hostname string) shinzoHubURLs {
 	}
 }
 
+// defraProbeAddress returns the address the health check probes. The configured address
+// is rewritten before the API binds, so the bound address takes precedence.
+func defraProbeAddress(defraNode *node.Node, configured string) string {
+	if defraNode != nil && defraNode.APIURL != "" {
+		return defraNode.APIURL
+	}
+	return configured
+}
+
 // DefaultConfig provides a template for host configuration with sensible defaults.
 var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglobals
 	cfg := &config.Config{
@@ -442,12 +451,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// No separate monitoring goroutine needed
 
 	// Initialize and start health server
-	var healthDefraURL string
-	if cfg.DefraDB.URL != "" {
-		healthDefraURL = cfg.DefraDB.URL
-	} else if defraNode != nil && defraNode.APIURL != "" {
-		healthDefraURL = defraNode.APIURL
-	}
+	healthDefraURL := defraProbeAddress(defraNode, cfg.DefraDB.URL)
 
 	if defraNode != nil {
 		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
@@ -995,10 +999,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 		_ = listener.Close()
 
 		// Create new health server with dynamic port
-		healthDefraURL := ""
-		if testConfig.DefraDB.URL != "" {
-			healthDefraURL = "http://" + testConfig.DefraDB.URL
-		}
+		healthDefraURL := defraProbeAddress(host.DefraNode, testConfig.DefraDB.URL)
 		testLCDURL := deriveShinzoHubURLs(testConfig.Shinzo.HubBaseURL).lcd
 		host.healthServer = server.NewHealthServer(port, host, healthDefraURL, host.metrics, testLCDURL)
 

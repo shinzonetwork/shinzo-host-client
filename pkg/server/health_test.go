@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -416,58 +418,73 @@ func TestRootHandler_NonRootPath_404(t *testing.T) {
 
 func TestCheckDefraDB_EmptyURL(t *testing.T) {
 	hs := newHS(nil, "")
-	require.True(t, hs.checkDefraDB(), "empty URL should return true (embedded mode)")
+	require.True(t, hs.checkDefraDB(), "no address means there is nothing to probe")
 }
 
-func TestCheckDefraDB_LocalhostURL(t *testing.T) {
-	hs := newHS(nil, "http://localhost:9181")
-	require.True(t, hs.checkDefraDB(), "localhost URL should return true")
+func TestCheckDefraDB_ProbeResponse(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		expect bool
+	}{
+		{"data", http.StatusOK, `{"data":{"__schema":{"queryType":{"name":"Query"}}}}`, true},
+		{"errors only", http.StatusOK, `{"errors":[{"message":"Cannot query field"}]}`, true},
+		{"errors and data", http.StatusOK, `{"errors":[{"message":"collection not found"}],"data":null}`, true},
+		{"status ignored", http.StatusInternalServerError, `{"data":null}`, true},
+		{"json without graphql keys", http.StatusOK, `{"status":"ok"}`, false},
+		{"not json", http.StatusOK, `Healthy`, false},
+		{"json array", http.StatusOK, `[]`, false},
+		{"empty body", http.StatusOK, ``, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer ts.Close()
+
+			require.Equal(t, tc.expect, newHS(nil, ts.URL).checkDefraDB())
+		})
+	}
 }
 
-func TestCheckDefraDB_Localhost127(t *testing.T) {
-	hs := newHS(nil, "http://127.0.0.1:9181")
-	require.True(t, hs.checkDefraDB(), "127.0.0.1 URL should return true")
-}
+// The method, path and query are spelled out so the test does not follow the production
+// constants to a wrong value.
+func TestCheckDefraDB_ProbeRequest(t *testing.T) {
+	type probe struct{ method, path, body string }
 
-func TestCheckDefraDB_ExternalURL_Success(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	got := make(chan probe, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got <- probe{r.Method, r.URL.Path, string(body)}
+		_, _ = w.Write([]byte(`{"data":null}`))
 	}))
 	defer ts.Close()
 
-	hs := newHS(nil, ts.URL)
-	require.True(t, hs.checkDefraDB())
+	require.True(t, newHS(nil, ts.URL).checkDefraDB())
+
+	var req probe
+	select {
+	case req = <-got:
+	default:
+		t.Fatal("no request reached the server")
+	}
+	require.Equal(t, http.MethodPost, req.method)
+	require.Equal(t, "/api/v0/graphql", req.path)
+	require.JSONEq(t, `{"query":"{ __schema { queryType { name } } }"}`, req.body)
 }
 
-func TestCheckDefraDB_ExternalURL_BadRequest(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadRequest) // GraphQL endpoint returns 400 for GET
-	}))
-	defer ts.Close()
+func TestCheckDefraDB_Unreachable(t *testing.T) {
+	// Bind then close so the port has no listener.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := listener.Addr().String()
+	require.NoError(t, listener.Close())
 
-	hs := newHS(nil, ts.URL)
-	require.True(t, hs.checkDefraDB())
-}
-
-func TestCheckDefraDB_ExternalURL_ServerError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer ts.Close()
-
-	// httptest uses 127.0.0.1, which checkDefraDB short-circuits as localhost.
-	// Use the unreachable-host approach instead to actually test the HTTP-status branch.
-	// We start a real listener on a non-localhost interface-agnostic address by replacing
-	// 127.0.0.1 with an external-looking URL that still routes locally via the test server.
-	// Since we can't easily bind to a non-localhost, just verify the production code's 500
-	// behavior through CheckDefraDB logic: 500 != 200 && 500 != 400 => false.
-	// The short-circuit means httptest servers on localhost always return true,
-	// so we skip this test since checkDefraDB intentionally returns true for localhost.
-	t.Skip("checkDefraDB always returns true for localhost/127.0.0.1 URLs (production design)")
-}
-
-func TestCheckDefraDB_ExternalURL_Unreachable(t *testing.T) {
-	hs := newHS(nil, "http://192.0.2.1:9999") // RFC 5737 TEST-NET: guaranteed unreachable
+	hs := newHS(nil, "http://"+addr)
 	require.False(t, hs.checkDefraDB())
 }
 
@@ -642,8 +659,14 @@ func TestRegistrationHandler_DefraDBNotConnected(t *testing.T) {
 		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
 		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
-	// External URL that is unreachable
-	hs := newHS(mock, "http://192.0.2.1:9999")
+
+	var probes atomic.Int64
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		probes.Add(1)
+		_, _ = w.Write([]byte(`not defradb`))
+	}))
+	defer ts.Close()
+	hs := newHS(mock, ts.URL)
 
 	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
 	w := httptest.NewRecorder()
@@ -651,6 +674,7 @@ func TestRegistrationHandler_DefraDBNotConnected(t *testing.T) {
 	hs.registrationHandler(w, req)
 
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, int64(1), probes.Load(), "one request should probe DefraDB once")
 }
 
 // ---------------------------------------------------------------------------
@@ -725,78 +749,6 @@ func TestHealthServer_StartStop(t *testing.T) {
 	// Verify Start() returned http.ErrServerClosed
 	serveErr := <-errCh
 	require.Equal(t, http.ErrServerClosed, serveErr)
-}
-
-// ---------------------------------------------------------------------------
-// checkDefraDB – external URL with 500 response (non-localhost)
-// ---------------------------------------------------------------------------
-
-func TestCheckDefraDB_ExternalURL_ServerError_CustomListener(t *testing.T) {
-	// Create a test server that returns 500
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer ts.Close()
-
-	// httptest URLs use 127.0.0.1 which checkDefraDB short-circuits as localhost.
-	// Use a custom listener on 0.0.0.0 to exercise the HTTP request path.
-	_ = ts                                          // ts is not used since its URL contains 127.0.0.1
-	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
-	require.NoError(t, err)
-
-	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}),
-		ReadHeaderTimeout: defaultTimeout,
-	}
-	go func() { _ = srv.Serve(listener) }()
-	defer func() { _ = srv.Close() }()
-
-	// Get the port and construct a URL without localhost/127.0.0.1
-	port := listener.Addr().(*net.TCPAddr).Port
-	// 0.0.0.0 is not "localhost" or "127.0.0.1" so this exercises the HTTP path
-	url := fmt.Sprintf("http://0.0.0.0:%d", port)
-	hs := newHS(nil, url)
-	require.False(t, hs.checkDefraDB(), "500 status should return false")
-}
-
-func TestCheckDefraDB_ExternalURL_200_CustomListener(t *testing.T) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0") //nolint:gosec // test server, binding to all interfaces is intentional
-	require.NoError(t, err)
-
-	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}),
-		ReadHeaderTimeout: defaultTimeout,
-	}
-	go func() { _ = srv.Serve(listener) }()
-	defer func() { _ = srv.Close() }()
-
-	port := listener.Addr().(*net.TCPAddr).Port
-	url := fmt.Sprintf("http://0.0.0.0:%d", port)
-	hs := newHS(nil, url)
-	require.True(t, hs.checkDefraDB(), "200 status should return true")
-}
-
-func TestCheckDefraDB_ExternalURL_400_CustomListener(t *testing.T) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
-	require.NoError(t, err)
-
-	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-		}),
-		ReadHeaderTimeout: defaultTimeout,
-	}
-	go func() { _ = srv.Serve(listener) }()
-	defer func() { _ = srv.Close() }()
-
-	port := listener.Addr().(*net.TCPAddr).Port
-	url := fmt.Sprintf("http://0.0.0.0:%d", port)
-	hs := newHS(nil, url)
-	require.True(t, hs.checkDefraDB(), "400 status should return true (GraphQL endpoint)")
 }
 
 // ---------------------------------------------------------------------------
@@ -881,7 +833,7 @@ func TestCheckDefraDB_SchemelessWildcardAddress(t *testing.T) {
 
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":null}`))
 		}),
 		ReadHeaderTimeout: defaultTimeout,
 	}
