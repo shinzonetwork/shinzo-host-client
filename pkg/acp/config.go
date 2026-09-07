@@ -19,7 +19,7 @@ const decimalBase = 10
 
 // Environment variable names the middleware reads at startup.
 const (
-	EnvEnabled         = "ACP_MIDDLEWARE_ENABLED"
+	EnvEnabled         = "SHINZO_ACP_MIDDLEWARE_ENABLED"
 	EnvChainID         = "SHINZO_CHAIN_ID"
 	EnvMinQueryBalance = "SHINZO_MIN_QUERY_BALANCE"
 	EnvEpochLength     = "SHINZO_EPOCH_LENGTH"

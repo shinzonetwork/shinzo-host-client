@@ -54,7 +54,7 @@ func newDebugMux() *http.ServeMux {
 // Binds synchronously, so an address that cannot be served is returned as an error
 // instead of failing later in the background.
 func serveDebug(addr string) error {
-	if os.Getenv("PPROF_BLOCK_MUTEX") != "" {
+	if os.Getenv("SHINZO_PPROF_BLOCK_MUTEX") != "" {
 		runtime.SetBlockProfileRate(blockProfileRate)
 		runtime.SetMutexProfileFraction(1)
 	}
@@ -97,7 +97,7 @@ func findConfigFile() string {
 }
 
 func main() {
-	if addr := os.Getenv("PPROF_ADDR"); addr != "" {
+	if addr := os.Getenv("SHINZO_PPROF_ADDR"); addr != "" {
 		if err := serveDebug(addr); err != nil {
 			fmt.Fprintf(os.Stderr, "debug listener not started: %v\n", err)
 		}
