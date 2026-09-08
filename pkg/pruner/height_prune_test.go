@@ -131,7 +131,7 @@ func countHeightDocs(t *testing.T, n *node.Node, collection string) int {
 func seedHeightBlocks(t *testing.T, n *node.Node, from, to int) {
 	t.Helper()
 	for i := from; i <= to; i++ {
-		addHeightDoc(t, n, blockCollection, map[string]any{"number": i, "hash": fmt.Sprintf("h%d", i)})
+		addHeightDoc(t, n, blockCollection, map[string]any{blockNumberColumn: i, "hash": fmt.Sprintf("h%d", i)})
 		addHeightDoc(t, n, logCollection, map[string]any{"blockNumber": i, "address": fmt.Sprintf("a%d", i)})
 	}
 }
@@ -155,7 +155,7 @@ func TestPruneRemovesDependentTailBelowTheWindow(t *testing.T) {
 	p.SetQueue(NewEventQueue(heightTestCollections()))
 
 	for i := 16; i <= 20; i++ {
-		addHeightDoc(t, n, blockCollection, map[string]any{"number": i, "hash": fmt.Sprintf("h%d", i)})
+		addHeightDoc(t, n, blockCollection, map[string]any{blockNumberColumn: i, "hash": fmt.Sprintf("h%d", i)})
 	}
 	for i := 1; i <= 20; i++ {
 		addHeightDoc(t, n, logCollection, map[string]any{"blockNumber": i, "address": fmt.Sprintf("a%d", i)})
@@ -229,7 +229,7 @@ func TestHeightSweepBudgetIsSharedAcrossCollections(t *testing.T) {
 	p.SetQueue(NewEventQueue(heightTestCollections()))
 
 	for i := 1; i <= 20; i++ {
-		addHeightDoc(t, n, blockCollection, map[string]any{"number": i, "hash": fmt.Sprintf("h%d", i)})
+		addHeightDoc(t, n, blockCollection, map[string]any{blockNumberColumn: i, "hash": fmt.Sprintf("h%d", i)})
 		addHeightDoc(t, n, txCollection, map[string]any{"blockNumber": i, "hash": fmt.Sprintf("t%d", i)})
 	}
 	// Only two Log rows sit below the cutoff of 15, so Log cannot use the whole budget.

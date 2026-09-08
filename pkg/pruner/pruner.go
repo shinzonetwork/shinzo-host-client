@@ -1,3 +1,20 @@
+// Package pruner deletes documents for old blocks, so the store does not keep growing.
+//
+// There are two ways a document gets deleted. Both delete by docID.
+//
+//  1. The queue. P2P replication adds a docID for every document it brings in. When the queue
+//     holds more than max_blocks * docs_per_block, the pruner takes the oldest ones off the
+//     front and deletes them. The queue is written to disk on stop and read back on start, so a
+//     clean restart resumes where it stopped. If the process is killed, anything not yet
+//     written is gone.
+//
+//  2. The height sweep. The queue cannot see documents that were already in the store before
+//     startup, so the sweep asks the store directly: it takes documents whose block number is
+//     at or below (highest block held - max_blocks) and deletes those. It needs a block number
+//     to sort on, so the block collection uses BlockNumberField and dependents use blockNumber.
+//     A dependent with no such field is skipped, so only the queue deletes its documents.
+//
+// Each way gets its own max_docs_per_cycle, so a very full queue cannot use up the whole cycle.
 package pruner
 
 import (
@@ -227,7 +244,7 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 }
 
 // resolveHeightPrunable returns the dependent collections the height sweep can order on. One
-// without the field is bounded only by the queue.
+// without the field is left to the queue drain.
 func (p *Pruner) resolveHeightPrunable(ctx context.Context) []string {
 	prunable := make([]string, 0, len(p.collections.DependentCollections))
 	var skipped []string
@@ -246,7 +263,7 @@ func (p *Pruner) resolveHeightPrunable(ctx context.Context) []string {
 	}
 
 	if len(skipped) > 0 {
-		logger.Sugar.Warnf("Height prune skips %v: no %s field, so these are bounded only by the queue",
+		logger.Sugar.Warnf("Height prune skips %v: no %s field to order on, so only the queue drain removes their documents",
 			skipped, dependentBlockNumberField)
 	}
 	return prunable
