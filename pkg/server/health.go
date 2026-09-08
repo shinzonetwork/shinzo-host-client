@@ -5,7 +5,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,8 +197,8 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Check DefraDB connectivity
-	if !hs.checkDefraDB() {
+	defraConnected := hs.checkDefraDB()
+	if !defraConnected {
 		ready = false
 	}
 
@@ -204,7 +206,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	response := HealthResponse{
 		Status:           "ready",
 		Timestamp:        time.Now(),
-		DefraDBConnected: hs.checkDefraDB(),
+		DefraDBConnected: defraConnected,
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
 	}
@@ -282,25 +284,61 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 // defaultHTTPClientTimeout is the default timeout for HTTP client requests in health checks and registration data fetching.
 const defaultHTTPClientTimeout = 5 * time.Second
 
-// checkDefraDB checks if DefraDB is accessible.
-func (hs *HealthServer) checkDefraDB() bool {
-	if hs.defraURL == "" {
-		return true // Embedded mode, assume healthy
+// graphQLPath is DefraDB's query endpoint.
+const graphQLPath = "/api/v0/graphql"
+
+// graphQLProbe is the query sent to check the endpoint answers. It names no collection,
+// so it does not depend on the node's schema contents.
+const graphQLProbe = `{"query":"{ __schema { queryType { name } } }"}`
+
+// defraQueryURL builds the GraphQL endpoint URL for a configured DefraDB address.
+//
+// The address is a listen address, so it may carry no scheme and may be a wildcard such
+// as 0.0.0.0. A request needs both filled in: http is assumed, and a wildcard is reached
+// through loopback.
+func defraQueryURL(addr string) string {
+	if !strings.Contains(addr, "://") {
+		addr = "http://" + addr
+	}
+	u, err := url.Parse(addr)
+	if err != nil {
+		return addr + graphQLPath
 	}
 
-	// For embedded DefraDB (localhost URLs), always return true if we have a URL
-	if strings.Contains(hs.defraURL, "localhost") || strings.Contains(hs.defraURL, "127.0.0.1") {
-		return true
+	if host, port, splitErr := net.SplitHostPort(u.Host); splitErr == nil {
+		switch host {
+		case "0.0.0.0", "::", "":
+			u.Host = net.JoinHostPort("127.0.0.1", port)
+		}
+	}
+	// Append so an address with a path prefix keeps it.
+	u.Path = strings.TrimSuffix(u.Path, "/") + graphQLPath
+	return u.String()
+}
+
+// checkDefraDB reports whether DefraDB answers a GraphQL query. GraphQL reports failures
+// in the body rather than the status, so a reply carrying data or errors is what shows
+// the engine handled the request.
+func (hs *HealthServer) checkDefraDB() bool {
+	if hs.defraURL == "" {
+		return true // No HTTP API to probe
 	}
 
 	client := &http.Client{Timeout: defaultHTTPClientTimeout}
-	resp, err := client.Get(hs.defraURL + "/api/v0/graphql")
+	resp, err := client.Post(defraQueryURL(hs.defraURL), "application/json", strings.NewReader(graphQLProbe))
 	if err != nil {
 		return false
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest // GraphQL endpoint returns 400 for GET
+	// Decoding into a map rejects any body that is not a JSON object.
+	var body map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return false
+	}
+	_, hasData := body["data"]
+	_, hasErrors := body["errors"]
+	return hasData || hasErrors
 }
 
 // getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version
