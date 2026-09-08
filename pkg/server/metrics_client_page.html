@@ -185,7 +185,7 @@
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background: #f59e0b;
+            background: #D01F27;
             color: white;
             font-size: 12px;
             font-weight: bold;
@@ -193,13 +193,26 @@
         }
 
         .alert-circle::before {
-            content: '!';
+            content: 'x';
         }
 
         .alert-circle-bordered {
             background: white;
-            border: 2px solid #f59e0b;
-            color: #f59e0b;
+            border: 2px solid #D01F27;
+            color: #D01F27;
+        }
+
+        .alert-triangle {
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
+            color: #D01F27;
+        }
+
+        .alert-triangle svg {
+            width: 20px;
+            height: 20px;
+            display: block;
         }
 
         @media (max-width: 768px) {
@@ -250,7 +263,7 @@
                         <span><span id="attestation_match">-</span></span>
                     </div>
                     <div class="summary-item">
-                        <span> <span id="sig_verification_match_icon"></span> Sig Verifications = Block Signatures</span>
+                        <span> <span id="sig_verification_match_icon"></span> Signature Verified = Block Signatures Processed</span>
                         <span><span id="sig_verification_match">-</span></span>
                     </div>
                     <div class="summary-item">
@@ -388,6 +401,8 @@
             return `${pad(h)}:${pad(m)}:${pad(s)}`;
         }
 
+        const missMatchIcon = `<span class="alert-triangle" aria-label="mismatch"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2.25" stroke-linejoin="round"/><rect x="11" y="8" width="2.2" height="6.5" rx="1.1" fill="currentColor"/><circle cx="12.1" cy="17.2" r="1.35" fill="currentColor"/></svg></span>`;
+
         //load metrics data
         async function loadMetricsData() {
             const response = await fetch('/metrics', {
@@ -411,12 +426,14 @@
                 attestationMatchIconElement.classList.add('check-circle');
                 attestationMatchIconElement.classList.add('check-circle-bordered');
                 attestationMatchIconElement.classList.remove('alert-circle');
+                attestationMatchIconElement.classList.remove('alert-circle-bordered');
                 document.getElementById('attestation_match').textContent = '✓ Match'
             } else {
                 attestationMatchIconElement.classList.add('alert-circle');
+                attestationMatchIconElement.classList.add('alert-circle-bordered');
                 attestationMatchIconElement.classList.remove('check-circle');
                 attestationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('attestation_match').textContent = `Δ ${Math.abs(Number(data.metrics.attestations_created) - Number(data.metrics.blocks_processed))}`;
+                document.getElementById('attestation_match').innerHTML = missMatchIcon;
             }
 
             const attestationErrors = data.metrics.attestation_errors;
@@ -441,12 +458,14 @@
                 sigVerificationMatchIconElement.classList.add('check-circle');
                 sigVerificationMatchIconElement.classList.add('check-circle-bordered');
                 sigVerificationMatchIconElement.classList.remove('alert-circle');
+                sigVerificationMatchIconElement.classList.remove('alert-circle-bordered');
                 document.getElementById('sig_verification_match').textContent = '✓ Match'
             } else {
                 sigVerificationMatchIconElement.classList.add('alert-circle');
+                sigVerificationMatchIconElement.classList.add('alert-circle-bordered');
                 sigVerificationMatchIconElement.classList.remove('check-circle');
                 sigVerificationMatchIconElement.classList.remove('check-circle-bordered');
-                document.getElementById('sig_verification_match').textContent = `Δ ${Math.abs(Number(data.metrics.signature_verifications) - Number(data.metrics.block_signatures_processed))}`;
+                document.getElementById('sig_verification_match').innerHTML = missMatchIcon;
             }
 
             const sigFailures = data.metrics.signature_failures;
