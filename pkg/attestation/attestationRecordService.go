@@ -132,6 +132,9 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Re
 		"doc_type":     record.DocType,
 		"vote_count":   record.VoteCount,
 	}
+	if record.BlockNumber != nil {
+		data["blockNumber"] = *record.BlockNumber
+	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
 	if err != nil {
@@ -324,6 +327,9 @@ func PostAttestationRecordsBatch(ctx context.Context, defraNode *node.Node, reco
 				"CIDs":         cidsAny,
 				"doc_type":     record.DocType,
 				"vote_count":   record.VoteCount,
+			}
+			if record.BlockNumber != nil {
+				data["blockNumber"] = *record.BlockNumber
 			}
 
 			doc, err := client.NewDocFromMap(ctx, data, col.Version())
