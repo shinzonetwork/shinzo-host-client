@@ -20,7 +20,7 @@ func TestStart_FailsFastOnInvalidACPConfig(t *testing.T) {
 	cfg := testHostConfig()
 	cfg.ACP.Enabled = true // missing chain_id/epoch_length/min_query_balance
 
-	_, err := Start(context.Background(), cfg, zap.NewNop())
+	_, err := Start(context.Background(), cfg, zap.NewNop(), NodeKeys{})
 	if err == nil {
 		t.Fatal("expected Start to fail on an invalid acp config, got nil")
 	}

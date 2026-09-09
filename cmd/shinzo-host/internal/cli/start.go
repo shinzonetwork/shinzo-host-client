@@ -14,15 +14,21 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
-// same value cmd/main.go uses
 const shutdownTimeout = 30 * time.Second
 
+var recoverMnemonic string
+
 func newStartCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the host node",
 		RunE:  runStart,
 	}
+	cmd.Flags().StringVar(&recoverMnemonic, "recover", "",
+		"BIP39 mnemonic to recover this node's keys from. Ignored if keys already "+
+			"exist, only used the first time this instance starts. Leave empty to "+
+			"generate a new one.")
+	return cmd
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
@@ -43,7 +49,12 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = syncLog() }()
 
-	h, err := host.Start(ctx, cfg, log)
+	keys, err := host.EnsureKeys(cfg, recoverMnemonic, log.Sugar())
+	if err != nil {
+		return fmt.Errorf("ensuring keys: %w", err)
+	}
+
+	h, err := host.Start(ctx, cfg, log, keys)
 	if err != nil {
 		return fmt.Errorf("starting host: %w", err)
 	}

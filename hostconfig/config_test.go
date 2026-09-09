@@ -26,6 +26,25 @@ func TestLoad_EmptyFileUsesDefaults(t *testing.T) {
 	if cfg.Node.DataDir == "" {
 		t.Fatal("expected DataDir to be derived when left blank")
 	}
+	if cfg.Node.KeyDir != filepath.Join(cfg.Node.DataDir, "keys") {
+		t.Fatalf("expected KeyDir to default to <data_dir>/keys, got %q", cfg.Node.KeyDir)
+	}
+	if cfg.Node.KeyringPassword == "" {
+		t.Fatal("expected a default keyring password")
+	}
+}
+
+func TestLoad_KeyDirOverride(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[node]
+key_dir = "/custom/keys"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Node.KeyDir != "/custom/keys" {
+		t.Fatalf("expected an explicit key_dir to override the default, got %q", cfg.Node.KeyDir)
+	}
 }
 
 func TestLoad_OverridesOnlyWhatItMentions(t *testing.T) {
@@ -99,14 +118,14 @@ mode = "not-a-real-mode"
 }
 
 func TestLoad_EnvOverridesSecrets(t *testing.T) {
-	t.Setenv("SHINZO_HOST_IDENTITY_SECRET", "shh")
+	t.Setenv("SHINZO_HOST_SCHEMA_AUTH_TOKEN", "shh")
 
 	cfg, err := Load(writeToml(t, ""))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Node.IdentitySecret != "shh" {
-		t.Fatalf("expected env override to apply, got %q", cfg.Node.IdentitySecret)
+	if cfg.Schema.AuthToken != "shh" {
+		t.Fatalf("expected env override to apply, got %q", cfg.Schema.AuthToken)
 	}
 }
 

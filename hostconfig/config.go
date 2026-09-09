@@ -42,9 +42,9 @@ type ACPConfig struct {
 type NodeConfig struct {
 	Name    string `toml:"name"`
 	DataDir string `toml:"data_dir"`
+	KeyDir  string `toml:"key_dir"`
 
-	// env only, SHINZO_HOST_IDENTITY_SECRET, see applyEnvOverrides
-	IdentitySecret string `toml:"-"`
+	KeyringPassword string `toml:"keyring_password"`
 }
 
 // the one port health/graphql/playground all end up on
@@ -146,7 +146,7 @@ var (
 
 func Default() Config {
 	return Config{
-		Node: NodeConfig{Name: "default"},
+		Node: NodeConfig{Name: "default", KeyringPassword: "shinzo-host"},
 		HTTP: HTTPConfig{Addr: ":8080"},
 		P2P: P2PConfig{
 			Enabled:                true,
@@ -207,6 +207,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Node.DataDir == "" {
 		cfg.Node.DataDir = DefaultInstanceDir(cfg.Node.Name)
 	}
+	if cfg.Node.KeyDir == "" {
+		cfg.Node.KeyDir = filepath.Join(cfg.Node.DataDir, "keys")
+	}
 	if cfg.Store.Path == "" {
 		cfg.Store.Path = filepath.Join(cfg.Node.DataDir, "data")
 	}
@@ -238,9 +241,6 @@ func writeDefaultConfig(path string) error {
 }
 
 func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("SHINZO_HOST_IDENTITY_SECRET"); v != "" {
-		cfg.Node.IdentitySecret = v
-	}
 	if v := os.Getenv("SHINZO_HOST_SCHEMA_AUTH_TOKEN"); v != "" {
 		cfg.Schema.AuthToken = v
 	}

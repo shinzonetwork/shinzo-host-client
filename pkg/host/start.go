@@ -12,11 +12,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 )
 
-// new entry point, built from scratch next to StartHosting, not replacing
-// it. Uses hostconfig.Config, not config.Config, and returns
-// *hostserver.Server, not *Host, on purpose, this doesn't touch the old
-// struct at all.
-func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger) (*hostserver.Server, error) {
+func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys NodeKeys) (*hostserver.Server, error) {
 	if _, err := buildACPConfig(cfg); err != nil {
 		return nil, fmt.Errorf("acp config: %w", err)
 	}
@@ -26,7 +22,7 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger) (*hosts
 		return nil, fmt.Errorf("building host server: %w", err)
 	}
 
-	defraNode, err := startDefra(ctx, srv, cfg, log)
+	defraNode, err := startDefra(ctx, srv, cfg, log, keys.IdentityKey, keys.PeerKeySeed)
 	if err != nil {
 		return nil, fmt.Errorf("starting defra: %w", err)
 	}

@@ -30,12 +30,18 @@ func TestRunStart_MissingConfigFile(t *testing.T) {
 }
 
 // startDefra is still a stub, so this exercises the whole chain up to
-// there (config load, logger build, host.Start, hostserver.New) and stops
-// exactly at the one piece that isn't real yet.
+// there (config load, logger build, EnsureKeys, host.Start,
+// hostserver.New) and stops exactly at the one piece that isn't real yet.
+// data_dir is pinned to a temp dir so EnsureKeys creates its keyring
+// there, not under this machine's real default instance directory.
 func TestRunStart_ReachesHostStart(t *testing.T) {
+	dataDir := t.TempDir()
 	path := writeConfig(t, `
 [http]
 addr = ":0"
+
+[node]
+data_dir = "`+dataDir+`"
 `)
 
 	root := newRootCmd()
