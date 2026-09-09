@@ -1,4 +1,3 @@
-// new host composition root, one mux, one port, everything mounted on it.
 package hostserver
 
 import (
@@ -22,13 +21,11 @@ type Server struct {
 	mux *http.ServeMux
 
 	httpSrv *http.Server
-	deps    deps
 
-	// reverse order on Close, teardown lives next to whatever starts it
+	// reverse order on Close, keeps going even if one fails
 	shutdownFns []func(context.Context) error
 }
 
-// no I/O yet, call Start to actually bring it up
 func New(cfg *hostconfig.Config, log *zap.Logger) (*Server, error) {
 	if cfg == nil {
 		return nil, errors.New("hostserver: nil config")
@@ -43,23 +40,15 @@ func New(cfg *hostconfig.Config, log *zap.Logger) (*Server, error) {
 	}, nil
 }
 
-// doesn't block, call Close when done
-func (s *Server) Start(ctx context.Context) error {
-	// still stubs, panic if uncommented, bring back one at a time
-	// if err := s.startDefraNode(ctx); err != nil {
-	// 	return fmt.Errorf("starting defra node: %w", err)
-	// }
-	// if err := s.mountGraphQL(ctx); err != nil {
-	// 	return fmt.Errorf("mounting graphql: %w", err)
-	// }
-	// if err := s.mountPlayground(); err != nil {
-	// 	return fmt.Errorf("mounting playground: %w", err)
-	// }
-	s.mountHealth()
-	// if err := s.startEventSubscription(ctx); err != nil {
-	// 	return fmt.Errorf("starting event subscription: %w", err)
-	// }
+func (s *Server) Mux() *http.ServeMux {
+	return s.mux
+}
 
+func (s *Server) RegisterShutdown(fn func(context.Context) error) {
+	s.shutdownFns = append(s.shutdownFns, fn)
+}
+
+func (s *Server) Start(context.Context) error {
 	// bind first so a bad addr/taken port errors here, not in the goroutine
 	ln, err := net.Listen("tcp", s.cfg.HTTP.Addr)
 	if err != nil {
@@ -78,7 +67,6 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-// http server first, then everything else in reverse, keep going on errors
 func (s *Server) Close(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()

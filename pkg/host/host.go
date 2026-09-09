@@ -17,13 +17,11 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
@@ -36,7 +34,6 @@ import (
 	"github.com/sourcenetwork/defradb/client/options"
 	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
-	"go.uber.org/zap"
 )
 
 // parseTimeoutOrDefault parses a duration string or returns a default value.
@@ -177,23 +174,6 @@ type Host struct {
 // StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the processing pipeline, view manager, and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
 func StartHosting(cfg *config.Config) (*Host, error) {
 	return StartHostingWithEventSubscription(cfg)
-}
-
-// new entry point, built from scratch next to StartHosting, not replacing
-// it. Uses hostconfig.Config, not config.Config, and returns
-// *hostserver.Server, not *Host, on purpose, this doesn't touch the old
-// struct at all.
-func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger) (*hostserver.Server, error) {
-	srv, err := hostserver.New(cfg, log)
-	if err != nil {
-		return nil, fmt.Errorf("building host server: %w", err)
-	}
-
-	if err := srv.Start(ctx); err != nil {
-		return nil, fmt.Errorf("starting host server: %w", err)
-	}
-
-	return srv, nil
 }
 
 // StartHostingWithEventSubscription starts the host with optional event subscription to ShinzoHub for view registrations and other events. This is the main entry point for starting the host application.

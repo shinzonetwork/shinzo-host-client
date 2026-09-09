@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func writeConfig(t *testing.T, content string) string {
@@ -31,22 +29,23 @@ func TestRunStart_MissingConfigFile(t *testing.T) {
 	}
 }
 
-// ephemeral port so this doesn't fight anything else on the machine for
-// :8080, and the short timeout stands in for a real shutdown signal
+// startDefra is still a stub, so this exercises the whole chain up to
+// there (config load, logger build, host.Start, hostserver.New) and stops
+// exactly at the one piece that isn't real yet.
 func TestRunStart_ReachesHostStart(t *testing.T) {
 	path := writeConfig(t, `
 [http]
 addr = ":0"
 `)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond) //nolint:mnd
-	defer cancel()
-
 	root := newRootCmd()
 	root.SetArgs([]string{"start", "--config", path})
-	root.SetContext(ctx)
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("expected a clean shutdown, got: %v", err)
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error since startDefra is still a stub, got nil")
+	}
+	if !strings.Contains(err.Error(), "starting defra") {
+		t.Fatalf("expected the error to come from starting defra, got: %v", err)
 	}
 }

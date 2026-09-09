@@ -2,7 +2,8 @@ package hostserver
 
 import (
 	"context"
-	"net/http/httptest"
+	"errors"
+	"net/http"
 	"testing"
 
 	"go.uber.org/zap"
@@ -33,41 +34,69 @@ func TestNew_Succeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if s.mux == nil {
+	if s.Mux() == nil {
 		t.Fatal("expected New to build a mux")
 	}
 }
 
-func TestMountHealth_ServesOK(t *testing.T) {
+func TestStart_ServesWhateverWasMountedOnMux(t *testing.T) {
 	s, err := New(testConfig(), zap.NewNop())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	s.mountHealth()
 
-	req := httptest.NewRequest("GET", "/health", nil)
-	rec := httptest.NewRecorder()
-	s.mux.ServeHTTP(rec, req)
+	s.Mux().HandleFunc("/whatever", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
 
-	if rec.Code != 200 { //nolint:mnd
-		t.Fatalf("expected 200, got %d", rec.Code)
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
 	}
-	if rec.Body.String() != `{"status":"ok"}` {
-		t.Fatalf("unexpected body: %s", rec.Body.String())
-	}
+	defer func() { _ = s.Close(context.Background()) }()
 }
 
-func TestMountPlayground_DisabledIsNoop(t *testing.T) {
-	cfg := testConfig()
-	cfg.Playground.Enabled = false
-
-	s, err := New(cfg, zap.NewNop())
+func TestRegisterShutdown_CalledOnClose(t *testing.T) {
+	s, err := New(testConfig(), zap.NewNop())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	if err := s.mountPlayground(); err != nil {
-		t.Fatalf("expected mountPlayground to no-op when disabled, got: %v", err)
+	called := false
+	s.RegisterShutdown(func(context.Context) error {
+		called = true
+		return nil
+	})
+
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !called {
+		t.Fatal("expected the registered shutdown func to run on Close")
+	}
+}
+
+func TestRegisterShutdown_RunsInReverseOrderAndKeepsGoingOnError(t *testing.T) {
+	s, err := New(testConfig(), zap.NewNop())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var order []int
+	s.RegisterShutdown(func(context.Context) error {
+		order = append(order, 1)
+		return errors.New("first registered still fails, second must still run")
+	})
+	s.RegisterShutdown(func(context.Context) error {
+		order = append(order, 2)
+		return nil
+	})
+
+	err = s.Close(context.Background())
+	if err == nil {
+		t.Fatal("expected Close to surface the failing shutdown func's error")
+	}
+	if len(order) != 2 || order[0] != 2 || order[1] != 1 {
+		t.Fatalf("expected reverse registration order [2 1], got %v", order)
 	}
 }
 

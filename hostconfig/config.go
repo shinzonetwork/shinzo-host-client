@@ -22,6 +22,21 @@ type Config struct {
 	Playground  PlaygroundConfig  `toml:"playground"`
 	Snapshot    SnapshotConfig    `toml:"snapshot"`
 	EventFilter EventFilterConfig `toml:"event_filter"`
+	ACP         ACPConfig         `toml:"acp"`
+}
+
+// mirrors pkg/acp.Config, just TOML-sourced instead of env-sourced. no
+// secrets in here, build acp.Config from this and call its own Validate()
+// where it's actually used, not duplicated here. ChainID isn't here,
+// it's shinzo.chain_id, one value for the whole node, not acp-specific.
+type ACPConfig struct {
+	Enabled         bool   `toml:"enabled"`
+	MinQueryBalance string `toml:"min_query_balance"`
+	EpochLength     uint64 `toml:"epoch_length"`
+	ASBaseURL       string `toml:"as_base_url"`
+
+	// Go duration string, e.g. "5m", parsed where it's consumed
+	AttesterWindow string `toml:"attester_window"`
 }
 
 type NodeConfig struct {
@@ -60,7 +75,12 @@ type StoreConfig struct {
 }
 
 type ShinzoConfig struct {
-	HubBaseURL          string `toml:"hub_base_url"`
+	HubBaseURL string `toml:"hub_base_url"`
+
+	// EVM chain id, used wherever the node needs one, not just acp's
+	// EIP-712 verification, one value for the whole node
+	ChainID uint64 `toml:"chain_id"`
+
 	MinimumAttestations int    `toml:"minimum_attestations"`
 	StartHeight         uint64 `toml:"start_height"`
 

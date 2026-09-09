@@ -44,6 +44,42 @@ addr = ":9999"
 	}
 }
 
+func TestLoad_ACPSection(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[shinzo]
+chain_id = 12345
+
+[acp]
+enabled = true
+min_query_balance = "1000000"
+epoch_length = 100
+as_base_url = "https://accounting.internal"
+attester_window = "5m"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.ACP.Enabled {
+		t.Fatal("expected acp.enabled to be true")
+	}
+	if cfg.Shinzo.ChainID != 12345 {
+		t.Fatalf("expected shinzo.chain_id 12345, got %d", cfg.Shinzo.ChainID)
+	}
+	if cfg.ACP.AttesterWindow != "5m" {
+		t.Fatalf("expected attester_window %q, got %q", "5m", cfg.ACP.AttesterWindow)
+	}
+}
+
+func TestLoad_ACPDefaultsToDisabled(t *testing.T) {
+	cfg, err := Load(writeToml(t, ""))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ACP.Enabled {
+		t.Fatal("expected acp.enabled to default to false")
+	}
+}
+
 func TestLoad_MissingFile(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
 	if err == nil {
