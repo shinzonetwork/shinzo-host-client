@@ -475,6 +475,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		CIDs:          blockSig.CIDs,
 		DocType:       docTypeBlock,
 		VoteCount:     1,
+		BlockNumber:   &blockNumber,
 	}
 
 	var lastErr error
