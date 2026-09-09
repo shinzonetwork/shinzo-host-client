@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 )
 
@@ -207,11 +208,12 @@ func (q *EventQueue) DrainBlocks(count int) *DrainResult {
 
 // Requeue re-inserts entries at the front of the queue. A purge that fails drained its docs
 // without deleting them; they are the oldest entries, so they go back to the front to be
-// pruned again on the next cycle.
-func (q *EventQueue) Requeue(collectionName string, docIDs []string) {
+// pruned again on the next cycle. The count returned is what the queue took: a docID whose
+// UUID will not parse, or a collection the queue does not track, is dropped.
+func (q *EventQueue) Requeue(collectionName string, docIDs []string) int {
 	colType, ok := q.collectionEnums[collectionName]
 	if !ok {
-		return
+		return 0
 	}
 
 	entries := make([]eventEntry, 0, len(docIDs))
@@ -231,6 +233,28 @@ func (q *EventQueue) Requeue(collectionName string, docIDs []string) {
 	q.entries = append(entries, q.entries...)
 	q.blockCount += blocks
 	q.mu.Unlock()
+
+	return len(entries)
+}
+
+// RequeueDrained returns a drain result's docs to the queue for the given collections. DrainDocs
+// empties every collection up front, so a cycle that ends before reaching them all has to put the
+// rest back; nothing else re-adds an already-replicated document. Requeue prepends, so the
+// collections go back in reverse to leave the queue in dependents-before-blocks order.
+func (q *EventQueue) RequeueDrained(result *DrainResult, collections []string) (docs int, cols int) {
+	for _, name := range slices.Backward(collections) {
+		docIDs := result.DocIDsByCollection[name]
+		if len(docIDs) == 0 {
+			continue
+		}
+		inserted := q.Requeue(name, docIDs)
+		if inserted == 0 {
+			continue
+		}
+		docs += inserted
+		cols++
+	}
+	return docs, cols
 }
 
 // Len returns the total number of entries in the queue.
