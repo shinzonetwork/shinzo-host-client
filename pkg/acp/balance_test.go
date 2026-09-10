@@ -3,7 +3,6 @@ package acp
 import (
 	"bytes"
 	"context"
-	"errors"
 	"math/big"
 	"testing"
 
@@ -102,7 +101,7 @@ func TestBalanceAuthorizerExactMinimumAllowed(t *testing.T) {
 }
 
 func TestBalanceAuthorizerPropagatesReadError(t *testing.T) {
-	a := authorizer(&stubBalanceReader{err: errors.New("hub down")}, &stubEpochSource{epoch: 1}, 500)
+	a := authorizer(&stubBalanceReader{err: errHubDown}, &stubEpochSource{epoch: 1}, 500)
 	if _, err := a.Authorize(context.Background(), common.Address{0x01}); err == nil {
 		t.Fatal("expected the read error to propagate, got nil")
 	}
@@ -110,7 +109,7 @@ func TestBalanceAuthorizerPropagatesReadError(t *testing.T) {
 
 func TestBalanceAuthorizerPropagatesEpochError(t *testing.T) {
 	hub := &stubBalanceReader{balance: big.NewInt(1000)}
-	a := authorizer(hub, &stubEpochSource{err: errors.New("no height")}, 500)
+	a := authorizer(hub, &stubEpochSource{err: errNoHeight}, 500)
 	if _, err := a.Authorize(context.Background(), common.Address{0x01}); err == nil {
 		t.Fatal("expected the epoch error to propagate, got nil")
 	}
