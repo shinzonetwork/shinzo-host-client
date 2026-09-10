@@ -27,8 +27,7 @@ func mountPlayground(srv *hostserver.Server, cfg *hostconfig.Config) error {
 	}
 
 	mux := srv.Mux()
-	// The built index.html references /assets/... as root-relative paths,
-	// so assets are served at that same path, not nested under /playground.
+
 	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
 
 	serveIndex := func(w http.ResponseWriter, _ *http.Request) {
