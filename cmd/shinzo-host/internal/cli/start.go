@@ -54,6 +54,10 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("ensuring keys: %w", err)
 	}
 
+	if err := printKeyBanner(cmd.OutOrStdout(), keys); err != nil {
+		return fmt.Errorf("printing key banner: %w", err)
+	}
+
 	h, err := host.Start(ctx, cfg, log, keys)
 	if err != nil {
 		return fmt.Errorf("starting host: %w", err)

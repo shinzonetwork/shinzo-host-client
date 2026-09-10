@@ -3,8 +3,10 @@ package host
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/cosmos/go-bip39"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
@@ -14,8 +16,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
 )
 
-// testKeysConfig gives each test its own temp data/key dirs, mirroring
-// what hostconfig.Load derives DataDir/KeyDir into for real.
 func testKeysConfig(t *testing.T) *hostconfig.Config {
 	t.Helper()
 	cfg := testHostConfig()
@@ -93,6 +93,165 @@ func TestDeriveKeys_ThreeKeysAreDistinct(t *testing.T) {
 
 	if bytes.Equal(ethcrypto.FromECDSA(keys.OperatorKey), keys.PeerKeySeed) {
 		t.Fatal("expected the operator key and the peer key seed to be distinct")
+	}
+}
+
+func TestNodeKeys_OperatorAddressDeterministic(t *testing.T) {
+	mnemonic := testMnemonic(t)
+
+	a, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+	b, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	if a.OperatorAddress() != b.OperatorAddress() {
+		t.Fatalf("expected the same mnemonic to derive the same operator address, got %s and %s", a.OperatorAddress(), b.OperatorAddress())
+	}
+}
+
+func TestNodeKeys_PeerIDDeterministic(t *testing.T) {
+	mnemonic := testMnemonic(t)
+
+	a, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+	b, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	idA, err := a.PeerID()
+	if err != nil {
+		t.Fatalf("PeerID: %v", err)
+	}
+	idB, err := b.PeerID()
+	if err != nil {
+		t.Fatalf("PeerID: %v", err)
+	}
+
+	if idA != idB {
+		t.Fatalf("expected the same mnemonic to derive the same peer id, got %s and %s", idA, idB)
+	}
+}
+
+func TestNodeKeys_PeerIDAndOperatorAddressDifferByMnemonic(t *testing.T) {
+	a, err := deriveKeys(testMnemonic(t))
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+	b, err := deriveKeys(testMnemonic(t))
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	if a.OperatorAddress() == b.OperatorAddress() {
+		t.Fatal("expected different mnemonics to derive different operator addresses")
+	}
+
+	idA, err := a.PeerID()
+	if err != nil {
+		t.Fatalf("PeerID: %v", err)
+	}
+	idB, err := b.PeerID()
+	if err != nil {
+		t.Fatalf("PeerID: %v", err)
+	}
+	if idA == idB {
+		t.Fatal("expected different mnemonics to derive different peer ids")
+	}
+}
+
+func TestNodeKeys_DID(t *testing.T) {
+	mnemonic := testMnemonic(t)
+
+	a, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+	b, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	if a.DID() == "" {
+		t.Fatal("expected a non-empty DID")
+	}
+	if a.DID() != b.DID() {
+		t.Fatalf("expected the same mnemonic to derive the same DID, got %s and %s", a.DID(), b.DID())
+	}
+	if a.DID() != a.IdentityKey.DID() {
+		t.Fatal("expected NodeKeys.DID() to be a plain passthrough to IdentityKey.DID()")
+	}
+}
+
+func TestNodeKeys_ShinzoAddress_HasShinzoPrefix(t *testing.T) {
+	keys, err := deriveKeys(testMnemonic(t))
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	addr, err := keys.ShinzoAddress()
+	if err != nil {
+		t.Fatalf("ShinzoAddress: %v", err)
+	}
+	if !strings.HasPrefix(addr, "shinzo1") {
+		t.Fatalf("expected a shinzo1... address, got %s", addr)
+	}
+}
+
+// The real property that matters: ShinzoAddress isn't a different key,
+// it's the same 20 bytes as OperatorAddress, just bech32-encoded. Decode
+// it back and check the underlying bytes match exactly.
+func TestNodeKeys_ShinzoAddress_SameBytesAsOperatorAddress(t *testing.T) {
+	keys, err := deriveKeys(testMnemonic(t))
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	addr, err := keys.ShinzoAddress()
+	if err != nil {
+		t.Fatalf("ShinzoAddress: %v", err)
+	}
+
+	hrp, decoded, err := bech32.DecodeAndConvert(addr)
+	if err != nil {
+		t.Fatalf("decoding %s: %v", addr, err)
+	}
+	if hrp != "shinzo" {
+		t.Fatalf("expected hrp %q, got %q", "shinzo", hrp)
+	}
+	if !bytes.Equal(decoded, keys.OperatorAddress().Bytes()) {
+		t.Fatalf("expected the decoded bech32 bytes to match OperatorAddress exactly, got %x vs %x", decoded, keys.OperatorAddress().Bytes())
+	}
+}
+
+func TestNodeKeys_ShinzoAddress_Deterministic(t *testing.T) {
+	mnemonic := testMnemonic(t)
+
+	a, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+	b, err := deriveKeys(mnemonic)
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	addrA, err := a.ShinzoAddress()
+	if err != nil {
+		t.Fatalf("ShinzoAddress: %v", err)
+	}
+	addrB, err := b.ShinzoAddress()
+	if err != nil {
+		t.Fatalf("ShinzoAddress: %v", err)
+	}
+	if addrA != addrB {
+		t.Fatalf("expected the same mnemonic to derive the same shinzo address, got %s and %s", addrA, addrB)
 	}
 }
 

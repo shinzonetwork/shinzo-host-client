@@ -1,13 +1,18 @@
 package host
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/cosmos/go-bip39"
+	"github.com/ethereum/go-ethereum/common"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	defracrypto "github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/keyring"
@@ -32,10 +37,40 @@ const (
 	keyNamePeerSeed = "peerseed"
 )
 
+const shinzoBech32Prefix = "shinzo"
+
 type NodeKeys struct {
 	OperatorKey *ecdsa.PrivateKey
 	IdentityKey identity.FullIdentity
 	PeerKeySeed []byte // 32 bytes, seeds libp2p's deterministic Ed25519 key generation
+}
+
+func (k NodeKeys) OperatorAddress() common.Address {
+	return ethcrypto.PubkeyToAddress(k.OperatorKey.PublicKey)
+}
+
+func (k NodeKeys) ShinzoAddress() (string, error) {
+	addr, err := bech32.ConvertAndEncode(shinzoBech32Prefix, k.OperatorAddress().Bytes())
+	if err != nil {
+		return "", fmt.Errorf("encoding shinzo address: %w", err)
+	}
+	return addr, nil
+}
+
+func (k NodeKeys) DID() string {
+	return k.IdentityKey.DID()
+}
+
+func (k NodeKeys) PeerID() (peer.ID, error) {
+	priv, _, err := libp2pcrypto.GenerateEd25519Key(bytes.NewReader(k.PeerKeySeed))
+	if err != nil {
+		return "", fmt.Errorf("regenerating p2p key: %w", err)
+	}
+	id, err := peer.IDFromPublicKey(priv.GetPublic())
+	if err != nil {
+		return "", fmt.Errorf("deriving peer id: %w", err)
+	}
+	return id, nil
 }
 
 type rawKeys struct {
