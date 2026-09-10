@@ -59,7 +59,9 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("printing key banner: %w", err)
 	}
 
-	h, err := host.Start(ctx, cfg, log, keys)
+	defra := host.NewDefraService(cfg, log, keys.IdentityKey, keys.PeerKeySeed)
+
+	h, err := host.Start(ctx, cfg, log, keys, defra)
 	if err != nil {
 		return fmt.Errorf("starting host: %w", err)
 	}

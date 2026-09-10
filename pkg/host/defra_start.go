@@ -20,7 +20,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
@@ -31,69 +30,112 @@ const (
 	schemaReadyMaxAttempts  = 30
 )
 
-func startDefra(
-	ctx context.Context,
-	srv *hostserver.Server,
+type DefraService interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+	DB() node.DB
+	Options() *options.NodeOptions
+}
+
+func NewDefraService(
 	cfg *hostconfig.Config,
 	log *zap.Logger,
 	identityKey identity.FullIdentity,
 	peerKeySeed []byte,
-) (*node.Node, error) {
-	_ = srv // reserved for mountGraphQL/mountPlayground, not wired yet
+) DefraService {
+	return &defraService{
+		cfg:         cfg,
+		log:         log,
+		identityKey: identityKey,
+		peerKeySeed: peerKeySeed,
+	}
+}
 
-	configureCorelog(cfg)
+type defraService struct {
+	cfg         *hostconfig.Config
+	log         *zap.Logger
+	identityKey identity.FullIdentity
+	peerKeySeed []byte
 
-	nodeOpts, err := buildNodeOptions(cfg, identityKey, peerKeySeed)
+	node *node.Node // set once Start succeeds
+}
+
+func (s *defraService) Start(ctx context.Context) error {
+	configureCorelog(s.cfg)
+
+	nodeOpts, err := buildNodeOptions(s.cfg, s.identityKey, s.peerKeySeed)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var filter *EventFilter
-	if cfg.EventFilter.Enabled {
-		rules, err := hostconfig.LoadFilters(cfg.Node.DataDir, cfg.EventFilter)
+	if s.cfg.EventFilter.Enabled {
+		rules, err := hostconfig.LoadFilters(s.cfg.Node.DataDir, s.cfg.EventFilter)
 		if err != nil {
-			return nil, fmt.Errorf("loading event filters: %w", err)
+			return fmt.Errorf("loading event filters: %w", err)
 		}
-		filter = NewEventFilter(cfg.EventFilter, rules)
+		filter = NewEventFilter(s.cfg.EventFilter, rules)
 	}
 
 	defraNode, err := node.New(ctx, nodeOpts)
 	if err != nil {
-		return nil, fmt.Errorf("configuring defra node: %w", err)
+		return fmt.Errorf("configuring defra node: %w", err)
 	}
 	if filter != nil {
 		defraNode.ReplicationFilter = filter
 	}
 
 	if err := defraNode.Start(ctx); err != nil {
-		return nil, fmt.Errorf("starting defra node: %w", err)
+		return fmt.Errorf("starting defra node: %w", err)
 	}
 
-	schemaStr := resolveDefraSchema(ctx, cfg, log.Sugar())
+	schemaStr := resolveDefraSchema(ctx, s.cfg, s.log.Sugar())
 	if err := applyDefraSchema(ctx, defraNode, schemaStr); err != nil {
 		_ = defraNode.Close(ctx)
-		return nil, fmt.Errorf("applying schema: %w", err)
+		return fmt.Errorf("applying schema: %w", err)
 	}
 
 	if err := waitSchemaQueryable(ctx, defraNode); err != nil {
 		_ = defraNode.Close(ctx)
-		return nil, err
+		return err
 	}
 
-	if cfg.P2P.Enabled {
+	if s.cfg.P2P.Enabled {
 		if err := defraNode.DB.AddP2PCollections(ctx, constants.AllCollections); err != nil {
 			_ = defraNode.Close(ctx)
-			return nil, fmt.Errorf("registering p2p collections: %w", err)
+			return fmt.Errorf("registering p2p collections: %w", err)
 		}
 	}
 
-	return defraNode, nil
+	s.node = defraNode
+	return nil
+}
+
+func (s *defraService) Stop(ctx context.Context) error {
+	if s.node == nil {
+		return nil
+	}
+	return s.node.Close(ctx)
+}
+
+func (s *defraService) DB() node.DB {
+	if s.node == nil {
+		return nil
+	}
+	return s.node.DB
+}
+
+func (s *defraService) Options() *options.NodeOptions {
+	if s.node == nil {
+		return nil
+	}
+	return s.node.Options()
 }
 
 func configureCorelog(cfg *hostconfig.Config) {
 	format := corelog.FormatJSON
 	if cfg.Logger.Development {
-		format = "" // corelog's own default: colorized, human-readable text
+		format = ""
 	}
 
 	general := corelog.Config{

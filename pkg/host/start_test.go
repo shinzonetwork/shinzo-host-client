@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sourcenetwork/defradb/client/options"
+	"github.com/sourcenetwork/defradb/node"
 	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
@@ -21,16 +23,95 @@ func testHostConfig() *hostconfig.Config {
 	return &cfg
 }
 
+// fakeDefraService lets Start's own orchestration (does it call Start,
+// mount ordering, shutdown wiring) be tested without a real embedded
+// database. DB/Options return nil, fine for anything that doesn't actually
+// execute a query, a real round trip is covered separately in
+// TestStart_ServesGraphQLAndHealthOnSamePort.
+type fakeDefraService struct {
+	started bool
+	stopped bool
+}
+
+func (f *fakeDefraService) Start(context.Context) error {
+	f.started = true
+	return nil
+}
+
+func (f *fakeDefraService) Stop(context.Context) error {
+	f.stopped = true
+	return nil
+}
+
+func (f *fakeDefraService) DB() node.DB                   { return nil }
+func (f *fakeDefraService) Options() *options.NodeOptions { return nil }
+
 func TestStart_FailsFastOnInvalidACPConfig(t *testing.T) {
 	cfg := testHostConfig()
 	cfg.ACP.Enabled = true // missing chain_id/epoch_length/min_query_balance
 
-	_, err := Start(context.Background(), cfg, zap.NewNop(), NodeKeys{})
+	// nil defra: ACP validation fails before Start ever touches it.
+	_, err := Start(context.Background(), cfg, zap.NewNop(), NodeKeys{}, nil)
 	if err == nil {
 		t.Fatal("expected Start to fail on an invalid acp config, got nil")
 	}
 	if !strings.Contains(err.Error(), "acp config") {
 		t.Fatalf(`expected the error to be wrapped as "acp config: ...", got: %v`, err)
+	}
+}
+
+func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
+	cfg := testHostConfig()
+
+	keys, err := deriveKeys(testMnemonic(t))
+	if err != nil {
+		t.Fatalf("deriveKeys: %v", err)
+	}
+
+	fake := &fakeDefraService{}
+
+	srv, err := Start(context.Background(), cfg, zap.NewNop(), keys, fake)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !fake.started {
+		t.Fatal("expected Start to call defra.Start")
+	}
+
+	base := "http://" + srv.Addr()
+	for _, path := range []string{"/health", "/api/node", "/console"} {
+		resp, err := http.Get(base + path) //nolint:noctx // test
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected %s 200, got %d", path, resp.StatusCode)
+		}
+	}
+
+	if err := srv.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !fake.stopped {
+		t.Fatal("expected Close to stop the defra service too")
+	}
+}
+
+func TestStart_StopsDefraIfAMountFailsAfterDefraStarted(t *testing.T) {
+	cfg := testHostConfig()
+	keys := NodeKeys{PeerKeySeed: []byte("short")}
+	fake := &fakeDefraService{}
+
+	_, err := Start(context.Background(), cfg, zap.NewNop(), keys, fake)
+	if err == nil {
+		t.Fatal("expected Start to fail deriving the peer id for /api/node")
+	}
+	if !fake.started {
+		t.Fatal("expected defra.Start to have been called before the failing mount")
+	}
+	if !fake.stopped {
+		t.Fatal("expected Start to stop defra itself after a later mount failed")
 	}
 }
 
@@ -44,7 +125,9 @@ func TestStart_ServesGraphQLAndHealthOnSamePort(t *testing.T) {
 		t.Fatalf("deriveKeys: %v", err)
 	}
 
-	srv, err := Start(context.Background(), cfg, zap.NewNop(), keys)
+	defra := NewDefraService(cfg, zap.NewNop(), keys.IdentityKey, keys.PeerKeySeed)
+
+	srv, err := Start(context.Background(), cfg, zap.NewNop(), keys, defra)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

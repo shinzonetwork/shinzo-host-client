@@ -12,44 +12,56 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 )
 
-func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys NodeKeys) (*hostserver.Server, error) {
+func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys NodeKeys, defra DefraService) (srv *hostserver.Server, err error) {
 	if _, err := buildACPConfig(cfg); err != nil {
 		return nil, fmt.Errorf("acp config: %w", err)
 	}
 
-	srv, err := hostserver.New(cfg, log)
+	srv, err = hostserver.New(cfg, log)
 	if err != nil {
 		return nil, fmt.Errorf("building host server: %w", err)
 	}
 
-	defraNode, err := startDefra(ctx, srv, cfg, log, keys.IdentityKey, keys.PeerKeySeed)
-	if err != nil {
+	if err := defra.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting defra: %w", err)
 	}
-	srv.RegisterShutdown(func(ctx context.Context) error { return defraNode.Close(ctx) })
+	// Anything that fails below this point leaves defra running with
+	// nothing left holding a reference to stop it, clean it up ourselves.
+	defer func() {
+		if err != nil {
+			_ = defra.Stop(context.Background())
+		}
+	}()
+	srv.RegisterShutdown(func(ctx context.Context) error { return defra.Stop(ctx) })
 
-	mountHealth(srv.Mux())
-
-	if err := mountNodeInfo(srv, keys); err != nil {
-		return nil, fmt.Errorf("mounting node info: %w", err)
+	if err := mountServices(srv, cfg, keys, defra); err != nil {
+		return nil, err
 	}
-	if err := mountConsole(srv); err != nil {
-		return nil, fmt.Errorf("mounting console: %w", err)
-	}
-
-	if err := mountGraphQL(srv, defraNode); err != nil {
-		return nil, fmt.Errorf("mounting graphql: %w", err)
-	}
-	if err := mountPlayground(srv, cfg); err != nil {
-		return nil, fmt.Errorf("mounting playground: %w", err)
-	}
-	// TODO: startEventSubscription(ctx, defraNode, ...), still not wired.
 
 	if err := srv.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting host server: %w", err)
 	}
 
 	return srv, nil
+}
+
+func mountServices(srv *hostserver.Server, cfg *hostconfig.Config, keys NodeKeys, defra DefraService) error {
+	mountHealth(srv.Mux())
+
+	if err := mountNodeInfo(srv, keys); err != nil {
+		return fmt.Errorf("mounting node info: %w", err)
+	}
+	if err := mountConsole(srv); err != nil {
+		return fmt.Errorf("mounting console: %w", err)
+	}
+	if err := mountGraphQL(srv, defra.DB(), defra.Options()); err != nil {
+		return fmt.Errorf("mounting graphql: %w", err)
+	}
+	if err := mountPlayground(srv, cfg); err != nil {
+		return fmt.Errorf("mounting playground: %w", err)
+	}
+
+	return nil
 }
 
 func buildACPConfig(cfg *hostconfig.Config) (acp.Config, error) {
