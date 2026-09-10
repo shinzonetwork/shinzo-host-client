@@ -47,12 +47,7 @@ type TopicFilter struct {
 	Name   string `json:"name"`
 }
 
-// no disk touch when disabled, so "off" and "file's missing" aren't the same case
-func LoadFilters(instanceDir string, ref EventFilterConfig) (*FilterSet, error) {
-	if !ref.Enabled {
-		return &FilterSet{}, nil
-	}
-
+func FiltersPath(instanceDir string, ref EventFilterConfig) string {
 	path := ref.File
 	if path == "" {
 		path = "filters.json"
@@ -60,6 +55,15 @@ func LoadFilters(instanceDir string, ref EventFilterConfig) (*FilterSet, error) 
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(instanceDir, path)
 	}
+	return path
+}
+
+func LoadFilters(instanceDir string, ref EventFilterConfig) (*FilterSet, error) {
+	if !ref.Enabled {
+		return &FilterSet{}, nil
+	}
+
+	path := FiltersPath(instanceDir, ref)
 
 	data, err := os.ReadFile(path) //nolint:gosec // operator-controlled config path
 	if err != nil {
