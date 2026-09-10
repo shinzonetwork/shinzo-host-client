@@ -3,30 +3,27 @@ package host
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 )
 
+// this is a new start
 func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys NodeKeys, defra DefraService) (srv *hostserver.Server, err error) {
-	if _, err := buildACPConfig(cfg); err != nil {
-		return nil, fmt.Errorf("acp config: %w", err)
-	}
-
+	// start node wide server, this will spun a mux that would be used process wide.
 	srv, err = hostserver.New(cfg, log)
 	if err != nil {
 		return nil, fmt.Errorf("building host server: %w", err)
 	}
 
+	// start defra process, tucked defra into it's interface to reduce noice and invert depency for easy tests
 	if err := defra.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting defra: %w", err)
 	}
-	// Anything that fails below this point leaves defra running with
-	// nothing left holding a reference to stop it, clean it up ourselves.
+
+	// close defra DB when func closes as last resort even if we register a stop
 	defer func() {
 		if err != nil {
 			_ = defra.Stop(context.Background())
@@ -34,10 +31,21 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	}()
 	srv.RegisterShutdown(func(ctx context.Context) error { return defra.Stop(ctx) })
 
+	// fast sync from snapshots if config is enabled and provided indexer is reacable
+	defra.Bootstrap(ctx)
+
+	// mount all handlers to our servers
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
 	}
 
+	// TODO: changing host to only join views of pools that hosts has joined or will join, not via a
+	// ShinzoHub event subscription.
+
+	// TODO: ACP/billing isn't wired up, blocked on the accounting service
+	// (external, not built yet). Not a priority right now.
+
+	// after all mounts of all handlers, start the http server
 	if err := srv.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting host server: %w", err)
 	}
@@ -62,30 +70,4 @@ func mountServices(srv *hostserver.Server, cfg *hostconfig.Config, keys NodeKeys
 	}
 
 	return nil
-}
-
-func buildACPConfig(cfg *hostconfig.Config) (acp.Config, error) {
-	var window time.Duration
-	if cfg.ACP.AttesterWindow != "" {
-		var err error
-		window, err = time.ParseDuration(cfg.ACP.AttesterWindow)
-		if err != nil {
-			return acp.Config{}, fmt.Errorf("acp.attester_window: %w", err)
-		}
-	}
-
-	acpCfg := acp.Config{
-		Enabled:         cfg.ACP.Enabled,
-		ChainID:         cfg.Shinzo.ChainID,
-		MinQueryBalance: cfg.ACP.MinQueryBalance,
-		EpochLength:     cfg.ACP.EpochLength,
-		ASBaseURL:       cfg.ACP.ASBaseURL,
-		AttesterWindow:  window,
-	}
-
-	if err := acpCfg.Validate(); err != nil {
-		return acp.Config{}, err
-	}
-
-	return acpCfg, nil
 }
