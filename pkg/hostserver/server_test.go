@@ -55,6 +55,25 @@ func TestStart_ServesWhateverWasMountedOnMux(t *testing.T) {
 	defer func() { _ = s.Close(context.Background()) }()
 }
 
+func TestStart_SetsAddr(t *testing.T) {
+	s, err := New(testConfig(), zap.NewNop())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if s.Addr() != "" {
+		t.Fatalf("expected Addr to be empty before Start, got %q", s.Addr())
+	}
+
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = s.Close(context.Background()) }()
+
+	if s.Addr() == "" {
+		t.Fatal("expected Addr to be set once Start resolves the ephemeral port")
+	}
+}
+
 func TestRegisterShutdown_CalledOnClose(t *testing.T) {
 	s, err := New(testConfig(), zap.NewNop())
 	if err != nil {

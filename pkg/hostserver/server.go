@@ -21,6 +21,7 @@ type Server struct {
 	mux *http.ServeMux
 
 	httpSrv *http.Server
+	addr    string
 
 	// reverse order on Close, keeps going even if one fails
 	shutdownFns []func(context.Context) error
@@ -44,6 +45,10 @@ func (s *Server) Mux() *http.ServeMux {
 	return s.mux
 }
 
+func (s *Server) Addr() string {
+	return s.addr
+}
+
 func (s *Server) RegisterShutdown(fn func(context.Context) error) {
 	s.shutdownFns = append(s.shutdownFns, fn)
 }
@@ -56,6 +61,7 @@ func (s *Server) Start(context.Context) error {
 	}
 
 	s.httpSrv = &http.Server{Handler: s.mux}
+	s.addr = ln.Addr().String()
 
 	go func() {
 		if err := s.httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

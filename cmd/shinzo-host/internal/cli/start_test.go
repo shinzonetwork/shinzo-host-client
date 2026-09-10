@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, content string) string {
@@ -29,16 +31,19 @@ func TestRunStart_MissingConfigFile(t *testing.T) {
 	}
 }
 
-// startDefra is still a stub, so this exercises the whole chain up to
-// there (config load, logger build, EnsureKeys, host.Start,
-// hostserver.New) and stops exactly at the one piece that isn't real yet.
-// data_dir is pinned to a temp dir so EnsureKeys creates its keyring
-// there, not under this machine's real default instance directory.
+// Exercises the real chain end to end: config load, logger build,
+// EnsureKeys, host.Start (a real embedded defra node), then a clean
+// shutdown once the context is canceled. P2P is off to keep this fast and
+// network-free. data_dir is pinned to a temp dir so EnsureKeys creates its
+// keyring there, not under this machine's real default instance directory.
 func TestRunStart_ReachesHostStart(t *testing.T) {
 	dataDir := t.TempDir()
 	path := writeConfig(t, `
 [http]
 addr = ":0"
+
+[p2p]
+enabled = false
 
 [node]
 data_dir = "`+dataDir+`"
@@ -47,11 +52,10 @@ data_dir = "`+dataDir+`"
 	root := newRootCmd()
 	root.SetArgs([]string{"start", "--config", path})
 
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("expected an error since startDefra is still a stub, got nil")
-	}
-	if !strings.Contains(err.Error(), "starting defra") {
-		t.Fatalf("expected the error to come from starting defra, got: %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := root.ExecuteContext(ctx); err != nil {
+		t.Fatalf("expected a clean start and shutdown, got: %v", err)
 	}
 }

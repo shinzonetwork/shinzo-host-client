@@ -26,12 +26,24 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	if err != nil {
 		return nil, fmt.Errorf("starting defra: %w", err)
 	}
+	srv.RegisterShutdown(func(ctx context.Context) error { return defraNode.Close(ctx) })
 
 	mountHealth(srv.Mux())
-	// TODO: mountGraphQL(srv, defraNode, cfg, log), mountPlayground(srv, cfg),
-	// startEventSubscription(ctx, defraNode, ...), each mounts itself, same
-	// as startDefra and mountHealth do.
-	_ = defraNode
+
+	if err := mountNodeInfo(srv, keys); err != nil {
+		return nil, fmt.Errorf("mounting node info: %w", err)
+	}
+	if err := mountConsole(srv); err != nil {
+		return nil, fmt.Errorf("mounting console: %w", err)
+	}
+
+	if err := mountGraphQL(srv, defraNode); err != nil {
+		return nil, fmt.Errorf("mounting graphql: %w", err)
+	}
+	if err := mountPlayground(srv, cfg); err != nil {
+		return nil, fmt.Errorf("mounting playground: %w", err)
+	}
+	// TODO: startEventSubscription(ctx, defraNode, ...), still not wired.
 
 	if err := srv.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting host server: %w", err)
