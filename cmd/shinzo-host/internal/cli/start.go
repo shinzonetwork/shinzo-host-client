@@ -50,13 +50,11 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = syncLog() }()
 
+	logger.Sugar = log.Sugar()
+
 	keys, err := host.EnsureKeys(cfg, recoverMnemonic, log.Sugar())
 	if err != nil {
 		return fmt.Errorf("ensuring keys: %w", err)
-	}
-
-	if err := printKeyBanner(cmd.OutOrStdout(), keys); err != nil {
-		return fmt.Errorf("printing key banner: %w", err)
 	}
 
 	defra := host.NewDefraService(cfg, log, keys.IdentityKey, keys.PeerKeySeed)

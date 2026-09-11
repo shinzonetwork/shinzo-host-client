@@ -29,10 +29,17 @@ func mountNodeInfo(srv *hostserver.Server, keys NodeKeys) error {
 		return fmt.Errorf("encoding node info: %w", err)
 	}
 
-	srv.Mux().HandleFunc("/api/node", func(w http.ResponseWriter, _ *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
-	})
+	}
+
+	// Both forms: mountGraphQL owns the "/api/" subtree, so a request to
+	// /api/node/ (trailing slash) would otherwise fall through to it
+	// instead of here.
+	mux := srv.Mux()
+	mux.HandleFunc("/api/node", handler)
+	mux.HandleFunc("/api/node/", handler)
 
 	return nil
 }

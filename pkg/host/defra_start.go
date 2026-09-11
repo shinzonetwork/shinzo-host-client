@@ -36,6 +36,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/snapshot"
 )
 
@@ -69,6 +70,7 @@ type DefraService interface {
 	Stop(ctx context.Context) error
 	DB() node.DB
 	Options() *options.NodeOptions
+	Metrics() *server.HostMetrics
 }
 
 func NewDefraService(
@@ -82,6 +84,7 @@ func NewDefraService(
 		log:         log,
 		identityKey: identityKey,
 		peerKeySeed: peerKeySeed,
+		metrics:     server.NewHostMetrics(),
 	}
 }
 
@@ -90,6 +93,7 @@ type defraService struct {
 	log         *zap.Logger
 	identityKey identity.FullIdentity
 	peerKeySeed []byte
+	metrics     *server.HostMetrics
 
 	node *node.Node // set once Start succeeds
 }
@@ -482,7 +486,7 @@ func (s *defraService) attestSignatures(ctx context.Context, defraNode *node.Nod
 	verifier := attestation.NewBlockSignatureVerifier(blockSignatureCacheSize)
 
 	for range workerCount {
-		go blockSignatureWorker(ctx, defraNode, verifier, queue, log)
+		go blockSignatureWorker(ctx, defraNode, verifier, queue, s.metrics, log)
 	}
 	log.Infow("attesting block signatures", "workers", workerCount, "queue_size", queueSize)
 
@@ -498,6 +502,8 @@ func (s *defraService) attestSignatures(ctx context.Context, defraNode *node.Nod
 			if !ok || update.CollectionID != blockSigCollectionID || !update.IsRelay {
 				continue
 			}
+			s.metrics.IncrementDocumentsReceived()
+			s.metrics.IncrementDocumentByType(constants.CollectionBlockSignature)
 			enqueueDropOldest(queue, update.DocID)
 		}
 	}
@@ -522,6 +528,7 @@ func blockSignatureWorker(
 	defraNode *node.Node,
 	verifier *attestation.BlockSignatureVerifier,
 	queue <-chan string,
+	metrics *server.HostMetrics,
 	log *zap.SugaredLogger,
 ) {
 	for {
@@ -529,7 +536,7 @@ func blockSignatureWorker(
 		case <-ctx.Done():
 			return
 		case docID := <-queue:
-			verifyAndAttestBlockSignature(ctx, defraNode, verifier, docID, log)
+			verifyAndAttestBlockSignature(ctx, defraNode, verifier, docID, metrics, log)
 		}
 	}
 }
@@ -539,6 +546,7 @@ func verifyAndAttestBlockSignature(
 	defraNode *node.Node,
 	verifier *attestation.BlockSignatureVerifier,
 	docID string,
+	metrics *server.HostMetrics,
 	log *zap.SugaredLogger,
 ) {
 	doc, err := fetchBlockSignatureDoc(ctx, defraNode, docID)
@@ -557,6 +565,7 @@ func verifyAndAttestBlockSignature(
 
 	if err := verifier.VerifyBlockSignature(blockSig); err != nil {
 		log.Warnw("invalid block signature", "block", blockSig.BlockNumber, "error", err)
+		metrics.IncrementSignatureFailures()
 		return
 	}
 	if len(blockSig.CIDs) > 0 {
@@ -565,12 +574,14 @@ func verifyAndAttestBlockSignature(
 			log.Warnw("cid list verification error", "block", blockSig.BlockNumber, "error", err)
 		} else if !match {
 			log.Warnw("cid list does not match merkle root", "block", blockSig.BlockNumber)
+			metrics.IncrementSignatureFailures()
 			return
 		}
 	}
+	metrics.IncrementSignatureVerifications()
 
 	verifier.AddBlockSignature(blockSig)
-	postBlockAttestation(ctx, defraNode, blockSig, log)
+	postBlockAttestation(ctx, defraNode, blockSig, metrics, log)
 }
 
 func fetchBlockSignatureDoc(ctx context.Context, defraNode *node.Node, docID string) (*client.Document, error) {
@@ -683,7 +694,13 @@ func fillBlockSignatureCIDs(doc *client.Document, blockSig *attestation.BlockSig
 	}
 }
 
-func postBlockAttestation(ctx context.Context, defraNode *node.Node, blockSig *attestation.BlockSignature, log *zap.SugaredLogger) {
+func postBlockAttestation(
+	ctx context.Context,
+	defraNode *node.Node,
+	blockSig *attestation.BlockSignature,
+	metrics *server.HostMetrics,
+	log *zap.SugaredLogger,
+) {
 	if len(blockSig.CIDs) == 0 {
 		log.Warnw("skipping attestation, block signature has no cid list", "block", blockSig.BlockNumber)
 		return
@@ -702,6 +719,8 @@ func postBlockAttestation(ctx context.Context, defraNode *node.Node, blockSig *a
 		err := attestation.PostAttestationRecord(ctx, defraNode, record)
 		if err == nil {
 			log.Infow("created attestation for block", "block", blockSig.BlockNumber, "signer", blockSig.SignatureIdentity)
+			metrics.IncrementAttestationsCreated()
+			metrics.UpdateMostRecentBlock(uint64(blockSig.BlockNumber)) //nolint:gosec // block numbers are always positive
 			return
 		}
 		lastErr = err
@@ -710,9 +729,11 @@ func postBlockAttestation(ctx context.Context, defraNode *node.Node, blockSig *a
 			continue
 		}
 		log.Warnw("failed to post block attestation", "block", blockSig.BlockNumber, "error", err)
+		metrics.IncrementAttestationErrors()
 		return
 	}
 	log.Warnw("failed to post block attestation after retries", "block", blockSig.BlockNumber, "error", lastErr)
+	metrics.IncrementAttestationErrors()
 }
 
 func (s *defraService) Stop(ctx context.Context) error {
@@ -734,6 +755,10 @@ func (s *defraService) Options() *options.NodeOptions {
 		return nil
 	}
 	return s.node.Options()
+}
+
+func (s *defraService) Metrics() *server.HostMetrics {
+	return s.metrics
 }
 
 func configureCorelog(cfg *hostconfig.Config) {

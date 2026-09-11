@@ -15,6 +15,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
 func testHostConfig() *hostconfig.Config {
@@ -34,6 +35,7 @@ type fakeDefraService struct {
 	maintaining bool
 	attesting   bool
 	stopped     bool
+	metrics     *server.HostMetrics
 }
 
 func (f *fakeDefraService) Start(context.Context) error {
@@ -60,6 +62,13 @@ func (f *fakeDefraService) Stop(context.Context) error {
 
 func (f *fakeDefraService) DB() node.DB                   { return nil }
 func (f *fakeDefraService) Options() *options.NodeOptions { return nil }
+
+func (f *fakeDefraService) Metrics() *server.HostMetrics {
+	if f.metrics == nil {
+		f.metrics = server.NewHostMetrics()
+	}
+	return f.metrics
+}
 
 func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
 	cfg := testHostConfig()
@@ -89,7 +98,7 @@ func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
 	}
 
 	base := "http://" + srv.Addr()
-	for _, path := range []string{"/health", "/api/node", "/console"} {
+	for _, path := range []string{"/api/node", "/console"} {
 		resp, err := http.Get(base + path) //nolint:noctx // test
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -98,6 +107,17 @@ func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected %s 200, got %d", path, resp.StatusCode)
 		}
+	}
+
+	// the fake's DB() is nil, no real defra behind it, /health correctly
+	// reports unhealthy rather than a fixed 200, same as mount_health_test.go.
+	healthResp, err := http.Get(base + "/health") //nolint:noctx // test
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	_ = healthResp.Body.Close()
+	if healthResp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected /health 503 for a nil DB, got %d", healthResp.StatusCode)
 	}
 
 	if err := srv.Close(context.Background()); err != nil {
@@ -156,6 +176,15 @@ func TestStart_ServesGraphQLAndHealthOnSamePort(t *testing.T) {
 	defer healthResp.Body.Close() //nolint:errcheck // test
 	if healthResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected /health 200, got %d", healthResp.StatusCode)
+	}
+
+	metricsResp, err := http.Get(base + "/metrics") //nolint:noctx // test
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer metricsResp.Body.Close() //nolint:errcheck // test
+	if metricsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected /metrics 200, got %d", metricsResp.StatusCode)
 	}
 
 	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
