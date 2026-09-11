@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -166,8 +165,7 @@ type Host struct {
 
 	// mostRecentBlockReceived uint64
 
-	pruner     *pruner.Pruner     // Document pruner for removing old blocks
-	pruneQueue *pruner.EventQueue // FIFO queue tracking replicated docIDs
+	pruner *pruner.Pruner // Document pruner for removing old blocks
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -481,28 +479,17 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// Initialize pruner for removing old replicated blocks
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
-		collections := pruner.DefaultCollectionConfig()
-
-		pruneQueue := pruner.NewEventQueue(collections)
-		queuePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
-		if loaded, err := pruneQueue.LoadFromFile(queuePath); err != nil {
-			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
-		} else if loaded > 0 {
-			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
-		}
 
 		p := pruner.NewPruner(&cfg.Pruner, defraNode)
-		p.SetQueue(pruneQueue)
+		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)
 		}
 
 		newHost.pruner = p
-		newHost.pruneQueue = pruneQueue
 	}
 
-	// Started after the pruner so it can report the queue length.
 	go newHost.reportStats(processingCtx)
 
 	if cfg.HostConfig.OpenBrowserOnStart {
@@ -713,7 +700,6 @@ func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
 
-	// Stop pruner and save queue to disk
 	if h.pruner != nil {
 		h.pruner.Stop(ctx)
 		h.pruner = nil
