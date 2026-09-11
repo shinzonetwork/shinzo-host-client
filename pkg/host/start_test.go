@@ -34,6 +34,7 @@ type fakeDefraService struct {
 	bootstraped bool
 	maintaining bool
 	attesting   bool
+	tracking    bool
 	stopped     bool
 	metrics     *server.HostMetrics
 }
@@ -53,6 +54,10 @@ func (f *fakeDefraService) MaintainPeerConnections(context.Context) {
 
 func (f *fakeDefraService) AttestSignatures(context.Context) {
 	f.attesting = true
+}
+
+func (f *fakeDefraService) TrackDocumentMetrics(context.Context) {
+	f.tracking = true
 }
 
 func (f *fakeDefraService) Stop(context.Context) error {
@@ -95,6 +100,9 @@ func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
 	}
 	if !fake.attesting {
 		t.Fatal("expected Start to call defra.AttestSignatures")
+	}
+	if !fake.tracking {
+		t.Fatal("expected Start to call defra.TrackDocumentMetrics")
 	}
 
 	base := "http://" + srv.Addr()

@@ -40,6 +40,9 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	// verify peer relayed block signatures and attest the ones that check out (this is a goroutine)
 	defra.AttestSignatures(ctx)
 
+	// keep the /metrics document-type counters current as documents replicate in (this is a goroutine)
+	defra.TrackDocumentMetrics(ctx)
+
 	// mount all handlers to our servers
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
