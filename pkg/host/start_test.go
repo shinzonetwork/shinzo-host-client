@@ -31,6 +31,7 @@ func testHostConfig() *hostconfig.Config {
 type fakeDefraService struct {
 	started     bool
 	bootstraped bool
+	attesting   bool
 	stopped     bool
 }
 
@@ -41,6 +42,10 @@ func (f *fakeDefraService) Start(context.Context) error {
 
 func (f *fakeDefraService) Bootstrap(context.Context) {
 	f.bootstraped = true
+}
+
+func (f *fakeDefraService) AttestSignatures(context.Context) {
+	f.attesting = true
 }
 
 func (f *fakeDefraService) Stop(context.Context) error {
@@ -70,6 +75,9 @@ func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
 	}
 	if !fake.bootstraped {
 		t.Fatal("expected Start to call defra.Bootstrap")
+	}
+	if !fake.attesting {
+		t.Fatal("expected Start to call defra.AttestSignatures")
 	}
 
 	base := "http://" + srv.Addr()

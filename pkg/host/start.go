@@ -34,6 +34,9 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	// fast sync from snapshots if config is enabled and provided indexer is reacable
 	defra.Bootstrap(ctx)
 
+	// verify peer relayed block signatures and attest the ones that check out (this is a goroutine)
+	defra.AttestSignatures(ctx)
+
 	// mount all handlers to our servers
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
