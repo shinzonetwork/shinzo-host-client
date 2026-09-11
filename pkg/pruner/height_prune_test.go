@@ -256,6 +256,20 @@ func TestHeightPruneSkipsCollectionWithoutHeightField(t *testing.T) {
 	require.Equal(t, 3, countHeightDocs(t, n, attRecCollection))
 }
 
+// A document with no height sorts first on ASC. Reading that as an empty collection would leave
+// everything behind it unpruned.
+func TestHeightPruneIgnoresADocumentWithNoHeight(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+
+	seedHeightBlocks(t, n, 1, 20)
+	addHeightDoc(t, n, logCollection, map[string]any{"address": "no-height"})
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	// Cutoff 15, so logs 16-20 remain, plus the one with no height.
+	require.Equal(t, 6, countHeightDocs(t, n, logCollection))
+}
+
 // A dependent whose height field carries no index is skipped, so its documents survive the sweep.
 func TestHeightPruneSkipsUnindexedHeightField(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})

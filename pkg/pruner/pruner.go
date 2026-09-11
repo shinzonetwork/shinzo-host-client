@@ -236,8 +236,8 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 
 	cutoff := highest - p.cfg.MaxBlocks
 	if cutoff <= 0 {
-		// The node holds no more than the retention window, including when the store is empty.
-		logger.Sugar.Infof("Prune: nothing to delete, the newest block (%d) is inside the %d blocks being kept",
+		// An empty store reads a highest of zero, so it lands here too.
+		logger.Sugar.Infof("Prune: nothing to delete, the newest block held (%d) does not exceed max_blocks (%d)",
 			highest, p.cfg.MaxBlocks)
 		return nil
 	}
@@ -314,7 +314,8 @@ func (p *Pruner) purgeCollectionBelow(ctx context.Context, collectionName, field
 	if err != nil {
 		return 0, err
 	}
-	if !found || oldest > cutoff {
+	// Nulls sort first on ASC, so only a height that was actually read can rule the collection out.
+	if found && oldest > cutoff {
 		return 0, nil
 	}
 
@@ -471,7 +472,8 @@ func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
 }
 
 // edgeBlockNumber reads the block number at one end of a collection's ordering. The bool is false
-// when the collection is empty, which a zero block number cannot be distinguished from otherwise.
+// when the collection is empty or that end's document has no numeric height; zero is a valid block
+// number, so it cannot stand for either.
 func (p *Pruner) edgeBlockNumber(ctx context.Context, collectionName, fieldName, direction string) (int64, bool, error) {
 	query := fmt.Sprintf(`query {
 		%s(order: { %s: %s }, limit: 1) {
