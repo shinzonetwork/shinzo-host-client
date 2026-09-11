@@ -65,6 +65,7 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 func mountServices(srv *hostserver.Server, cfg *hostconfig.Config, keys NodeKeys, defra DefraService) error {
 	mountHealth(srv, defra)
 	mountMetrics(srv, defra)
+	mountSystemStats(srv, cfg)
 
 	if err := mountNodeInfo(srv, keys); err != nil {
 		return fmt.Errorf("mounting node info: %w", err)
