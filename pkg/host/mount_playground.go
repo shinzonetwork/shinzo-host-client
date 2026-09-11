@@ -1,5 +1,3 @@
-//go:build hostplayground
-
 package host
 
 import (
