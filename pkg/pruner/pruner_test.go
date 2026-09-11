@@ -61,10 +61,7 @@ func TestStopReturnsWhenShutdownBudgetExpires(t *testing.T) {
 func TestStopSavesQueueWhenBudgetExpires(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prune_queue.gob")
 
-	cfg := CollectionConfig{
-		BlockCollection:      testBlockCollection,
-		DependentCollections: []string{testLogCollection},
-	}
+	cfg := testQueueCollections()
 	q := NewEventQueue(cfg)
 	_, err := q.LoadFromFile(path) // sets the save path; the file does not exist yet
 	require.NoError(t, err)
@@ -168,7 +165,7 @@ func TestBlockCounterIgnoresAFailedBlockPurge(t *testing.T) {
 	cols := DefaultCollectionConfig()
 
 	q := NewEventQueue(cols)
-	q.Push(cols.BlockCollection, testDocID(1))
+	q.Push(cols.Block.Name, testDocID(1))
 	result := q.DrainDocs(1)
 	require.NotNil(t, result)
 	require.Equal(t, 1, result.BlockCount)
@@ -189,7 +186,7 @@ func TestBlockCounterCountsASuccessfulBlockPurge(t *testing.T) {
 	cols := DefaultCollectionConfig()
 
 	q := NewEventQueue(cols)
-	q.Push(cols.BlockCollection, testDocID(1))
+	q.Push(cols.Block.Name, testDocID(1))
 	result := q.DrainDocs(1)
 	require.NotNil(t, result)
 
@@ -205,7 +202,11 @@ func TestBlockCounterCountsASuccessfulBlockPurge(t *testing.T) {
 // once it has replicated, so anything left behind is never pruned.
 func TestPurgeRequeuesEveryDrainedCollectionOnStop(t *testing.T) {
 	cols := DefaultCollectionConfig()
-	order := append(append([]string{}, cols.DependentCollections...), cols.BlockCollection)
+	order := make([]string, 0, len(cols.Dependents)+1)
+	for _, dep := range cols.Dependents {
+		order = append(order, dep.Name)
+	}
+	order = append(order, cols.Block.Name)
 
 	q := NewEventQueue(cols)
 	for i, name := range order {

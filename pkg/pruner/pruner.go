@@ -9,10 +9,10 @@
 //     written is gone.
 //
 //  2. The height sweep. The queue cannot see documents that were already in the store before
-//     startup, so the sweep asks the store directly: it takes documents whose block number is
-//     at or below (highest block held - max_blocks) and deletes those. It needs a block number
-//     to sort on, so the block collection uses BlockNumberField and dependents use blockNumber.
-//     A dependent with no such field is skipped, so only the queue deletes its documents.
+//     startup, so the sweep asks the store directly: it takes documents whose block height is
+//     at or below (highest block held - max_blocks) and deletes those. Each collection names
+//     the field holding that height, and the sweep orders on it. A dependent whose height
+//     field is missing or unindexed is skipped, so only the queue deletes its documents.
 //
 // Each way gets its own max_docs_per_cycle, so a very full queue cannot use up the whole cycle.
 package pruner
@@ -38,10 +38,6 @@ const (
 	// visible without flooding a short one.
 	purgeProgressInterval = 30 * time.Second
 )
-
-// dependentBlockNumberField names the block a dependent document belongs to. The block collection
-// names its own field through CollectionConfig.
-const dependentBlockNumberField = "blockNumber"
 
 // errStopped ends a purge early because the pruner is shutting down. Its documents are
 // re-queued, so the work resumes rather than being lost.
@@ -70,8 +66,8 @@ type Pruner struct {
 	queue       PrunerQueue // EventQueue (the only implementation in host)
 	// retainHistory disables the height sweep, for a node bootstrapped with history it should keep.
 	retainHistory bool
-	// heightPrunable is the subset of DependentCollections carrying dependentBlockNumberField.
-	heightPrunable []string
+	// heightPrunable is the subset of Dependents the sweep can order on.
+	heightPrunable []CollectionHeight
 	stopChan       chan struct{}
 	wg             sync.WaitGroup
 	mu             sync.RWMutex
@@ -243,28 +239,29 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 	}
 }
 
-// resolveHeightPrunable returns the dependent collections the height sweep can order on. One
-// without the field is left to the queue drain.
-func (p *Pruner) resolveHeightPrunable(ctx context.Context) []string {
-	prunable := make([]string, 0, len(p.collections.DependentCollections))
+// resolveHeightPrunable returns the dependents whose height field carries an index. A field that
+// is absent has no index either, so both cases fall to the queue drain.
+func (p *Pruner) resolveHeightPrunable(ctx context.Context) []CollectionHeight {
+	prunable := make([]CollectionHeight, 0, len(p.collections.Dependents))
 	var skipped []string
 
-	for _, name := range p.collections.DependentCollections {
-		col, err := p.defraNode.DB.GetCollectionByName(ctx, name)
+	for _, dep := range p.collections.Dependents {
+		col, err := p.defraNode.DB.GetCollectionByName(ctx, dep.Name)
 		if err != nil {
-			skipped = append(skipped, name)
+			skipped = append(skipped, dep.Name)
 			continue
 		}
-		if _, ok := col.Version().GetFieldByName(dependentBlockNumberField); !ok {
-			skipped = append(skipped, name)
+		// Ordering on an unindexed field materialises the whole collection before the limit applies.
+		if len(col.Version().GetIndexesOnField(dep.HeightField)) == 0 {
+			skipped = append(skipped, dep.Name)
 			continue
 		}
-		prunable = append(prunable, name)
+		prunable = append(prunable, dep)
 	}
 
 	if len(skipped) > 0 {
-		logger.Sugar.Warnf("Height prune skips %v: no %s field to order on, so only the queue drain removes their documents",
-			skipped, dependentBlockNumberField)
+		logger.Sugar.Errorf("Height sweep skips %v: no index on their height field, so only the queue drain removes their documents",
+			skipped)
 	}
 	return prunable
 }
@@ -335,9 +332,11 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result
 
 	// Dependents before blocks, so a block is never removed ahead of the documents that
 	// reference it.
-	order := make([]string, 0, len(p.collections.DependentCollections)+1)
-	order = append(order, p.collections.DependentCollections...)
-	order = append(order, p.collections.BlockCollection)
+	order := make([]string, 0, len(p.collections.Dependents)+1)
+	for _, dep := range p.collections.Dependents {
+		order = append(order, dep.Name)
+	}
+	order = append(order, p.collections.Block.Name)
 
 	for i, colName := range order {
 		docIDs, ok := result.DocIDsByCollection[colName]
@@ -350,7 +349,7 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, q *EventQueue, result
 			// A failed collection is re-queued and purged again later, so counting its
 			// partial progress here would count those documents twice.
 			totalSubmitted += submitted
-			if colName == p.collections.BlockCollection {
+			if colName == p.collections.Block.Name {
 				blocksPruned = int64(result.BlockCount)
 			}
 			continue
@@ -474,24 +473,24 @@ func (p *Pruner) pruneBeyondRetention(ctx context.Context, budget int64) error {
 //
 // Safe to run alongside P2P replication: a merge for a removed block is handled as a new document.
 func (p *Pruner) pruneBelow(ctx context.Context, cutoff, budget int64) (submitted, blocks int64, err error) {
-	for _, colName := range p.heightPrunable {
-		purged, err := p.purgeCollectionBelow(ctx, colName, dependentBlockNumberField, cutoff, budget-submitted)
+	for _, dep := range p.heightPrunable {
+		purged, err := p.purgeCollectionBelow(ctx, dep.Name, dep.HeightField, cutoff, budget-submitted)
 		if err != nil {
 			if abandoned(err) {
 				return submitted, blocks, nil
 			}
-			logger.Sugar.Warnf("Prune below %d: %s skipped: %v", cutoff, colName, err)
+			logger.Sugar.Warnf("Prune below %d: %s skipped: %v", cutoff, dep.Name, err)
 			continue
 		}
 		submitted += purged
 	}
 
-	blocks, err = p.purgeCollectionBelow(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, cutoff, budget-submitted)
+	blocks, err = p.purgeCollectionBelow(ctx, p.collections.Block.Name, p.collections.Block.HeightField, cutoff, budget-submitted)
 	if err != nil {
 		if abandoned(err) {
 			return submitted, 0, nil
 		}
-		return submitted, 0, fmt.Errorf("prune below %d: %s: %w", cutoff, p.collections.BlockCollection, err)
+		return submitted, 0, fmt.Errorf("prune below %d: %s: %w", cutoff, p.collections.Block.Name, err)
 	}
 	submitted += blocks
 
@@ -667,12 +666,12 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 // ─── Block number queries ────────────────────────────────────────────────────
 
 func (p *Pruner) getLowestBlockNumber(ctx context.Context) (int64, error) {
-	lowest, _, err := p.edgeBlockNumber(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, "ASC")
+	lowest, _, err := p.edgeBlockNumber(ctx, p.collections.Block.Name, p.collections.Block.HeightField, "ASC")
 	return lowest, err
 }
 
 func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
-	highest, _, err := p.edgeBlockNumber(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, "DESC")
+	highest, _, err := p.edgeBlockNumber(ctx, p.collections.Block.Name, p.collections.Block.HeightField, "DESC")
 	return highest, err
 }
 

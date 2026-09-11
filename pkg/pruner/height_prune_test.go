@@ -14,27 +14,37 @@ import (
 // EventQueue.Push only accepts collection names it holds an enum for, so tests use the production
 // names.
 const (
-	blockCollection   = "Ethereum__Mainnet__Block"
-	logCollection     = "Ethereum__Mainnet__Log"
-	txCollection      = "Ethereum__Mainnet__Transaction"
-	attRecCollection  = "Ethereum__Mainnet__AttestationRecord"
-	blockNumberColumn = "number"
+	blockCollection    = "Ethereum__Mainnet__Block"
+	logCollection      = "Ethereum__Mainnet__Log"
+	txCollection       = "Ethereum__Mainnet__Transaction"
+	aleCollection      = "Ethereum__Mainnet__AccessListEntry"
+	attRecCollection   = "Ethereum__Mainnet__AttestationRecord"
+	snapshotCollection = "Ethereum__Mainnet__SnapshotSignature"
 )
 
-// heightTestSchema mirrors the shape the pruner depends on: a block collection with its own number
-// field, dependents carrying blockNumber, and a dependent carrying neither.
+// heightTestSchema covers the cases the sweep tells apart: a block collection with its own height
+// field, dependents on blockNumber, one on a differently named field, one unindexed, and one with
+// no height field at all.
 const heightTestSchema = `
 type Ethereum__Mainnet__Block {
-	number: Int
+	number: Int @index
 	hash: String
 }
 type Ethereum__Mainnet__Log {
-	blockNumber: Int
+	blockNumber: Int @index
 	address: String
 }
 type Ethereum__Mainnet__Transaction {
-	blockNumber: Int
+	blockNumber: Int @index
 	hash: String
+}
+type Ethereum__Mainnet__SnapshotSignature {
+	endBlock: Int @index
+	merkleRoot: String
+}
+type Ethereum__Mainnet__AccessListEntry {
+	blockNumber: Int
+	address: String
 }
 type Ethereum__Mainnet__AttestationRecord {
 	attested_doc: String
@@ -43,9 +53,14 @@ type Ethereum__Mainnet__AttestationRecord {
 
 func heightTestCollections() CollectionConfig {
 	return CollectionConfig{
-		BlockCollection:      blockCollection,
-		BlockNumberField:     blockNumberColumn,
-		DependentCollections: []string{logCollection, txCollection, attRecCollection},
+		Block: CollectionHeight{Name: blockCollection, HeightField: blockHeightField},
+		Dependents: []CollectionHeight{
+			{Name: aleCollection, HeightField: dependentHeightField},
+			{Name: logCollection, HeightField: dependentHeightField},
+			{Name: txCollection, HeightField: dependentHeightField},
+			{Name: attRecCollection, HeightField: dependentHeightField},
+			{Name: snapshotCollection, HeightField: snapshotHeightField},
+		},
 	}
 }
 
@@ -131,8 +146,8 @@ func countHeightDocs(t *testing.T, n *node.Node, collection string) int {
 func seedHeightBlocks(t *testing.T, n *node.Node, from, to int) {
 	t.Helper()
 	for i := from; i <= to; i++ {
-		addHeightDoc(t, n, blockCollection, map[string]any{blockNumberColumn: i, "hash": fmt.Sprintf("h%d", i)})
-		addHeightDoc(t, n, logCollection, map[string]any{"blockNumber": i, "address": fmt.Sprintf("a%d", i)})
+		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
+		addHeightDoc(t, n, logCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d", i)})
 	}
 }
 
@@ -145,8 +160,8 @@ func TestPruneRemovesDocumentsTheQueueNeverSaw(t *testing.T) {
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockNumberColumn))
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentBlockNumberField))
+	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
 // A dependent collection can hold blocks the block collection has already dropped.
@@ -155,16 +170,16 @@ func TestPruneRemovesDependentTailBelowTheWindow(t *testing.T) {
 	p.SetQueue(NewEventQueue(heightTestCollections()))
 
 	for i := 16; i <= 20; i++ {
-		addHeightDoc(t, n, blockCollection, map[string]any{blockNumberColumn: i, "hash": fmt.Sprintf("h%d", i)})
+		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
 	}
 	for i := 1; i <= 20; i++ {
-		addHeightDoc(t, n, logCollection, map[string]any{"blockNumber": i, "address": fmt.Sprintf("a%d", i)})
+		addHeightDoc(t, n, logCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d", i)})
 	}
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockNumberColumn))
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentBlockNumberField))
+	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
 // Block zero is a real block number, not an empty collection.
@@ -176,8 +191,8 @@ func TestPruneHandlesBlockZero(t *testing.T) {
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockNumberColumn))
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentBlockNumberField))
+	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
 // A queue far enough over its threshold to spend the whole drain budget must still leave the
@@ -200,9 +215,9 @@ func TestHeightSweepRunsWhenTheDrainSpendsItsBudget(t *testing.T) {
 	require.Equal(t, 5, q.Len())
 	// The cutoff is 15, and the sweep spends its own 4 on the oldest logs.
 	require.Equal(t, []int64{5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-		blockNumbers(t, n, logCollection, dependentBlockNumberField))
+		blockNumbers(t, n, logCollection, dependentHeightField))
 	// Blocks come last and the sweep budget is gone by then.
-	require.Len(t, blockNumbers(t, n, blockCollection, blockNumberColumn), 20)
+	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 }
 
 // The sweep stops once the cycle's budget is spent, however far below the window the store is.
@@ -216,8 +231,8 @@ func TestHeightSweepStopsAtTheCycleBudget(t *testing.T) {
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Len(t, blockNumbers(t, n, logCollection, dependentBlockNumberField), 17)
-	require.Len(t, blockNumbers(t, n, blockCollection, blockNumberColumn), 20)
+	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 17)
+	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 }
 
 // The budget is spent across collections in order: a collection that needs less than the remainder
@@ -229,20 +244,20 @@ func TestHeightSweepBudgetIsSharedAcrossCollections(t *testing.T) {
 	p.SetQueue(NewEventQueue(heightTestCollections()))
 
 	for i := 1; i <= 20; i++ {
-		addHeightDoc(t, n, blockCollection, map[string]any{blockNumberColumn: i, "hash": fmt.Sprintf("h%d", i)})
-		addHeightDoc(t, n, txCollection, map[string]any{"blockNumber": i, "hash": fmt.Sprintf("t%d", i)})
+		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
+		addHeightDoc(t, n, txCollection, map[string]any{dependentHeightField: i, "hash": fmt.Sprintf("t%d", i)})
 	}
 	// Only two Log rows sit below the cutoff of 15, so Log cannot use the whole budget.
 	for _, i := range []int{14, 15} {
-		addHeightDoc(t, n, logCollection, map[string]any{"blockNumber": i, "address": fmt.Sprintf("a%d", i)})
+		addHeightDoc(t, n, logCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d", i)})
 	}
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Empty(t, blockNumbers(t, n, logCollection, dependentBlockNumberField))
+	require.Empty(t, blockNumbers(t, n, logCollection, dependentHeightField))
 	require.Equal(t, []int64{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-		blockNumbers(t, n, txCollection, dependentBlockNumberField))
-	require.Len(t, blockNumbers(t, n, blockCollection, blockNumberColumn), 20)
+		blockNumbers(t, n, txCollection, dependentHeightField))
+	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 }
 
 // Zero is unlimited to the query planner, so a spent budget must remove nothing rather than
@@ -251,18 +266,18 @@ func TestPurgeCollectionBelowRemovesNothingWithoutBudget(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
 	seedHeightBlocks(t, n, 1, 20)
 
-	purged, err := p.purgeCollectionBelow(context.Background(), logCollection, dependentBlockNumberField, 15, 0)
+	purged, err := p.purgeCollectionBelow(context.Background(), logCollection, dependentHeightField, 15, 0)
 	require.NoError(t, err)
 	require.Zero(t, purged)
-	require.Len(t, blockNumbers(t, n, logCollection, dependentBlockNumberField), 20)
+	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
 }
 
-// A collection with no block-number field cannot be ordered by height, so it is left alone.
-func TestHeightPruneSkipsCollectionWithoutBlockNumber(t *testing.T) {
+// A collection with no height field cannot be ordered by height, so it is left alone.
+func TestHeightPruneSkipsCollectionWithoutHeightField(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
 	p.SetQueue(NewEventQueue(heightTestCollections()))
 
-	require.Equal(t, []string{logCollection, txCollection}, p.heightPrunable)
+	require.NotContains(t, p.heightPrunable, CollectionHeight{Name: attRecCollection, HeightField: dependentHeightField})
 
 	seedHeightBlocks(t, n, 1, 20)
 	for i := 1; i <= 3; i++ {
@@ -272,6 +287,45 @@ func TestHeightPruneSkipsCollectionWithoutBlockNumber(t *testing.T) {
 	require.NoError(t, p.runPrune(context.Background()))
 
 	require.Equal(t, 3, countHeightDocs(t, n, attRecCollection))
+}
+
+// A dependent whose height field carries no index is skipped, so its documents survive the sweep.
+func TestHeightPruneSkipsUnindexedHeightField(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
+	p.SetQueue(NewEventQueue(heightTestCollections()))
+
+	require.Equal(t, []CollectionHeight{
+		{Name: logCollection, HeightField: dependentHeightField},
+		{Name: txCollection, HeightField: dependentHeightField},
+		{Name: snapshotCollection, HeightField: snapshotHeightField},
+	}, p.heightPrunable)
+
+	seedHeightBlocks(t, n, 1, 20)
+	for i := 1; i <= 20; i++ {
+		addHeightDoc(t, n, aleCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d", i)})
+	}
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Len(t, blockNumbers(t, n, aleCollection, dependentHeightField), 20)
+}
+
+// A snapshot is retained on the newest block it covers, not on a blockNumber field. The sweep
+// orders on whichever field the collection declares.
+func TestHeightPruneUsesTheCollectionsOwnHeightField(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
+	p.SetQueue(NewEventQueue(heightTestCollections()))
+
+	seedHeightBlocks(t, n, 1, 20)
+	// The cutoff is 15, so the first two snapshots are below the window and the last two are not.
+	for _, end := range []int{5, 10, 16, 20} {
+		addHeightDoc(t, n, snapshotCollection,
+			map[string]any{snapshotHeightField: end, "merkleRoot": fmt.Sprintf("r%d", end)})
+	}
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Equal(t, []int64{16, 20}, blockNumbers(t, n, snapshotCollection, snapshotHeightField))
 }
 
 // A node bootstrapped with historical blocks keeps them.
@@ -284,8 +338,8 @@ func TestRetainHistorySuppressesHeightPrune(t *testing.T) {
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Len(t, blockNumbers(t, n, blockCollection, blockNumberColumn), 20)
-	require.Len(t, blockNumbers(t, n, logCollection, dependentBlockNumberField), 20)
+	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
+	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
 }
 
 // One cycle removes at most MaxDocsPerCycle, however far behind the queue is.

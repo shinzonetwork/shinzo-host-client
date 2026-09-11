@@ -17,13 +17,18 @@ func testDocID(n int) string {
 	return fmt.Sprintf("bae-%08x-0000-0000-0000-000000000000", n)
 }
 
+// testQueueCollections is the minimum the queue needs: a block collection and one dependent.
+func testQueueCollections() CollectionConfig {
+	return CollectionConfig{
+		Block:      CollectionHeight{Name: testBlockCollection, HeightField: blockHeightField},
+		Dependents: []CollectionHeight{{Name: testLogCollection, HeightField: dependentHeightField}},
+	}
+}
+
 // TestEventQueueRequeue verifies that re-queued docs return to the front of the queue so the
 // next drain retries them, and that the block count is restored only when a block is re-queued.
 func TestEventQueueRequeue(t *testing.T) {
-	q := NewEventQueue(CollectionConfig{
-		BlockCollection:      testBlockCollection,
-		DependentCollections: []string{testLogCollection},
-	})
+	q := NewEventQueue(testQueueCollections())
 
 	q.Push(testBlockCollection, testDocID(1))
 	q.Push(testLogCollection, testDocID(2))
@@ -55,10 +60,7 @@ func TestEventQueueRequeue(t *testing.T) {
 // The queue only prunes once it exceeds MaxDocs, so a restart that loses it restarts
 // that count from zero. Save and LoadFromFile are what carry it across.
 func TestEventQueueSaveRestoresAcrossRestart(t *testing.T) {
-	cfg := CollectionConfig{
-		BlockCollection:      testBlockCollection,
-		DependentCollections: []string{testLogCollection},
-	}
+	cfg := testQueueCollections()
 	path := filepath.Join(t.TempDir(), "prune_queue.gob")
 
 	q := NewEventQueue(cfg)
@@ -88,7 +90,9 @@ func TestEventQueueSaveRestoresAcrossRestart(t *testing.T) {
 
 // A queue whose load failed has no path, and Save must not error on it.
 func TestEventQueueSaveWithoutPath(t *testing.T) {
-	q := NewEventQueue(CollectionConfig{BlockCollection: testBlockCollection})
+	q := NewEventQueue(CollectionConfig{
+		Block: CollectionHeight{Name: testBlockCollection, HeightField: blockHeightField},
+	})
 	q.Push(testBlockCollection, testDocID(1))
 	require.NoError(t, q.Save())
 }

@@ -15,31 +15,41 @@ type Config struct {
 	MaxDocsPerCycle int64 `yaml:"max_docs_per_cycle"`
 }
 
-// CollectionConfig defines which collections to prune and how.
-type CollectionConfig struct {
-	// BlockCollection is the name of the block collection (e.g. "Ethereum__Mainnet__Block").
-	BlockCollection string
-	// BlockNumberField is the field name for block number in the block collection (e.g. "number").
-	BlockNumberField string
-	// DependentCollections are collections that reference blocks via "blockNumber" field,
-	// listed in deletion order (deleted before the block collection).
-	DependentCollections []string
+// Height field names the default collections use.
+const (
+	blockHeightField     = "number"
+	dependentHeightField = "blockNumber"
+	// A snapshot covers a range, so retention follows the newest block in it.
+	snapshotHeightField = "endBlock"
+)
+
+// CollectionHeight names a collection and the field holding the block height its documents
+// belong to. The height sweep orders on that field, so it has to be indexed.
+type CollectionHeight struct {
+	Name        string
+	HeightField string
 }
 
-// DefaultCollectionConfig returns the default Ethereum mainnet collection config.
-// Adding to DependentCollections also requires an enum entry in
-// pkg/pruner/event_queue.go's knownCollections map; otherwise Push discards it.
+// CollectionConfig defines which collections to prune. Dependents are pruned in the order given
+// and before the block collection, so a document is never removed while another that references
+// it remains.
+type CollectionConfig struct {
+	Block      CollectionHeight
+	Dependents []CollectionHeight
+}
+
+// DefaultCollectionConfig returns the default Ethereum mainnet collection config. A new dependent
+// also needs an enum in event_queue.go's knownCollections, or the queue discards its documents.
 func DefaultCollectionConfig() CollectionConfig {
 	return CollectionConfig{
-		BlockCollection:  "Ethereum__Mainnet__Block",
-		BlockNumberField: "number",
-		DependentCollections: []string{
-			"Ethereum__Mainnet__BatchSignature",
-			"Ethereum__Mainnet__AccessListEntry",
-			"Ethereum__Mainnet__Log",
-			"Ethereum__Mainnet__Transaction",
-			"Ethereum__Mainnet__BlockSignature",
-			"Ethereum__Mainnet__AttestationRecord",
+		Block: CollectionHeight{Name: "Ethereum__Mainnet__Block", HeightField: blockHeightField},
+		Dependents: []CollectionHeight{
+			{Name: "Ethereum__Mainnet__AccessListEntry", HeightField: dependentHeightField},
+			{Name: "Ethereum__Mainnet__Log", HeightField: dependentHeightField},
+			{Name: "Ethereum__Mainnet__Transaction", HeightField: dependentHeightField},
+			{Name: "Ethereum__Mainnet__BlockSignature", HeightField: dependentHeightField},
+			{Name: "Ethereum__Mainnet__AttestationRecord", HeightField: dependentHeightField},
+			{Name: "Ethereum__Mainnet__SnapshotSignature", HeightField: snapshotHeightField},
 		},
 	}
 }

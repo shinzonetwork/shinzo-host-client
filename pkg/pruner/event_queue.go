@@ -25,6 +25,7 @@ const (
 	colBatchSig byte = 4
 	colBlockSig byte = 5
 	colAttRec   byte = 6
+	colSnapSig  byte = 7
 )
 
 // eventQueueSnapshot is the serializable form of the event queue.
@@ -58,8 +59,8 @@ func NewEventQueue(collections CollectionConfig) *EventQueue {
 	}
 
 	// Register block collection
-	q.collectionNames[colBlock] = collections.BlockCollection
-	q.collectionEnums[collections.BlockCollection] = colBlock
+	q.collectionNames[colBlock] = collections.Block.Name
+	q.collectionEnums[collections.Block.Name] = colBlock
 
 	// Register dependent collections with known enums
 	knownCollections := map[string]byte{
@@ -69,12 +70,13 @@ func NewEventQueue(collections CollectionConfig) *EventQueue {
 		"Ethereum__Mainnet__BatchSignature":    colBatchSig,
 		"Ethereum__Mainnet__BlockSignature":    colBlockSig,
 		"Ethereum__Mainnet__AttestationRecord": colAttRec,
+		"Ethereum__Mainnet__SnapshotSignature": colSnapSig,
 	}
 
-	for _, name := range collections.DependentCollections {
-		if enum, ok := knownCollections[name]; ok {
-			q.collectionNames[enum] = name
-			q.collectionEnums[name] = enum
+	for _, dep := range collections.Dependents {
+		if enum, ok := knownCollections[dep.Name]; ok {
+			q.collectionNames[enum] = dep.Name
+			q.collectionEnums[dep.Name] = enum
 		}
 	}
 
