@@ -235,10 +235,6 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 					continue
 				}
 
-				if h.pruneQueue != nil {
-					h.pruneQueue.Push(collectionName, update.DocID)
-				}
-
 				// Local writes skip the metric and verification: "documents received"
 				// only counts inbound peer traffic, and a BlockSignature only needs
 				// verification when a peer sent it.
