@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// EventQueue.Push only accepts collection names it holds an enum for, so tests use the production
-// names.
 const (
 	blockCollection    = "Ethereum__Mainnet__Block"
 	logCollection      = "Ethereum__Mainnet__Log"
@@ -151,10 +149,9 @@ func seedHeightBlocks(t *testing.T, n *node.Node, from, to int) {
 	}
 }
 
-// A restart leaves the store holding documents the queue never recorded.
-func TestPruneRemovesDocumentsTheQueueNeverSaw(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+// The block collection and its dependents are both trimmed to the retention window.
+func TestPruneTrimsBlocksAndDependentsToTheWindow(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	seedHeightBlocks(t, n, 1, 20)
 
@@ -166,8 +163,7 @@ func TestPruneRemovesDocumentsTheQueueNeverSaw(t *testing.T) {
 
 // A dependent collection can hold blocks the block collection has already dropped.
 func TestPruneRemovesDependentTailBelowTheWindow(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	for i := 16; i <= 20; i++ {
 		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
@@ -184,8 +180,7 @@ func TestPruneRemovesDependentTailBelowTheWindow(t *testing.T) {
 
 // Block zero is a real block number, not an empty collection.
 func TestPruneHandlesBlockZero(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	seedHeightBlocks(t, n, 0, 20)
 
@@ -195,37 +190,11 @@ func TestPruneHandlesBlockZero(t *testing.T) {
 	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
-// A queue far enough over its threshold to spend the whole drain budget must still leave the
-// sweep able to run.
-func TestHeightSweepRunsWhenTheDrainSpendsItsBudget(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{
-		Enabled: true, MaxBlocks: 5, DocsPerBlock: 1, MaxDocsPerCycle: 4,
-	})
-	q := NewEventQueue(heightTestCollections())
-	p.SetQueue(q)
-
-	seedHeightBlocks(t, n, 1, 20)
-	for i := range 9 {
-		q.Push(logCollection, testDocID(i))
-	}
-
-	require.NoError(t, p.runPrune(context.Background()))
-
-	// 9 queued against a threshold of 5, capped at 4.
-	require.Equal(t, 5, q.Len())
-	// The cutoff is 15, and the sweep spends its own 4 on the oldest logs.
-	require.Equal(t, []int64{5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-		blockNumbers(t, n, logCollection, dependentHeightField))
-	// Blocks come last and the sweep budget is gone by then.
-	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
-}
-
 // The sweep stops once the cycle's budget is spent, however far below the window the store is.
 func TestHeightSweepStopsAtTheCycleBudget(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{
-		Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000, MaxDocsPerCycle: 3,
+		Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 3,
 	})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
 
 	seedHeightBlocks(t, n, 1, 20)
 
@@ -239,9 +208,8 @@ func TestHeightSweepStopsAtTheCycleBudget(t *testing.T) {
 // leaves the rest for the next one.
 func TestHeightSweepBudgetIsSharedAcrossCollections(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{
-		Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000, MaxDocsPerCycle: 5,
+		Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 5,
 	})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
 
 	for i := 1; i <= 20; i++ {
 		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
@@ -263,7 +231,7 @@ func TestHeightSweepBudgetIsSharedAcrossCollections(t *testing.T) {
 // Zero is unlimited to the query planner, so a spent budget must remove nothing rather than
 // everything.
 func TestPurgeCollectionBelowRemovesNothingWithoutBudget(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 	seedHeightBlocks(t, n, 1, 20)
 
 	purged, err := p.purgeCollectionBelow(context.Background(), logCollection, dependentHeightField, 15, 0)
@@ -274,8 +242,7 @@ func TestPurgeCollectionBelowRemovesNothingWithoutBudget(t *testing.T) {
 
 // A collection with no height field cannot be ordered by height, so it is left alone.
 func TestHeightPruneSkipsCollectionWithoutHeightField(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	require.NotContains(t, p.heightPrunable, CollectionHeight{Name: attRecCollection, HeightField: dependentHeightField})
 
@@ -291,8 +258,7 @@ func TestHeightPruneSkipsCollectionWithoutHeightField(t *testing.T) {
 
 // A dependent whose height field carries no index is skipped, so its documents survive the sweep.
 func TestHeightPruneSkipsUnindexedHeightField(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	require.Equal(t, []CollectionHeight{
 		{Name: logCollection, HeightField: dependentHeightField},
@@ -313,8 +279,7 @@ func TestHeightPruneSkipsUnindexedHeightField(t *testing.T) {
 // A snapshot is retained on the newest block it covers, not on a blockNumber field. The sweep
 // orders on whichever field the collection declares.
 func TestHeightPruneUsesTheCollectionsOwnHeightField(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	seedHeightBlocks(t, n, 1, 20)
 	// The cutoff is 15, so the first two snapshots are below the window and the last two are not.
@@ -330,8 +295,7 @@ func TestHeightPruneUsesTheCollectionsOwnHeightField(t *testing.T) {
 
 // A node bootstrapped with historical blocks keeps them.
 func TestRetainHistorySuppressesHeightPrune(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, DocsPerBlock: 1000})
-	p.SetQueue(NewEventQueue(heightTestCollections()))
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 	p.SetRetainHistory(true)
 
 	seedHeightBlocks(t, n, 1, 20)
@@ -340,23 +304,4 @@ func TestRetainHistorySuppressesHeightPrune(t *testing.T) {
 
 	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
-}
-
-// One cycle removes at most MaxDocsPerCycle, however far behind the queue is.
-func TestDrainQueueStopsAtThePerCycleLimit(t *testing.T) {
-	p, _ := newHeightTestPruner(t, &Config{
-		Enabled: true, MaxBlocks: 1, DocsPerBlock: 10, MaxDocsPerCycle: 25,
-	})
-	q := NewEventQueue(heightTestCollections())
-	p.SetQueue(q)
-
-	for i := range 200 {
-		q.Push(logCollection, testDocID(i))
-	}
-
-	require.NoError(t, p.drainQueue(context.Background(), q))
-	require.Equal(t, 175, q.Len())
-
-	require.NoError(t, p.drainQueue(context.Background(), q))
-	require.Equal(t, 150, q.Len())
 }
