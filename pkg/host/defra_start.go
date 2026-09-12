@@ -803,7 +803,17 @@ func (s *defraService) Stop(ctx context.Context) error {
 	if s.node == nil {
 		return nil
 	}
-	return s.node.Close(ctx)
+
+	done := make(chan error, 1)
+	go func() { done <- s.node.Close(ctx) }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		s.log.Sugar().Warn("defra did not close within the shutdown budget, abandoning it so the process can exit")
+		return ctx.Err()
+	}
 }
 
 func (s *defraService) DB() node.DB {
