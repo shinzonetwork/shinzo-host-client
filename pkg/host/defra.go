@@ -72,9 +72,21 @@ func (s *defraService) Start(ctx context.Context) error {
 		return err
 	}
 
+	var filter *EventFilter
+	if s.cfg.EventFilter.Enabled {
+		rules, err := hostconfig.LoadFilters(s.cfg.Node.DataDir, s.cfg.EventFilter)
+		if err != nil {
+			return fmt.Errorf("loading event filters: %w", err)
+		}
+		filter = NewEventFilter(s.cfg.EventFilter, rules)
+	}
+
 	defraNode, err := node.New(ctx, nodeOpts)
 	if err != nil {
 		return fmt.Errorf("configuring defra node: %w", err)
+	}
+	if filter != nil {
+		defraNode.ReplicationFilter = filter
 	}
 
 	if err := defraNode.Start(ctx); err != nil {
