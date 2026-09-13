@@ -27,9 +27,33 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	}()
 	srv.RegisterShutdown(func(ctx context.Context) error { return defra.Stop(ctx) })
 
+	if err := mountServices(srv, cfg, keys, defra); err != nil {
+		return nil, err
+	}
+
 	if err := srv.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting host server: %w", err)
 	}
 
 	return srv, nil
+}
+
+func mountServices(srv *hostserver.Server, cfg *hostconfig.Config, keys NodeKeys, defra DefraService) error {
+	mountHealth(srv, defra)
+	mountMetrics(srv, defra)
+
+	if err := mountNodeInfo(srv, keys); err != nil {
+		return fmt.Errorf("mounting node info: %w", err)
+	}
+	if err := mountConsole(srv); err != nil {
+		return fmt.Errorf("mounting console: %w", err)
+	}
+	if err := mountGraphQL(srv, defra.DB(), defra.Options()); err != nil {
+		return fmt.Errorf("mounting graphql: %w", err)
+	}
+	if err := mountPlayground(srv, cfg); err != nil {
+		return fmt.Errorf("mounting playground: %w", err)
+	}
+
+	return nil
 }
