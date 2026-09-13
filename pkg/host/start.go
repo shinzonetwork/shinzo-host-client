@@ -43,6 +43,12 @@ func Start(ctx context.Context, cfg *config.Config, log *zap.Logger, keys NodeKe
 	// TODO: ACP/billing isn't wired up, blocked on the accounting service
 	// (external, not built yet). Not a priority right now.
 
+	// TODO: the old batched attestation pipeline (ProcessingPipeline, gated by
+	// use_block_signatures) was never ported over. It was already inactive in production
+	// and benchmarked slower than the current per-document writes under contention, so
+	// it's not missed, but the config field still sits there implying a working switch.
+	// Remove the field or wire it up for real.
+
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
 	}
