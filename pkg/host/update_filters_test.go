@@ -7,35 +7,35 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
-func testFilterCfg(t *testing.T) *hostconfig.Config {
+func testFilterCfg(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := testHostConfig()
 	cfg.Node.DataDir = t.TempDir()
-	cfg.EventFilter = hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}
+	cfg.EventFilter = config.EventFilterConfig{Enabled: true, Mode: "allowlist"}
 	return cfg
 }
 
 func TestUpdateEventFilter_WritesFileAndAppliesLive(t *testing.T) {
 	cfg := testFilterCfg(t)
 
-	initial := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	initial := &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "a",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
 		}},
 	}
 	filter := NewEventFilter(cfg.EventFilter, initial)
 
-	updated := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	updated := &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "b",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xB", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xB", Types: []string{"log"}}},
 		}},
 	}
 
@@ -50,12 +50,12 @@ func TestUpdateEventFilter_WritesFileAndAppliesLive(t *testing.T) {
 		t.Fatal("expected 0xA to no longer match after the update")
 	}
 
-	path := hostconfig.FiltersPath(cfg.Node.DataDir, cfg.EventFilter)
+	path := config.FiltersPath(cfg.Node.DataDir, cfg.EventFilter)
 	data, err := os.ReadFile(path) //nolint:gosec // test-controlled path
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
-	var onDisk hostconfig.FilterSet
+	var onDisk config.FilterSet
 	if err := json.Unmarshal(data, &onDisk); err != nil {
 		t.Fatalf("parsing %s: %v", path, err)
 	}
@@ -63,7 +63,7 @@ func TestUpdateEventFilter_WritesFileAndAppliesLive(t *testing.T) {
 		t.Fatalf("expected the persisted file to reflect the update, got %+v", onDisk)
 	}
 
-	reloaded, err := hostconfig.LoadFilters(cfg.Node.DataDir, cfg.EventFilter)
+	reloaded, err := config.LoadFilters(cfg.Node.DataDir, cfg.EventFilter)
 	if err != nil {
 		t.Fatalf("LoadFilters: %v", err)
 	}
@@ -75,11 +75,11 @@ func TestUpdateEventFilter_WritesFileAndAppliesLive(t *testing.T) {
 func TestUpdateEventFilter_LeavesRunningFilterUntouchedOnWriteFailure(t *testing.T) {
 	cfg := testFilterCfg(t)
 
-	initial := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	initial := &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "a",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
 		}},
 	}
 	filter := NewEventFilter(cfg.EventFilter, initial)
@@ -87,11 +87,11 @@ func TestUpdateEventFilter_LeavesRunningFilterUntouchedOnWriteFailure(t *testing
 	broken := *cfg
 	broken.Node.DataDir = filepath.Join(cfg.Node.DataDir, "does", "not", "exist")
 
-	failedUpdate := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	failedUpdate := &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "b",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xB", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xB", Types: []string{"log"}}},
 		}},
 	}
 

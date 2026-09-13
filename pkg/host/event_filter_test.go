@@ -5,19 +5,19 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 func TestNewEventFilter_DisabledReturnsNil(t *testing.T) {
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: false}, &hostconfig.FilterSet{})
+	f := NewEventFilter(config.EventFilterConfig{Enabled: false}, &config.FilterSet{})
 	if f != nil {
 		t.Fatal("expected a disabled filter to be nil")
 	}
 }
 
 func TestNewEventFilter_NoEnabledGroupsAllowsEverythingInAllowlistMode(t *testing.T) {
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}, &hostconfig.FilterSet{})
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "allowlist"}, &config.FilterSet{})
 
 	allowed := f.AllowReplication(context.Background(), constants.CollectionLog, "doc1", map[string]any{
 		"address": "0xabc",
@@ -29,17 +29,17 @@ func TestNewEventFilter_NoEnabledGroupsAllowsEverythingInAllowlistMode(t *testin
 }
 
 func TestAllowReplication_AllowlistMatchesByContract(t *testing.T) {
-	rules := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	rules := &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:    "usdc",
 			Enabled: true,
-			Contracts: []hostconfig.ContractFilter{{
+			Contracts: []config.ContractFilter{{
 				Address: "0xUSDC",
 				Types:   []string{"log"},
 			}},
 		}},
 	}
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}, rules)
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "allowlist"}, rules)
 
 	matched := f.AllowReplication(context.Background(), constants.CollectionLog, "doc1", map[string]any{
 		"address": "0xUSDC",
@@ -57,17 +57,17 @@ func TestAllowReplication_AllowlistMatchesByContract(t *testing.T) {
 }
 
 func TestAllowReplication_BlocklistRejectsMatches(t *testing.T) {
-	rules := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	rules := &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:    "spam",
 			Enabled: true,
-			Contracts: []hostconfig.ContractFilter{{
+			Contracts: []config.ContractFilter{{
 				Address: "0xSPAM",
 				Types:   []string{"log"},
 			}},
 		}},
 	}
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "blocklist"}, rules)
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "blocklist"}, rules)
 
 	blocked := f.AllowReplication(context.Background(), constants.CollectionLog, "doc1", map[string]any{
 		"address": "0xSPAM",
@@ -85,10 +85,10 @@ func TestAllowReplication_BlocklistRejectsMatches(t *testing.T) {
 }
 
 func TestAllowReplication_StructuralCollectionsAlwaysPass(t *testing.T) {
-	rules := &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{Name: "x", Enabled: true, Contracts: []hostconfig.ContractFilter{{Address: "0xOnly", Types: []string{"log"}}}}},
+	rules := &config.FilterSet{
+		Groups: []config.FilterGroup{{Name: "x", Enabled: true, Contracts: []config.ContractFilter{{Address: "0xOnly", Types: []string{"log"}}}}},
 	}
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}, rules)
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "allowlist"}, rules)
 
 	for _, col := range []string{constants.CollectionBlockSignature, constants.CollectionSnapshotSignature} {
 		if !f.AllowReplication(context.Background(), col, "doc", map[string]any{}) {
@@ -98,10 +98,10 @@ func TestAllowReplication_StructuralCollectionsAlwaysPass(t *testing.T) {
 }
 
 func TestAllowReplication_BlockRangeGate(t *testing.T) {
-	rules := &hostconfig.FilterSet{
-		BlockRange: &hostconfig.BlockRangeFilter{Start: 100, End: 200},
+	rules := &config.FilterSet{
+		BlockRange: &config.BlockRangeFilter{Start: 100, End: 200},
 	}
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}, rules)
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "allowlist"}, rules)
 
 	tooEarly := f.AllowReplication(context.Background(), constants.CollectionLog, "doc1", map[string]any{
 		"blockNumber": uint64(50),
@@ -120,11 +120,11 @@ func TestAllowReplication_BlockRangeGate(t *testing.T) {
 }
 
 func TestUpdateRules_TakesEffectImmediately(t *testing.T) {
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}, &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "allowlist"}, &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "only-a",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
 		}},
 	})
 
@@ -133,11 +133,11 @@ func TestUpdateRules_TakesEffectImmediately(t *testing.T) {
 		t.Fatal("expected 0xB to be rejected before the rule update")
 	}
 
-	f.UpdateRules(&hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	f.UpdateRules(&config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "only-b",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xB", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xB", Types: []string{"log"}}},
 		}},
 	})
 
@@ -147,11 +147,11 @@ func TestUpdateRules_TakesEffectImmediately(t *testing.T) {
 }
 
 func TestUpdateRules_ConcurrentWithAllowReplication(t *testing.T) {
-	f := NewEventFilter(hostconfig.EventFilterConfig{Enabled: true, Mode: "allowlist"}, &hostconfig.FilterSet{
-		Groups: []hostconfig.FilterGroup{{
+	f := NewEventFilter(config.EventFilterConfig{Enabled: true, Mode: "allowlist"}, &config.FilterSet{
+		Groups: []config.FilterGroup{{
 			Name:      "initial",
 			Enabled:   true,
-			Contracts: []hostconfig.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
+			Contracts: []config.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
 		}},
 	})
 
@@ -174,11 +174,11 @@ func TestUpdateRules_ConcurrentWithAllowReplication(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		f.UpdateRules(&hostconfig.FilterSet{
-			Groups: []hostconfig.FilterGroup{{
+		f.UpdateRules(&config.FilterSet{
+			Groups: []config.FilterGroup{{
 				Name:      "updated",
 				Enabled:   true,
-				Contracts: []hostconfig.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
+				Contracts: []config.ContractFilter{{Address: "0xA", Types: []string{"log"}}},
 			}},
 		})
 	}

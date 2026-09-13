@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
@@ -46,7 +46,7 @@ type DefraService interface {
 }
 
 func NewDefraService(
-	cfg *hostconfig.Config,
+	cfg *config.Config,
 	log *zap.Logger,
 	identityKey identity.FullIdentity,
 	peerKeySeed []byte,
@@ -61,7 +61,7 @@ func NewDefraService(
 }
 
 type defraService struct {
-	cfg         *hostconfig.Config
+	cfg         *config.Config
 	log         *zap.Logger
 	identityKey identity.FullIdentity
 	peerKeySeed []byte
@@ -81,7 +81,7 @@ func (s *defraService) Start(ctx context.Context) error {
 
 	var filter *EventFilter
 	if s.cfg.EventFilter.Enabled {
-		rules, err := hostconfig.LoadFilters(s.cfg.Node.DataDir, s.cfg.EventFilter)
+		rules, err := config.LoadFilters(s.cfg.Node.DataDir, s.cfg.EventFilter)
 		if err != nil {
 			return fmt.Errorf("loading event filters: %w", err)
 		}
@@ -161,7 +161,7 @@ func (s *defraService) Metrics() *server.HostMetrics {
 	return s.metrics
 }
 
-func configureCorelog(cfg *hostconfig.Config) {
+func configureCorelog(cfg *config.Config) {
 	format := corelog.FormatJSON
 	if cfg.Logger.Development {
 		format = ""
@@ -190,7 +190,7 @@ func corelogLevel(zapLevel string) string {
 }
 
 func buildNodeOptions(
-	cfg *hostconfig.Config,
+	cfg *config.Config,
 	identityKey identity.FullIdentity,
 	peerKeySeed []byte,
 ) (*options.NodeOptionsBuilder, error) {
@@ -254,7 +254,7 @@ func waitSchemaQueryable(ctx context.Context, defraNode *node.Node) error {
 	return fmt.Errorf("after %d attempts: %w: %w", schemaReadyMaxAttempts, ErrDefraDBNotReady, lastErr)
 }
 
-func resolveDefraSchema(ctx context.Context, cfg *hostconfig.Config, log *zap.SugaredLogger) string {
+func resolveDefraSchema(ctx context.Context, cfg *config.Config, log *zap.SugaredLogger) string {
 	parsedURL, err := url.Parse(cfg.Snapshot.IndexerURL)
 	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
 		log.Warnf("no usable indexer URL (%q), using the embedded schema", cfg.Snapshot.IndexerURL)
@@ -277,7 +277,7 @@ func resolveDefraSchema(ctx context.Context, cfg *hostconfig.Config, log *zap.Su
 	return fetched
 }
 
-func schemaHTTPClient(cfg hostconfig.SchemaConfig) *http.Client {
+func schemaHTTPClient(cfg config.SchemaConfig) *http.Client {
 	client := &http.Client{Timeout: time.Duration(cfg.HTTPClientTimeoutSecs) * time.Second}
 	if cfg.AuthToken != "" {
 		client.Transport = schemaAuthTransport{token: cfg.AuthToken}

@@ -49,7 +49,7 @@ historical_ranges = [
 ]
 ```
 
-See `hostconfig/config.go` for the full set of fields.
+See `config/config.go` for the full set of fields.
 
 ## Docker
 

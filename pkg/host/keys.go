@@ -18,7 +18,7 @@ import (
 	"github.com/sourcenetwork/defradb/keyring"
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
 const (
@@ -156,7 +156,7 @@ func loadRawKeys(kr keyring.Keyring) (rawKeys, error) {
 	return rawKeys{operator: operator, identity: identityBytes, peerSeed: peerSeed}, nil
 }
 
-func EnsureKeys(cfg *hostconfig.Config, recoverMnemonic string, log *zap.SugaredLogger) (NodeKeys, error) {
+func EnsureKeys(cfg *config.Config, recoverMnemonic string, log *zap.SugaredLogger) (NodeKeys, error) {
 	alreadyExists := keyring.FileKeyringExists(cfg.Node.KeyDir)
 
 	kr, err := keyring.OpenFileKeyring(cfg.Node.KeyDir, []byte(cfg.Node.KeyringPassword))

@@ -13,10 +13,10 @@ import (
 
 	"github.com/sourcenetwork/defradb/keyring"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
-func testKeysConfig(t *testing.T) *hostconfig.Config {
+func testKeysConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := testHostConfig()
 	cfg.Node.DataDir = t.TempDir()

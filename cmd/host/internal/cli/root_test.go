@@ -25,6 +25,6 @@ func TestNewRootCmd_ConfigFlagDefault(t *testing.T) {
 		t.Fatal("expected a --config persistent flag")
 	}
 	if flag.DefValue != "" {
-		t.Fatalf("expected --config default to be empty (resolved by hostconfig.Load), got %q", flag.DefValue)
+		t.Fatalf("expected --config default to be empty (resolved by config.Load), got %q", flag.DefValue)
 	}
 }

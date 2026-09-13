@@ -13,13 +13,13 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
-func testHostConfig() *hostconfig.Config {
-	cfg := hostconfig.Default()
+func testHostConfig() *config.Config {
+	cfg := config.Default()
 	cfg.HTTP.Addr = ":0"
 	return &cfg
 }

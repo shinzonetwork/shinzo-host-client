@@ -18,7 +18,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
 const (
@@ -97,7 +97,7 @@ func (s *defraService) maintainPeerConnections(ctx context.Context, defraNode *n
 	}
 }
 
-func connectPeerWithRetry(ctx context.Context, defraNode *node.Node, peerAddr string, cfg hostconfig.P2PConfig, log *zap.SugaredLogger) {
+func connectPeerWithRetry(ctx context.Context, defraNode *node.Node, peerAddr string, cfg config.P2PConfig, log *zap.SugaredLogger) {
 	maxRetries := cfg.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = defaultConnectRetries
@@ -129,7 +129,7 @@ func connectPeerWithRetry(ctx context.Context, defraNode *node.Node, peerAddr st
 	log.Warnw("failed to connect to bootstrap peer", "peer", peerAddr, "attempts", maxRetries, "error", lastErr)
 }
 
-func reconnectMissingPeers(ctx context.Context, defraNode *node.Node, bootstrapPeers []string, cfg hostconfig.P2PConfig, log *zap.SugaredLogger) {
+func reconnectMissingPeers(ctx context.Context, defraNode *node.Node, bootstrapPeers []string, cfg config.P2PConfig, log *zap.SugaredLogger) {
 	active, err := defraNode.DB.ActivePeers(ctx)
 	if err != nil {
 		log.Warnw("failed to check active peers", "error", err)

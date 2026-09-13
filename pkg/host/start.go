@@ -6,11 +6,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 )
 
-func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys NodeKeys, defra DefraService) (srv *hostserver.Server, err error) {
+func Start(ctx context.Context, cfg *config.Config, log *zap.Logger, keys NodeKeys, defra DefraService) (srv *hostserver.Server, err error) {
 	srv, err = hostserver.New(cfg, log)
 	if err != nil {
 		return nil, fmt.Errorf("building host server: %w", err)
@@ -37,6 +37,12 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 
 	defra.PruneDocuments(ctx)
 
+	// TODO: changing host to only join views of pools that hosts has joined or will join, not via a
+	// ShinzoHub event subscription.
+
+	// TODO: ACP/billing isn't wired up, blocked on the accounting service
+	// (external, not built yet). Not a priority right now.
+
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
 	}
@@ -48,7 +54,7 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	return srv, nil
 }
 
-func mountServices(srv *hostserver.Server, cfg *hostconfig.Config, keys NodeKeys, defra DefraService) error {
+func mountServices(srv *hostserver.Server, cfg *config.Config, keys NodeKeys, defra DefraService) error {
 	mountHealth(srv, defra)
 	mountMetrics(srv, defra)
 	mountSystemStats(srv, cfg)

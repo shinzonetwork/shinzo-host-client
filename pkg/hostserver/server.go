@@ -10,13 +10,13 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
 const shutdownTimeout = 15 * time.Second
 
 type Server struct {
-	cfg *hostconfig.Config
+	cfg *config.Config
 	log *zap.SugaredLogger
 	mux *http.ServeMux
 
@@ -26,7 +26,7 @@ type Server struct {
 	shutdownFns []func(context.Context) error
 }
 
-func New(cfg *hostconfig.Config, log *zap.Logger) (*Server, error) {
+func New(cfg *config.Config, log *zap.Logger) (*Server, error) {
 	if cfg == nil {
 		return nil, errors.New("hostserver: nil config")
 	}

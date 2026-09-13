@@ -5,12 +5,12 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 	"github.com/shinzonetwork/shinzo-host-client/playground"
 )
 
-func mountPlayground(srv *hostserver.Server, cfg *hostconfig.Config) error {
+func mountPlayground(srv *hostserver.Server, cfg *config.Config) error {
 	if !cfg.Playground.Enabled {
 		return nil
 	}

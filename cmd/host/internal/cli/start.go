@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/host"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
@@ -32,7 +32,7 @@ func newStartCmd() *cobra.Command {
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
-	cfg, err := hostconfig.Load(configPath)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}

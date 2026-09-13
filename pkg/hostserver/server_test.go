@@ -8,11 +8,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
-func testConfig() *hostconfig.Config {
-	cfg := hostconfig.Default()
+func testConfig() *config.Config {
+	cfg := config.Default()
 	cfg.HTTP.Addr = ":0"
 	return &cfg
 }

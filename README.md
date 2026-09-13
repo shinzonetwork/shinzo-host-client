@@ -16,17 +16,13 @@ A Host node for the Shinzo network. It pulls primitive blockchain data from Inde
 
 ## Getting started
 
-Make sure `~/config.yaml` exists on the host machine, then:
+Put a `config.toml` next to `docker-compose.yml`, then:
 
 ```shell
-docker compose up
+docker compose up -d
 ```
 
-Set your keyring secret before starting:
-
-```shell
-export DEFRA_KEYRING_SECRET=<your-secret>
-```
+No secrets need to be set beforehand — the node's keyring password lives in `config.toml` (`node.keyring_password`) and has a working default.
 
 Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/hosts/overview).
 
@@ -35,7 +31,7 @@ Further instructions, as well as hardware recommendations, can be found at [docs
 
 ## Configuration
 
-The app reads from `config/config.yaml`. The only field you must set is `defradb.keyring_secret` (or the `DEFRA_KEYRING_SECRET` environment variable). Everything else has working defaults.
+The node reads a TOML config file, resolved via `--config <path>` or a default XDG path — see [BUILD.md](./BUILD.md#configuration). Running the node with no config file present writes a working default and continues.
 
 See [docs.shinzo.network](https://docs.shinzo.network/hosts/overview) for the full configuration reference.
 

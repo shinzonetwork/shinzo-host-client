@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
-func UpdateEventFilter(cfg *hostconfig.Config, newRules *hostconfig.FilterSet, filter *EventFilter) error {
+func UpdateEventFilter(cfg *config.Config, newRules *config.FilterSet, filter *EventFilter) error {
 	if err := writeFiltersAtomic(cfg, newRules); err != nil {
 		return fmt.Errorf("writing filters.json: %w", err)
 	}
@@ -18,8 +18,8 @@ func UpdateEventFilter(cfg *hostconfig.Config, newRules *hostconfig.FilterSet, f
 	return nil
 }
 
-func writeFiltersAtomic(cfg *hostconfig.Config, newRules *hostconfig.FilterSet) error {
-	path := hostconfig.FiltersPath(cfg.Node.DataDir, cfg.EventFilter)
+func writeFiltersAtomic(cfg *config.Config, newRules *config.FilterSet) error {
+	path := config.FiltersPath(cfg.Node.DataDir, cfg.EventFilter)
 
 	data, err := json.MarshalIndent(newRules, "", "  ")
 	if err != nil {

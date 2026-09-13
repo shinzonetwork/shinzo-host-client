@@ -11,7 +11,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"go.uber.org/zap"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/snapshot"
@@ -45,7 +45,7 @@ func (s *defraService) Bootstrap(ctx context.Context) {
 func pendingSnapshots(
 	ctx context.Context,
 	defraNode *node.Node,
-	snapCfg hostconfig.SnapshotConfig,
+	snapCfg config.SnapshotConfig,
 	log *zap.SugaredLogger,
 ) ([]snapshot.Info, *snapshot.Client, error) {
 	snapClient := snapshot.NewClient(snapCfg.IndexerURL)
@@ -75,7 +75,7 @@ func pendingSnapshots(
 	return needed, snapClient, nil
 }
 
-func coveringSnapshots(available []snapshot.Info, ranges []hostconfig.BlockRange, existingMin, existingMax int64) []snapshot.Info {
+func coveringSnapshots(available []snapshot.Info, ranges []config.BlockRange, existingMin, existingMax int64) []snapshot.Info {
 	var needed []snapshot.Info
 	seen := make(map[string]bool)
 

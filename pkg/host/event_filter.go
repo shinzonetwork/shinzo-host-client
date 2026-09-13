@@ -5,17 +5,17 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 )
 
 type EventFilter struct {
 	mode           string
 	cascadeFilters bool
-	rules          atomic.Pointer[hostconfig.FilterSet]
+	rules          atomic.Pointer[config.FilterSet]
 }
 
-func NewEventFilter(cfg hostconfig.EventFilterConfig, rules *hostconfig.FilterSet) *EventFilter {
+func NewEventFilter(cfg config.EventFilterConfig, rules *config.FilterSet) *EventFilter {
 	if !cfg.Enabled {
 		return nil
 	}
@@ -27,7 +27,7 @@ func NewEventFilter(cfg hostconfig.EventFilterConfig, rules *hostconfig.FilterSe
 	return f
 }
 
-func (f *EventFilter) UpdateRules(rules *hostconfig.FilterSet) {
+func (f *EventFilter) UpdateRules(rules *config.FilterSet) {
 	f.rules.Store(rules)
 }
 
@@ -62,7 +62,7 @@ func (f *EventFilter) AllowReplication(
 	}
 }
 
-func (f *EventFilter) allowBlock(rules *hostconfig.FilterSet, fields map[string]any) bool {
+func (f *EventFilter) allowBlock(rules *config.FilterSet, fields map[string]any) bool {
 	if rules == nil || rules.BlockRange == nil {
 		return true
 	}
@@ -73,7 +73,7 @@ func (f *EventFilter) allowBlock(rules *hostconfig.FilterSet, fields map[string]
 	return inRange(rules.BlockRange, num)
 }
 
-func (f *EventFilter) inBlockRange(rules *hostconfig.FilterSet, fields map[string]any) bool {
+func (f *EventFilter) inBlockRange(rules *config.FilterSet, fields map[string]any) bool {
 	if rules == nil || rules.BlockRange == nil {
 		return true
 	}
@@ -84,7 +84,7 @@ func (f *EventFilter) inBlockRange(rules *hostconfig.FilterSet, fields map[strin
 	return inRange(rules.BlockRange, num)
 }
 
-func inRange(r *hostconfig.BlockRangeFilter, num uint64) bool {
+func inRange(r *config.BlockRangeFilter, num uint64) bool {
 	if int64(num) < r.Start { //nolint:gosec
 		return false
 	}
@@ -94,23 +94,23 @@ func inRange(r *hostconfig.BlockRangeFilter, num uint64) bool {
 	return true
 }
 
-func (f *EventFilter) allowTransaction(rules *hostconfig.FilterSet, fields map[string]any) bool {
+func (f *EventFilter) allowTransaction(rules *config.FilterSet, fields map[string]any) bool {
 	to, _ := fieldString(fields, "to")
 	return f.matchesGroups(rules, to, nil, colTypeTransaction)
 }
 
-func (f *EventFilter) allowLog(rules *hostconfig.FilterSet, fields map[string]any) bool {
+func (f *EventFilter) allowLog(rules *config.FilterSet, fields map[string]any) bool {
 	addr, _ := fieldString(fields, "address")
 	topics := fieldStringSlice(fields, "topics")
 	return f.matchesGroups(rules, addr, topics, colTypeLog)
 }
 
-func (f *EventFilter) allowAccessListEntry(rules *hostconfig.FilterSet, fields map[string]any) bool {
+func (f *EventFilter) allowAccessListEntry(rules *config.FilterSet, fields map[string]any) bool {
 	addr, _ := fieldString(fields, "address")
 	return f.matchesGroups(rules, addr, nil, colTypeAccessListEntry)
 }
 
-func (f *EventFilter) matchesGroups(rules *hostconfig.FilterSet, address string, topics []string, colType string) bool {
+func (f *EventFilter) matchesGroups(rules *config.FilterSet, address string, topics []string, colType string) bool {
 	isAllowlist := f.mode != filterModeBlocklist
 
 	matched := false
@@ -138,7 +138,7 @@ func (f *EventFilter) matchesGroups(rules *hostconfig.FilterSet, address string,
 	return !matched
 }
 
-func (f *EventFilter) groupMatches(g *hostconfig.FilterGroup, address string, topics []string, colType string) bool {
+func (f *EventFilter) groupMatches(g *config.FilterGroup, address string, topics []string, colType string) bool {
 	if address != "" {
 		for _, cf := range g.Contracts {
 			if !contractMatchesType(cf, colType, f.cascadeFilters) {
@@ -161,7 +161,7 @@ func (f *EventFilter) groupMatches(g *hostconfig.FilterGroup, address string, to
 	return false
 }
 
-func contractMatchesType(cf hostconfig.ContractFilter, colType string, cascade bool) bool {
+func contractMatchesType(cf config.ContractFilter, colType string, cascade bool) bool {
 	for _, t := range cf.Types {
 		if strings.EqualFold(t, colType) {
 			return true
@@ -174,7 +174,7 @@ func contractMatchesType(cf hostconfig.ContractFilter, colType string, cascade b
 	return false
 }
 
-func topicMatches(tf hostconfig.TopicFilter, topics []string) bool {
+func topicMatches(tf config.TopicFilter, topics []string) bool {
 	if len(topics) == 0 || tf.Topic0 == "" {
 		return false
 	}

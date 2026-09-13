@@ -1,4 +1,4 @@
-package hostconfig
+package config
 
 import (
 	"encoding/json"
