@@ -29,6 +29,7 @@ type fakeDefraService struct {
 	bootstraped bool
 	maintaining bool
 	attesting   bool
+	tracking    bool
 	stopped     bool
 	metrics     *server.HostMetrics
 }
@@ -48,6 +49,10 @@ func (f *fakeDefraService) MaintainPeerConnections(context.Context) {
 
 func (f *fakeDefraService) AttestSignatures(context.Context) {
 	f.attesting = true
+}
+
+func (f *fakeDefraService) TrackDocumentMetrics(context.Context) {
+	f.tracking = true
 }
 
 func (f *fakeDefraService) Stop(context.Context) error {
@@ -90,6 +95,9 @@ func TestStart_MountsEverythingWithoutRealDefra(t *testing.T) {
 	}
 	if !fake.attesting {
 		t.Fatal("expected Start to call defra.AttestSignatures")
+	}
+	if !fake.tracking {
+		t.Fatal("expected Start to call defra.TrackDocumentMetrics")
 	}
 
 	base := "http://" + srv.Addr()
@@ -178,6 +186,15 @@ func TestStart_ServesGraphQLAndHealthOnSamePort(t *testing.T) {
 	defer metricsResp.Body.Close() //nolint:errcheck // test
 	if metricsResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected /metrics 200, got %d", metricsResp.StatusCode)
+	}
+
+	systemResp, err := http.Get(base + "/api/system") //nolint:noctx // test
+	if err != nil {
+		t.Fatalf("GET /api/system: %v", err)
+	}
+	defer systemResp.Body.Close() //nolint:errcheck // test
+	if systemResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected /api/system 200, got %d", systemResp.StatusCode)
 	}
 
 	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
