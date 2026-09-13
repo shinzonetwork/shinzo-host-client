@@ -16,14 +16,22 @@ A Host node for the Shinzo network. It pulls primitive blockchain data from Inde
 
 ## Getting started
 
-Copy a reference config next to `docker-compose.yml`, then bring the node up:
+```shell
+git clone git@github.com:shinzonetwork/shinzo-host-client.git
+cd shinzo-host-client
+cp toml/testnet.toml config.toml
+make build
+./bin/host start --config config.toml
+```
+
+No secrets need to be set beforehand — the node's keyring password lives in `config.toml` (`node.keyring_password`).
+
+Prefer Docker?
 
 ```shell
 cp toml/testnet.toml config.toml
 docker compose up -d
 ```
-
-No secrets need to be set beforehand — the node's keyring password lives in `config.toml` (`node.keyring_password`).
 
 Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/hosts/overview).
 
