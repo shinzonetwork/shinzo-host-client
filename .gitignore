@@ -35,6 +35,7 @@ logs/*.logs
 logs/*.log
 
 bin/*
+shinzo-host
 
 todo.txt
 
