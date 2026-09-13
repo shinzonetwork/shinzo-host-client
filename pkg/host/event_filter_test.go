@@ -186,3 +186,75 @@ func TestUpdateRules_ConcurrentWithAllowReplication(t *testing.T) {
 	close(done)
 	wg.Wait()
 }
+
+func TestFieldString(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[string]any
+		want   string
+		wantOK bool
+	}{
+		{"present string", map[string]any{"addr": "0xABC"}, "0xABC", true},
+		{"missing key", map[string]any{}, "", false},
+		{"non-string value", map[string]any{"addr": 123}, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := fieldString(tt.fields, "addr")
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("fieldString() = (%q, %v), want (%q, %v)", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestFieldUint64(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[string]any
+		want   uint64
+		wantOK bool
+	}{
+		{"int64 value", map[string]any{"num": int64(42)}, 42, true},
+		{"uint64 value", map[string]any{"num": uint64(100)}, 100, true},
+		{"float64 value", map[string]any{"num": float64(55)}, 55, true},
+		{"int value", map[string]any{"num": 77}, 77, true},
+		{"missing key", map[string]any{}, 0, false},
+		{"unsupported type", map[string]any{"num": "not-a-number"}, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := fieldUint64(tt.fields, "num")
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("fieldUint64() = (%d, %v), want (%d, %v)", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestFieldStringSlice(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[string]any
+		want   []string
+	}{
+		{"[]string value", map[string]any{"topics": []string{"a", "b"}}, []string{"a", "b"}},
+		{"[]any with strings", map[string]any{"topics": []any{"x", "y", "z"}}, []string{"x", "y", "z"}},
+		{"missing key", map[string]any{}, nil},
+		{"unsupported type", map[string]any{"topics": 42}, nil},
+		{"mixed types", map[string]any{"topics": []any{"str1", 42, "str2"}}, []string{"str1", "str2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fieldStringSlice(tt.fields, "topics")
+			if len(got) != len(tt.want) {
+				t.Fatalf("fieldStringSlice() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("fieldStringSlice() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}

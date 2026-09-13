@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
@@ -36,7 +35,7 @@ func TestGetSchemaDynamic_FetchSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
+	client := NewSchemaHTTPClient(30, "")
 	result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
 	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__Block")
@@ -44,7 +43,7 @@ func TestGetSchemaDynamic_FetchSuccess(t *testing.T) {
 }
 
 func TestGetSchemaDynamic_NetworkError_Fallback(t *testing.T) {
-	client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 1})
+	client := NewSchemaHTTPClient(1, "")
 	result, err := GetSchemaDynamic(context.Background(), client, "http://127.0.0.1:1/api/v1/schema")
 	require.Error(t, err)
 	require.Equal(t, GetSchema(), result)
@@ -59,7 +58,7 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
+		client := NewSchemaHTTPClient(30, "")
 		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
 		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
@@ -74,7 +73,7 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
+		client := NewSchemaHTTPClient(30, "")
 		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
 		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
@@ -90,7 +89,7 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
+		client := NewSchemaHTTPClient(30, "")
 		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
 		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)
@@ -106,7 +105,7 @@ func TestGetSchemaDynamic_DataError_Fallback(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewSchemaHTTPClient(config.SchemaConfig{HTTPClientTimeoutSecs: 30})
+		client := NewSchemaHTTPClient(30, "")
 		result, err := GetSchemaDynamic(context.Background(), client, srv.URL+"/api/v1/schema")
 		require.Error(t, err)
 		require.Equal(t, GetSchema(), result)

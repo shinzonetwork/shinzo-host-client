@@ -1,18 +1,10 @@
-.PHONY: build build-playground start deps-playground lint lint-fix
+.PHONY: build start lint lint-fix
 
 build:
-	go build -o bin/host cmd/main.go
+	go build -o bin/host ./cmd/host
 
-build-playground: deps-playground
-	go generate -tags hostplayground ./playground
-	go build -tags hostplayground -o ./bin/host cmd/main.go
-
-start:
-	./bin/host
-
-# Download playground static assets
-deps-playground:
-	cd playground && go generate .
+start: build
+	./bin/host start
 
 lint:
 	@echo "🔍 Running golangci-lint..."

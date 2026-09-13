@@ -2,10 +2,9 @@
 
 ## Prerequisites
 
-- [Go 1.25+](https://go.dev/dl/)
+- [Go 1.26+](https://go.dev/dl/)
 - Make
-
-Wasmtime and Wasmer are installed automatically inside the Docker build. If you are building locally (outside Docker), both WASM runtimes need to be on your `LD_LIBRARY_PATH`. The `Dockerfile` has the exact versions and install steps.
+- A C compiler (`gcc`/`libc6-dev`) — needed for cgo, picked up automatically by the Go toolchain. No Wasmtime or Wasmer install is required: the embedded lens runtime uses `wazero`, a pure-Go implementation.
 
 ## Steps
 
@@ -22,36 +21,60 @@ The binary lands at `./bin/host`.
 | Command | What it does |
 | --- | --- |
 | `make build` | Build the binary into `./bin/host`. |
-| `make build-playground` | Download playground assets and build with the embedded GraphQL Playground UI. |
-| `make start` | Run the compiled `./bin/host` binary. |
-| `make deps-playground` | Download playground static assets (required before `build-playground`). |
-| `go run cmd/main.go` | Run without building. |
-| `go test -v ./pkg/...` | Run the test suite. |
+| `make start` | Build and run `./bin/host start`. |
+| `go run ./cmd/host start` | Run without building first. |
+| `go test ./...` | Run the test suite. |
 
-## Build tags
+## Configuration
 
-| Tag | Effect |
-| --- | --- |
-| `hostplayground` | Embeds the GraphQL Playground UI (served on port `9182`). |
+The node reads a TOML config file, resolved in this order: `--config <path>`, or `XDG_DATA_HOME/shinzo-host/default/config.toml` (`~/.local/share/shinzo-host/default/config.toml` if `XDG_DATA_HOME` isn't set). Running `start` with no config file present writes a default one to that path and continues.
+
+The generated default is enough to boot a node, but `p2p.bootstrap_peers` starts empty, so it won't sync anything until you add real peers. A working reference config:
+
+```toml
+[p2p]
+enabled = true
+listen_addr = "/ip4/0.0.0.0/tcp/9171"
+bootstrap_peers = [
+  "/ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT",
+  "/ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5",
+  "/ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT",
+]
+
+[snapshot]
+enabled = false
+indexer_url = "http://35.254.135.221:8080"
+historical_ranges = [
+  { start = 24528700, end = 24528999 },
+]
+```
+
+See `hostconfig/config.go` for the full set of fields.
 
 ## Docker
 
-`docker-compose.yml` pulls the published image from GHCR. To build locally instead:
-
 ```shell
 docker build -t shinzo-host-client .
+docker compose up -d
 ```
 
-To include the Playground UI in the image, pass `--build-arg TAGS=hostplayground`.
+`docker-compose.yml` builds the image locally and expects a `./config.toml` next to it (mounted read-only into the container). Node data persists in a named volume, so it survives container restarts.
 
 ## Ports
 
-> [!NOTE]
-> The playground port is set to the DefraDB GraphQL port `+1`. For example, if the DefraDB GraphQL port is set to `9181`, then the playground port is automatically set to `9182`. Similarly, if the DefraDB GraphQL port is set to `443`, then they playground port is set to `444`.
+Everything — health, metrics, GraphQL, the node console, the GraphQL playground, and node info — is served on one HTTP port. There's no separate playground or DefraDB port anymore, and no reverse proxy is needed to reach any of it.
 
 | Port | Service |
 | --- | --- |
-| `9181` | DefraDB GraphQL + REST API |
-| `9182` | GraphQL Playground UI (if enabled) |
+| `8080` | HTTP: `/health`, `/metrics`, `/graphql`, `/console`, `/playground`, `/api/node`, `/api/system` |
 | `9171` | libp2p P2P networking |
-| `8080` | Health and metrics server |
+
+## Debugging
+
+Set `SHINZO_PPROF_ADDR` to expose pprof and expvar endpoints on their own listener (off by default):
+
+```shell
+SHINZO_PPROF_ADDR=:6060 ./bin/host start
+```
+
+`scripts/monitor_goroutines.sh [interval] [port]` polls that listener on a loop and logs goroutine count, heap usage, and top CPU consumers over time.

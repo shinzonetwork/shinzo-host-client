@@ -60,8 +60,6 @@ func TestDebugMuxServesStorageCounters(t *testing.T) {
 		t.Fatalf("got %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	// The write counters are what this endpoint is served for, and an empty expvar set
-	// would answer 200 just the same.
 	for _, name := range []string{"badger_write_bytes_user", "badger_write_bytes_compaction"} {
 		if !strings.Contains(rec.Body.String(), name) {
 			t.Errorf("%s missing from /debug/vars", name)
@@ -81,17 +79,10 @@ func TestServeDebugReportsAnUnusableAddress(t *testing.T) {
 	}
 }
 
-// The listener has to answer from its own mux. A nil handler makes net/http fall back to
-// http.DefaultServeMux, which carries whatever any linked package registered on it, so the
-// profiling port would start serving unrelated endpoints.
 var canaryOnce sync.Once
 
 func TestServeDebugServesProfilingOnly(t *testing.T) {
-	// Stands in for the handlers packages register on the default mux as a side effect of
-	// being linked in, without depending on which of them the binary happens to pull in.
 	const canary = "/debug/serve-debug-canary"
-	// The default mux is process-wide and keeps its patterns between runs, so registering
-	// per run panics on a repeat pattern.
 	canaryOnce.Do(func() {
 		http.DefaultServeMux.HandleFunc(canary, func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)

@@ -12,8 +12,6 @@ import (
 	"time"
 
 	_ "embed"
-
-	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
 // Sentinel errors for schema fetch and validation failures.
@@ -144,17 +142,16 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
-// NewSchemaHTTPClient creates an HTTP client suitable for schema fetching,
-// using the timeout from the provided SchemaConfig. When AuthToken is non-empty,
-// the client's transport injects an Authorization: Bearer <token> header on
-// every outgoing request.
-func NewSchemaHTTPClient(cfg config.SchemaConfig) *http.Client {
+// NewSchemaHTTPClient creates an HTTP client suitable for schema fetching.
+// When authToken is non-empty, the client's transport injects an
+// Authorization: Bearer <token> header on every outgoing request.
+func NewSchemaHTTPClient(timeoutSecs int, authToken string) *http.Client {
 	var transport http.RoundTripper = http.DefaultTransport.(*http.Transport).Clone()
-	if cfg.AuthToken != "" {
-		transport = &authTransport{base: transport, token: cfg.AuthToken}
+	if authToken != "" {
+		transport = &authTransport{base: transport, token: authToken}
 	}
 	return &http.Client{
-		Timeout:   time.Duration(cfg.HTTPClientTimeoutSecs) * time.Second,
+		Timeout:   time.Duration(timeoutSecs) * time.Second,
 		Transport: transport,
 	}
 }

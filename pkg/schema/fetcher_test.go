@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/shinzonetwork/shinzo-host-client/config"
 )
 
 const (
@@ -44,10 +42,13 @@ var validResponse = Response{
 	Schema:  testSchemaBlock,
 }
 
-var testSchemaConfig = config.SchemaConfig{HTTPClientTimeoutSecs: 30}
+const (
+	testSchemaTimeoutSecs = 30
+	testIndexerSchemaPath = "/api/v1/schema"
+)
 
 func testIndexerSchemaURL(srv *httptest.Server) string {
-	return srv.URL + config.DefaultIndexerSchemaEndpoint
+	return srv.URL + testIndexerSchemaPath
 }
 
 func TestFetchSchema_Success(t *testing.T) {
@@ -60,7 +61,7 @@ func TestFetchSchema_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__Block")
@@ -82,7 +83,7 @@ func TestFetchSchema_AppendsAttestationRecord(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord")
@@ -104,7 +105,7 @@ func TestFetchSchema_DoesNotDuplicateAttestationRecord(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 
@@ -115,8 +116,8 @@ func TestFetchSchema_DoesNotDuplicateAttestationRecord(t *testing.T) {
 func TestFetchSchema_NetworkError(t *testing.T) {
 	t.Parallel()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
-	_, err := FetchSchema(context.Background(), client, "http://127.0.0.1:1"+config.DefaultIndexerSchemaEndpoint)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
+	_, err := FetchSchema(context.Background(), client, "http://127.0.0.1:1"+testIndexerSchemaPath)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaFetchNetwork)
 }
@@ -129,7 +130,7 @@ func TestFetchSchema_HttpError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "status 500")
@@ -145,7 +146,7 @@ func TestFetchSchema_MalformedJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode schema response")
@@ -167,7 +168,7 @@ func TestFetchSchema_EmptySchemaField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaEmptyResponse)
@@ -188,7 +189,7 @@ func TestFetchSchema_MissingRequiredTypes(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "validate schema")
@@ -207,7 +208,7 @@ func TestFetchSchema_OversizedPayload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
@@ -272,7 +273,7 @@ func TestAppendAttestationRecord_DoesNotMatchSimilarType(t *testing.T) {
 func TestNewSchemaHTTPClient(t *testing.T) {
 	t.Parallel()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	require.NotNil(t, client)
 	require.Equal(t, 30*time.Second, client.Timeout)
 }
@@ -280,8 +281,7 @@ func TestNewSchemaHTTPClient(t *testing.T) {
 func TestNewSchemaHTTPClient_CustomTimeout(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.SchemaConfig{HTTPClientTimeoutSecs: 60}
-	client := NewSchemaHTTPClient(cfg)
+	client := NewSchemaHTTPClient(60, "")
 	require.Equal(t, 60*time.Second, client.Timeout)
 }
 
@@ -299,7 +299,7 @@ func TestFetchSchema_StrictContentNegotiation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewSchemaHTTPClient(testSchemaConfig)
+	client := NewSchemaHTTPClient(testSchemaTimeoutSecs, "")
 	result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 	require.NoError(t, err)
 	require.Contains(t, result, "Ethereum__Mainnet__Block")
@@ -341,11 +341,7 @@ func TestNewSchemaHTTPClient_AuthHeader(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			cfg := config.SchemaConfig{
-				HTTPClientTimeoutSecs: 30,
-				AuthToken:             tt.authToken,
-			}
-			client := NewSchemaHTTPClient(cfg)
+			client := NewSchemaHTTPClient(30, tt.authToken)
 
 			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
 			require.NoError(t, err)
@@ -405,11 +401,7 @@ func TestFetchSchema_AuthToken(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			cfg := config.SchemaConfig{
-				HTTPClientTimeoutSecs: 30,
-				AuthToken:             tt.clientToken,
-			}
-			client := NewSchemaHTTPClient(cfg)
+			client := NewSchemaHTTPClient(30, tt.clientToken)
 
 			result, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv))
 

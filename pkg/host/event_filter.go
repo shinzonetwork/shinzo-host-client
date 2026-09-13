@@ -192,3 +192,50 @@ func topicMatches(tf hostconfig.TopicFilter, topics []string) bool {
 	}
 	return true
 }
+
+func fieldString(fields map[string]any, key string) (string, bool) {
+	v, ok := fields[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
+}
+
+func fieldUint64(fields map[string]any, key string) (uint64, bool) {
+	v, ok := fields[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int64:
+		return uint64(n), true //nolint:gosec
+	case uint64:
+		return n, true
+	case float64:
+		return uint64(n), true
+	case int:
+		return uint64(n), true //nolint:gosec
+	}
+	return 0, false
+}
+
+func fieldStringSlice(fields map[string]any, key string) []string {
+	v, ok := fields[key]
+	if !ok {
+		return nil
+	}
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				out = append(out, str)
+			}
+		}
+		return out
+	}
+	return nil
+}
