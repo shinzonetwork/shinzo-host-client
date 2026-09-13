@@ -33,6 +33,7 @@ const (
 
 type DefraService interface {
 	Start(ctx context.Context) error
+	MaintainPeerConnections(ctx context.Context)
 	Stop(ctx context.Context) error
 	DB() node.DB
 	Options() *options.NodeOptions

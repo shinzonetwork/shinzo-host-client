@@ -27,6 +27,8 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 	}()
 	srv.RegisterShutdown(func(ctx context.Context) error { return defra.Stop(ctx) })
 
+	defra.MaintainPeerConnections(ctx)
+
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
 	}
