@@ -41,6 +41,12 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 		return nil, err
 	}
 
+	// TODO: changing host to only join views of pools that hosts has joined or will join, not via a
+	// ShinzoHub event subscription.
+
+	// TODO: ACP/billing isn't wired up, blocked on the accounting service
+	// (external, not built yet). Not a priority right now.
+
 	if err := srv.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting host server: %w", err)
 	}
