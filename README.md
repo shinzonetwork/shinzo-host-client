@@ -22,7 +22,7 @@ Put a `config.toml` next to `docker-compose.yml`, then:
 docker compose up -d
 ```
 
-No secrets need to be set beforehand — the node's keyring password lives in `config.toml` (`node.keyring_password`) and has a working default.
+No secrets need to be set beforehand — the node's keyring password lives in `config.toml` (`node.keyring_password`).
 
 Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/hosts/overview).
 

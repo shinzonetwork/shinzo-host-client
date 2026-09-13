@@ -29,25 +29,10 @@ The binary lands at `./bin/host`.
 
 The node reads a TOML config file, resolved in this order: `--config <path>`, or `XDG_DATA_HOME/shinzo-host/default/config.toml` (`~/.local/share/shinzo-host/default/config.toml` if `XDG_DATA_HOME` isn't set). Running `start` with no config file present writes a default one to that path and continues.
 
-The generated default is enough to boot a node, but `p2p.bootstrap_peers` starts empty, so it won't sync anything until you add real peers. A working reference config:
+The generated default is enough to boot a node, but `p2p.bootstrap_peers` starts empty, so it won't sync anything until you add real peers. Two reference configs are checked in:
 
-```toml
-[p2p]
-enabled = true
-listen_addr = "/ip4/0.0.0.0/tcp/9171"
-bootstrap_peers = [
-  "/ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT",
-  "/ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5",
-  "/ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT",
-]
-
-[snapshot]
-enabled = false
-indexer_url = "http://35.254.135.221:8080"
-historical_ranges = [
-  { start = 24528700, end = 24528999 },
-]
-```
+- [`toml/default.toml`](./toml/default.toml) — every field, heavily commented, no real network values filled in.
+- [`toml/testnet.toml`](./toml/testnet.toml) — a working config with real bootstrap peers and a real snapshot indexer.
 
 See `config/config.go` for the full set of fields.
 
