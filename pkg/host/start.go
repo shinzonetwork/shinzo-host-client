@@ -31,6 +31,8 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 
 	defra.MaintainPeerConnections(ctx)
 
+	defra.AttestSignatures(ctx)
+
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
 	}

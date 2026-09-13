@@ -35,6 +35,7 @@ type DefraService interface {
 	Start(ctx context.Context) error
 	Bootstrap(ctx context.Context)
 	MaintainPeerConnections(ctx context.Context)
+	AttestSignatures(ctx context.Context)
 	Stop(ctx context.Context) error
 	DB() node.DB
 	Options() *options.NodeOptions
