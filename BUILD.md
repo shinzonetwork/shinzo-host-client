@@ -39,11 +39,11 @@ See `config/config.go` for the full set of fields.
 ## Docker
 
 ```shell
-docker build -t shinzo-host-client .
+cp toml/testnet.toml config.toml
 docker compose up -d
 ```
 
-`docker-compose.yml` builds the image locally and expects a `./config.toml` next to it (mounted read-only into the container). Node data persists in a named volume, so it survives container restarts.
+`docker-compose.yml` builds the image locally and expects a `./config.toml` next to it (mounted read-only into the container, not tracked by git). Node data persists in a named volume, so it survives container restarts.
 
 ## Ports
 

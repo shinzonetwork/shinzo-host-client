@@ -16,9 +16,10 @@ A Host node for the Shinzo network. It pulls primitive blockchain data from Inde
 
 ## Getting started
 
-Put a `config.toml` next to `docker-compose.yml`, then:
+Copy a reference config next to `docker-compose.yml`, then bring the node up:
 
 ```shell
+cp toml/testnet.toml config.toml
 docker compose up -d
 ```
 
