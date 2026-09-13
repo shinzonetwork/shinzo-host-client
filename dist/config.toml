@@ -103,3 +103,12 @@ min_query_balance = ""
 epoch_length = 0
 as_base_url = ""
 attester_window = ""
+
+[pruner]
+# removes old blocks (and their dependent docs) once the store holds more than
+# max_blocks worth of them, so the store doesn't grow forever.
+enabled = false
+max_blocks = 10000
+docs_per_block = 1000
+interval_seconds = 60
+prune_history = false

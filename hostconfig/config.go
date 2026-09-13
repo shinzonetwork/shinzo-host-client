@@ -21,6 +21,15 @@ type Config struct {
 	Snapshot    SnapshotConfig    `toml:"snapshot"`
 	EventFilter EventFilterConfig `toml:"event_filter"`
 	ACP         ACPConfig         `toml:"acp"`
+	Pruner      PrunerConfig      `toml:"pruner"`
+}
+
+type PrunerConfig struct {
+	Enabled         bool  `toml:"enabled"`
+	MaxBlocks       int64 `toml:"max_blocks"`
+	DocsPerBlock    int   `toml:"docs_per_block"`
+	IntervalSeconds int   `toml:"interval_seconds"`
+	PruneHistory    bool  `toml:"prune_history"`
 }
 
 type ACPConfig struct {

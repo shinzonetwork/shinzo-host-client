@@ -35,6 +35,8 @@ func Start(ctx context.Context, cfg *hostconfig.Config, log *zap.Logger, keys No
 
 	defra.TrackDocumentMetrics(ctx)
 
+	defra.PruneDocuments(ctx)
+
 	if err := mountServices(srv, cfg, keys, defra); err != nil {
 		return nil, err
 	}

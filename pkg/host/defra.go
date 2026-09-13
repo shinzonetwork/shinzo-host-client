@@ -20,6 +20,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
@@ -37,6 +38,7 @@ type DefraService interface {
 	MaintainPeerConnections(ctx context.Context)
 	AttestSignatures(ctx context.Context)
 	TrackDocumentMetrics(ctx context.Context)
+	PruneDocuments(ctx context.Context)
 	Stop(ctx context.Context) error
 	DB() node.DB
 	Options() *options.NodeOptions
@@ -65,7 +67,8 @@ type defraService struct {
 	peerKeySeed []byte
 	metrics     *server.HostMetrics
 
-	node *node.Node
+	node   *node.Node
+	pruner *pruner.Pruner
 }
 
 func (s *defraService) Start(ctx context.Context) error {
@@ -120,6 +123,10 @@ func (s *defraService) Start(ctx context.Context) error {
 }
 
 func (s *defraService) Stop(ctx context.Context) error {
+	if s.pruner != nil {
+		s.pruner.Stop(ctx)
+	}
+
 	if s.node == nil {
 		return nil
 	}

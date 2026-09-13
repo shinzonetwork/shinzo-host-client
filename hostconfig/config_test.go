@@ -89,6 +89,45 @@ attester_window = "5m"
 	}
 }
 
+func TestLoad_PrunerSection(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[pruner]
+enabled = true
+max_blocks = 5000
+docs_per_block = 1200
+interval_seconds = 45
+prune_history = true
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Pruner.Enabled {
+		t.Fatal("expected pruner.enabled to be true")
+	}
+	if cfg.Pruner.MaxBlocks != 5000 {
+		t.Fatalf("expected pruner.max_blocks 5000, got %d", cfg.Pruner.MaxBlocks)
+	}
+	if cfg.Pruner.DocsPerBlock != 1200 {
+		t.Fatalf("expected pruner.docs_per_block 1200, got %d", cfg.Pruner.DocsPerBlock)
+	}
+	if cfg.Pruner.IntervalSeconds != 45 {
+		t.Fatalf("expected pruner.interval_seconds 45, got %d", cfg.Pruner.IntervalSeconds)
+	}
+	if !cfg.Pruner.PruneHistory {
+		t.Fatal("expected pruner.prune_history to be true")
+	}
+}
+
+func TestLoad_PrunerDefaultsToDisabled(t *testing.T) {
+	cfg, err := Load(writeToml(t, ""))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pruner.Enabled {
+		t.Fatal("expected pruner.enabled to default to false")
+	}
+}
+
 func TestLoad_ACPDefaultsToDisabled(t *testing.T) {
 	cfg, err := Load(writeToml(t, ""))
 	if err != nil {
