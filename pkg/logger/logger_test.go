@@ -96,6 +96,15 @@ func TestNew_InvalidOutputPathErrors(t *testing.T) {
 	}
 }
 
+func TestIsRealTerminal_FilePathsAreNeverTerminals(t *testing.T) {
+	if isRealTerminal(filepath.Join(t.TempDir(), "out.log")) {
+		t.Fatal("expected a plain file path to never be treated as a terminal")
+	}
+	if isRealTerminal("") {
+		t.Fatal("expected an empty path to never be treated as a terminal")
+	}
+}
+
 func TestParseLevel(t *testing.T) {
 	cases := []struct {
 		name        string

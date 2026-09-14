@@ -165,12 +165,14 @@ func EnsureKeys(cfg *config.Config, recoverMnemonic string, log *zap.SugaredLogg
 	}
 
 	if alreadyExists {
+		log.Infow("loading existing keys", "dir", cfg.Node.KeyDir)
 		raw, err := loadRawKeys(kr)
 		if err != nil {
 			return NodeKeys{}, err
 		}
 		return raw.toNodeKeys()
 	}
+	log.Infow("creating new keys", "dir", cfg.Node.KeyDir)
 
 	mnemonic := recoverMnemonic
 	fresh := mnemonic == ""

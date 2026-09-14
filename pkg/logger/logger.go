@@ -3,10 +3,12 @@ package logger
 import (
 	"errors"
 	"fmt"
+	"os"
 	"syscall"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/term"
 )
 
 type Format string
@@ -75,20 +77,31 @@ func New(cfg Config) (*zap.Logger, func() error, error) {
 	return log, sync, nil
 }
 
-func encoderFor(path string, cfg Config) zapcore.Encoder {
+func encoderFor(path string, _ Config) zapcore.Encoder {
+	if isRealTerminal(path) {
+		return newConsoleEncoder()
+	}
+
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.TimeKey = "ts"
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-
-	isTerminal := path == "stdout" || path == "stderr"
-
-	if isTerminal && cfg.Development {
-		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		return zapcore.NewConsoleEncoder(encoderConfig)
-	}
-
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	return zapcore.NewJSONEncoder(encoderConfig)
+}
+
+func IsTerminal() bool {
+	return isRealTerminal("stdout")
+}
+
+func isRealTerminal(path string) bool {
+	switch path {
+	case "stdout":
+		return term.IsTerminal(int(os.Stdout.Fd()))
+	case "stderr":
+		return term.IsTerminal(int(os.Stderr.Fd()))
+	default:
+		return false
+	}
 }
 
 func parseLevel(s string, development bool) zapcore.Level {

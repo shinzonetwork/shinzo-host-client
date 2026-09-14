@@ -43,12 +43,12 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	log, syncLog, err := logger.New(logger.Config{
 		Level:       cfg.Logger.Level,
 		Development: cfg.Logger.Development,
-		Fields:      map[string]any{"service": "shinzo-host"},
 	})
 	if err != nil {
 		return fmt.Errorf("building logger: %w", err)
 	}
 	defer func() { _ = syncLog() }()
+	log.Sugar().Info("starting host")
 
 	logger.Sugar = log.Sugar()
 

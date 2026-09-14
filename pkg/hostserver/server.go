@@ -68,7 +68,6 @@ func (s *Server) Start(context.Context) error {
 		}
 	}()
 
-	s.log.Infow("host http server listening", "addr", ln.Addr().String())
 	return nil
 }
 

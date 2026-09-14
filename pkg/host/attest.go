@@ -298,7 +298,7 @@ func postBlockAttestation(
 	for attempt := range maxAttestationRetries {
 		err := attestation.PostAttestationRecord(ctx, defraNode, record)
 		if err == nil {
-			log.Infow("created attestation for block", "block", blockSig.BlockNumber, "signer", blockSig.SignatureIdentity)
+			log.Debugw("created attestation for block", "block", blockSig.BlockNumber, "signer", blockSig.SignatureIdentity)
 			metrics.IncrementAttestationsCreated()
 			metrics.UpdateMostRecentBlock(uint64(blockSig.BlockNumber))
 			return

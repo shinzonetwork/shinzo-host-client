@@ -56,18 +56,18 @@ func pendingSnapshots(
 		return nil, nil, err
 	}
 	if len(available) == 0 {
-		log.Info("no snapshots available from indexer")
+		log.Debug("no snapshots available from indexer")
 		return nil, nil, nil
 	}
 
 	existingMin, existingMax := existingBlockRange(ctx, defraNode)
 	if existingMax > 0 {
-		log.Infow("existing blocks in db", "min", existingMin, "max", existingMax)
+		log.Debugw("existing blocks in db", "min", existingMin, "max", existingMax)
 	}
 
 	needed := coveringSnapshots(available, snapCfg.HistoricalRanges, existingMin, existingMax)
 	if len(needed) == 0 {
-		log.Info("no new snapshots needed, ranges already covered")
+		log.Debug("no new snapshots needed, ranges already covered")
 		return nil, nil, nil
 	}
 
