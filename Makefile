@@ -1,15 +1,15 @@
-.PHONY: build build-quiet start start-quiet lint lint-fix
+.PHONY: build build-loud start start-loud lint lint-fix
 
 build:
-	go build -o bin/host ./cmd/host
-
-build-quiet:
 	go build -tags silent -o bin/host ./cmd/host
+
+build-loud:
+	go build -o bin/host ./cmd/host
 
 start: build
 	./bin/host start
 
-start-quiet: build-quiet
+start-loud: build-loud
 	./bin/host start
 
 lint:

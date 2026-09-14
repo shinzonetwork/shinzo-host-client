@@ -66,7 +66,7 @@ func Start(ctx context.Context, cfg *config.Config, log *zap.Logger, keys NodeKe
 
 	sugar := log.Sugar()
 	if logger.IsTerminal() {
-		sugar.Info(renderBox("Identity", [][2]string{
+		sugar.Info("\n" + renderBox("Identity", [][2]string{
 			{"shinzo", shinzoAddress},
 			{"evm", keys.OperatorAddress().Hex()},
 			{"did", keys.DID()},
@@ -118,7 +118,7 @@ func mountServices(srv *hostserver.Server, cfg *config.Config, keys NodeKeys, de
 
 	sugar := log.Sugar()
 	if logger.IsTerminal() {
-		sugar.Info(renderBox("Routes", routes))
+		sugar.Info("\n" + renderBox("Routes", routes))
 	} else {
 		for _, r := range routes {
 			sugar.Infow(r[0], "url", r[1])

@@ -7,7 +7,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o /app/bin/host ./cmd/host
+RUN go build -tags silent -o /app/bin/host ./cmd/host
 
 FROM debian:bookworm-slim
 
