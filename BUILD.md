@@ -21,9 +21,13 @@ The binary lands at `./bin/host`.
 | Command | What it does |
 | --- | --- |
 | `make build` | Build the binary into `./bin/host`. |
+| `make build-quiet` | Same, but built with `-tags silent` — the embedded DefraDB instance produces no log output at all. The host's own logs are unaffected. |
 | `make start` | Build and run `./bin/host start`. |
+| `make start-quiet` | Same, with DefraDB's logs fully silenced. |
 | `go run ./cmd/host start` | Run without building first. |
 | `go test ./...` | Run the test suite. |
+
+`-tags silent` is a compile-time switch, not a runtime config value — a binary built with it never emits DefraDB logs, one built without it always does.
 
 ## Configuration
 
