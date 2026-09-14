@@ -241,3 +241,29 @@ func TestMain(m *testing.M) {
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
+
+// Zero is a valid block number, so an unreadable value has to be distinguishable from it.
+func TestParseBlockNumber(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  any
+		want   int64
+		parsed bool
+	}{
+		{"float64 as defradb returns it", float64(42), 42, true},
+		{"int64", int64(42), 42, true},
+		{"int", 42, 42, true},
+		{"genuine block zero", float64(0), 0, true},
+		{"absent field", nil, 0, false},
+		{"string", "42", 0, false},
+		{"bool", true, 0, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, parsed := parseBlockNumber(tc.input)
+			require.Equal(t, tc.parsed, parsed)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
