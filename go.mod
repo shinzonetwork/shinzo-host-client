@@ -1,6 +1,6 @@
 module github.com/shinzonetwork/shinzo-host-client
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
@@ -24,9 +24,9 @@ require (
 	github.com/sourcenetwork/lens/host-go v0.11.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
-	github.com/vektah/gqlparser/v2 v2.5.36
+	github.com/vektah/gqlparser/v2 v2.5.37
 	go.uber.org/zap v1.28.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/term v0.45.0
 )
 
