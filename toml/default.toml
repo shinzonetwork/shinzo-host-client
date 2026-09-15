@@ -1,0 +1,158 @@
+# Reference config for shinzo-host, documenting every field. See config/config.go
+# for the authoritative shape.
+#
+# This file has no real network values filled in — for a working example, see
+# toml/testnet.toml. Running with no --config at all also works: the node
+# writes a default config to disk on first start and continues.
+#
+# Usage: bin/host start --config toml/default.toml
+
+[node]
+# a label for this instance. Also names its default data directory:
+# XDG_DATA_HOME/shinzo-host/<name>, or ~/.local/share/shinzo-host/<name> if
+# XDG_DATA_HOME isn't set.
+name = "default"
+
+# leave empty to use the XDG default derived from `name` above. Set this to
+# run more than one instance on the same machine, or to point at a specific
+# disk/volume.
+data_dir = ""
+
+# leave empty to default to <data_dir>/keys.
+key_dir = ""
+
+# unlocks the node's identity keyring under key_dir. Change this from the
+# default before running anywhere the key material matters.
+keyring_password = "shinzo-host"
+
+[http]
+# the one port everything is served on: /health, /metrics, /graphql,
+# /console, /playground, /api/node, /api/system.
+addr = ":8080"
+
+[p2p]
+enabled = true
+
+# the multiaddr this node listens for peer connections on. 0.0.0.0 means
+# all network interfaces; only change the port unless you know you need to.
+listen_addr = "/ip4/0.0.0.0/tcp/9171"
+
+# peers to dial on startup and reconnect to if the connection drops. Empty
+# here on purpose — with no peers, the node comes up but never syncs
+# anything. Ask in the Shinzo community or check docs.shinzo.network for
+# current bootstrap peer addresses, or copy the ones in toml/testnet.toml.
+bootstrap_peers = []
+
+max_retries = 5                  # connection attempts before a peer is marked failed
+retry_base_delay_ms = 500        # exponential backoff base (500ms, 1s, 2s, 4s, 8s, ...)
+reconnect_interval_ms = 5000     # how often to check for disconnected peers
+enable_auto_reconnect = true
+peer_discovery_timeout_ms = 10000
+
+[store]
+# leave empty to default to <data_dir>/data.
+path = ""
+
+# Badger (the embedded store) tuning. Only value_log_file_size_mb is wired
+# into the node today; the rest are reserved for when the others are.
+block_cache_mb = 512
+memtable_mb = 64
+index_cache_mb = 256
+num_compactors = 4
+num_level_zero_tables = 0        # 0 = Badger's own default
+num_level_zero_tables_stall = 0  # 0 = Badger's own default
+value_log_file_size_mb = 128
+
+[shinzo]
+# the ShinzoHub network this node talks to.
+hub_base_url = "testnet.shinzo.network"
+
+# the EVM chain id of the network you're attesting for. Required once acp
+# is enabled below. Find the right value at docs.shinzo.network or ask
+# your network operator — using the wrong one silently invalidates
+# signatures rather than erroring.
+chain_id = 0
+
+minimum_attestations = 1
+
+# 0 = the indexer auto-detects a starting point from the chain tip.
+start_height = 0
+
+# where attestation rewards are paid. Leave empty to default to the
+# operator key's own address.
+payout_address = ""
+
+# reserved for the view manager, not yet wired into this architecture.
+view_inactivity_timeout = "24h"
+view_cleanup_interval = "1h"
+view_worker_count = 2
+view_queue_size = 1000
+
+# reserved, not yet consumed by anything in this architecture.
+cache_queue_size = 1000
+batch_writer_count = 0
+batch_size = 0
+batch_flush_interval = 0
+max_concurrent_verifications = 0
+use_block_signatures = false # legacy toggle from the old processing pipeline; attestation always runs now
+
+doc_worker_count = 32   # attestation worker pool size, 0 falls back to a built-in default
+doc_queue_size = 50000  # attestation queue depth, 0 falls back to a built-in default
+
+[schema]
+# path appended to an indexer's base URL (see [snapshot] below) to fetch
+# the live GraphQL schema. Falls back to an embedded schema if unreachable.
+indexer_schema_endpoint = "/api/v1/schema"
+http_client_timeout_secs = 30
+# auth_token isn't settable here — set SHINZO_HOST_SCHEMA_AUTH_TOKEN instead,
+# only if your indexer requires a bearer token.
+
+[logger]
+development = false
+level = "info"
+
+[playground]
+# serves an embedded GraphQL Playground UI at /playground.
+enabled = true
+
+[snapshot]
+# fast-sync historical data from an indexer on first startup, instead of
+# waiting for P2P replication to catch up from genesis. Off by default:
+# turning this on needs a real indexer_url below.
+enabled = false
+
+# an indexer's HTTP address (same one that serves the schema endpoint
+# above). Ask your network operator or check docs.shinzo.network.
+indexer_url = ""
+
+# which block ranges to import. Leave empty until indexer_url is set.
+historical_ranges = []
+
+[event_filter]
+# controls which P2P-replicated documents this host stores. Blocks and
+# BlockSignatures always pass through regardless of this setting.
+enabled = false
+mode = "allowlist"     # "allowlist": only accept documents matching a group in file
+                        # "blocklist": accept everything except documents matching a group
+cascade_filters = true # a contract filter with types = ["transaction"] also applies to
+                        # that address's logs and access-list entries when true
+file = "filters.json"  # relative to the instance dir unless absolute; filter groups
+                        # live in that JSON file, not inline here
+
+[acp]
+# query-billing gate. Left disabled: blocked on the accounting service,
+# which doesn't exist yet.
+enabled = false
+min_query_balance = ""
+epoch_length = 0
+as_base_url = ""
+attester_window = ""
+
+[pruner]
+# removes old blocks (and their dependent documents) once the store holds
+# more than max_blocks worth of them, so disk usage doesn't grow forever.
+enabled = false
+max_blocks = 10000
+docs_per_block = 1000
+interval_seconds = 60
+prune_history = false

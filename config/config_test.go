@@ -4,386 +4,208 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
-func TestLoadConfig_ValidYAML(t *testing.T) {
-	// Create a temporary config file
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "test_config.yaml")
+func writeToml(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing test config: %v", err)
+	}
+	return path
+}
 
-	configContent := `
-defradb:
-  url: "http://localhost:9181"
-  p2p:
-    enabled: true
-    bootstrap_peers: ["peer1", "peer2"]
-    listen_addr: "/ip4/0.0.0.0/tcp/9171"
-  store:
-    path: "/tmp/defra"
-
-shinzohub:
-  rpc_url: "some url"
-`
-
-	err := os.WriteFile(configPath, []byte(configContent), 0o600)
+func TestLoad_EmptyFileUsesDefaults(t *testing.T) {
+	cfg, err := Load(writeToml(t, ""))
 	if err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
+	if cfg.HTTP.Addr != ":8080" {
+		t.Fatalf("expected default http.addr :8080, got %q", cfg.HTTP.Addr)
 	}
-
-	expectedURL := "http://localhost:9181"
-	// Test DefraDB config
-	if cfg.DefraDB.URL != expectedURL {
-		t.Errorf("Expected url '%s', got '%s'", expectedURL, cfg.DefraDB.URL)
+	if cfg.Node.DataDir == "" {
+		t.Fatal("expected DataDir to be derived when left blank")
 	}
-
-	// Test P2P config
-	if len(cfg.DefraDB.P2P.BootstrapPeers) != 2 {
-		t.Errorf("Expected 2 bootstrap peers, got %d", len(cfg.DefraDB.P2P.BootstrapPeers))
+	if cfg.Node.KeyDir != filepath.Join(cfg.Node.DataDir, "keys") {
+		t.Fatalf("expected KeyDir to default to <data_dir>/keys, got %q", cfg.Node.KeyDir)
+	}
+	if cfg.Node.KeyringPassword == "" {
+		t.Fatal("expected a default keyring password")
 	}
 }
 
-func TestLoadConfig_EnvironmentOverrides(t *testing.T) {
-	// Create a temporary config file
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "test_config.yaml")
-
-	configContent := `
-defradb:
-  keyring_secret: "original_secret"
-`
-
-	err := os.WriteFile(configPath, []byte(configContent), 0o600)
+func TestLoad_KeyDirOverride(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[node]
+key_dir = "/custom/keys"
+`))
 	if err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
-
-	// Set environment variables
-	_ = os.Setenv("DEFRA_KEYRING_SECRET", "env_secret")
-	defer func() { _ = os.Unsetenv("DEFRA_KEYRING_SECRET") }()
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
-
-	if cfg.DefraDB.KeyringSecret != "original_secret" {
-		t.Errorf("Expected keyring_secret 'original_secret', got '%s'", cfg.DefraDB.KeyringSecret)
+	if cfg.Node.KeyDir != "/custom/keys" {
+		t.Fatalf("expected an explicit key_dir to override the default, got %q", cfg.Node.KeyDir)
 	}
 }
 
-func TestLoadConfig_EmptyConfig(t *testing.T) {
-	// Create a temporary config file with empty config
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "empty_config.yaml")
-
-	configContent := `{}`
-
-	err := os.WriteFile(configPath, []byte(configContent), 0o600)
+func TestLoad_OverridesOnlyWhatItMentions(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[http]
+addr = ":9999"
+`))
 	if err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
+	if cfg.HTTP.Addr != ":9999" {
+		t.Fatalf("expected http.addr override to apply, got %q", cfg.HTTP.Addr)
 	}
-
-	// Test that empty config loads without error
-	if cfg == nil {
-		t.Error("Expected config to be loaded, got nil")
+	if cfg.Shinzo.HubBaseURL != "testnet.shinzo.network" {
+		t.Fatalf("expected unrelated defaults to survive, got hub_base_url=%q", cfg.Shinzo.HubBaseURL)
 	}
 }
 
-func TestLoadConfig_InvalidPath(t *testing.T) {
-	_, err := LoadConfig("/nonexistent/path/config.yaml")
+func TestLoad_ACPSection(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[shinzo]
+chain_id = 12345
+
+[acp]
+enabled = true
+min_query_balance = "1000000"
+epoch_length = 100
+as_base_url = "https://accounting.internal"
+attester_window = "5m"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.ACP.Enabled {
+		t.Fatal("expected acp.enabled to be true")
+	}
+	if cfg.Shinzo.ChainID != 12345 {
+		t.Fatalf("expected shinzo.chain_id 12345, got %d", cfg.Shinzo.ChainID)
+	}
+	if cfg.ACP.AttesterWindow != "5m" {
+		t.Fatalf("expected attester_window %q, got %q", "5m", cfg.ACP.AttesterWindow)
+	}
+}
+
+func TestLoad_PrunerSection(t *testing.T) {
+	cfg, err := Load(writeToml(t, `
+[pruner]
+enabled = true
+max_blocks = 5000
+docs_per_block = 1200
+interval_seconds = 45
+prune_history = true
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Pruner.Enabled {
+		t.Fatal("expected pruner.enabled to be true")
+	}
+	if cfg.Pruner.MaxBlocks != 5000 {
+		t.Fatalf("expected pruner.max_blocks 5000, got %d", cfg.Pruner.MaxBlocks)
+	}
+	if cfg.Pruner.DocsPerBlock != 1200 {
+		t.Fatalf("expected pruner.docs_per_block 1200, got %d", cfg.Pruner.DocsPerBlock)
+	}
+	if cfg.Pruner.IntervalSeconds != 45 {
+		t.Fatalf("expected pruner.interval_seconds 45, got %d", cfg.Pruner.IntervalSeconds)
+	}
+	if !cfg.Pruner.PruneHistory {
+		t.Fatal("expected pruner.prune_history to be true")
+	}
+}
+
+func TestLoad_PrunerDefaultsToDisabled(t *testing.T) {
+	cfg, err := Load(writeToml(t, ""))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Pruner.Enabled {
+		t.Fatal("expected pruner.enabled to default to false")
+	}
+}
+
+func TestLoad_ACPDefaultsToDisabled(t *testing.T) {
+	cfg, err := Load(writeToml(t, ""))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ACP.Enabled {
+		t.Fatal("expected acp.enabled to default to false")
+	}
+}
+
+func TestLoad_MissingFile(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
 	if err == nil {
-		t.Error("Expected error for nonexistent config file, got nil")
+		t.Fatal("expected an error for a missing file, got nil")
 	}
 }
 
-func TestLoadConfig_InvalidYAML(t *testing.T) {
-	// Create a temporary config file with invalid YAML
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "invalid_config.yaml")
-
-	invalidContent := `
-shinzo:
-  minimum_attestations: "invalid yaml
-`
-
-	err := os.WriteFile(configPath, []byte(invalidContent), 0o600)
-	if err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
-
-	_, err = LoadConfig(configPath)
+func TestLoad_InvalidEventFilterMode(t *testing.T) {
+	_, err := Load(writeToml(t, `
+[event_filter]
+enabled = true
+mode = "not-a-real-mode"
+`))
 	if err == nil {
-		t.Error("Expected error for invalid YAML, got nil")
+		t.Fatal("expected validation to reject an invalid event_filter.mode, got nil")
 	}
 }
 
-func TestToInternalConfig(t *testing.T) {
-	cfg := &Config{
-		DefraDB: DefraDBConfig{
-			URL:           "localhost:9181",
-			KeyringSecret: "secret123",
-			P2P: DefraDBP2PConfig{
-				Enabled:             true,
-				BootstrapPeers:      []string{"peer1", "peer2"},
-				ListenAddr:          "/ip4/0.0.0.0/tcp/9171",
-				MaxRetries:          5,
-				RetryBaseDelayMs:    100,
-				ReconnectIntervalMs: 5000,
-				EnableAutoReconnect: true,
-			},
-			Store: DefraDBStoreConfig{
-				Path:                    "/tmp/defra",
-				BlockCacheMB:            64,
-				MemTableMB:              32,
-				IndexCacheMB:            16,
-				NumCompactors:           4,
-				NumLevelZeroTables:      5,
-				NumLevelZeroTablesStall: 15,
-				ValueLogFileSizeMB:      256,
-			},
-		},
-		Logger: LoggerConfig{
-			Development: true,
-		},
+func TestLoad_EnvOverridesSecrets(t *testing.T) {
+	t.Setenv("SHINZO_HOST_SCHEMA_AUTH_TOKEN", "shh")
+
+	cfg, err := Load(writeToml(t, ""))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Schema.AuthToken != "shh" {
+		t.Fatalf("expected env override to apply, got %q", cfg.Schema.AuthToken)
+	}
+}
+
+func TestLoad_EmptyPathBootstrapsDefaultConfig(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	wantPath := DefaultConfigPath("default")
+	if _, err := os.Stat(wantPath); !os.IsNotExist(err) {
+		t.Fatalf("expected %s not to exist yet", wantPath)
 	}
 
-	appCfg := cfg.ToInternalConfig()
-	require.NotNil(t, appCfg)
-	require.Equal(t, "localhost:9181", appCfg.DefraDB.URL)
-	require.Equal(t, "secret123", appCfg.DefraDB.KeyringSecret)
-	require.True(t, appCfg.DefraDB.P2P.Enabled)
-	// Bootstrap peers should be empty (added after ViewManager init)
-	require.Empty(t, appCfg.DefraDB.P2P.BootstrapPeers)
-	require.Equal(t, "/ip4/0.0.0.0/tcp/9171", appCfg.DefraDB.P2P.ListenAddr)
-	require.Equal(t, 5, appCfg.DefraDB.P2P.MaxRetries)
-	require.Equal(t, 100, appCfg.DefraDB.P2P.RetryBaseDelayMs)
-	require.Equal(t, 5000, appCfg.DefraDB.P2P.ReconnectIntervalMs)
-	require.True(t, appCfg.DefraDB.P2P.EnableAutoReconnect)
-	require.Equal(t, "/tmp/defra", appCfg.DefraDB.Store.Path)
-	require.Equal(t, int64(64), appCfg.DefraDB.Store.BlockCacheMB)
-	require.Equal(t, int64(32), appCfg.DefraDB.Store.MemTableMB)
-	require.Equal(t, int64(16), appCfg.DefraDB.Store.IndexCacheMB)
-	require.Equal(t, 4, appCfg.DefraDB.Store.NumCompactors)
-	require.Equal(t, 5, appCfg.DefraDB.Store.NumLevelZeroTables)
-	require.Equal(t, 15, appCfg.DefraDB.Store.NumLevelZeroTablesStall)
-	require.Equal(t, int64(256), appCfg.DefraDB.Store.ValueLogFileSizeMB)
-	require.True(t, appCfg.Logger.Development)
-}
-
-func TestToInternalConfig_Nil(t *testing.T) {
-	var cfg *Config
-	appCfg := cfg.ToInternalConfig()
-	require.Nil(t, appCfg)
-}
-
-func TestLoadConfig_StartHeightEnvOverride(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0o600)
-	require.NoError(t, err)
-
-	t.Setenv("START_HEIGHT", "500")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, uint64(500), cfg.Shinzo.StartHeight)
-}
-
-func TestLoadConfig_InvalidStartHeightEnv(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0o600)
-	require.NoError(t, err)
-
-	t.Setenv("START_HEIGHT", "not_a_number")
-
-	_, err = LoadConfig(configPath)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid START_HEIGHT")
-}
-
-func TestLoadConfig_BootstrapPeersEnvOverride(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("defradb:\n  p2p:\n    bootstrap_peers: []\n"), 0o600)
-	require.NoError(t, err)
-
-	t.Setenv("BOOTSTRAP_PEERS", "peer1,peer2,peer3")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, []string{"peer1", "peer2", "peer3"}, cfg.DefraDB.P2P.BootstrapPeers)
-}
-
-func TestLoadConfig_DefraURLEnvOverride(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
-	require.NoError(t, err)
-
-	t.Setenv("DEFRA_URL", "0.0.0.0:9181")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, "0.0.0.0:9181", cfg.DefraDB.URL)
-}
-
-func TestLoadConfig_DefraURLEnvUnsetKeepsYAML(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
-	require.NoError(t, err)
-
-	t.Setenv("DEFRA_URL", "")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, "localhost:9181", cfg.DefraDB.URL)
-}
-
-func TestLoadConfig_IndexerSchemaEndpoint_YAML(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: /custom/v2/schema\n"), 0o600)
-	require.NoError(t, err)
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, "/custom/v2/schema", cfg.Schema.IndexerSchemaEndpoint)
-}
-
-func TestLoadConfig_IndexerSchemaEndpoint_EnvOverride(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: "+DefaultIndexerSchemaEndpoint+"\n"), 0o600)
-	require.NoError(t, err)
-
-	t.Setenv("INDEXER_SCHEMA_ENDPOINT", "/env/v3/schema")
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, "/env/v3/schema", cfg.Schema.IndexerSchemaEndpoint)
-}
-
-func TestLoadConfig_IndexerSchemaEndpoint_Default(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("{}"), 0o600)
-	require.NoError(t, err)
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, DefaultIndexerSchemaEndpoint, cfg.Schema.IndexerSchemaEndpoint)
-}
-
-func TestLoadConfig_SchemaHTTPClientTimeout_YAML(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 60\n"), 0o600)
-	require.NoError(t, err)
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, 60, cfg.Schema.HTTPClientTimeoutSecs)
-}
-
-func TestLoadConfig_SchemaHTTPClientTimeout_Default(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("{}"), 0o600)
-	require.NoError(t, err)
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-	require.Equal(t, 30, cfg.Schema.HTTPClientTimeoutSecs)
-}
-
-func TestLoadConfig_SchemaHTTPClientTimeout_Negative(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: -5\n"), 0o600)
-	require.NoError(t, err)
-
-	_, err = LoadConfig(configPath)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrNegativeSchemaTimeout)
-}
-
-func TestLoadConfig_SchemaHTTPClientTimeout_Excessive(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-
-	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 999999\n"), 0o600)
-	require.NoError(t, err)
-
-	_, err = LoadConfig(configPath)
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrExcessiveSchemaTimeout)
-}
-
-func TestLoadConfig_SchemaAuthToken(t *testing.T) {
-	tests := []struct {
-		name        string
-		yamlContent string
-		setEnv      func(t *testing.T)
-		wantToken   string
-	}{
-		{
-			name:        "env sets token",
-			yamlContent: `{}`,
-			setEnv:      func(t *testing.T) { t.Setenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN", "my-secret-tok") },
-			wantToken:   "my-secret-tok",
-		},
-		{
-			name:        "env unset keeps empty default",
-			yamlContent: `{}`,
-			setEnv:      func(_ *testing.T) {},
-			wantToken:   "",
-		},
-		{
-			name:        "YAML auth_token field ignored due to yaml dash tag",
-			yamlContent: "schema:\n  auth_token: \"should-be-ignored\"\n",
-			setEnv:      func(_ *testing.T) {},
-			wantToken:   "",
-		},
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTP.Addr != ":8080" {
+		t.Fatalf("expected default http.addr :8080, got %q", cfg.HTTP.Addr)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tempDir := t.TempDir()
-			configPath := filepath.Join(tempDir, "config.yaml")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected Load to create %s, got: %v", wantPath, err)
+	}
+}
 
-			err := os.WriteFile(configPath, []byte(tt.yamlContent), 0o600)
-			require.NoError(t, err)
+func TestLoad_ExplicitMissingPathIsNotBootstrapped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist.toml")
 
-			tt.setEnv(t)
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("expected the explicit path to still not exist after a failed Load")
+	}
+}
 
-			cfg, err := LoadConfig(configPath)
-			require.NoError(t, err)
-			require.Equal(t, tt.wantToken, cfg.Schema.AuthToken)
-		})
+func TestDefaultConfigPath_RespectsXDGDataHome(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data-home")
+
+	got := DefaultConfigPath("default")
+	want := filepath.Join("/tmp/xdg-data-home", "shinzo-host", "default", "config.toml")
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

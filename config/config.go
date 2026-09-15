@@ -1,280 +1,267 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
-	"gopkg.in/yaml.v3"
+	"github.com/pelletier/go-toml/v2"
 )
 
-// CollectionName is the name of the collection where we store Shinzo-specific documents in DefraDB.
-const CollectionName = "shinzo"
+type Config struct {
+	Node        NodeConfig        `toml:"node"`
+	HTTP        HTTPConfig        `toml:"http"`
+	P2P         P2PConfig         `toml:"p2p"`
+	Store       StoreConfig       `toml:"store"`
+	Shinzo      ShinzoConfig      `toml:"shinzo"`
+	Schema      SchemaConfig      `toml:"schema"`
+	Logger      LoggerConfig      `toml:"logger"`
+	Playground  PlaygroundConfig  `toml:"playground"`
+	Snapshot    SnapshotConfig    `toml:"snapshot"`
+	EventFilter EventFilterConfig `toml:"event_filter"`
+	ACP         ACPConfig         `toml:"acp"`
+	Pruner      PrunerConfig      `toml:"pruner"`
+}
 
-// Default configuration values for schema fetching.
+type PrunerConfig struct {
+	Enabled         bool  `toml:"enabled"`
+	MaxBlocks       int64 `toml:"max_blocks"`
+	DocsPerBlock    int   `toml:"docs_per_block"`
+	IntervalSeconds int   `toml:"interval_seconds"`
+	PruneHistory    bool  `toml:"prune_history"`
+}
+
+type ACPConfig struct {
+	Enabled         bool   `toml:"enabled"`
+	MinQueryBalance string `toml:"min_query_balance"`
+	EpochLength     uint64 `toml:"epoch_length"`
+	ASBaseURL       string `toml:"as_base_url"`
+
+	AttesterWindow string `toml:"attester_window"`
+}
+
+type NodeConfig struct {
+	Name    string `toml:"name"`
+	DataDir string `toml:"data_dir"`
+	KeyDir  string `toml:"key_dir"`
+
+	KeyringPassword string `toml:"keyring_password"`
+}
+
+type HTTPConfig struct {
+	Addr string `toml:"addr"`
+}
+
+type P2PConfig struct {
+	Enabled                bool     `toml:"enabled"`
+	ListenAddr             string   `toml:"listen_addr"`
+	BootstrapPeers         []string `toml:"bootstrap_peers"`
+	MaxRetries             int      `toml:"max_retries"`
+	RetryBaseDelayMs       int      `toml:"retry_base_delay_ms"`
+	ReconnectIntervalMs    int      `toml:"reconnect_interval_ms"`
+	EnableAutoReconnect    bool     `toml:"enable_auto_reconnect"`
+	PeerDiscoveryTimeoutMs int      `toml:"peer_discovery_timeout_ms"`
+}
+
+type StoreConfig struct {
+	Path                    string `toml:"path"`
+	BlockCacheMB            int64  `toml:"block_cache_mb"`
+	MemTableMB              int64  `toml:"memtable_mb"`
+	IndexCacheMB            int64  `toml:"index_cache_mb"`
+	NumCompactors           int    `toml:"num_compactors"`
+	NumLevelZeroTables      int    `toml:"num_level_zero_tables"`
+	NumLevelZeroTablesStall int    `toml:"num_level_zero_tables_stall"`
+	ValueLogFileSizeMB      int64  `toml:"value_log_file_size_mb"`
+}
+
+type ShinzoConfig struct {
+	HubBaseURL string `toml:"hub_base_url"`
+
+	ChainID uint64 `toml:"chain_id"`
+
+	MinimumAttestations int    `toml:"minimum_attestations"`
+	StartHeight         uint64 `toml:"start_height"`
+
+	PayoutAddress string `toml:"payout_address"`
+
+	ViewInactivityTimeout string `toml:"view_inactivity_timeout"`
+	ViewCleanupInterval   string `toml:"view_cleanup_interval"`
+	ViewWorkerCount       int    `toml:"view_worker_count"`
+	ViewQueueSize         int    `toml:"view_queue_size"`
+
+	CacheQueueSize int `toml:"cache_queue_size"`
+
+	BatchWriterCount           int  `toml:"batch_writer_count"`
+	BatchSize                  int  `toml:"batch_size"`
+	BatchFlushInterval         int  `toml:"batch_flush_interval"`
+	MaxConcurrentVerifications int  `toml:"max_concurrent_verifications"`
+	UseBlockSignatures         bool `toml:"use_block_signatures"`
+	DocWorkerCount             int  `toml:"doc_worker_count"`
+	DocQueueSize               int  `toml:"doc_queue_size"`
+}
+
+type SchemaConfig struct {
+	IndexerSchemaEndpoint string `toml:"indexer_schema_endpoint"`
+	HTTPClientTimeoutSecs int    `toml:"http_client_timeout_secs"`
+
+	AuthToken string `toml:"-"`
+}
+
+type LoggerConfig struct {
+	Development bool   `toml:"development"`
+	Level       string `toml:"level"`
+}
+
+type PlaygroundConfig struct {
+	Enabled bool `toml:"enabled"`
+}
+
+type SnapshotConfig struct {
+	Enabled          bool         `toml:"enabled"`
+	IndexerURL       string       `toml:"indexer_url"`
+	HistoricalRanges []BlockRange `toml:"historical_ranges"`
+}
+
+type BlockRange struct {
+	Start int64 `toml:"start"`
+	End   int64 `toml:"end"`
+}
+
 const (
 	DefaultIndexerSchemaEndpoint   = "/api/v1/schema"
 	DefaultSchemaHTTPClientTimeout = 30
 	MaxSchemaHTTPClientTimeout     = 300
 )
 
-// ErrNegativeSchemaTimeout is returned when the schema HTTP client timeout is negative.
-var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must be non-negative")
+var (
+	ErrNegativeSchemaTimeout  = errors.New("schema.http_client_timeout_secs must be non-negative")
+	ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
+	ErrMissingHTTPAddr        = errors.New("http.addr must be set")
+	ErrInvalidEventFilterMode = errors.New(`event_filter.mode must be "allowlist" or "blocklist"`)
+)
 
-// ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
-var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
-
-// DefraDBP2PConfig represents P2P configuration for DefraDB.
-type DefraDBP2PConfig struct {
-	Enabled                bool     `yaml:"enabled"`
-	BootstrapPeers         []string `yaml:"bootstrap_peers"`
-	ListenAddr             string   `yaml:"listen_addr"`
-	MaxRetries             int      `yaml:"max_retries"`
-	RetryBaseDelayMs       int      `yaml:"retry_base_delay_ms"`
-	ReconnectIntervalMs    int      `yaml:"reconnect_interval_ms"`
-	EnableAutoReconnect    bool     `yaml:"enable_auto_reconnect"`
-	PeerDiscoveryTimeoutMs int      `yaml:"peer_discovery_timeout_ms"` // Timeout for auto-discovering peer IDs (default: 10000)
+func Default() Config {
+	return Config{
+		Node: NodeConfig{Name: "default", KeyringPassword: "shinzo-host"},
+		HTTP: HTTPConfig{Addr: ":8080"},
+		P2P: P2PConfig{
+			Enabled:                true,
+			ListenAddr:             "/ip4/0.0.0.0/tcp/9171",
+			MaxRetries:             5,
+			RetryBaseDelayMs:       500,
+			ReconnectIntervalMs:    5000,
+			EnableAutoReconnect:    true,
+			PeerDiscoveryTimeoutMs: 10000,
+		},
+		Shinzo: ShinzoConfig{
+			HubBaseURL:            "testnet.shinzo.network",
+			MinimumAttestations:   1,
+			ViewInactivityTimeout: "24h",
+			ViewCleanupInterval:   "1h",
+			ViewWorkerCount:       2,
+			ViewQueueSize:         1000,
+			CacheQueueSize:        1000,
+		},
+		Schema: SchemaConfig{
+			IndexerSchemaEndpoint: DefaultIndexerSchemaEndpoint,
+			HTTPClientTimeoutSecs: DefaultSchemaHTTPClientTimeout,
+		},
+		Playground: PlaygroundConfig{Enabled: true},
+		EventFilter: EventFilterConfig{
+			Mode: "allowlist",
+			File: "filters.json",
+		},
+	}
 }
 
-// DefraDBStoreConfig represents store configuration for DefraDB.
-type DefraDBStoreConfig struct {
-	Path string `yaml:"path"`
-	// Badger memory configuration
-	BlockCacheMB int64 `yaml:"block_cache_mb"`
-	MemTableMB   int64 `yaml:"memtable_mb"`
-	IndexCacheMB int64 `yaml:"index_cache_mb"`
-	// Badger compaction configuration
-	NumCompactors           int `yaml:"num_compactors"`
-	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
-	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
-	// Badger value log configuration
-	ValueLogFileSizeMB int64 `yaml:"value_log_file_size_mb"`
-}
+func Load(path string) (*Config, error) {
+	usingDefaultPath := path == ""
+	if usingDefaultPath {
+		path = DefaultConfigPath(Default().Node.Name)
+	}
 
-// DefraDBConfig represents DefraDB configuration.
-type DefraDBConfig struct {
-	URL           string             `yaml:"url"`
-	KeyringSecret string             `yaml:"keyring_secret"`
-	P2P           DefraDBP2PConfig   `yaml:"p2p"`
-	Store         DefraDBStoreConfig `yaml:"store"`
-}
+	cfg := Default()
 
-// LoggerConfig represents logger configuration.
-type LoggerConfig struct {
-	Development bool `yaml:"development"`
-}
-
-// Config represents the overall configuration for the Shinzo host application, including DefraDB, Shinzo-specific settings, logging, hosting, and pruning.
-type Config struct {
-	DefraDB    DefraDBConfig `yaml:"defradb"`
-	Shinzo     ShinzoConfig  `yaml:"shinzo"`
-	Schema     SchemaConfig  `yaml:"schema"`
-	Logger     LoggerConfig  `yaml:"logger"`
-	HostConfig HostConfig    `yaml:"host"`
-	Pruner     pruner.Config `yaml:"pruner"`
-}
-
-// SchemaConfig represents configuration for dynamic schema fetching.
-type SchemaConfig struct {
-	IndexerSchemaEndpoint string `yaml:"indexer_schema_endpoint"`
-	HTTPClientTimeoutSecs int    `yaml:"http_client_timeout_secs"`
-	// AuthToken is the bearer token used to authenticate schema fetch requests
-	// against indexers with SCHEMA_AUTH_MODE=token (the default).
-	//
-	// IMPORTANT: This field uses yaml:"-", which means YAML configuration is
-	// SILENTLY IGNORED. The token MUST be provided via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN
-	// environment variable. Setting this field in config.yaml will NOT work —
-	// the host will start with an empty token, causing schema fetches to
-	// receive 401/503 and fall back to the embedded schema (fail-closed).
-	AuthToken string `yaml:"-"`
-}
-
-// ShinzoConfig represents configuration specific to the Shinzo host application.
-type ShinzoConfig struct {
-	MinimumAttestations int    `yaml:"minimum_attestations"`
-	HubBaseURL          string `yaml:"hub_base_url"` // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	StartHeight         uint64 `yaml:"start_height"`
-
-	// P2P Control Settings
-	P2PEnabled bool `yaml:"p2p_enabled"`
-
-	// View Management Settings
-	ViewInactivityTimeout string `yaml:"view_inactivity_timeout"` // Stop updating after inactivity (default: 24h)
-	ViewCleanupInterval   string `yaml:"view_cleanup_interval"`   // Check for inactive views (default: 1h)
-	ViewWorkerCount       int    `yaml:"view_worker_count"`       // Workers for lens transformations (default: 2)
-	ViewQueueSize         int    `yaml:"view_queue_size"`         // Queue size for view processing jobs (default: 1000)
-
-	// Queue Settings
-	CacheQueueSize int `yaml:"cache_queue_size"` // Size of job queue for document processing
-
-	// Batch Attestation Processing Settings
-	BatchWriterCount           int  `yaml:"batch_writer_count"`           // Number of batch writers
-	BatchSize                  int  `yaml:"batch_size"`                   // Max attestations per batch
-	BatchFlushInterval         int  `yaml:"batch_flush_interval"`         // Flush interval in milliseconds
-	MaxConcurrentVerifications int  `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications
-	UseBlockSignatures         bool `yaml:"use_block_signatures"`         // Use block signatures for attestations
-	DocWorkerCount             int  `yaml:"doc_worker_count"`             // Number of document processing workers
-	DocQueueSize               int  `yaml:"doc_queue_size"`               // Queue size for document event notifications
-
-	// Event Filtering
-	EventFilter EventFilterConfig `yaml:"event_filter"` // Configure filtering of P2P events
-}
-
-// EventFilterConfig configures content-based filtering of P2P events.
-type EventFilterConfig struct {
-	Enabled        bool              `yaml:"enabled"`         // Master switch for filtering
-	Mode           string            `yaml:"mode"`            // "allowlist" (default) or "blocklist"
-	CascadeFilters bool              `yaml:"cascade_filters"` // If true, filtering a tx also filters its logs/ALEs
-	BlockRange     *BlockRangeFilter `yaml:"block_range"`     // Optional block number range filter
-	Groups         []FilterGroup     `yaml:"groups"`          // Named filter groups combined with OR logic
-}
-
-// FilterGroup is a named set of contract and topic filters that can be toggled independently.
-type FilterGroup struct {
-	Name      string           `yaml:"name"`      // Human-readable name (e.g., "uniswap-v3")
-	Enabled   bool             `yaml:"enabled"`   // Toggle this group on/off
-	Contracts []ContractFilter `yaml:"contracts"` // Contract address filters
-	Topics    []TopicFilter    `yaml:"topics"`    // Event topic filters
-}
-
-// ContractFilter matches events by contract address.
-type ContractFilter struct {
-	Address string   `yaml:"address"` // Contract address (0x...)
-	Name    string   `yaml:"name"`    // Human-readable name for logging
-	Types   []string `yaml:"types"`   // Collection types to apply to: "transaction", "log", "accessListEntry"
-}
-
-// TopicFilter matches log events by topic values.
-type TopicFilter struct {
-	Topic0 string `yaml:"topic0"` // Event signature hash (required)
-	Topic1 string `yaml:"topic1"` // Optional indexed parameter 1
-	Topic2 string `yaml:"topic2"` // Optional indexed parameter 2
-	Topic3 string `yaml:"topic3"` // Optional indexed parameter 3
-	Name   string `yaml:"name"`   // Human-readable name (e.g., "Swap", "Transfer")
-}
-
-// BlockRangeFilter restricts processing to a range of block numbers.
-type BlockRangeFilter struct {
-	MinBlock uint64 `yaml:"min_block"` // Minimum block number (inclusive)
-	MaxBlock uint64 `yaml:"max_block"` // Maximum block number (inclusive), 0 = no upper limit
-}
-
-// HostConfig represents configuration specific to the Shinzo host application.
-type HostConfig struct {
-	LensRegistryPath   string         `yaml:"lens_registry_path"`    // At this path, we will store the lens' wasm files
-	HealthServerPort   int            `yaml:"health_server_port"`    // Port for the health server (default: 8080)
-	OpenBrowserOnStart bool           `yaml:"open_browser_on_start"` // Auto-open metrics page in browser on startup (default: false)
-	Snapshot           SnapshotConfig `yaml:"snapshot"`              // Snapshot bootstrap configuration
-}
-
-// SnapshotConfig configures historical snapshot download and import on startup.
-type SnapshotConfig struct {
-	// Enabled controls whether snapshot bootstrap runs on startup.
-	Enabled bool `yaml:"enabled"`
-	// IndexerURL is the HTTP base URL of the indexer serving snapshots.
-	IndexerURL string `yaml:"indexer_url"`
-	// HistoricalRanges specifies block ranges the host needs for bootstrap.
-	HistoricalRanges []BlockRange `yaml:"historical_ranges"`
-}
-
-// BlockRange represents an inclusive block number range.
-type BlockRange struct {
-	Start int64 `yaml:"start"`
-	End   int64 `yaml:"end"`
-}
-
-// LoadConfig loads configuration from a YAML file.
-func LoadConfig(path string) (*Config, error) {
-	// Load YAML config
-	data, err := os.ReadFile(filepath.Clean(path))
+	data, err := os.ReadFile(path) //nolint:gosec // operator-controlled config path
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Apply environment variable overrides
-	if v := os.Getenv("START_HEIGHT"); v != "" {
-		height, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid START_HEIGHT value %q: %w", v, err)
+		if !usingDefaultPath || !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}
-		cfg.Shinzo.StartHeight = height
+		if err := writeDefaultConfig(path); err != nil {
+			return nil, fmt.Errorf("creating default config at %s: %w", path, err)
+		}
+		data, err = os.ReadFile(path) //nolint:gosec // just wrote it ourselves
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", path, err)
+		}
 	}
 
-	if v := os.Getenv("BOOTSTRAP_PEERS"); v != "" {
-		cfg.DefraDB.P2P.BootstrapPeers = strings.Split(v, ",")
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
-	// DEFRA_URL overrides defradb.url at runtime, so deployment artifacts
-	// can pick a different bind address (e.g. 0.0.0.0:9181 instead of the
-	// loopback-only default) without editing the YAML.
-	if v := os.Getenv("DEFRA_URL"); v != "" {
-		cfg.DefraDB.URL = v
+	if cfg.Node.DataDir == "" {
+		cfg.Node.DataDir = DefaultInstanceDir(cfg.Node.Name)
+	}
+	if cfg.Node.KeyDir == "" {
+		cfg.Node.KeyDir = filepath.Join(cfg.Node.DataDir, "keys")
+	}
+	if cfg.Store.Path == "" {
+		cfg.Store.Path = filepath.Join(cfg.Node.DataDir, "data")
 	}
 
-	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT"); v != "" {
-		cfg.Schema.IndexerSchemaEndpoint = v
-	}
+	applyEnvOverrides(&cfg)
 
-	if v := os.Getenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN"); v != "" {
-		cfg.Schema.AuthToken = v
-	}
-	if cfg.Schema.IndexerSchemaEndpoint == "" {
-		cfg.Schema.IndexerSchemaEndpoint = DefaultIndexerSchemaEndpoint
-	}
-	switch {
-	case cfg.Schema.HTTPClientTimeoutSecs < 0:
-		return nil, fmt.Errorf("%w: got %d", ErrNegativeSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
-	case cfg.Schema.HTTPClientTimeoutSecs > MaxSchemaHTTPClientTimeout:
-		return nil, fmt.Errorf("%w: got %d", ErrExcessiveSchemaTimeout, cfg.Schema.HTTPClientTimeoutSecs)
-	case cfg.Schema.HTTPClientTimeoutSecs == 0:
-		cfg.Schema.HTTPClientTimeoutSecs = DefaultSchemaHTTPClientTimeout
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validating %s: %w", path, err)
 	}
 
 	return &cfg, nil
 }
 
-// ToInternalConfig converts the host config to the pkg/defradb internal config
-// shape consumed by StartDefraInstance and signer helpers.
-func (c *Config) ToInternalConfig() *defradb.Config {
-	if c == nil {
-		return nil
+func writeDefaultConfig(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:mnd
+		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	return &defradb.Config{
-		DefraDB: defradb.DefraDBConfig{
-			URL:           c.DefraDB.URL,
-			KeyringSecret: c.DefraDB.KeyringSecret,
-			P2P: defradb.DefraP2PConfig{
-				Enabled:             c.DefraDB.P2P.Enabled,
-				BootstrapPeers:      []string{}, // Empty - peers added after ViewManager init
-				ListenAddr:          c.DefraDB.P2P.ListenAddr,
-				MaxRetries:          c.DefraDB.P2P.MaxRetries,
-				RetryBaseDelayMs:    c.DefraDB.P2P.RetryBaseDelayMs,
-				ReconnectIntervalMs: c.DefraDB.P2P.ReconnectIntervalMs,
-				EnableAutoReconnect: c.DefraDB.P2P.EnableAutoReconnect,
-			},
-			Store: defradb.DefraStoreConfig{
-				Path:                    c.DefraDB.Store.Path,
-				BlockCacheMB:            c.DefraDB.Store.BlockCacheMB,
-				MemTableMB:              c.DefraDB.Store.MemTableMB,
-				IndexCacheMB:            c.DefraDB.Store.IndexCacheMB,
-				NumCompactors:           c.DefraDB.Store.NumCompactors,
-				NumLevelZeroTables:      c.DefraDB.Store.NumLevelZeroTables,
-				NumLevelZeroTablesStall: c.DefraDB.Store.NumLevelZeroTablesStall,
-				ValueLogFileSizeMB:      c.DefraDB.Store.ValueLogFileSizeMB,
-			},
-		},
-		Logger: defradb.LoggerConfig{
-			Development: c.Logger.Development,
-		},
+	data, err := toml.Marshal(Default())
+	if err != nil {
+		return fmt.Errorf("marshaling default config: %w", err)
 	}
+
+	if err := os.WriteFile(path, data, 0o600); err != nil { //nolint:mnd
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func applyEnvOverrides(cfg *Config) {
+	if v := os.Getenv("SHINZO_HOST_SCHEMA_AUTH_TOKEN"); v != "" {
+		cfg.Schema.AuthToken = v
+	}
+}
+
+func (c *Config) Validate() error {
+	var errs []error
+
+	if c.HTTP.Addr == "" {
+		errs = append(errs, ErrMissingHTTPAddr)
+	}
+	if c.Schema.HTTPClientTimeoutSecs < 0 {
+		errs = append(errs, ErrNegativeSchemaTimeout)
+	}
+	if c.Schema.HTTPClientTimeoutSecs > MaxSchemaHTTPClientTimeout {
+		errs = append(errs, ErrExcessiveSchemaTimeout)
+	}
+	if c.EventFilter.Enabled {
+		switch c.EventFilter.Mode {
+		case "allowlist", "blocklist":
+		default:
+			errs = append(errs, ErrInvalidEventFilterMode)
+		}
+	}
+
+	return errors.Join(errs...)
 }
