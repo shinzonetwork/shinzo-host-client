@@ -26,6 +26,13 @@ type DefraP2PConfig struct {
 	RetryBaseDelayMs    int      `yaml:"retry_base_delay_ms"`
 	ReconnectIntervalMs int      `yaml:"reconnect_interval_ms"`
 	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
+	// Explicit libp2p resource-manager limits. Any value left at or below zero
+	// falls back to the DefaultResource* constants in this package; libp2p's own
+	// autoscaling is never used, because it sizes itself from the memory the
+	// process can see rather than the container's cgroup limit.
+	ResourceMemoryMiB       int `yaml:"resource_memory_mib"`
+	ResourceFileDescriptors int `yaml:"resource_file_descriptors"`
+	MaxStreamsPerPeer       int `yaml:"max_streams_per_peer"`
 }
 
 // DefraStoreConfig holds configuration for the DefraDB storage engine.
