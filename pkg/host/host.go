@@ -111,6 +111,10 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 				RetryBaseDelayMs:    defaultRetryBaseDelayMs,
 				ReconnectIntervalMs: defaultReconnectIntervalMs,
 				EnableAutoReconnect: true,
+
+				ResourceMemoryMiB:       defradb.DefaultResourceMemoryMiB,
+				ResourceFileDescriptors: defradb.DefaultResourceFileDescriptors,
+				MaxStreamsPerPeer:       defradb.DefaultMaxStreamsPerPeer,
 			},
 			Store: config.DefraDBStoreConfig{
 				Path: "/tmp/defra-test-default",
