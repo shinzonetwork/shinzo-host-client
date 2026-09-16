@@ -309,6 +309,10 @@ func (c *Config) ToInternalConfig() *defradb.Config {
 	}
 }
 
+// ErrNonPositiveEnvValue is returned when an environment variable that must hold a
+// positive integer is set to zero or a negative number.
+var ErrNonPositiveEnvValue = fmt.Errorf("must be positive")
+
 // envPositiveInt reads name as a positive integer, reporting whether it was set at all.
 // It returns an error rather than silently ignoring a bad value: a mistyped resource limit
 // would otherwise be replaced by a default an order of magnitude from what was intended,
@@ -323,7 +327,7 @@ func envPositiveInt(name string) (int, bool, error) {
 		return 0, false, fmt.Errorf("invalid %s value %q: %w", name, raw, err)
 	}
 	if n <= 0 {
-		return 0, false, fmt.Errorf("invalid %s value %q: must be positive", name, raw)
+		return 0, false, fmt.Errorf("invalid %s value %q: %w", name, raw, ErrNonPositiveEnvValue)
 	}
 	return n, true, nil
 }
