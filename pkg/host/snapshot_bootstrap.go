@@ -204,6 +204,8 @@ func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *s
 		CIDs:          sig.BlockSigMerkleRoots,
 		DocType:       "Snapshot",
 		VoteCount:     1,
+		// A snapshot covers a range; retention follows the newest block in it.
+		BlockNumber: &sig.EndBlock,
 	}
 
 	if err := attestationService.PostAttestationRecord(ctx, defraNode, record); err != nil {
