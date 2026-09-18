@@ -45,7 +45,8 @@ jobs:
         go test -count=1 -timeout=3m \
           -covermode=atomic \
           -coverprofile=coverage.out \
-          ./pkg/...
+          ./pkg/... \
+          ./cmd/host/...
     
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7

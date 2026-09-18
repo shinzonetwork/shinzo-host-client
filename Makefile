@@ -3,6 +3,9 @@
 build:
 	go build -o bin/host cmd/main.go
 
+build-staging:
+	go build -o bin/host ./cmd/host/
+
 build-playground: deps-playground
 	go generate -tags hostplayground ./playground
 	go build -tags hostplayground -o ./bin/host cmd/main.go
