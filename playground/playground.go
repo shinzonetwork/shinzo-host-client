@@ -1,4 +1,4 @@
-//go:build hostplayground && !windows
+//go:build !windows
 
 //go:generate ../tools/scripts/download_playground.sh
 

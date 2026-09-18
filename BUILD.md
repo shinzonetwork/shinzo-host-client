@@ -2,10 +2,9 @@
 
 ## Prerequisites
 
-- [Go 1.25+](https://go.dev/dl/)
+- [Go 1.26+](https://go.dev/dl/)
 - Make
-
-Wasmtime and Wasmer are installed automatically inside the Docker build. If you are building locally (outside Docker), both WASM runtimes need to be on your `LD_LIBRARY_PATH`. The `Dockerfile` has the exact versions and install steps.
+- A C compiler (`gcc`/`libc6-dev`) — needed for cgo, picked up automatically by the Go toolchain. No Wasmtime or Wasmer install is required: the embedded lens runtime uses `wazero`, a pure-Go implementation.
 
 ## Steps
 
@@ -21,37 +20,50 @@ The binary lands at `./bin/host`.
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build the binary into `./bin/host`. |
-| `make build-playground` | Download playground assets and build with the embedded GraphQL Playground UI. |
-| `make start` | Run the compiled `./bin/host` binary. |
-| `make deps-playground` | Download playground static assets (required before `build-playground`). |
-| `go run cmd/main.go` | Run without building. |
-| `go test -v ./pkg/...` | Run the test suite. |
+| `make build` | Build the binary into `./bin/host`. The embedded DefraDB instance produces no log output — the host's own logs are unaffected. |
+| `make build-loud` | Same, but without `-tags silent` — DefraDB's own internal logs are included too. Useful when debugging DefraDB itself. |
+| `make start` | Build and run `./bin/host start`. |
+| `make start-loud` | Same, with DefraDB's logs included. |
+| `go run ./cmd/host start` | Run without building first. Bypasses Make, so this defaults to the loud build (no `-tags silent`) unless you pass it yourself: `go run -tags silent ./cmd/host start`. |
+| `go test ./...` | Run the test suite. |
 
-## Build tags
+`-tags silent` is a compile-time switch, not a runtime config value — a binary built with it never emits DefraDB logs, one built without it always does. `make build`/`make start` apply it by default; use the `-loud` variants (or a bare `go build`) to get DefraDB's logs back.
 
-| Tag | Effect |
-| --- | --- |
-| `hostplayground` | Embeds the GraphQL Playground UI (served on port `9182`). |
+## Configuration
+
+The node reads a TOML config file, resolved in this order: `--config <path>`, or `XDG_DATA_HOME/shinzo-host/default/config.toml` (`~/.local/share/shinzo-host/default/config.toml` if `XDG_DATA_HOME` isn't set). Running `start` with no config file present writes a default one to that path and continues.
+
+The generated default is enough to boot a node, but `p2p.bootstrap_peers` starts empty, so it won't sync anything until you add real peers. Two reference configs are checked in:
+
+- [`toml/default.toml`](./toml/default.toml) — every field, heavily commented, no real network values filled in.
+- [`toml/testnet.toml`](./toml/testnet.toml) — a working config with real bootstrap peers and a real snapshot indexer.
+
+See `config/config.go` for the full set of fields.
 
 ## Docker
 
-`docker-compose.yml` pulls the published image from GHCR. To build locally instead:
-
 ```shell
-docker build -t shinzo-host-client .
+cp toml/testnet.toml config.toml
+docker compose up -d
 ```
 
-To include the Playground UI in the image, pass `--build-arg TAGS=hostplayground`.
+`docker-compose.yml` builds the image locally and expects a `./config.toml` next to it (mounted read-only into the container, not tracked by git). Node data persists in a named volume, so it survives container restarts.
 
 ## Ports
 
-> [!NOTE]
-> The playground port is set to the DefraDB GraphQL port `+1`. For example, if the DefraDB GraphQL port is set to `9181`, then the playground port is automatically set to `9182`. Similarly, if the DefraDB GraphQL port is set to `443`, then they playground port is set to `444`.
+Everything — health, metrics, GraphQL, the node console, the GraphQL playground, and node info — is served on one HTTP port. There's no separate playground or DefraDB port anymore, and no reverse proxy is needed to reach any of it.
 
 | Port | Service |
 | --- | --- |
-| `9181` | DefraDB GraphQL + REST API |
-| `9182` | GraphQL Playground UI (if enabled) |
+| `8080` | HTTP: `/health`, `/metrics`, `/graphql`, `/console`, `/playground`, `/api/node`, `/api/system` |
 | `9171` | libp2p P2P networking |
-| `8080` | Health and metrics server |
+
+## Debugging
+
+Set `SHINZO_PPROF_ADDR` to expose pprof and expvar endpoints on their own listener (off by default):
+
+```shell
+SHINZO_PPROF_ADDR=:6060 ./bin/host start
+```
+
+`scripts/monitor_goroutines.sh [interval] [port]` polls that listener on a loop and logs goroutine count, heap usage, and top CPU consumers over time.

@@ -35,6 +35,10 @@ logs/*.logs
 logs/*.log
 
 bin/*
+/shinzo-host
+/dist/shinzo-host
+
+/config.toml
 
 todo.txt
 
