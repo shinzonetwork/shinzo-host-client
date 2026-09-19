@@ -20,7 +20,6 @@ func execute(args ...string) (string, error) {
 
 func TestRootHelpListsSubCommands(t *testing.T) {
 	res, err := execute("--help")
-
 	if err != nil {
 		t.Fatalf("--help return error %v", err)
 	}
