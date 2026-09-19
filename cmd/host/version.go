@@ -7,20 +7,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var versionCmd = &cobra.Command{
-	Use:     "version",
-	Short:   "Print Shinzo Host version",
-	Example: `  host version`,
-	RunE:    runVersion,
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "version",
+		Short:   "Print Shinzo Host version",
+		Example: `  host version`,
+		RunE:    runVersion,
+	}
 }
 
-func runVersion(cmd *cobra.Command, args []string) error {
+func runVersion(cmd *cobra.Command, _ []string) error {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		fmt.Println("unknown")
 		return nil
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), info.Main.Path, info.GoVersion)
-	return nil
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), info.Main.Path, info.GoVersion)
+	return err
 }

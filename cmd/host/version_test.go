@@ -7,10 +7,12 @@ import (
 )
 
 func TestRunVersionPrintsVersion(t *testing.T) {
-	var buf bytes.Buffer
-	versionCmd.SetOut(&buf)
+	cmd := versionCmd()
 
-	if err := runVersion(versionCmd, nil); err != nil {
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	if err := runVersion(cmd, nil); err != nil {
 		t.Fatalf("runVersion: %v", err)
 	}
 

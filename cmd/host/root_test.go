@@ -9,11 +9,13 @@ import (
 func execute(args ...string) (string, error) {
 	var buf bytes.Buffer
 
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-	rootCmd.SetArgs(args)
+	cmd := rootCmd()
 
-	err := rootCmd.Execute()
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs(args)
+
+	err := cmd.Execute()
 
 	return buf.String(), err
 }
