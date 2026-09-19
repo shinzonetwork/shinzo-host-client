@@ -21,6 +21,6 @@ func runVersion(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Println(info.Main.Path, info.GoVersion)
+	fmt.Fprintln(cmd.OutOrStdout(), info.Main.Path, info.GoVersion)
 	return nil
 }
