@@ -19,8 +19,8 @@ func versionCmd() *cobra.Command {
 func runVersion(cmd *cobra.Command, _ []string) error {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		fmt.Println("unknown")
-		return nil
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "unknown")
+		return err
 	}
 
 	_, err := fmt.Fprintln(cmd.OutOrStdout(), info.Main.Path, info.GoVersion)

@@ -7,7 +7,7 @@ import (
 func startCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "start",
-		Short:   "Run the Shinzo Host ",
+		Short:   "Run the Shinzo Host",
 		Example: `  host start`,
 		RunE:    runStart,
 	}

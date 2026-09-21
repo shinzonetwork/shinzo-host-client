@@ -4,7 +4,7 @@ build:
 	go build -o bin/host cmd/main.go
 
 build-staging:
-	go build -o bin/host ./cmd/host/
+	go build -o bin/staging/host ./cmd/host/
 
 build-playground: deps-playground
 	go generate -tags hostplayground ./playground
@@ -12,6 +12,9 @@ build-playground: deps-playground
 
 start:
 	./bin/host
+
+start-staging:
+	./bin/staging/host
 
 # Download playground static assets
 deps-playground:
