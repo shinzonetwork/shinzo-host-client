@@ -2,7 +2,6 @@ package hostconfig
 
 import (
 	"os"
-	"regexp"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -27,19 +26,6 @@ func Load(path string) (Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// Validate checks cfg for problems that would stop the host from starting.
-func Validate(cfg Config) error {
-	if cfg.Name == "" {
-		return errEmptyName
-	}
-
-	if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$`).MatchString(cfg.Name) {
-		return errInvalidName
-	}
-
-	return nil
 }
 
 // Save writes cfg to path as TOML.
