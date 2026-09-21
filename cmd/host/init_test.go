@@ -1,9 +1,11 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestRunInitNotImplemented(t *testing.T) {
-	if err := runInit(initCmd(), nil); err == nil {
-		t.Error(errNotImplemented)
-	}
+	require.ErrorIs(t, runInit(initCmd(), nil), errNotImplemented)
 }

@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
-	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
+
+// version is set at build time via -ldflags, see the build-staging Makefile target.
+var version = "dev"
 
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
@@ -17,12 +19,6 @@ func versionCmd() *cobra.Command {
 }
 
 func runVersion(cmd *cobra.Command, _ []string) error {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), "unknown")
-		return err
-	}
-
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), info.Main.Path, info.GoVersion)
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
 	return err
 }

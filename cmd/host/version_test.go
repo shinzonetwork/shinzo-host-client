@@ -2,8 +2,9 @@ package main
 
 import (
 	"bytes"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunVersionPrintsVersion(t *testing.T) {
@@ -12,11 +13,6 @@ func TestRunVersionPrintsVersion(t *testing.T) {
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 
-	if err := runVersion(cmd, nil); err != nil {
-		t.Fatalf("runVersion: %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "go1.") {
-		t.Errorf("output %q missing go version", buf.String())
-	}
+	require.NoError(t, runVersion(cmd, nil))
+	require.Contains(t, buf.String(), version)
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func execute(args ...string) (string, error) {
@@ -22,19 +24,14 @@ func execute(args ...string) (string, error) {
 
 func TestRootHelpListsSubCommands(t *testing.T) {
 	res, err := execute("--help")
-	if err != nil {
-		t.Fatalf("--help return error %v", err)
-	}
+	require.NoError(t, err, "--help return error")
 
 	for _, subcommand := range []string{"init", "start", "register", "version"} {
-		if !strings.Contains(res, subcommand) {
-			t.Errorf("--help is missing subcommand %s", subcommand)
-		}
+		assert.Contains(t, res, subcommand, "--help is missing subcommand %s", subcommand)
 	}
 }
 
 func TestRootRejectsUnknownSubCommand(t *testing.T) {
-	if _, err := execute("invalid"); err == nil {
-		t.Fatalf("expected an error for unknown subcommand and got nil")
-	}
+	_, err := execute("invalid")
+	require.Error(t, err, "expected an error for unknown subcommand and got nil")
 }
