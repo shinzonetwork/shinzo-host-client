@@ -1,15 +1,47 @@
 package server
 
 import (
+	"encoding/hex"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/stretchr/testify/require"
 )
 
 const testPeerID = "12D3KooWH1ttYYjgrHFgpzf5ToBD42LbAcRikCWN5eC5G39qVx5T"
+
+func TestDeriveRegistrationDID_MatchesShinzoHub(t *testing.T) {
+	// Public key and registry DID from the reported successful registration transaction.
+	const publicKeyHex = "03232be241d16e49e8dd1ec7eac872851d08c612fd030bc983342aea1292eb5362"
+	const wantDID = "did:key:zQ3shh1QD1Hd9fdh227bidinXXNutf5YfCSKhrktxMMLjK9uj"
+	encoded, err := hex.DecodeString(publicKeyHex)
+	require.NoError(t, err)
+	key, err := secp256k1.ParsePubKey(encoded)
+	require.NoError(t, err)
+	for name, input := range map[string]string{
+		"compressed":       publicKeyHex,
+		"prefixed":         "0x" + publicKeyHex,
+		"uppercase prefix": "0X" + publicKeyHex,
+		"uncompressed":     hex.EncodeToString(key.SerializeUncompressed()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			did, err := DeriveRegistrationDID(input)
+			require.NoError(t, err)
+			require.Equal(t, wantDID, did)
+		})
+	}
+}
+
+func TestDeriveRegistrationDID_RejectsInvalidKeys(t *testing.T) {
+	for _, input := range []string{"", "0xzz", "0x000102", "02" + strings.Repeat("ff", 32)} {
+		_, err := DeriveRegistrationDID(input)
+		require.Error(t, err, input)
+	}
+}
 
 func containerP2P() *P2PInfo {
 	return &P2PInfo{

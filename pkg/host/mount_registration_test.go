@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	didkey "github.com/TBD54566975/ssi-sdk/did/key"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -46,7 +48,10 @@ func verifyRegistrationSignatures(t *testing.T, registration *server.DisplayRegi
 	t.Helper()
 	require.NotNil(t, registration)
 	require.True(t, registration.Enabled)
-	require.Equal(t, keys.DID(), registration.DID)
+	registeredKey, _, _, err := didkey.DIDKey(registration.DID).Decode()
+	require.NoError(t, err)
+	require.Len(t, registeredKey, 33)
+	require.Equal(t, keys.IdentityKey.PublicKey().Raw(), registeredKey)
 	message, err := hex.DecodeString(strings.TrimPrefix(registration.Message, "0x"))
 	require.NoError(t, err)
 	require.Equal(t, server.RegistrationMessage, string(message))
@@ -111,7 +116,15 @@ func TestMountRegistration_TunnelResponseUsesActiveKeys(t *testing.T) {
 	srv.Mux().ServeHTTP(nodeRec, httptest.NewRequest(http.MethodGet, "/api/node", nil))
 	var info nodeInfo
 	require.NoError(t, json.Unmarshal(nodeRec.Body.Bytes(), &info))
-	require.Equal(t, info.DID, response.Registration.DID)
+	// Node info retains the DefraDB identity; registration uses the same key in chain format.
+	require.Equal(t, keys.DID(), info.DID)
+	nodePublic, _, _, err := didkey.DIDKey(info.DID).Decode()
+	require.NoError(t, err)
+	nodeKey, err := secp256k1.ParsePubKey(nodePublic)
+	require.NoError(t, err)
+	registrationPublic, _, _, err := didkey.DIDKey(response.Registration.DID).Decode()
+	require.NoError(t, err)
+	require.Equal(t, nodeKey.SerializeCompressed(), registrationPublic)
 	require.Equal(t, info.PeerID, response.P2P.Self.ID)
 
 	// Request-dependent addresses must not be cached from the first tunnel request.

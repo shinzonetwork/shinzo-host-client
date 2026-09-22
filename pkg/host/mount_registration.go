@@ -57,6 +57,11 @@ func signRegistration(keys NodeKeys) (server.DisplayRegistration, error) {
 	if keys.IdentityKey == nil || keys.IdentityKey.PrivateKey() == nil || keys.IdentityKey.PublicKey() == nil {
 		return server.DisplayRegistration{}, errRegistrationIdentity
 	}
+	publicKey := "0x" + hex.EncodeToString(keys.IdentityKey.PublicKey().Raw())
+	did, err := server.DeriveRegistrationDID(publicKey)
+	if err != nil {
+		return server.DisplayRegistration{}, fmt.Errorf("deriving registration DID: %w", err)
+	}
 	message := []byte(server.RegistrationMessage)
 	signature, err := keys.IdentityKey.PrivateKey().Sign(message)
 	if err != nil {
@@ -80,9 +85,9 @@ func signRegistration(keys NodeKeys) (server.DisplayRegistration, error) {
 	return server.DisplayRegistration{
 		Enabled: true,
 		Message: "0x" + hex.EncodeToString(message),
-		DID:     keys.DID(),
+		DID:     did,
 		DefraPKRegistration: server.DefraPKRegistration{
-			PublicKey:   "0x" + hex.EncodeToString(keys.IdentityKey.PublicKey().Raw()),
+			PublicKey:   publicKey,
 			SignedPKMsg: "0x" + hex.EncodeToString(signature),
 		},
 		PeerIDRegistration: server.PeerIDRegistration{

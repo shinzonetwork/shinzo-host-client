@@ -10,6 +10,7 @@ import (
 
 	sdkcrypto "github.com/TBD54566975/ssi-sdk/crypto"
 	didkey "github.com/TBD54566975/ssi-sdk/did/key"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
@@ -64,7 +65,7 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 		PeerID:        normalizeHex(peerReg.PeerID),
 		SignedPeerMsg: normalizeHex(peerReg.SignedPeerMsg),
 	}
-	if did, err := deriveDID(registration.DefraPKRegistration.PublicKey); err == nil {
+	if did, err := DeriveRegistrationDID(registration.DefraPKRegistration.PublicKey); err == nil {
 		registration.DID = did
 	} else {
 		logger.Sugar.Debugf("failed to derive registration DID: %v", err)
@@ -118,12 +119,18 @@ func normalizeHex(s string) string {
 	return "0x" + s
 }
 
-func deriveDID(publicKeyHex string) (string, error) {
+// DeriveRegistrationDID uses the compressed secp256k1 encoding required by ShinzoHub.
+// DefraDB's identity DID uses an uncompressed key and is not the registry DID.
+func DeriveRegistrationDID(publicKeyHex string) (string, error) {
 	publicKeyBytes, err := hex.DecodeString(strings.TrimPrefix(normalizeHex(publicKeyHex), "0x"))
 	if err != nil {
 		return "", fmt.Errorf("decode public key: %w", err)
 	}
-	didDoc, err := didkey.CreateDIDKey(sdkcrypto.SECP256k1, publicKeyBytes)
+	publicKey, err := secp256k1.ParsePubKey(publicKeyBytes)
+	if err != nil {
+		return "", fmt.Errorf("parse registration public key: %w", err)
+	}
+	didDoc, err := didkey.CreateDIDKey(sdkcrypto.SECP256k1, publicKey.SerializeCompressed())
 	if err != nil {
 		return "", fmt.Errorf("create did key: %w", err)
 	}
