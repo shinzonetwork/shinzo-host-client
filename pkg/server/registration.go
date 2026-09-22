@@ -13,10 +13,10 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
-const (
-	registrationMessage = "Shinzo Network host registration"
-	registrationAppHost = "registration.shinzo.network"
-)
+// RegistrationMessage is the payload signed by node and peer keys during registration.
+const RegistrationMessage = "Shinzo Network host registration"
+
+const registrationAppHost = "registration.shinzo.network"
 
 // DisplayRegistration represents the registration status and signed messages for display in the health endpoint.
 type DisplayRegistration struct {
@@ -47,10 +47,10 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 		return nil, ErrHostNotAvailable
 	}
 
-	defraReg, peerReg, signErr := hs.host.SignMessages(registrationMessage)
+	defraReg, peerReg, signErr := hs.host.SignMessages(RegistrationMessage)
 	registration := &DisplayRegistration{
 		Enabled: signErr == nil,
-		Message: normalizeHex(hex.EncodeToString([]byte(registrationMessage))),
+		Message: normalizeHex(hex.EncodeToString([]byte(RegistrationMessage))),
 	}
 	if signErr != nil {
 		return registration, signErr
@@ -69,9 +69,9 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 	} else {
 		logger.Sugar.Debugf("failed to derive registration DID: %v", err)
 	}
-	registration.EndpointAddress = deriveEndpointAddress(r)
+	registration.EndpointAddress = DeriveEndpointAddress(r)
 	if p2p, err := hs.host.GetPeerInfo(); err == nil {
-		registration.ConnectionString = deriveConnectionString(r, p2p)
+		registration.ConnectionString = DeriveConnectionString(r, p2p)
 	}
 
 	return registration, nil
@@ -130,7 +130,8 @@ func deriveDID(publicKeyHex string) (string, error) {
 	return didDoc.String(), nil
 }
 
-func deriveEndpointAddress(r *http.Request) string {
+// DeriveEndpointAddress uses the public request origin and the shared GraphQL path.
+func DeriveEndpointAddress(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
@@ -162,9 +163,9 @@ func deriveEndpointAddress(r *http.Request) string {
 	}).String()
 }
 
-// deriveConnectionString suggests the multiaddr to register, preferring the address the
+// DeriveConnectionString suggests the multiaddr to register, preferring the address the
 // request arrived on over the node's own. Returns empty if neither is publicly routable.
-func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
+func DeriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if p2p == nil || p2p.Self == nil || p2p.Self.ID == "" {
 		return ""
 	}

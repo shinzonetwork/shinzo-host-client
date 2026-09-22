@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -186,6 +187,20 @@ func TestStart_ServesGraphQLAndHealthOnSamePort(t *testing.T) {
 	if healthResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected /health 200, got %d", healthResp.StatusCode)
 	}
+
+	registrationResp, err := http.Get(base + "/registration") //nolint:noctx // test
+	if err != nil {
+		t.Fatalf("GET /registration: %v", err)
+	}
+	defer registrationResp.Body.Close() //nolint:errcheck // test
+	if registrationResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected /registration 200, got %d", registrationResp.StatusCode)
+	}
+	var registration server.HealthResponse
+	if err := json.NewDecoder(registrationResp.Body).Decode(&registration); err != nil {
+		t.Fatalf("decoding registration: %v", err)
+	}
+	verifyRegistrationSignatures(t, registration.Registration, keys)
 
 	metricsResp, err := http.Get(base + "/metrics") //nolint:noctx // test
 	if err != nil {

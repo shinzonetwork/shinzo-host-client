@@ -92,6 +92,9 @@ func mountServices(srv *hostserver.Server, cfg *config.Config, keys NodeKeys, de
 	if err := mountNodeInfo(srv, keys); err != nil {
 		return fmt.Errorf("mounting node info: %w", err)
 	}
+	if err := mountRegistration(srv, keys, defra); err != nil {
+		return fmt.Errorf("mounting registration: %w", err)
+	}
 	if err := mountConsole(srv); err != nil {
 		return fmt.Errorf("mounting console: %w", err)
 	}
@@ -106,6 +109,7 @@ func mountServices(srv *hostserver.Server, cfg *config.Config, keys NodeKeys, de
 	base := displayBaseURL(cfg.HTTP.Addr)
 	routes := [][2]string{
 		{"health", base + "/health"},
+		{"registration", base + "/registration"},
 		{"metrics", base + "/metrics"},
 		{"system stats", base + "/api/system"},
 		{"node info", base + "/api/node"},

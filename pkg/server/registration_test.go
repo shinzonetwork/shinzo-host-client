@@ -71,7 +71,7 @@ func TestDeriveConnectionString_ContainerOnlyAddresses(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
 	r.Host = "localhost:8080"
 
-	require.Empty(t, deriveConnectionString(r, containerP2P()))
+	require.Empty(t, DeriveConnectionString(r, containerP2P()))
 }
 
 func TestDeriveConnectionString_PublicRequestHost(t *testing.T) {
@@ -80,7 +80,7 @@ func TestDeriveConnectionString_PublicRequestHost(t *testing.T) {
 
 	require.Equal(t,
 		"/ip4/65.21.94.184/tcp/9171/p2p/"+testPeerID,
-		deriveConnectionString(r, containerP2P()),
+		DeriveConnectionString(r, containerP2P()),
 		"request address wins; port comes from the node's listen address")
 }
 
@@ -90,7 +90,7 @@ func TestDeriveConnectionString_ForwardedHostPreferred(t *testing.T) {
 	r.Host = "203.0.113.9:8080"
 	r.Header.Set("X-Forwarded-Host", "65.21.94.184")
 
-	require.Equal(t, "/ip4/65.21.94.184/tcp/9171/p2p/"+testPeerID, deriveConnectionString(r, containerP2P()))
+	require.Equal(t, "/ip4/65.21.94.184/tcp/9171/p2p/"+testPeerID, DeriveConnectionString(r, containerP2P()))
 }
 
 // With host networking the node knows its public address, so a localhost request still works.
@@ -105,7 +105,7 @@ func TestDeriveConnectionString_PublicNodeAddress(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, "/ip4/65.21.94.184/tcp/9171/p2p/"+testPeerID, deriveConnectionString(r, p2p))
+	require.Equal(t, "/ip4/65.21.94.184/tcp/9171/p2p/"+testPeerID, DeriveConnectionString(r, p2p))
 }
 
 func TestIsRoutableEndpointHost(t *testing.T) {
@@ -137,14 +137,14 @@ func TestDeriveEndpointAddress_Localhost(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
 	r.Host = "localhost:8080"
 
-	require.Empty(t, deriveEndpointAddress(r))
+	require.Empty(t, DeriveEndpointAddress(r))
 }
 
 func TestDeriveEndpointAddress_ContainerAddress(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
 	r.Host = "172.17.0.2:8080"
 
-	require.Empty(t, deriveEndpointAddress(r))
+	require.Empty(t, DeriveEndpointAddress(r))
 }
 
 func TestDeriveEndpointAddress_ForwardedHost(t *testing.T) {
@@ -153,7 +153,7 @@ func TestDeriveEndpointAddress_ForwardedHost(t *testing.T) {
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Header.Set("X-Forwarded-Host", "shinzo-testnet-host01.natsai.xyz")
 
-	require.Equal(t, "https://shinzo-testnet-host01.natsai.xyz/api/v0/graphql", deriveEndpointAddress(r))
+	require.Equal(t, "https://shinzo-testnet-host01.natsai.xyz/api/v0/graphql", DeriveEndpointAddress(r))
 }
 
 // A proxy that forwards an unreachable host should not mask a usable one on the request.
@@ -162,15 +162,15 @@ func TestDeriveEndpointAddress_FallsThroughUnreachableForwardedHost(t *testing.T
 	r.Host = "65.21.94.184:8080"
 	r.Header.Set("X-Forwarded-Host", "localhost")
 
-	require.Equal(t, "http://65.21.94.184:8080/api/v0/graphql", deriveEndpointAddress(r))
+	require.Equal(t, "http://65.21.94.184:8080/api/v0/graphql", DeriveEndpointAddress(r))
 }
 
 func TestDeriveConnectionString_NoPeerInfo(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/registration", nil)
 	r.Host = "65.21.94.184:8080"
 
-	require.Empty(t, deriveConnectionString(r, nil))
-	require.Empty(t, deriveConnectionString(r, &P2PInfo{Enabled: true}))
-	require.Empty(t, deriveConnectionString(r, &P2PInfo{Enabled: true, Self: &PeerInfo{}}),
+	require.Empty(t, DeriveConnectionString(r, nil))
+	require.Empty(t, DeriveConnectionString(r, &P2PInfo{Enabled: true}))
+	require.Empty(t, DeriveConnectionString(r, &P2PInfo{Enabled: true, Self: &PeerInfo{}}),
 		"a peer ID is required to build a multiaddr")
 }
