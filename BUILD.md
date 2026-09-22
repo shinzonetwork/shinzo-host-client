@@ -40,6 +40,58 @@ The generated default is enough to boot a node, but `p2p.bootstrap_peers` starts
 
 See `config/config.go` for the full set of fields.
 
+## Local test host with a Cloudflare tunnel
+
+From the repository root, run:
+
+```shell
+./scripts/run-testnet-local.sh
+```
+
+The script builds this checkout and uses the testnet template. It keeps all local
+test data and keys in `.local_tests/cleanup-testnet-host/node`, uses HTTP port
+`8080` on loopback and P2P port `9171`, and sets a default Go soft memory limit of
+16 GB. Stop any host already using these ports first. The previous
+`.local_tests/testnet-host` instance and the default XDG instance are untouched.
+An ordinary restart keeps the identity. Configuration is generated from
+`toml/testnet.toml` on each run; edits to the generated copy are replaced.
+
+In another terminal, run:
+
+```shell
+./scripts/tunnel-testnet-local.sh
+```
+
+This requires `cloudflared` and `curl`. The run script also requires Go and `lsof`.
+The tunnel prints a public HTTPS hostname. Use that hostname with `/registration`,
+`/health`, `/api/node`, and `/api/v0/graphql`; all use the same HTTP port. The tunnel exposes
+the HTTP server, including the development console and API. P2P still uses its
+separate TCP port. Keep the tunnel terminal open while testing.
+
+`/registration` returns the signed registration document and health data required
+by onboarding. It uses the active node and peer keys and advertises GraphQL on
+the public request origin, including forwarded tunnel headers. HTTP 503 retains
+the signed document when health is not ready. On this test branch, a hostname with
+only private P2P addresses gets a synthetic `connection_string` shaped as
+`/dns4/<public-http-hostname>/tcp/<p2p-port>/p2p/<actual-peer-id>`. Public P2P
+addresses take priority. The fallback permits onboarding tests only: an HTTP
+tunnel does not expose P2P port `9171`, so this value does not establish P2P access.
+
+To start with a new identity, stop the host with Ctrl+C and wait for shutdown:
+
+```shell
+./scripts/reset-testnet-local.sh
+./scripts/run-testnet-local.sh
+```
+
+Reset moves the entire test instance to a private
+`.local_tests/cleanup-testnet-backup.XXXXXX/instance` directory. This clears the
+active database and keyring together. The next start generates new keys and a
+new DID. It does not delete an on-chain registration. Reset refuses to run while
+the run script holds its lock. To restore a backup, stop the host, reset any
+current instance, and move the saved `instance` directory back to
+`.local_tests/cleanup-testnet-host`.
+
 ## Docker
 
 ```shell
@@ -55,7 +107,7 @@ Everything — health, metrics, GraphQL, the node console, the GraphQL playgroun
 
 | Port | Service |
 | --- | --- |
-| `8080` | HTTP: `/health`, `/metrics`, `/graphql`, `/console`, `/playground`, `/api/node`, `/api/system` |
+| `8080` | HTTP: `/health`, `/registration`, `/metrics`, `/api/v0/graphql`, `/console`, `/playground`, `/api/node`, `/api/system` |
 | `9171` | libp2p P2P networking |
 
 ## Debugging

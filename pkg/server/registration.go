@@ -10,13 +10,14 @@ import (
 
 	sdkcrypto "github.com/TBD54566975/ssi-sdk/crypto"
 	didkey "github.com/TBD54566975/ssi-sdk/did/key"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
-const (
-	registrationMessage = "Shinzo Network host registration"
-	registrationAppHost = "registration.shinzo.network"
-)
+// RegistrationMessage is the payload signed by node and peer keys during registration.
+const RegistrationMessage = "Shinzo Network host registration"
+
+const registrationAppHost = "registration.shinzo.network"
 
 // DisplayRegistration represents the registration status and signed messages for display in the health endpoint.
 type DisplayRegistration struct {
@@ -47,10 +48,10 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 		return nil, ErrHostNotAvailable
 	}
 
-	defraReg, peerReg, signErr := hs.host.SignMessages(registrationMessage)
+	defraReg, peerReg, signErr := hs.host.SignMessages(RegistrationMessage)
 	registration := &DisplayRegistration{
 		Enabled: signErr == nil,
-		Message: normalizeHex(hex.EncodeToString([]byte(registrationMessage))),
+		Message: normalizeHex(hex.EncodeToString([]byte(RegistrationMessage))),
 	}
 	if signErr != nil {
 		return registration, signErr
@@ -64,14 +65,14 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 		PeerID:        normalizeHex(peerReg.PeerID),
 		SignedPeerMsg: normalizeHex(peerReg.SignedPeerMsg),
 	}
-	if did, err := deriveDID(registration.DefraPKRegistration.PublicKey); err == nil {
+	if did, err := DeriveRegistrationDID(registration.DefraPKRegistration.PublicKey); err == nil {
 		registration.DID = did
 	} else {
 		logger.Sugar.Debugf("failed to derive registration DID: %v", err)
 	}
-	registration.EndpointAddress = deriveEndpointAddress(r)
+	registration.EndpointAddress = DeriveEndpointAddress(r)
 	if p2p, err := hs.host.GetPeerInfo(); err == nil {
-		registration.ConnectionString = deriveConnectionString(r, p2p)
+		registration.ConnectionString = DeriveConnectionString(r, p2p)
 	}
 
 	return registration, nil
@@ -118,19 +119,26 @@ func normalizeHex(s string) string {
 	return "0x" + s
 }
 
-func deriveDID(publicKeyHex string) (string, error) {
+// DeriveRegistrationDID uses the compressed secp256k1 encoding required by ShinzoHub.
+// DefraDB's identity DID uses an uncompressed key and is not the registry DID.
+func DeriveRegistrationDID(publicKeyHex string) (string, error) {
 	publicKeyBytes, err := hex.DecodeString(strings.TrimPrefix(normalizeHex(publicKeyHex), "0x"))
 	if err != nil {
 		return "", fmt.Errorf("decode public key: %w", err)
 	}
-	didDoc, err := didkey.CreateDIDKey(sdkcrypto.SECP256k1, publicKeyBytes)
+	publicKey, err := secp256k1.ParsePubKey(publicKeyBytes)
+	if err != nil {
+		return "", fmt.Errorf("parse registration public key: %w", err)
+	}
+	didDoc, err := didkey.CreateDIDKey(sdkcrypto.SECP256k1, publicKey.SerializeCompressed())
 	if err != nil {
 		return "", fmt.Errorf("create did key: %w", err)
 	}
 	return didDoc.String(), nil
 }
 
-func deriveEndpointAddress(r *http.Request) string {
+// DeriveEndpointAddress uses the public request origin and the shared GraphQL path.
+func DeriveEndpointAddress(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
@@ -162,9 +170,10 @@ func deriveEndpointAddress(r *http.Request) string {
 	}).String()
 }
 
-// deriveConnectionString suggests the multiaddr to register, preferring the address the
-// request arrived on over the node's own. Returns empty if neither is publicly routable.
-func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
+// DeriveConnectionString suggests the multiaddr to register, preferring the address the
+// request arrived on over the node's own. This test branch falls back to a synthetic
+// DNS multiaddr when only a public HTTP hostname is available.
+func DeriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if p2p == nil || p2p.Self == nil || p2p.Self.ID == "" {
 		return ""
 	}
@@ -177,7 +186,14 @@ func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if addr := firstUsableP2PAddress(p2p.Self.Addresses); addr != "" {
 		return fmt.Sprintf("%s/p2p/%s", addr, p2p.Self.ID)
 	}
-	return ""
+
+	// Test-only fallback: the tunnel serves HTTP, not the P2P TCP port. This value
+	// permits registration UI testing without claiming that peers can reach it.
+	endpoint, err := url.Parse(DeriveEndpointAddress(r))
+	if err != nil || endpoint.Hostname() == "" || net.ParseIP(endpoint.Hostname()) != nil {
+		return ""
+	}
+	return fmt.Sprintf("/dns4/%s/tcp/%s/p2p/%s", endpoint.Hostname(), port, p2p.Self.ID)
 }
 
 func firstForwardedValue(value string) string {

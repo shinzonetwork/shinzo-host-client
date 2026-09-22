@@ -17,32 +17,36 @@ func mountHealth(srv *hostserver.Server, defra DefraService) {
 	startedAt := time.Now()
 
 	srv.Mux().HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		snapshot := defra.Metrics().GetSnapshot()
-		healthy := defra.DB() != nil
-		uptime := time.Since(startedAt)
-
-		status := "healthy"
-		if !healthy {
-			status = "unhealthy"
-		}
-
-		resp := server.HealthResponse{
-			Status:           status,
-			Timestamp:        time.Now(),
-			CurrentBlock:     int64(snapshot.MostRecentBlock), //nolint:gosec // block numbers fit in int64
-			LastProcessed:    snapshot.LastDocumentTime,
-			DefraDBConnected: healthy,
-			Uptime:           uptime.String(),
-			UptimeSeconds:    uptime.Seconds(),
-			P2P:              collectPeerInfo(r.Context(), defra.DB()),
-		}
+		resp := readHostHealth(r.Context(), defra, startedAt)
 
 		w.Header().Set("Content-Type", "application/json")
-		if !healthy {
+		if !resp.DefraDBConnected {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
+}
+
+func readHostHealth(ctx context.Context, defra DefraService, startedAt time.Time) server.HealthResponse {
+	snapshot := defra.Metrics().GetSnapshot()
+	healthy := defra.DB() != nil
+	uptime := time.Since(startedAt)
+
+	status := "healthy"
+	if !healthy {
+		status = "unhealthy"
+	}
+
+	return server.HealthResponse{
+		Status:           status,
+		Timestamp:        time.Now(),
+		CurrentBlock:     int64(snapshot.MostRecentBlock), //nolint:gosec // block numbers fit in int64
+		LastProcessed:    snapshot.LastDocumentTime,
+		DefraDBConnected: healthy,
+		Uptime:           uptime.String(),
+		UptimeSeconds:    uptime.Seconds(),
+		P2P:              collectPeerInfo(ctx, defra.DB()),
+	}
 }
 
 func collectPeerInfo(ctx context.Context, db node.DB) *server.P2PInfo {
