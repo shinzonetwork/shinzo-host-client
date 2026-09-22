@@ -71,9 +71,11 @@ separate TCP port. Keep the tunnel terminal open while testing.
 `/registration` returns the signed registration document and health data required
 by onboarding. It uses the active node and peer keys and advertises GraphQL on
 the public request origin, including forwarded tunnel headers. HTTP 503 retains
-the signed document when health is not ready. A hostname with only private P2P
-addresses still has no public `connection_string`; an HTTP tunnel does not expose
-P2P port `9171`.
+the signed document when health is not ready. On this test branch, a hostname with
+only private P2P addresses gets a synthetic `connection_string` shaped as
+`/dns4/<public-http-hostname>/tcp/<p2p-port>/p2p/<actual-peer-id>`. Public P2P
+addresses take priority. The fallback permits onboarding tests only: an HTTP
+tunnel does not expose P2P port `9171`, so this value does not establish P2P access.
 
 To start with a new identity, stop the host with Ctrl+C and wait for shutdown:
 

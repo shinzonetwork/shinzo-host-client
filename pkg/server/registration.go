@@ -164,7 +164,8 @@ func DeriveEndpointAddress(r *http.Request) string {
 }
 
 // DeriveConnectionString suggests the multiaddr to register, preferring the address the
-// request arrived on over the node's own. Returns empty if neither is publicly routable.
+// request arrived on over the node's own. This test branch falls back to a synthetic
+// DNS multiaddr when only a public HTTP hostname is available.
 func DeriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if p2p == nil || p2p.Self == nil || p2p.Self.ID == "" {
 		return ""
@@ -178,7 +179,14 @@ func DeriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if addr := firstUsableP2PAddress(p2p.Self.Addresses); addr != "" {
 		return fmt.Sprintf("%s/p2p/%s", addr, p2p.Self.ID)
 	}
-	return ""
+
+	// Test-only fallback: the tunnel serves HTTP, not the P2P TCP port. This value
+	// permits registration UI testing without claiming that peers can reach it.
+	endpoint, err := url.Parse(DeriveEndpointAddress(r))
+	if err != nil || endpoint.Hostname() == "" || net.ParseIP(endpoint.Hostname()) != nil {
+		return ""
+	}
+	return fmt.Sprintf("/dns4/%s/tcp/%s/p2p/%s", endpoint.Hostname(), port, p2p.Self.ID)
 }
 
 func firstForwardedValue(value string) string {

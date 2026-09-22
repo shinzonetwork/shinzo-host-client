@@ -105,7 +105,7 @@ func TestMountRegistration_TunnelResponseUsesActiveKeys(t *testing.T) {
 	require.True(t, response.DefraDBConnected)
 	require.Equal(t, peerID.String(), response.P2P.Self.ID)
 	require.Equal(t, "https://test.trycloudflare.com/api/v0/graphql", response.Registration.EndpointAddress)
-	require.NotContains(t, rec.Body.String(), "connection_string")
+	require.Equal(t, "/dns4/test.trycloudflare.com/tcp/9171/p2p/"+peerID.String(), response.Registration.ConnectionString)
 
 	nodeRec := httptest.NewRecorder()
 	srv.Mux().ServeHTTP(nodeRec, httptest.NewRequest(http.MethodGet, "/api/node", nil))
