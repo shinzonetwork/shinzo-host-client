@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testIdx1 = "idx1"
+
 func TestClient_Submit_PostsRecord(t *testing.T) {
 	var got ServiceRecord
 	var gotPath, gotContentType string
@@ -34,7 +36,7 @@ func TestClient_Submit_PostsRecord(t *testing.T) {
 		RespondedAt:       1735690000,
 		ResponseCIDs:      []string{},
 		ResponseSignature: "0xrespsig",
-		AttestedIndexers:  []string{"idx1"},
+		AttestedIndexers:  []string{testIdx1},
 	}
 	c := NewClient(srv.URL, time.Second)
 	require.NoError(t, c.Submit(context.Background(), rec))
