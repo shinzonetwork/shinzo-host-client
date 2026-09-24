@@ -3,6 +3,7 @@ package host
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,6 +11,8 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/hostserver"
 )
+
+var consoleJSAsset = regexp.MustCompile(`/console/assets/[^"' ]+\.js`)
 
 func TestMountConsole_RedirectsBareConsolePath(t *testing.T) {
 	srv, err := hostserver.New(testHostConfig(), zap.NewNop())
@@ -51,18 +54,45 @@ func TestMountConsole_ServesIndexAndAssets(t *testing.T) {
 	if ct := indexRec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Fatalf("expected text/html content type, got %q", ct)
 	}
-	if !strings.Contains(indexRec.Body.String(), "assets/app.js") {
-		t.Fatal("expected the console index to reference assets/app.js")
+	html := indexRec.Body.String()
+	if !strings.Contains(html, "/console/assets/") {
+		t.Fatal("expected the console index to reference /console/assets/")
 	}
 
-	asset := httptest.NewRequest(http.MethodGet, "/console/assets/app.js", nil)
+	assetPath := consoleJSAsset.FindString(html)
+	if assetPath == "" {
+		t.Fatal("expected a hashed console javascript asset in index.html")
+	}
+
+	asset := httptest.NewRequest(http.MethodGet, assetPath, nil)
 	assetRec := httptest.NewRecorder()
 	srv.Mux().ServeHTTP(assetRec, asset)
 
 	if assetRec.Code != http.StatusOK {
-		t.Fatalf("expected /console/assets/app.js 200, got %d", assetRec.Code)
+		t.Fatalf("expected %s 200, got %d", assetPath, assetRec.Code)
 	}
 	if !strings.Contains(assetRec.Body.String(), "/api/node") {
-		t.Fatal("expected app.js to fetch /api/node")
+		t.Fatal("expected console javascript to fetch /api/node")
+	}
+}
+
+func TestMountConsole_SPAFallback(t *testing.T) {
+	srv, err := hostserver.New(testHostConfig(), zap.NewNop())
+	if err != nil {
+		t.Fatalf("hostserver.New: %v", err)
+	}
+	if err := mountConsole(srv); err != nil {
+		t.Fatalf("mountConsole: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/console/pools", nil)
+	rec := httptest.NewRecorder()
+	srv.Mux().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected SPA fallback 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `id="root"`) {
+		t.Fatal("expected SPA fallback to serve the console index")
 	}
 }

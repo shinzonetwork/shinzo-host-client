@@ -21,6 +21,7 @@ Open an issue to discuss your change before submitting a PR. PRs without an atta
 | `pkg/snapshot/` | Historical snapshot download and import. |
 | `pkg/playground/` | GraphQL Playground HTTP server (real and no-op implementations). |
 | `playground/` | Static assets for the Playground UI (generated; do not edit by hand). |
+| `console/` | Static assets for the node console UI (generated from the sibling `node-console` Vite app; do not edit by hand). |
 | `adr/` | Architecture Decision Records. Read these before making structural changes. |
 | `scripts/` | GCP VM startup and monitoring scripts. |
 | `integration/` | Integration tests. |

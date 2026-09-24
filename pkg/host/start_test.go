@@ -247,13 +247,21 @@ func TestStart_ServesGraphQLAndHealthOnSamePort(t *testing.T) {
 	if consoleResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected /console 200, got %d", consoleResp.StatusCode)
 	}
-
-	assetResp, err := http.Get(base + "/console/assets/app.js") //nolint:noctx // test
+	consoleBody, err := io.ReadAll(consoleResp.Body)
 	if err != nil {
-		t.Fatalf("GET /console/assets/app.js: %v", err)
+		t.Fatalf("reading /console: %v", err)
+	}
+	assetPath := consoleJSAsset.FindString(string(consoleBody))
+	if assetPath == "" {
+		t.Fatalf("expected a hashed console javascript asset in /console, got: %s", consoleBody)
+	}
+
+	assetResp, err := http.Get(base + assetPath) //nolint:noctx // test
+	if err != nil {
+		t.Fatalf("GET %s: %v", assetPath, err)
 	}
 	defer assetResp.Body.Close() //nolint:errcheck // test
 	if assetResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected /console/assets/app.js 200, got %d", assetResp.StatusCode)
+		t.Fatalf("expected %s 200, got %d", assetPath, assetResp.StatusCode)
 	}
 }
