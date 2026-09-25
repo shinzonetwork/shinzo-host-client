@@ -1,6 +1,7 @@
 package hostconfig
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -8,8 +9,11 @@ import (
 )
 
 func TestDefaultPathIsCorrect(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
 	path, err := DefaultPath("host1")
 	require.NoError(t, err)
 
-	require.Contains(t, path, filepath.Join("host", "host1", "config.toml"), "Default: %q, missing expected suffix", path)
+	require.Equal(t, filepath.Join(home, ".shinzo", "host", "host1", "config.toml"), path)
 }

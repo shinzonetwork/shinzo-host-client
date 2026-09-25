@@ -5,18 +5,18 @@ import (
 	"text/template"
 )
 
-// DefaultConfigTemplate is the config.toml template.
-const DefaultConfigTemplate = `# Shinzo Host Config
+const defaultConfigTemplate = `# Shinzo Host Config
 
 # Local instance name. Sets the folder this host's data lives under,
 # ~/.shinzo/host/<name>.
-name = "{{.Name}}"
+# js-escaped defensively even though validate already restricts Name's
+# charset — cheap insurance if that charset ever loosens.
+name = "{{ js .Name }}"
 
 `
 
-// Render fills the config template with cfg and returns the result.
-func Render(cfg Config) ([]byte, error) {
-	tmpl, err := template.New("config.toml").Parse(DefaultConfigTemplate)
+func render(cfg Config) ([]byte, error) {
+	tmpl, err := template.New("config.toml").Parse(defaultConfigTemplate)
 	if err != nil {
 		return nil, err
 	}
