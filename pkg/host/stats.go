@@ -27,14 +27,16 @@ func blockAdvance(prevBlock, block int64) int64 {
 
 // reportStats logs throughput until ctx is cancelled. Counters are reported as the
 // change since the previous line rather than as running totals, so each line carries a
-// rate. block, viewsActive, procMs, heapMiB, nextGCMiB and goroutines are
-// current values instead. /metrics exposes the same counters, but only as a snapshot.
+// rate. block, viewsActive, procMs, heapMiB, nextGCMiB, goroutines and the retention cutoff
+// are current values instead. /metrics exposes the same counters, but only as a snapshot.
 func (h *Host) reportStats(ctx context.Context) {
 	ticker := time.NewTicker(statsInterval)
 	defer ticker.Stop()
 
 	prev := h.metrics.GetSnapshot()
 	prevBlock := h.GetCurrentBlock()
+	// Zero, so the first line also reports the checks made while the host was starting.
+	var prevRetention retentionStats
 
 	// objects plus unused is the bytes held by in-use spans.
 	samples := []metrics.Sample{
@@ -82,6 +84,22 @@ func (h *Host) reportStats(ctx context.Context) {
 				gcCycles-prevGC,
 				runtime.NumGoroutine(),
 			)
+
+			if h.retentionFilter != nil {
+				r := h.retentionFilter.stats()
+				logger.Sugar.Infof(
+					"retention filter checks since the previous line: cutoffBlock=%d rejectedAtOrBelowCutoff=%d acceptedAboveCutoff=%d "+
+						"checkedBeforeFetch=%d acceptedNoBlockNumber=%d acceptedUntrackedCollection=%d acceptedNoCutoffYet=%d",
+					r.cutoff,
+					r.rejected-prevRetention.rejected,
+					r.allowed-prevRetention.allowed,
+					r.beforeFetch-prevRetention.beforeFetch,
+					r.noHeight-prevRetention.noHeight,
+					r.unmapped-prevRetention.unmapped,
+					r.cutoffUnset-prevRetention.cutoffUnset,
+				)
+				prevRetention = r
+			}
 
 			prev, prevBlock, prevGC = cur, block, gcCycles
 		}
