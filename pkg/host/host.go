@@ -480,7 +480,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode)
+		p := pruner.NewPruner(&cfg.Pruner, defraNode, &pruner.Cutoff{})
 		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {

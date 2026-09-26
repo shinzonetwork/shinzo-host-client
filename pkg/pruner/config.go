@@ -5,7 +5,7 @@ const defaultMaxDocsPerCycle = 50000
 // Config represents pruner configuration for removing old documents.
 type Config struct {
 	Enabled         bool  `yaml:"enabled"`
-	MaxBlocks       int64 `yaml:"max_blocks"`      // Number of blocks to retain
+	MaxBlocks       int64 `yaml:"max_blocks"`      // Newest block heights kept; documents at older heights are deleted
 	PruneThreshold  int64 `yaml:"prune_threshold"` // Deprecated: kept for backward compatibility, unused by pruner
 	IntervalSeconds int   `yaml:"interval_seconds"`
 	PruneHistory    bool  `yaml:"prune_history"`
@@ -29,9 +29,8 @@ type CollectionHeight struct {
 	HeightField string
 }
 
-// CollectionConfig defines which collections to prune. Dependents are pruned in the order given
-// and before the block collection, so a document is never removed while another that references
-// it remains.
+// CollectionConfig defines which collections to prune. The sweep deletes the lowest heights first
+// across all of them, and at one height it deletes the dependents before the block.
 type CollectionConfig struct {
 	Block      CollectionHeight
 	Dependents []CollectionHeight

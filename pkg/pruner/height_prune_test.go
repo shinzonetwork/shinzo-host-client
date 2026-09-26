@@ -2,8 +2,10 @@ package pruner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -21,8 +23,7 @@ const (
 )
 
 // heightTestSchema covers the cases the sweep tells apart: a block collection with its own height
-// field, dependents on blockNumber, one on a differently named field, one unindexed, and one with
-// no height field at all.
+// field, dependents on blockNumber, one on a differently named field, and one unindexed.
 const heightTestSchema = `
 type Ethereum__Mainnet__Block {
 	number: Int @index
@@ -46,6 +47,7 @@ type Ethereum__Mainnet__AccessListEntry {
 }
 type Ethereum__Mainnet__AttestationRecord {
 	attested_doc: String
+	blockNumber: Int @index
 }
 `
 
@@ -79,7 +81,7 @@ func newHeightTestPruner(t *testing.T, cfg *Config) (*Pruner, *node.Node) {
 	require.NoError(t, err)
 
 	cfg.SetDefaults()
-	p := NewPruner(cfg, n, heightTestCollections())
+	p := NewPruner(cfg, n, &Cutoff{}, heightTestCollections())
 	p.heightPrunable = p.resolveHeightPrunable(ctx)
 	return p, n
 }
@@ -149,134 +151,244 @@ func seedHeightBlocks(t *testing.T, n *node.Node, from, to int) {
 	}
 }
 
-// The block collection and its dependents are both trimmed to the retention window.
-func TestPruneTrimsBlocksAndDependentsToTheWindow(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+// seedLogs writes perHeight Logs at every block number in [from, to].
+func seedLogs(t *testing.T, n *node.Node, from, to, perHeight int) {
+	t.Helper()
+	for i := from; i <= to; i++ {
+		for j := range perHeight {
+			addHeightDoc(t, n, logCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d-%d", i, j)})
+		}
+	}
+}
 
+// heights returns the integers in [from, to].
+func heights(from, to int64) []int64 {
+	out := make([]int64, 0, to-from+1)
+	for i := from; i <= to; i++ {
+		out = append(out, i)
+	}
+	return out
+}
+
+// With blocks 1-20 and a window of 5, the cutoff is 15.
+func TestPruneTrimsBlocksAndDependentsToTheCutoff(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 	seedHeightBlocks(t, n, 1, 20)
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockHeightField))
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
+	require.Equal(t, int64(15), p.cutoff.Load())
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
 // A dependent collection can hold blocks the block collection has already dropped.
-func TestPruneRemovesDependentTailBelowTheWindow(t *testing.T) {
+func TestPruneRemovesDependentTailBelowTheCutoff(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
-
 	for i := 16; i <= 20; i++ {
 		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
 	}
-	for i := 1; i <= 20; i++ {
-		addHeightDoc(t, n, logCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d", i)})
-	}
+	seedLogs(t, n, 1, 20, 1)
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockHeightField))
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
-// Block zero is a real block number, not an empty collection.
+// Block zero is a valid height, so each collection's sweep starts at 0.
 func TestPruneHandlesBlockZero(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
-
 	seedHeightBlocks(t, n, 0, 20)
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, blockCollection, blockHeightField))
-	require.Equal(t, []int64{16, 17, 18, 19, 20}, blockNumbers(t, n, logCollection, dependentHeightField))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
-// The sweep stops once the cycle's budget is spent, however far below the window the store is.
-func TestHeightSweepStopsAtTheCycleBudget(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{
-		Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 3,
-	})
-
-	seedHeightBlocks(t, n, 1, 20)
-
-	require.NoError(t, p.runPrune(context.Background()))
-
-	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 17)
-	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
-}
-
-// The budget is spent across collections in order: a collection that needs less than the remainder
-// leaves the rest for the next one.
-func TestHeightSweepBudgetIsSharedAcrossCollections(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{
-		Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 5,
-	})
-
+// A cycle deletes the lowest heights first across the collections and stops at its budget, so blocks
+// go every cycle however many dependents sit below the cutoff. The next cycle carries on from the
+// height the last one stopped in.
+func TestPruneDeletesBlocksWithinTheBudgetWhenDependentsExceedIt(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 25})
 	for i := 1; i <= 20; i++ {
 		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
-		addHeightDoc(t, n, txCollection, map[string]any{dependentHeightField: i, "hash": fmt.Sprintf("t%d", i)})
 	}
-	// Only two Log rows sit below the cutoff of 15, so Log cannot use the whole budget.
-	for _, i := range []int{14, 15} {
-		addHeightDoc(t, n, logCollection, map[string]any{dependentHeightField: i, "address": fmt.Sprintf("a%d", i)})
+	seedLogs(t, n, 1, 20, 10)
+
+	// 25 documents: heights 1 and 2 (10 Logs and a block each), then 3 Logs at height 3.
+	require.NoError(t, p.runPrune(context.Background()))
+	require.Equal(t, heights(3, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, 200-23, countHeightDocs(t, n, logCollection))
+	require.Equal(t, int64(25), p.GetMetrics().TotalDocsSubmitted)
+	require.Equal(t, int64(2), p.GetMetrics().TotalBlocksPruned)
+
+	// The other 7 Logs at 3 and block 3, height 4 in full, then 6 Logs at 5.
+	require.NoError(t, p.runPrune(context.Background()))
+	require.Equal(t, heights(5, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, 200-23-23, countHeightDocs(t, n, logCollection))
+}
+
+// A block is deleted only once the dependents at its height are gone: 12 documents take height 1
+// (10 Logs and its block) and one Log at height 2, so block 2 stays.
+func TestPruneKeepsABlockUntilTheDependentsAtItsHeightAreGone(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 12})
+	for i := 1; i <= 20; i++ {
+		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
+	}
+	seedLogs(t, n, 1, 20, 10)
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Equal(t, heights(2, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, 200-11, countHeightDocs(t, n, logCollection))
+}
+
+// Documents with no height are never selected, and more of them than a page holds cannot fill a page
+// and hold the sweep back.
+func TestPruneIsNotHeldBackByDocumentsWithNoHeight(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, MaxDocsPerCycle: 3})
+	seedHeightBlocks(t, n, 1, 20)
+	for i := range purgeBatchSize + 1 {
+		addHeightDoc(t, n, logCollection, map[string]any{"address": fmt.Sprintf("no-height-%d", i)})
+	}
+
+	for range 15 {
+		require.NoError(t, p.runPrune(context.Background()))
+	}
+
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, 5+purgeBatchSize+1, countHeightDocs(t, n, logCollection))
+}
+
+// A collection with more documents due than one page is read again within the same cycle.
+func TestPruneReadsMoreThanOnePagePerCycle(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	seedHeightBlocks(t, n, 1, 20)
+	seedLogs(t, n, 1, 11, 100)
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, logCollection, dependentHeightField))
+}
+
+// Without any block held there is no cutoff, and nothing goes.
+func TestPruneHasNoCutoffWithoutBlocks(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	seedLogs(t, n, 50, 50, 1)
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Zero(t, p.cutoff.Load())
+	require.Equal(t, []int64{50}, blockNumbers(t, n, logCollection, dependentHeightField))
+}
+
+// Once blocks up to 120 arrive, the next cycle raises the cutoff in one step to 115: the highest
+// block less 5.
+func TestPruneCutoffFollowsTheChain(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	seedHeightBlocks(t, n, 1, 20)
+	require.NoError(t, p.runPrune(context.Background()))
+	require.Equal(t, int64(15), p.cutoff.Load())
+
+	seedHeightBlocks(t, n, 21, 120)
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Equal(t, int64(115), p.cutoff.Load())
+	require.Equal(t, heights(116, 120), blockNumbers(t, n, blockCollection, blockHeightField))
+}
+
+// The cutoff is published before the first delete, so the filter rejects what the sweep removes.
+func TestPrunePublishesTheCutoffBeforeDeleting(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	seedHeightBlocks(t, n, 1, 20)
+	var seen []int64
+	p.purgeDocs = func(context.Context, []client.DocID) error {
+		seen = append(seen, p.cutoff.Load())
+		return nil
 	}
 
 	require.NoError(t, p.runPrune(context.Background()))
 
-	require.Empty(t, blockNumbers(t, n, logCollection, dependentHeightField))
-	require.Equal(t, []int64{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-		blockNumbers(t, n, txCollection, dependentHeightField))
-	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
-}
-
-// Zero is unlimited to the query planner, so a spent budget must remove nothing rather than
-// everything.
-func TestPurgeCollectionBelowRemovesNothingWithoutBudget(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
-	seedHeightBlocks(t, n, 1, 20)
-
-	purged, err := p.purgeCollectionBelow(context.Background(), logCollection, dependentHeightField, 15, 0)
-	require.NoError(t, err)
-	require.Zero(t, purged)
-	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
-}
-
-// A collection with no height field cannot be ordered by height, so it is left alone.
-func TestHeightPruneSkipsCollectionWithoutHeightField(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
-
-	require.NotContains(t, p.heightPrunable, CollectionHeight{Name: attRecCollection, HeightField: dependentHeightField})
-
-	seedHeightBlocks(t, n, 1, 20)
-	for i := 1; i <= 3; i++ {
-		addHeightDoc(t, n, attRecCollection, map[string]any{"attested_doc": fmt.Sprintf("d%d", i)})
+	require.NotEmpty(t, seen)
+	for _, cutoff := range seen {
+		require.Equal(t, int64(15), cutoff)
 	}
-
-	require.NoError(t, p.runPrune(context.Background()))
-
-	require.Equal(t, 3, countHeightDocs(t, n, attRecCollection))
 }
 
-// A document with no height sorts first on ASC. Reading that as an empty collection would leave
-// everything behind it unpruned.
-func TestHeightPruneIgnoresADocumentWithNoHeight(t *testing.T) {
-	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
-
+// The first cycle runs when the pruner starts, so the cutoff is published without waiting an interval.
+func TestPrunePublishesTheCutoffWhenItStarts(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5, IntervalSeconds: 3600})
 	seedHeightBlocks(t, n, 1, 20)
-	addHeightDoc(t, n, logCollection, map[string]any{"address": "no-height"})
 
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(func() { p.Stop(context.Background()) })
+
+	require.Eventually(t, func() bool { return p.cutoff.Load() == 15 }, 5*time.Second, 10*time.Millisecond)
+}
+
+// A dependent that cannot be read or deleted does not hold the blocks back: they still go up to the
+// cutoff, and the dependent is left for a later cycle.
+func TestPruneGoesPastADependentThatFails(t *testing.T) {
+	t.Run("read fails", func(t *testing.T) {
+		p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+		seedHeightBlocks(t, n, 1, 20)
+		p.heightPrunable = []CollectionHeight{{Name: logCollection, HeightField: "noSuchField"}}
+
+		require.NoError(t, p.runPrune(context.Background()))
+
+		require.Equal(t, heights(16, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+		require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
+	})
+
+	t.Run("delete fails", func(t *testing.T) {
+		p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+		seedHeightBlocks(t, n, 1, 20)
+		var sizes []int
+		p.purgeDocs = func(_ context.Context, ids []client.DocID) error {
+			sizes = append(sizes, len(ids))
+			if len(sizes) == 1 {
+				return errors.New("purge failed")
+			}
+			return nil
+		}
+
+		require.NoError(t, p.runPrune(context.Background()))
+
+		// The Log at height 1 fails, then the 15 blocks up to the cutoff go in one batch.
+		require.Equal(t, []int{1, 15}, sizes)
+	})
+}
+
+// The sweep resumes each collection where it got to, so a document that arrives below that point
+// waits for the hourly pass from each collection's lowest height.
+func TestPruneReachesDocumentsBelowTheSweepOnTheBottomPass(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	clock := time.Unix(1_700_000_000, 0)
+	p.now = func() time.Time { return clock }
+	seedHeightBlocks(t, n, 1, 20)
 	require.NoError(t, p.runPrune(context.Background()))
 
-	// Cutoff 15, so logs 16-20 remain, plus the one with no height.
-	require.Equal(t, 6, countHeightDocs(t, n, logCollection))
+	seedLogs(t, n, 3, 3, 1)
+	clock = clock.Add(time.Minute)
+	require.NoError(t, p.runPrune(context.Background()))
+	require.Equal(t, append([]int64{3}, heights(16, 20)...), blockNumbers(t, n, logCollection, dependentHeightField))
+
+	clock = clock.Add(bottomPassInterval)
+	require.NoError(t, p.runPrune(context.Background()))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, logCollection, dependentHeightField))
 }
 
 // A dependent whose height field carries no index is skipped, so its documents survive the sweep.
-func TestHeightPruneSkipsUnindexedHeightField(t *testing.T) {
+func TestPruneSkipsUnindexedHeightField(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
 	require.Equal(t, []CollectionHeight{
 		{Name: logCollection, HeightField: dependentHeightField},
 		{Name: txCollection, HeightField: dependentHeightField},
+		{Name: attRecCollection, HeightField: dependentHeightField},
 		{Name: snapshotCollection, HeightField: snapshotHeightField},
 	}, p.heightPrunable)
 
@@ -292,11 +404,10 @@ func TestHeightPruneSkipsUnindexedHeightField(t *testing.T) {
 
 // A snapshot is retained on the newest block it covers, not on a blockNumber field. The sweep
 // orders on whichever field the collection declares.
-func TestHeightPruneUsesTheCollectionsOwnHeightField(t *testing.T) {
+func TestPruneUsesTheCollectionsOwnHeightField(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
-
 	seedHeightBlocks(t, n, 1, 20)
-	// The cutoff is 15, so the first two snapshots are below the window and the last two are not.
+	// The cutoff is 15, so the first two snapshots are at or below it and the last two are not.
 	for _, end := range []int{5, 10, 16, 20} {
 		addHeightDoc(t, n, snapshotCollection,
 			map[string]any{snapshotHeightField: end, "merkleRoot": fmt.Sprintf("r%d", end)})
@@ -307,15 +418,29 @@ func TestHeightPruneUsesTheCollectionsOwnHeightField(t *testing.T) {
 	require.Equal(t, []int64{16, 20}, blockNumbers(t, n, snapshotCollection, snapshotHeightField))
 }
 
-// A node bootstrapped with historical blocks keeps them.
+// Attestation records go at the same cutoff as the blocks they attest.
+func TestPruneSweepsAttestationRecordsAtTheCutoff(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	seedHeightBlocks(t, n, 1, 20)
+	for _, height := range []int{5, 15, 16} {
+		addHeightDoc(t, n, attRecCollection,
+			map[string]any{dependentHeightField: height, "attested_doc": fmt.Sprintf("d%d", height)})
+	}
+
+	require.NoError(t, p.runPrune(context.Background()))
+
+	require.Equal(t, []int64{16}, blockNumbers(t, n, attRecCollection, dependentHeightField))
+}
+
+// A node bootstrapped with historical blocks keeps them, and publishes no cutoff.
 func TestRetainHistorySuppressesHeightPrune(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 	p.SetRetainHistory(true)
-
 	seedHeightBlocks(t, n, 1, 20)
 
 	require.NoError(t, p.runPrune(context.Background()))
 
+	require.Zero(t, p.cutoff.Load())
 	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
 }
