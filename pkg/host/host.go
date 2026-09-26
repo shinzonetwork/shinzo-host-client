@@ -165,7 +165,8 @@ type Host struct {
 
 	// mostRecentBlockReceived uint64
 
-	pruner *pruner.Pruner // Document pruner for removing old blocks
+	pruner          *pruner.Pruner   // Document pruner for removing old blocks
+	retentionFilter *RetentionFilter // Rejects replicated documents at or below the pruner's cutoff
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -195,9 +196,24 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	var replicationFilter client.ReplicationFilter
+	// The pruner publishes its cutoff to the retention filter, so both hold the same one.
+	var cutoff *pruner.Cutoff
+	var retentionFilter *RetentionFilter
+	var filters replicationFilters
+	if cfg.Pruner.Enabled {
+		cutoff = &pruner.Cutoff{}
+		// With snapshots enabled the pruner retains history and never sets a cutoff.
+		if !cfg.HostConfig.Snapshot.Enabled {
+			retentionFilter = NewRetentionFilter(pruner.DefaultCollectionConfig(), cutoff)
+			filters = append(filters, retentionFilter)
+		}
+	}
 	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
-		replicationFilter = f
+		filters = append(filters, f)
+	}
+	var replicationFilter client.ReplicationFilter
+	if len(filters) > 0 {
+		replicationFilter = filters
 	}
 
 	// wazero runs lens transforms in pure Go. wasmtime is the upstream default,
@@ -242,6 +258,17 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	err = applySchema(ctx, defraNode, resolvedSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
+	}
+
+	if retentionFilter != nil {
+		cols, err := defraNode.DB.GetCollections(ctx)
+		if err != nil {
+			logger.Sugar.Errorf("Retention filter could not read the collection IDs, so it accepts every replicated document until the host restarts: %v", err)
+		} else {
+			names := retentionFilter.ResolveCollections(cols)
+			logger.Sugar.Infof("Retention filter active on %d collections (%s): once the pruner sets the retention cutoff, replicated documents at or below it are rejected",
+				len(names), strings.Join(names, ", "))
+		}
 	}
 
 	// Bootstrap from historical snapshots before P2P starts
@@ -335,6 +362,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		metrics:                server.NewHostMetrics(),
 		viewManager:            viewManager,
 		attesters:              attesters,
+		retentionFilter:        retentionFilter,
 	}
 
 	// Hook up metrics callback for view tracking
@@ -480,7 +508,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, &pruner.Cutoff{})
+		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff)
 		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {
