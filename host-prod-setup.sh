@@ -104,8 +104,7 @@ shinzo:
             topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
-  max_blocks: 2000         # Number of blocks to retain
-  docs_per_block: 1000      # Average docs per block (~1000 on Ethereum mainnet). Pruning triggers at max_blocks * docs_per_block docs
+  max_blocks: 2000         # Newest block heights kept; documents at older heights are deleted
   interval_seconds: 30      # How often to check and prune
   prune_history: false      # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
 logger:
