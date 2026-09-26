@@ -2,6 +2,7 @@ package attestation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -76,6 +77,8 @@ func CreateAttestationRecord(ctx context.Context, verifier SignatureVerifier, do
 
 // PostAttestationRecord posts the attestation record to DefraDB using read-modify-write
 // to correctly merge source_doc lists when multiple indexers attest to the same block.
+// It returns an error wrapping ErrDocumentNotFound when the existing record is deleted between
+// the read and the write, which the pruner does to records at or below its cutoff.
 func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Record) error {
 	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
 	if err != nil {
@@ -83,36 +86,15 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Re
 	}
 
 	existingDoc, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
+	if errors.Is(err, client.ErrDocumentNotFoundOrNotAuthorized) {
+		return fmt.Errorf("attestation %s: %w", record.AttestedDocID, ErrDocumentNotFound)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to lookup existing attestation: %w", err)
 	}
 
 	if existingDoc != nil {
-		// Merge source_doc identities
-		mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIDs)
-		sourcesAny := make([]any, len(mergedSources))
-		for i, s := range mergedSources {
-			sourcesAny[i] = s
-		}
-		if err := existingDoc.Set(ctx, "source_doc", sourcesAny); err != nil {
-			return fmt.Errorf("failed to set source_doc: %w", err)
-		}
-
-		// Merge CIDs
-		mergedCIDs := mergeStringListField(existingDoc, "CIDs", record.CIDs)
-		cidsAny := make([]any, len(mergedCIDs))
-		for i, c := range mergedCIDs {
-			cidsAny[i] = c
-		}
-		if err := existingDoc.Set(ctx, "CIDs", cidsAny); err != nil {
-			return fmt.Errorf("failed to set CIDs: %w", err)
-		}
-
-		if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
-			return fmt.Errorf("failed to set vote_count: %w", err)
-		}
-
-		return col.SaveDocument(ctx, existingDoc)
+		return updateAttestationRecord(ctx, col, existingDoc, record)
 	}
 
 	// Create new document
@@ -245,6 +227,42 @@ func extractDocIDFromResult(data any, collectionName string) string {
 	default:
 		return ""
 	}
+}
+
+// updateAttestationRecord merges record into the existing document and writes it back, returning
+// ErrDocumentNotFound if the document no longer exists as the update starts. SaveDocument would
+// create it again holding only the fields set here, a record neither the lookup nor the pruner
+// could find.
+func updateAttestationRecord(ctx context.Context, col client.Collection, existingDoc *client.Document, record *Record) error {
+	// Merge source_doc identities
+	mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIDs)
+	sourcesAny := make([]any, len(mergedSources))
+	for i, s := range mergedSources {
+		sourcesAny[i] = s
+	}
+	if err := existingDoc.Set(ctx, "source_doc", sourcesAny); err != nil {
+		return fmt.Errorf("failed to set source_doc: %w", err)
+	}
+
+	// Merge CIDs
+	mergedCIDs := mergeStringListField(existingDoc, "CIDs", record.CIDs)
+	cidsAny := make([]any, len(mergedCIDs))
+	for i, c := range mergedCIDs {
+		cidsAny[i] = c
+	}
+	if err := existingDoc.Set(ctx, "CIDs", cidsAny); err != nil {
+		return fmt.Errorf("failed to set CIDs: %w", err)
+	}
+
+	if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
+		return fmt.Errorf("failed to set vote_count: %w", err)
+	}
+
+	err := col.UpdateDocument(ctx, existingDoc)
+	if errors.Is(err, client.ErrDocumentNotFoundOrNotAuthorized) {
+		return fmt.Errorf("attestation %s: %w", record.AttestedDocID, ErrDocumentNotFound)
+	}
+	return err
 }
 
 // PostAttestationRecordsBatch posts multiple attestation records.
