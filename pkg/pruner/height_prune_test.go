@@ -362,6 +362,30 @@ func TestPruneGoesPastADependentThatFails(t *testing.T) {
 	})
 }
 
+// A batch whose delete fails is read again from the same position the next cycle.
+func TestPruneRetriesAFailedBatchNextCycle(t *testing.T) {
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+	for i := 16; i <= 20; i++ {
+		addHeightDoc(t, n, blockCollection, map[string]any{blockHeightField: i, "hash": fmt.Sprintf("h%d", i)})
+	}
+	seedLogs(t, n, 1, 20, 1)
+	var failedDocs int
+	p.purgeDocs = func(_ context.Context, ids []client.DocID) error {
+		failedDocs = len(ids)
+		// Only the first delete fails: with the hook cleared, later deletes go to DefraDB.
+		p.purgeDocs = nil
+		return errors.New("purge failed")
+	}
+
+	require.NoError(t, p.runPrune(context.Background()))
+	// The failed batch held the Logs at 1 to 15.
+	require.Equal(t, 15, failedDocs)
+	require.Equal(t, heights(1, 20), blockNumbers(t, n, logCollection, dependentHeightField))
+
+	require.NoError(t, p.runPrune(context.Background()))
+	require.Equal(t, heights(16, 20), blockNumbers(t, n, logCollection, dependentHeightField))
+}
+
 // The sweep resumes each collection where it got to, so a document that arrives below that point
 // waits for the hourly pass from each collection's lowest height.
 func TestPruneReachesDocumentsBelowTheSweepOnTheBottomPass(t *testing.T) {
