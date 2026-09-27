@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
@@ -30,20 +29,6 @@ func TestBlockAdvance(t *testing.T) {
 			require.Equal(t, tt.want, blockAdvance(tt.prevBlock, tt.block))
 		})
 	}
-}
-
-func TestPruneQueueLen(t *testing.T) {
-	// -1 rather than 0, so a host running without a pruner is not read as one whose
-	// queue is empty.
-	h := &Host{}
-	require.Equal(t, -1, h.pruneQueueLen(), "no pruner")
-
-	q := pruner.NewEventQueue(pruner.DefaultCollectionConfig())
-	h.pruneQueue = q
-	require.Equal(t, 0, h.pruneQueueLen(), "empty queue")
-
-	q.Push("Ethereum__Mainnet__Block", "bae-11111111-2222-3333-4444-555555555555")
-	require.Equal(t, 1, h.pruneQueueLen(), "after one push")
 }
 
 // The reporter runs for the life of the host, so a cancelled context has to end it

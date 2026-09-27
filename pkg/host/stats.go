@@ -25,18 +25,9 @@ func blockAdvance(prevBlock, block int64) int64 {
 	return block - prevBlock
 }
 
-// pruneQueueLen reports the prune queue length, or -1 when the host runs without a
-// pruner, so an absent pruner is distinguishable from an empty queue.
-func (h *Host) pruneQueueLen() int {
-	if h.pruneQueue == nil {
-		return -1
-	}
-	return h.pruneQueue.Len()
-}
-
 // reportStats logs throughput until ctx is cancelled. Counters are reported as the
 // change since the previous line rather than as running totals, so each line carries a
-// rate. block, viewsActive, procMs, pruneQueue, heapMiB, nextGCMiB and goroutines are
+// rate. block, viewsActive, procMs, heapMiB, nextGCMiB and goroutines are
 // current values instead. /metrics exposes the same counters, but only as a snapshot.
 func (h *Host) reportStats(ctx context.Context) {
 	ticker := time.NewTicker(statsInterval)
@@ -73,7 +64,7 @@ func (h *Host) reportStats(ctx context.Context) {
 			logger.Sugar.Infof(
 				"host stats: block=%d advance=%d docs=%d txs=%d logs=%d blockSigs=%d "+
 					"attested=%d attestErrors=%d sigVerified=%d sigFailed=%d "+
-					"viewsActive=%d procMs=%.1f pruneQueue=%d "+
+					"viewsActive=%d procMs=%.1f "+
 					"heapMiB=%d nextGCMiB=%d gc=%d goroutines=%d",
 				block, blockAdvance(prevBlock, block),
 				cur.DocumentsReceived-prev.DocumentsReceived,
@@ -86,7 +77,6 @@ func (h *Host) reportStats(ctx context.Context) {
 				cur.SignatureFailures-prev.SignatureFailures,
 				cur.ViewsActive,
 				cur.LastProcessingTime,
-				h.pruneQueueLen(),
 				heapInUse/bytesPerMiB,
 				gcGoal/bytesPerMiB,
 				gcCycles-prevGC,
