@@ -38,6 +38,12 @@ type DefraDBP2PConfig struct {
 	ReconnectIntervalMs    int      `yaml:"reconnect_interval_ms"`
 	EnableAutoReconnect    bool     `yaml:"enable_auto_reconnect"`
 	PeerDiscoveryTimeoutMs int      `yaml:"peer_discovery_timeout_ms"` // Timeout for auto-discovering peer IDs (default: 10000)
+	// Explicit libp2p resource-manager limits. Left unset, the defradb package
+	// substitutes its own defaults rather than letting libp2p autoscale, which
+	// sizes itself from host memory and ignores the container's cgroup limit.
+	ResourceMemoryMiB       int `yaml:"resource_memory_mib"`       // Memory budget for the resource manager, in MiB
+	ResourceFileDescriptors int `yaml:"resource_file_descriptors"` // File descriptor budget for the resource manager
+	MaxStreamsPerPeer       int `yaml:"max_streams_per_peer"`      // Concurrent streams a single peer may open in each direction
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.
@@ -213,6 +219,26 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.DefraDB.P2P.BootstrapPeers = strings.Split(v, ",")
 	}
 
+	// libp2p resource-manager limits. These use the same DEFRADB_P2P_* names the generator
+	// reads, so a deployment sets one variable per limit and both roles honour it.
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_MEMORY_MIB"); err != nil {
+		return nil, err
+	} else if ok {
+		cfg.DefraDB.P2P.ResourceMemoryMiB = n
+	}
+
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_FILE_DESCRIPTORS"); err != nil {
+		return nil, err
+	} else if ok {
+		cfg.DefraDB.P2P.ResourceFileDescriptors = n
+	}
+
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_STREAMS_PER_PEER"); err != nil {
+		return nil, err
+	} else if ok {
+		cfg.DefraDB.P2P.MaxStreamsPerPeer = n
+	}
+
 	// DEFRA_URL overrides defradb.url at runtime, so deployment artifacts
 	// can pick a different bind address (e.g. 0.0.0.0:9181 instead of the
 	// loopback-only default) without editing the YAML.
@@ -261,6 +287,10 @@ func (c *Config) ToInternalConfig() *defradb.Config {
 				RetryBaseDelayMs:    c.DefraDB.P2P.RetryBaseDelayMs,
 				ReconnectIntervalMs: c.DefraDB.P2P.ReconnectIntervalMs,
 				EnableAutoReconnect: c.DefraDB.P2P.EnableAutoReconnect,
+
+				ResourceMemoryMiB:       c.DefraDB.P2P.ResourceMemoryMiB,
+				ResourceFileDescriptors: c.DefraDB.P2P.ResourceFileDescriptors,
+				MaxStreamsPerPeer:       c.DefraDB.P2P.MaxStreamsPerPeer,
 			},
 			Store: defradb.DefraStoreConfig{
 				Path:                    c.DefraDB.Store.Path,
@@ -277,4 +307,27 @@ func (c *Config) ToInternalConfig() *defradb.Config {
 			Development: c.Logger.Development,
 		},
 	}
+}
+
+// ErrNonPositiveEnvValue is returned when an environment variable that must hold a
+// positive integer is set to zero or a negative number.
+var ErrNonPositiveEnvValue = fmt.Errorf("must be positive")
+
+// envPositiveInt reads name as a positive integer, reporting whether it was set at all.
+// It returns an error rather than silently ignoring a bad value: a mistyped resource limit
+// would otherwise be replaced by a default an order of magnitude from what was intended,
+// and the node would run with limits nobody chose.
+func envPositiveInt(name string) (int, bool, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid %s value %q: %w", name, raw, err)
+	}
+	if n <= 0 {
+		return 0, false, fmt.Errorf("invalid %s value %q: %w", name, raw, ErrNonPositiveEnvValue)
+	}
+	return n, true, nil
 }

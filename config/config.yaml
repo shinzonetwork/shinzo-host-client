@@ -12,6 +12,22 @@ defradb:
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
+    # Explicit libp2p resource-manager limits. Without these libp2p autoscales from the
+    # memory the process can see, which in a container is the machine's and not the
+    # cgroup's, and peers start resetting streams with StreamResourceLimitExceeded (4098).
+    # Sized for a 16GB node. Invariant: resource_memory_mib < GOMEMLIMIT < the memory limit.
+    #
+    # Resolved limits vs. the autoscaled ones these replace (autoscale @16GiB in brackets):
+    #   streams inbound per peer 5376 [2304]   system memory 10368MiB [16512MiB, over the limit]
+    #   inbound conns             704 [1088]   fds              8192 [1024]
+    # The remaining ~4GiB under GOMEMLIMIT is for badger and the host's own work.
+    #
+    # These knobs scale the per-peer, per-protocol and system scopes only. The per-stream
+    # (16MiB), per-protocol-per-peer (16MiB) and per-connection (32MiB) memory ceilings are
+    # constant at every budget and cannot be raised from here.
+    resource_memory_mib: 10240
+    resource_file_descriptors: 8192  # Must be <= the process ulimit -n
+    max_streams_per_peer: 4096       # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
   store:
     path: "./.defra"
     # Badger memory configuration

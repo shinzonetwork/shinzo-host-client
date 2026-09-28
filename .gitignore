@@ -55,3 +55,13 @@ logs/
 
 /pkg/view/var/
 reviews/
+# Terraform
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/*.tfplan
+# Real values name real projects and zones; the .example files are the committed record.
+terraform/**/terraform.tfvars
+terraform/**/*.auto.tfvars
+crash.log
+crash.*.log
