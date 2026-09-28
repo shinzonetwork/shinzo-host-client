@@ -108,4 +108,5 @@ type Ethereum__Mainnet__AttestationRecord {
     CIDs: [String]
     doc_type: String @index
     vote_count: Int @crdt(type: pcounter)
+    blockNumber: Int @index
 }

@@ -483,9 +483,9 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 	switch docs := raw.(type) {
 	case []map[string]any:
 		for _, docMap := range docs {
-			bn, err := parseBlockNumber(docMap[fieldName])
-			if err != nil {
-				return nil, err
+			bn, parsed := parseBlockNumber(docMap[fieldName])
+			if !parsed {
+				continue
 			}
 			if bn > maxBlockNumber {
 				break
@@ -500,9 +500,9 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 			if !ok {
 				continue
 			}
-			bn, err := parseBlockNumber(docMap[fieldName])
-			if err != nil {
-				return nil, err
+			bn, parsed := parseBlockNumber(docMap[fieldName])
+			if !parsed {
+				continue
 			}
 			if bn > maxBlockNumber {
 				break
@@ -626,7 +626,11 @@ func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
 			return 0, nil
 		}
 		if number, ok := blocksTyped[0][p.collections.BlockNumberField]; ok {
-			return parseBlockNumber(number)
+			bn, parsed := parseBlockNumber(number)
+			if !parsed {
+				return 0, nil
+			}
+			return bn, nil
 		}
 		return 0, nil
 	}
@@ -642,19 +646,26 @@ func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
 	}
 
 	if number, ok := block[p.collections.BlockNumberField]; ok {
-		return parseBlockNumber(number)
+		bn, parsed := parseBlockNumber(number)
+		if !parsed {
+			return 0, nil
+		}
+		return bn, nil
 	}
 	return 0, nil
 }
 
-func parseBlockNumber(number any) (int64, error) {
+// parseBlockNumber reads a block number from a GraphQL value. The bool is false when the
+// value is absent or not numeric. Callers must not substitute zero: it sits below every
+// cutoff, so the document would be selected for deletion.
+func parseBlockNumber(number any) (int64, bool) {
 	switch v := number.(type) {
 	case float64:
-		return int64(v), nil
+		return int64(v), true
 	case int64:
-		return v, nil
+		return v, true
 	case int:
-		return int64(v), nil
+		return int64(v), true
 	}
-	return 0, nil
+	return 0, false
 }
