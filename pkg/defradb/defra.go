@@ -306,7 +306,7 @@ func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg DefraP2PConfi
 }
 
 // StartDefraInstance initializes and starts a DefraDB node instance with the provided configuration.
-func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
+func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, retentionRule client.RetentionRule, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
 	ctx := context.Background()
 
 	if cfg == nil {
@@ -401,6 +401,9 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 	if replicationFilter != nil {
 		defraNode.ReplicationFilter = replicationFilter
 	}
+	if retentionRule != nil {
+		defraNode.RetentionRule = retentionRule
+	}
 
 	err = defraNode.Start(ctx)
 	if err != nil {
@@ -454,7 +457,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier S
 	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
 	cfg.DefraDB.KeyringSecret = "testSecret"
-	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, collectionsOfInterest...)
+	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, nil, collectionsOfInterest...)
 	return node, err
 }
 

@@ -199,6 +199,21 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
+	// The pruner and the retention rule share one cutoff.
+	var cutoff *pruner.Cutoff
+	var rule *RetentionRule
+	if cfg.Pruner.Enabled {
+		cutoff = &pruner.Cutoff{}
+		// With snapshots enabled the pruner retains history and never sets a cutoff.
+		if !cfg.HostConfig.Snapshot.Enabled {
+			rule = NewRetentionRule(pruner.DefaultCollectionConfig(), cutoff)
+		}
+	}
+	// A nil *RetentionRule stored in the interface would not be nil.
+	var retentionRule client.RetentionRule
+	if rule != nil {
+		retentionRule = rule
+	}
 	var replicationFilter client.ReplicationFilter
 	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
 		replicationFilter = f
@@ -227,6 +242,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
+		retentionRule,
 		constants.AllCollections...,
 	)
 	if err != nil {
@@ -246,6 +262,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	err = applySchema(ctx, defraNode, resolvedSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to apply schema: %w", err)
+	}
+
+	if rule != nil {
+		cols, err := defraNode.DB.GetCollections(ctx)
+		if err != nil {
+			logger.Sugar.Errorf("Retention rule inactive until restart, could not read collection IDs: %v", err)
+		} else {
+			names := rule.ResolveCollections(cols)
+			logger.Sugar.Infof("Retention rule active on %d collections (%s)", len(names), strings.Join(names, ", "))
+		}
 	}
 
 	// Bootstrap from historical snapshots before P2P starts
@@ -484,7 +510,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, &pruner.Cutoff{})
+		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff)
 		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {
