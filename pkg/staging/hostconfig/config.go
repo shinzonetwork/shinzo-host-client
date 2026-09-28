@@ -1,6 +1,7 @@
 package hostconfig
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -12,7 +13,7 @@ const configFileMode = 0o600
 
 // Config is the parsed contents of a config.toml file.
 type Config struct {
-	Name string `toml:"name"`
+	Name string `comment:"Local instance name. Sets the folder this host's data lives under,\n~/.shinzo/host/<name>." toml:"name"`
 }
 
 // Create validates cfg, renders it, and saves it to path. Fails if a config
@@ -51,7 +52,10 @@ func load(path string) (Config, error) {
 	}
 
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	dec := toml.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, err
 	}
 

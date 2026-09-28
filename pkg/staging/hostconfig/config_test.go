@@ -8,14 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConfigCanSaveTOML(t *testing.T) {
-	cfg := Config{Name: "host1"}
-	data, err := render(cfg)
-	require.NoError(t, err)
-
-	require.NoError(t, save(filepath.Join(t.TempDir(), "config.toml"), data))
-}
-
 func TestConfigSaveWriteFileToDir(t *testing.T) {
 	cfg := Config{Name: "host1"}
 	path := filepath.Join(t.TempDir(), "config.toml")
@@ -72,6 +64,14 @@ func TestLoadMissingFile(t *testing.T) {
 func TestLoadMalformedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "malformed.toml")
 	require.NoError(t, os.WriteFile(path, []byte(`not = [ valww`), 0o600))
+
+	_, err := load(path)
+	require.Error(t, err)
+}
+
+func TestLoadRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`nmae = "host1"`), 0o600)) //nolint:misspell // deliberate typo of "name", exercising the field-typo case
 
 	_, err := load(path)
 	require.Error(t, err)

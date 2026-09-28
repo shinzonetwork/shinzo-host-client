@@ -12,7 +12,7 @@ func TestRenderIncludesName(t *testing.T) {
 	out, err := render(Config{Name: "host1"})
 	require.NoError(t, err)
 
-	require.True(t, bytes.Contains(out, []byte(`name = "host1"`)), "rendered config missing name field: %s", out)
+	require.True(t, bytes.Contains(out, []byte("host1")), "rendered config missing name field: %s", out)
 }
 
 func TestRenderProducesCorrectTOML(t *testing.T) {

@@ -32,6 +32,9 @@ func TestValidateName(t *testing.T) {
 		{"bare backslash", "\\", false},
 		{"63 chars, at limit", strings.Repeat("a", 63), true},
 		{"64 chars, over limit", strings.Repeat("a", 64), false},
+		{"uppercase leading letter", "Host1", false},
+		{"uppercase embedded letter", "hostName", false},
+		{"all uppercase", "HOST1", false},
 	}
 
 	for _, c := range cases {
