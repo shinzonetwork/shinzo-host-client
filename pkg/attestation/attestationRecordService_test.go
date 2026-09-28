@@ -7,6 +7,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	defraclient "github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -3335,6 +3336,62 @@ func TestPostAttestationRecord_BlockNumber(t *testing.T) {
 
 	require.Equal(t, int64(12345), storedBlockNumber(t, defraNode, "block:12345:root"))
 	require.Nil(t, storedBlockNumber(t, defraNode, "doc:no-block"))
+}
+
+// A record the pruner deletes between the lookup and the write stays deleted, rather than coming
+// back without the fields the lookup and the pruner select on.
+func TestUpdateAttestationRecord_DoesNotRecreateAPrunedRecord(t *testing.T) {
+	ctx := context.Background()
+
+	testConfig := defradb.DefaultConfig
+	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+	testConfig.DefraDB.URL = testListenAddrLocal
+	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
+	testConfig.DefraDB.P2P.Enabled = false
+	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
+
+	client, err := defradb.NewClient(testConfig)
+	require.NoError(t, err)
+	require.NoError(t, client.Start(ctx))
+	defer func() { _ = client.Stop(ctx) }()
+
+	require.NoError(t, client.ApplySchema(ctx, `
+		type Ethereum__Mainnet__AttestationRecord {
+			attested_doc: String @index
+			source_doc: [String]
+			CIDs: [String]
+			doc_type: String @index
+			vote_count: Int @crdt(type: pcounter)
+			blockNumber: Int @index
+		}
+	`))
+	defraNode := client.GetNode()
+
+	blockNumber := int64(5)
+	record := &Record{
+		AttestedDocID: "block:5:root",
+		CIDs:          []string{"cid-a"},
+		DocType:       "Block",
+		VoteCount:     1,
+		BlockNumber:   &blockNumber,
+	}
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, record))
+
+	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	require.NoError(t, err)
+	existing, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
+	require.NoError(t, err)
+	require.NotNil(t, existing)
+	require.NoError(t, col.PurgeByDocIDs(ctx, []defraclient.DocID{existing.ID()}, true))
+
+	require.ErrorIs(t, updateAttestationRecord(ctx, col, existing, record), ErrDocumentNotFound)
+
+	res := defraNode.DB.ExecRequest(ctx, `query { Ethereum__Mainnet__AttestationRecord { _docID } }`)
+	require.Empty(t, res.GQL.Errors)
+	data, ok := res.GQL.Data.(map[string]any)
+	require.True(t, ok)
+	require.Empty(t, data["Ethereum__Mainnet__AttestationRecord"])
 }
 
 // storedBlockNumber returns the blockNumber of the record with the given attested_doc.

@@ -2,9 +2,8 @@ package pruner
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,6 +26,12 @@ func testPrunerWithBlockedCycle() *Pruner {
 	return p
 }
 
+// testDocID returns a docID client.NewDocIDFromString accepts; anything else is skipped
+// before it reaches the purge.
+func testDocID(n int) string {
+	return fmt.Sprintf("bae-%08x-0000-0000-0000-000000000000", n)
+}
+
 // testDocIDs returns n distinct docIDs.
 func testDocIDs(n int) []string {
 	ids := make([]string, n)
@@ -36,8 +41,8 @@ func testDocIDs(n int) []string {
 	return ids
 }
 
-// The queue is saved after the wait, so a Stop that waits without a bound never reaches it
-// and the queue is lost on every restart.
+// A cycle can outlast the shutdown budget, and a Stop that waits for it without a bound
+// leaves the container to be killed instead of exiting.
 func TestStopReturnsWhenShutdownBudgetExpires(t *testing.T) {
 	p := testPrunerWithBlockedCycle()
 	defer p.wg.Done()
@@ -58,36 +63,6 @@ func TestStopReturnsWhenShutdownBudgetExpires(t *testing.T) {
 	}
 }
 
-func TestStopSavesQueueWhenBudgetExpires(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "prune_queue.gob")
-
-	cfg := CollectionConfig{
-		BlockCollection:      testBlockCollection,
-		DependentCollections: []string{testLogCollection},
-	}
-	q := NewEventQueue(cfg)
-	_, err := q.LoadFromFile(path) // sets the save path; the file does not exist yet
-	require.NoError(t, err)
-	q.Push(testBlockCollection, testDocID(1))
-	q.Push(testLogCollection, testDocID(2))
-
-	p := testPrunerWithBlockedCycle()
-	defer p.wg.Done()
-	p.queue = q
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	p.Stop(ctx)
-
-	require.FileExists(t, path, "queue was not saved when the shutdown budget expired")
-
-	restored := NewEventQueue(cfg)
-	n, err := restored.LoadFromFile(path)
-	require.NoError(t, err)
-	require.Equal(t, 2, n)
-	require.Equal(t, 2, restored.Len())
-}
-
 // Close can be reached more than once, and the second call must not close stopChan again.
 func TestStopIsIdempotent(t *testing.T) {
 	p := &Pruner{cfg: &Config{Enabled: true}, stopChan: make(chan struct{})}
@@ -105,7 +80,7 @@ func TestPurgeStopsBeforeFirstBatch(t *testing.T) {
 
 	// defraNode is nil, so reaching the collection lookup would panic. Returning at the
 	// stop check before any submission is what keeps this safe.
-	submitted, err := p.purgeByDocIDs(context.Background(), testLogCollection, []string{testDocID(1)})
+	submitted, err := p.purgeByDocIDs(context.Background(), logCollection, []string{testDocID(1)})
 	require.ErrorIs(t, err, errStopped)
 	require.Zero(t, submitted)
 }
@@ -127,7 +102,7 @@ func TestPurgeSubmitsInBatchesAndStopsAtABoundary(t *testing.T) {
 			return nil
 		}
 
-		submitted, err := p.purgeByDocIDs(context.Background(), testLogCollection, testDocIDs(docs))
+		submitted, err := p.purgeByDocIDs(context.Background(), logCollection, testDocIDs(docs))
 		require.NoError(t, err)
 		require.Equal(t, int64(docs), submitted)
 		require.Equal(t, []int{1000, 1000, 10}, sizes,
@@ -143,7 +118,7 @@ func TestPurgeSubmitsInBatchesAndStopsAtABoundary(t *testing.T) {
 			return nil
 		}
 
-		submitted, err := p.purgeByDocIDs(context.Background(), testLogCollection, testDocIDs(docs))
+		submitted, err := p.purgeByDocIDs(context.Background(), logCollection, testDocIDs(docs))
 		require.ErrorIs(t, err, errStopped)
 		require.Equal(t, 1, calls, "no batch may start after the stop")
 		require.Equal(t, int64(1000), submitted, "the batch that did run is still reported")
@@ -156,77 +131,9 @@ func TestPurgeStopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	submitted, err := p.purgeByDocIDs(ctx, testLogCollection, []string{testDocID(1)})
+	submitted, err := p.purgeByDocIDs(ctx, logCollection, []string{testDocID(1)})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, submitted)
-}
-
-// A block collection whose purge fails is re-queued, so the same blocks are drained and
-// counted again later. Counting them on the failed cycle too makes the total exceed the
-// blocks that were ever pruned.
-func TestBlockCounterIgnoresAFailedBlockPurge(t *testing.T) {
-	cols := DefaultCollectionConfig()
-
-	q := NewEventQueue(cols)
-	q.Push(cols.BlockCollection, testDocID(1))
-	result := q.DrainDocs(1)
-	require.NotNil(t, result)
-	require.Equal(t, 1, result.BlockCount)
-
-	p := &Pruner{cfg: &Config{Enabled: true}, collections: cols, stopChan: make(chan struct{})}
-	p.purgeDocs = func(context.Context, []client.DocID) error {
-		return errors.New("purge failed")
-	}
-
-	require.NoError(t, p.purgeFromDrainResult(context.Background(), q, result))
-
-	require.Zero(t, p.totalBlocksPruned, "blocks that were re-queued must not count as pruned")
-	require.Equal(t, 1, q.BlockCount(), "guard: the blocks are back on the queue")
-}
-
-// The counter still moves on the path that did purge.
-func TestBlockCounterCountsASuccessfulBlockPurge(t *testing.T) {
-	cols := DefaultCollectionConfig()
-
-	q := NewEventQueue(cols)
-	q.Push(cols.BlockCollection, testDocID(1))
-	result := q.DrainDocs(1)
-	require.NotNil(t, result)
-
-	p := &Pruner{cfg: &Config{Enabled: true}, collections: cols, stopChan: make(chan struct{})}
-	p.purgeDocs = func(context.Context, []client.DocID) error { return nil }
-
-	require.NoError(t, p.purgeFromDrainResult(context.Background(), q, result))
-	require.Equal(t, int64(1), p.totalBlocksPruned)
-}
-
-// DrainDocs empties every collection up front, so a cycle that stops part-way has to re-queue the
-// collections it never reached as well as the one it stopped on. Nothing else re-adds a document
-// once it has replicated, so anything left behind is never pruned.
-func TestPurgeRequeuesEveryDrainedCollectionOnStop(t *testing.T) {
-	cols := DefaultCollectionConfig()
-	order := append(append([]string{}, cols.DependentCollections...), cols.BlockCollection)
-
-	q := NewEventQueue(cols)
-	for i, name := range order {
-		q.Push(name, testDocID(i+1))
-	}
-	require.Equal(t, len(order), q.Len(), "every collection should be registered and queued")
-
-	result := q.DrainDocs(len(order))
-	require.NotNil(t, result)
-	require.Zero(t, q.Len())
-
-	p := &Pruner{cfg: &Config{Enabled: true}, collections: cols, stopChan: make(chan struct{})}
-	close(p.stopChan)
-
-	// defraNode is nil, so purgeByDocIDs returning at its stop check is what keeps this from
-	// panicking, and is also what ends the cycle on the first collection.
-	require.NoError(t, p.purgeFromDrainResult(context.Background(), q, result))
-
-	require.Equal(t, len(order), q.Len(), "collections after the one that stopped were dropped")
-	require.Equal(t, colBlock, q.entries[len(q.entries)-1].Collection,
-		"blocks must stay behind their dependents so a later drain cannot purge them first")
 }
 
 // The pruner logs through the package-level sugared logger, which is nil until Init runs.

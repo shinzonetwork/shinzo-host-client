@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -233,10 +234,6 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 				collectionName, known := collectionIDToName[update.CollectionID]
 				if !known {
 					continue
-				}
-
-				if h.pruneQueue != nil {
-					h.pruneQueue.Push(collectionName, update.DocID)
 				}
 
 				// Local writes skip the metric and verification: "documents received"
@@ -481,6 +478,10 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 	var lastErr error
 	for attempt := range maxAttestationRetries {
 		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+			if errors.Is(err, attestationService.ErrDocumentNotFound) {
+				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff", blockNumber)
+				return
+			}
 			lastErr = err
 			if strings.Contains(err.Error(), "transaction conflict") || strings.Contains(err.Error(), "Please retry") {
 				time.Sleep(time.Duration(attestationBackoffBase*(1<<attempt)) * time.Millisecond)
