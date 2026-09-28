@@ -35,6 +35,10 @@ var DefaultConfig = &Config{ //nolint:gochecknoglobals
 			RetryBaseDelayMs:    RetryBaseDelayMs,
 			ReconnectIntervalMs: ReconnectIntervalsMs,
 			EnableAutoReconnect: true,
+
+			ResourceMemoryMiB:       DefaultResourceMemoryMiB,
+			ResourceFileDescriptors: DefaultResourceFileDescriptors,
+			MaxStreamsPerPeer:       DefaultMaxStreamsPerPeer,
 		},
 		Store: DefraStoreConfig{
 			Path: ".defra",
@@ -266,8 +270,43 @@ func CreateLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.P
 	return libp2pPrivKey, nil
 }
 
+// applyP2PResourceLimits gives libp2p an explicit resource-manager budget instead of
+// letting it autoscale. Autoscaling reads the memory the process can see, which inside
+// a container is the host machine's, not the cgroup's, so a node can be granted limits
+// it cannot honour and ends up resetting streams with StreamResourceLimitExceeded.
+//
+// Each limit is resolved here rather than on the config, so any caller that builds node
+// options gets explicit limits instead of silently falling back to the autoscaling this
+// exists to replace.
+func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg DefraP2PConfig) {
+	memoryMiB := p2pCfg.ResourceMemoryMiB
+	if memoryMiB <= 0 {
+		memoryMiB = DefaultResourceMemoryMiB
+	}
+
+	fileDescriptors := p2pCfg.ResourceFileDescriptors
+	if fileDescriptors <= 0 {
+		fileDescriptors = DefaultResourceFileDescriptors
+	}
+
+	maxStreamsPerPeer := p2pCfg.MaxStreamsPerPeer
+	if maxStreamsPerPeer <= 0 {
+		maxStreamsPerPeer = DefaultMaxStreamsPerPeer
+	}
+
+	nb.P2P().
+		SetResourceMemoryMiB(memoryMiB).
+		SetResourceFileDescriptors(fileDescriptors).
+		SetMaxStreamsPerPeer(maxStreamsPerPeer)
+
+	logger.Sugar.Infof(
+		"P2P resource limits configured: %dMiB memory, %d file descriptors, %d streams per peer",
+		memoryMiB, fileDescriptors, maxStreamsPerPeer,
+	)
+}
+
 // StartDefraInstance initializes and starts a DefraDB node instance with the provided configuration.
-func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
+func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, retentionRule client.RetentionRule, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
 	ctx := context.Background()
 
 	if cfg == nil {
@@ -348,6 +387,8 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 		logger.Sugar.Info("P2P Private Key configured for consistent peer ID")
 	}
 
+	applyP2PResourceLimits(nb, cfg.DefraDB.P2P)
+
 	// Collect all options: builder + badger extras + user-provided options
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}
 	allOpts = append(allOpts, nodeOpts...)
@@ -359,6 +400,9 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 
 	if replicationFilter != nil {
 		defraNode.ReplicationFilter = replicationFilter
+	}
+	if retentionRule != nil {
+		defraNode.RetentionRule = retentionRule
 	}
 
 	err = defraNode.Start(ctx)
@@ -413,7 +457,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier S
 	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
 	cfg.DefraDB.KeyringSecret = "testSecret"
-	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, collectionsOfInterest...)
+	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, nil, collectionsOfInterest...)
 	return node, err
 }
 
@@ -584,6 +628,8 @@ func (c *Client) Start(ctx context.Context) error { // nolint:funlen
 		nb.P2P().SetPrivateKey(libp2pKeyBytes)
 		logger.Sugar.Info("P2P Private Key configured for consistent peer ID")
 	}
+
+	applyP2PResourceLimits(nb, c.config.DefraDB.P2P)
 
 	// Collect all options
 	allOpts := []options.Enumerable[options.NodeOptions]{nb}

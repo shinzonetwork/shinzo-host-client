@@ -43,7 +43,7 @@ func TestIntegration(t *testing.T) {
 
 	// Start defra with real connection using schema applier
 	schemaApplier := defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchemaForBuild())
-	defraNode, networkHandler, err := defradb.StartDefraInstance(testConfig, schemaApplier, nil, nil, constants.AllCollections...)
+	defraNode, networkHandler, err := defradb.StartDefraInstance(testConfig, schemaApplier, nil, nil, nil, constants.AllCollections...)
 	require.NoError(t, err)
 	defer defraNode.Close(ctx)
 
