@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcenetwork/corelog"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 func TestDebugMuxServesProfiles(t *testing.T) {
@@ -81,6 +86,30 @@ func TestServeDebugReportsAnUnusableAddress(t *testing.T) {
 	}
 }
 
+// The handler is only reachable through this mux, so a listener that serves pprof must
+// serve the level endpoint too or it cannot be changed without recreating the container.
+func TestDebugMuxServesLogLevel(t *testing.T) {
+	mux := newDebugMux()
+
+	req := httptest.NewRequest(http.MethodPost, logger.LevelPath+"?level="+corelog.LevelError, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST %s: got %d, want %d", logger.LevelPath, rec.Code, http.StatusOK)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decoding the level response: %v", err)
+	}
+	if body["level"] != corelog.LevelError {
+		t.Errorf("level: got %q, want %q", body["level"], corelog.LevelError)
+	}
+	if got := corelog.GetConfig("").Level; got != corelog.LevelError {
+		t.Errorf("the change did not reach corelog: got %q", got)
+	}
+}
+
 // The listener has to answer from its own mux. A nil handler makes net/http fall back to
 // http.DefaultServeMux, which carries whatever any linked package registered on it, so the
 // profiling port would start serving unrelated endpoints.
@@ -121,7 +150,7 @@ func TestServeDebugServesProfilingOnly(t *testing.T) {
 		return resp.StatusCode
 	}
 
-	for _, path := range []string{"/debug/pprof/", "/debug/pprof/cmdline"} {
+	for _, path := range []string{"/debug/pprof/", "/debug/pprof/cmdline", logger.LevelPath} {
 		if code := get(path); code != http.StatusOK {
 			t.Errorf("%s: got %d, want %d", path, code, http.StatusOK)
 		}

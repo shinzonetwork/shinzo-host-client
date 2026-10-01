@@ -45,6 +45,8 @@ func newDebugMux() *http.ServeMux {
 	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("POST /debug/pprof/symbol", pprof.Symbol)
 	mux.Handle("GET /debug/vars", expvar.Handler())
+	// corelog reads the level on every record, so a change here lands without a restart.
+	mux.HandleFunc(logger.LevelPath, logger.LevelHandler)
 	return mux
 }
 
