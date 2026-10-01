@@ -8,20 +8,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRenderIncludesName(t *testing.T) {
-	out, err := render(Config{Name: "host1"})
+func TestRenderIncludesHeader(t *testing.T) {
+	out, err := render(defaultConfig())
 	require.NoError(t, err)
 
-	require.True(t, bytes.Contains(out, []byte("host1")), "rendered config missing name field: %s", out)
+	require.True(t, bytes.Contains(out, []byte("Shinzo Host Config")), "rendered config missing header: %s", out)
 }
 
 func TestRenderProducesCorrectTOML(t *testing.T) {
-	cfg := Config{Name: "host1"}
+	cfg := defaultConfig()
 
 	out, err := render(cfg)
 	require.NoError(t, err)
 
 	var newCfg Config
 	require.NoError(t, toml.Unmarshal(out, &newCfg), "rendered output is not a correct toml")
-	require.Equal(t, cfg.Name, newCfg.Name, "Name=%q does not match unmarshaled name: %q", cfg.Name, newCfg.Name)
+	require.Equal(t, cfg.Logger, newCfg.Logger)
+	require.Equal(t, cfg.HTTP, newCfg.HTTP)
 }

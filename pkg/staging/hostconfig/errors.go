@@ -3,7 +3,7 @@ package hostconfig
 import "errors"
 
 var (
-	errEmptyName     = errors.New("name must not be empty")
-	errInvalidName   = errors.New("invalid name: use only lowercase letters, digits, hyphens and underscores, starting with a letter or digit")
 	errAlreadyExists = errors.New("config already exists")
+	errInvalidLevel  = errors.New("invalid log level")
+	errInvalidAddr   = errors.New("invalid http address")
 )
