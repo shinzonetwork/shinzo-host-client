@@ -51,29 +51,32 @@ type Config struct {
 	// parsed from the file into this struct, ignoring the runtime configs
 	// above. Unlike those, these have a toml value instead of `toml:"-"`.
 
-	Logger LoggerConfig `comment:"Logger configuration"      toml:"logger"`
-	HTTP   HTTPConfig   `comment:"HTTP server configuration" toml:"http"`
+	Logger LoggerConfig `toml:"logger"`
+	HTTP   HTTPConfig   `toml:"http"`
 }
 
 // LoggerConfig holds the settings for the host's logger.
 type LoggerConfig struct {
-	Development bool   `comment:"Enable development mode logging (human-readable console output instead of JSON)" toml:"development"`
-	Level       string `comment:"Minimum log level: debug, info, warn, or error"                                  toml:"level"`
+	Development bool   `comment:"enable development mode logging (human-readable console output instead of JSON)" toml:"development"`
+	Level       string `comment:"minimum log level: debug, info, warn, or error"                                  toml:"level"`
 }
 
 // HTTPConfig holds the settings for the consolidated HTTP server.
 type HTTPConfig struct {
-	Addr string `comment:"Address the HTTP server listens on, e.g. :8080" toml:"addr"`
+	Addr string `comment:"address the HTTP server listens on, e.g. :8080" toml:"addr"`
 }
 
-// Setup creates a brand-new instance: resolves home, dataDir and
-// configPath, creates every directory the host needs, and writes a fresh
-// config.toml built from defaults with overrides applied on top. Fails if
-// a config already exists at the resolved path. Unlike Load, overrides
-// here are baked into the saved file, since Setup is always a deliberate,
-// one-time provisioning step.
-func Setup(home, dataDir, configPath string, overrides map[string]any) (Config, error) {
-	cfg, err := resolve(home, dataDir, configPath)
+// Setup creates a brand-new instance: resolves home and dataDir, creates
+// every directory the host needs, and writes a fresh config.toml built
+// from defaults with overrides applied on top. The config always lands at
+// the fixed path under home; unlike Load there's no way to point it at an
+// arbitrary location, since Setup is building one coherent instance
+// rooted at home, not just writing a lone file. Fails if a config already
+// exists at that path. Unlike Load, overrides here are baked into the
+// saved file, since Setup is always a deliberate, one-time provisioning
+// step.
+func Setup(home, dataDir string, overrides map[string]any) (Config, error) {
+	cfg, err := resolve(home, dataDir, "")
 	if err != nil {
 		return Config{}, err
 	}

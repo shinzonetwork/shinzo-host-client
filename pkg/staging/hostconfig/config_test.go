@@ -175,25 +175,25 @@ func TestCreateRejectsInvalidLogLevel(t *testing.T) {
 }
 
 func TestSetupCreatesConfigAndDirs(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
 
-	cfg, err := Setup("", "", configPath, nil)
+	cfg, err := Setup(home, "", nil)
 	require.NoError(t, err)
 
-	require.Equal(t, configPath, cfg.ConfigPath)
-	require.FileExists(t, configPath)
+	require.Equal(t, filepath.Join(home, "config.toml"), cfg.ConfigPath)
+	require.FileExists(t, cfg.ConfigPath)
 	require.DirExists(t, cfg.DataDir)
 	require.DirExists(t, cfg.KeyDir)
 	require.DirExists(t, cfg.FilterDir)
 }
 
 func TestSetupFailsIfConfigAlreadyExists(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
 
-	_, err := Setup("", "", configPath, nil)
+	_, err := Setup(home, "", nil)
 	require.NoError(t, err)
 
-	_, err = Setup("", "", configPath, nil)
+	_, err = Setup(home, "", nil)
 	require.ErrorIs(t, err, errAlreadyExists)
 }
 
@@ -201,7 +201,7 @@ func TestSetupUsesFixedDefaultHome(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
-	cfg, err := Setup("", "", "", nil)
+	cfg, err := Setup("", "", nil)
 	require.NoError(t, err)
 
 	require.Equal(t, filepath.Join(fakeHome, ".shinzo", "host"), cfg.Home)
@@ -209,10 +209,10 @@ func TestSetupUsesFixedDefaultHome(t *testing.T) {
 }
 
 func TestSetupAcceptsCustomDataDir(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
 	dataDir := filepath.Join(t.TempDir(), "bigdisk")
 
-	cfg, err := Setup("", dataDir, configPath, nil)
+	cfg, err := Setup(home, dataDir, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, dataDir, cfg.DataDir)
@@ -220,23 +220,24 @@ func TestSetupAcceptsCustomDataDir(t *testing.T) {
 }
 
 func TestSetupBakesOverridesIntoSavedFile(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
 
-	cfg, err := Setup("", "", configPath, map[string]any{"logger.level": "warn"})
+	cfg, err := Setup(home, "", map[string]any{"logger.level": "warn"})
 	require.NoError(t, err)
 	require.Equal(t, "warn", cfg.Logger.Level)
 
 	// Re-read the raw file, independent of Setup/Load, to confirm the
 	// override actually landed on disk, not just in the returned value.
-	reloaded := Config{ConfigPath: configPath}
+	reloaded := Config{ConfigPath: cfg.ConfigPath}
 	require.NoError(t, load(&reloaded))
 	require.Equal(t, "warn", reloaded.Logger.Level)
 }
 
 func TestLoadFailsIfExplicitConfigMissing(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
+	configPath := filepath.Join(t.TempDir(), "elsewhere", "config.toml")
 
-	_, err := Load("", "", configPath, nil)
+	_, err := Load(home, "", configPath, nil)
 	require.Error(t, err)
 }
 
@@ -251,42 +252,43 @@ func TestLoadBootstrapsDefaultLocationIfMissing(t *testing.T) {
 }
 
 func TestLoadReadsExistingConfig(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
 
-	setupCfg, err := Setup("", "", configPath, nil)
+	setupCfg, err := Setup(home, "", nil)
 	require.NoError(t, err)
 
-	loadCfg, err := Load("", "", configPath, nil)
+	loadCfg, err := Load(home, "", "", nil)
 	require.NoError(t, err)
 
 	require.Equal(t, setupCfg, loadCfg)
 }
 
 func TestLoadOverridesAreNeverPersisted(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
 
-	_, err := Setup("", "", configPath, nil) // plain defaults on disk
+	_, err := Setup(home, "", nil) // plain defaults on disk
 	require.NoError(t, err)
 
-	cfg, err := Load("", "", configPath, map[string]any{"logger.level": "warn"})
+	cfg, err := Load(home, "", "", map[string]any{"logger.level": "warn"})
 	require.NoError(t, err)
 	require.Equal(t, "warn", cfg.Logger.Level, "override must apply to the returned Config")
 
 	// The file on disk must be untouched by the override.
-	reloaded := Config{ConfigPath: configPath}
+	reloaded := Config{ConfigPath: cfg.ConfigPath}
 	require.NoError(t, load(&reloaded))
 	require.Equal(t, "info", reloaded.Logger.Level, "override must never be saved back to disk")
 }
 
 func TestLoadRejectsInvalidStoredLevel(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "myhost", "config.toml")
+	home := filepath.Join(t.TempDir(), "myhost")
+	configPath := filepath.Join(t.TempDir(), "elsewhere", "config.toml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o700))
 	require.NoError(t, os.WriteFile(configPath, []byte(`
 [logger]
 level = "bogus"
 `), 0o600))
 
-	_, err := Load("", "", configPath, nil)
+	_, err := Load(home, "", configPath, nil)
 	require.ErrorIs(t, err, errInvalidLevel)
 }
 
@@ -294,14 +296,13 @@ func TestLoadDoesNotRememberPreviousCall(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
-	customConfig := filepath.Join(t.TempDir(), "custom", "config.toml")
 	customHome := filepath.Join(t.TempDir(), "customhome")
 	customData := filepath.Join(t.TempDir(), "customdata")
 
-	_, err := Setup("", "", customConfig, nil)
+	_, err := Setup(customHome, customData, nil)
 	require.NoError(t, err)
 
-	_, err = Load(customHome, customData, customConfig, nil)
+	_, err = Load(customHome, customData, "", nil)
 	require.NoError(t, err)
 
 	// A bare call afterward must resolve to the fixed defaults, independent
