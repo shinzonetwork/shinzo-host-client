@@ -87,4 +87,16 @@ const (
 	// Subtest names reused across multiple replication-filter test functions.
 	testNameMatchingAddressAllowed = "matching address allowed"
 	testNameMissingKey             = "missing key"
+
+	// DefraDB document metadata field names.
+	defraFieldDocID   = "_docID"
+	defraFieldVersion = "_version"
+
+	// Document field names used as keys in test documents.
+	gqlFieldAddress     = "address"
+	gqlFieldTo          = "to"
+	gqlFieldHash        = "hash"
+	gqlFieldBlockNumber = "blockNumber"
+	gqlFieldNumber      = "number"
+	gqlFieldTopics      = "topics"
 )

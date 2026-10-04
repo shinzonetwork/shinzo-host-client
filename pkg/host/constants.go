@@ -49,22 +49,5 @@ const (
 	filterModeBlocklist = "blocklist"
 )
 
-// DefraDB JSON metadata field names referenced from the host's GraphQL
-// query builders and tests.
-const (
-	defraFieldDocID   = "_docID"
-	defraFieldVersion = "_version"
-)
-
 // defaultDefraURL is the DefraDB endpoint baked into DefaultConfig.
 const defaultDefraURL = "localhost:9181"
-
-// Common GraphQL field names referenced by the query builder and tests.
-const (
-	gqlFieldAddress     = "address"
-	gqlFieldTo          = "to"
-	gqlFieldHash        = "hash"
-	gqlFieldBlockNumber = "blockNumber"
-	gqlFieldNumber      = "number"
-	gqlFieldTopics      = "topics"
-)
