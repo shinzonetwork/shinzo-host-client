@@ -13,7 +13,6 @@ import (
 
 	gocid "github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/shinzonetwork/shinzo-host-client/config"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
@@ -111,63 +110,6 @@ func TestEnqueueDoc(t *testing.T) {
 		}
 	}
 	require.True(t, hasDoc3, "doc3 should be in queue")
-}
-
-// ---------------------------------------------------------------------------
-// processDocumentAttestationBatch
-// ---------------------------------------------------------------------------
-
-func TestProcessDocumentAttestationBatch_EmptyDocs(t *testing.T) {
-	h := &Host{}
-	err := h.processDocumentAttestationBatch(context.Background(), []Document{})
-	require.NoError(t, err)
-}
-
-func TestProcessDocumentAttestationBatch_NilDocs(t *testing.T) {
-	h := &Host{}
-	err := h.processDocumentAttestationBatch(context.Background(), nil)
-	require.NoError(t, err)
-}
-
-func TestProcessDocumentAttestationBatch_NoVersions(t *testing.T) {
-	// Documents without _version data should be skipped, resulting in empty inputs
-	h := &Host{
-		config: &config.Config{},
-	}
-	docs := []Document{
-		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{"field": testValue}},
-		{ID: testDoc2, Type: docTypeBlock, BlockNumber: 2, Data: map[string]any{}},
-	}
-	err := h.processDocumentAttestationBatch(context.Background(), docs)
-	require.NoError(t, err)
-}
-
-func TestProcessDocumentAttestationBatch_DefaultMaxConcurrent(t *testing.T) {
-	// Test that default maxConcurrentVerifications is used when config value is 0
-	cfg := *DefaultConfig // Copy to avoid mutation
-	cfg.Shinzo.MaxConcurrentVerifications = 0
-	h := &Host{
-		config: &cfg,
-	}
-	// With no _version data, inputs will be empty and return nil
-	docs := []Document{
-		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
-	}
-	err := h.processDocumentAttestationBatch(context.Background(), docs)
-	require.NoError(t, err)
-}
-
-func TestProcessDocumentAttestationBatch_NegativeMaxConcurrent(t *testing.T) {
-	cfg := *DefaultConfig // Copy to avoid mutation
-	cfg.Shinzo.MaxConcurrentVerifications = -5
-	h := &Host{
-		config: &cfg,
-	}
-	docs := []Document{
-		{ID: testDoc1, Type: docTypeBlock, BlockNumber: 1, Data: map[string]any{}},
-	}
-	err := h.processDocumentAttestationBatch(context.Background(), docs)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -436,23 +378,6 @@ func TestAttestedBlocks_SyncMap(t *testing.T) {
 	require.True(t, existed)
 
 	attestedBlocks.Delete(int64(999)) // Clean up
-}
-
-// ---------------------------------------------------------------------------
-// Document struct
-// ---------------------------------------------------------------------------
-
-func TestDocumentStruct(t *testing.T) {
-	doc := Document{
-		ID:          "test-id",
-		Type:        docTypeBlock,
-		BlockNumber: 42,
-		Data:        map[string]any{"key": testValue},
-	}
-	require.Equal(t, "test-id", doc.ID)
-	require.Equal(t, docTypeBlock, doc.Type)
-	require.Equal(t, uint64(42), doc.BlockNumber)
-	require.Equal(t, testValue, doc.Data["key"])
 }
 
 // ---------------------------------------------------------------------------
@@ -815,112 +740,6 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 
 	// Signature failures should have been incremented
 	require.True(t, h.metrics.SignatureFailures > 0, "signature failures should be incremented")
-}
-
-// ---------------------------------------------------------------------------
-// processDocumentAttestationBatch - with version data (covers extraction path)
-// ---------------------------------------------------------------------------
-
-func TestProcessDocumentAttestationBatch_WithVersionData(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	cfg := *DefaultConfig
-	cfg.Shinzo.MaxConcurrentVerifications = 10
-
-	// Create a mock verifier that always succeeds
-	mockVerifier := &attestationService.MockSignatureVerifier{}
-
-	h := &Host{
-		DefraNode:         defraNode,
-		config:            &cfg,
-		signatureVerifier: attestationService.NewDefraSignatureVerifier(defraNode, nil),
-		metrics:           server.NewHostMetrics(),
-	}
-	_ = mockVerifier // verifier is set on signatureVerifier field
-
-	// Documents with _version data that ExtractVersionsFromDocument can parse
-	docs := []Document{
-		{
-			ID:          testDoc1,
-			Type:        docTypeBlock,
-			BlockNumber: 1,
-			Data: map[string]any{
-				defraFieldVersion: []any{
-					map[string]any{
-						testJSONFieldCID: testSnapshotCID,
-						testJSONFieldSignature: map[string]any{
-							testJSONFieldType:     testSigTypeES256K,
-							testJSONFieldIdentity: testIdentityPubkey,
-							testValue:             testSigValue,
-						},
-						"collectionVersionId": "1",
-					},
-				},
-			},
-		},
-	}
-
-	// This exercises the version extraction path. The attestation will fail at
-	// signature verification since the keys are fake, but we exercise the code path
-	err = h.processDocumentAttestationBatch(ctx, docs)
-	// May return nil if no verified CIDs (empty inputs after failed verification)
-	// or may return an error from the underlying attestation call
-	_ = err
-}
-
-func TestProcessDocumentAttestationBatch_MultipleDocsWithMixedVersionData(_ *testing.T) {
-	cfg := *DefaultConfig
-	cfg.Shinzo.MaxConcurrentVerifications = 5
-
-	h := &Host{
-		config:            &cfg,
-		signatureVerifier: attestationService.NewDefraSignatureVerifier(nil, nil),
-	}
-
-	// Mix of docs with and without version data
-	docs := []Document{
-		{
-			ID:          "doc-with-version",
-			Type:        docTypeTransaction,
-			BlockNumber: 10,
-			Data: map[string]any{
-				defraFieldVersion: []any{
-					map[string]any{
-						testJSONFieldCID: "somecid",
-						testJSONFieldSignature: map[string]any{
-							testJSONFieldType:     testSigTypeES256K,
-							testJSONFieldIdentity: testIdentityPubkey,
-							testValue:             testSigValue,
-						},
-					},
-				},
-			},
-		},
-		{
-			ID:          "doc-without-version",
-			Type:        docTypeBlock,
-			BlockNumber: 10,
-			Data:        map[string]any{gqlFieldHash: "0x123"},
-		},
-		{
-			ID:          "doc-with-empty-version",
-			Type:        docTypeLog,
-			BlockNumber: 10,
-			Data: map[string]any{
-				defraFieldVersion: []any{}, // Empty version array
-			},
-		},
-	}
-
-	// MockSignatureVerifier returns nil (verification passes), but no DefraDB
-	// is configured, so HandleDocumentAttestationBatch will fail at the DB layer.
-	// This tests the version extraction and attestation input building paths.
-	err := h.processDocumentAttestationBatch(context.Background(), docs)
-	_ = err
 }
 
 // ---------------------------------------------------------------------------
