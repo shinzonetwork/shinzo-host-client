@@ -44,11 +44,6 @@ const (
 	// Test JSON map keys reused across pipeline tests.
 	testMapKeyAddr = "addr"
 
-	// GraphQL query-fragment prefixes asserted by query-builder tests.
-	testQueryEthBlock       = "Ethereum__Mainnet__Block {"
-	testQueryEthTransaction = "Ethereum__Mainnet__Transaction {"
-	testQueryEthLog         = "Ethereum__Mainnet__Log {"
-
 	// Multi-peer libp2p multiaddr used by peer_discovery_test.go.
 	testPeerMultiaddr = "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
 
@@ -93,9 +88,6 @@ const (
 
 	// Pubkey fixture stored in the signature blob `identity` field.
 	testIdentityPubkey = "testpubkey"
-
-	// GraphQL filter-syntax prefix asserted in query-builder negative checks.
-	testQueryFilterPrefix = "filter:"
 
 	// Snapshot file-name fixtures used in snapshot_bootstrap_test.go.
 	testSnapName200_300 = "snap-200-300.tar"
