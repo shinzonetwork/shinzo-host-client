@@ -10,7 +10,7 @@ Open an issue to discuss your change before submitting a PR. PRs without an atta
 | --- | --- |
 | `cmd/` | Application entrypoint (`main.go`). |
 | `config/` | Config structs, YAML loader, and the reference `config.yaml`. |
-| `pkg/host/` | Core `Host` struct, startup logic, and the processing pipeline. |
+| `pkg/host/` | Core `Host` struct and startup logic. |
 | `pkg/view/` | View lifecycle management, WASM lens registry, and schema service. |
 | `pkg/attestation/` | Attestation record service and signature verification. |
 | `pkg/shinzohub/` | WebSocket event subscription and RPC client for the ShinzoHub chain node. |

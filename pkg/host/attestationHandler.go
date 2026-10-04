@@ -22,47 +22,6 @@ var (
 	startTime      time.Time //nolint:gochecknoglobals,unused
 )
 
-// Document represents a document from DefraDB.
-type Document struct {
-	ID          string
-	Type        string
-	BlockNumber uint64
-	Data        map[string]any
-}
-
-// processDocumentAttestationBatch handles attestation processing for multiple documents in a single batch.
-func (h *Host) processDocumentAttestationBatch(ctx context.Context, docs []Document) error {
-	if len(docs) == 0 {
-		return nil
-	}
-
-	inputs := make([]attestationService.DocumentAttestationInput, 0, len(docs))
-	for _, doc := range docs {
-		versions, err := attestationService.ExtractVersionsFromDocument(doc.Data)
-		if err != nil {
-			continue
-		}
-
-		if len(versions) > 0 {
-			inputs = append(inputs, attestationService.DocumentAttestationInput{
-				DocID:    doc.ID,
-				DocType:  doc.Type,
-				Versions: versions,
-			})
-		}
-	}
-
-	if len(inputs) == 0 {
-		return nil
-	}
-
-	maxConcurrentVerifications := h.config.Shinzo.MaxConcurrentVerifications
-	if maxConcurrentVerifications <= 0 {
-		maxConcurrentVerifications = 50
-	}
-	return attestationService.HandleDocumentAttestationBatch(ctx, h.signatureVerifier, h.DefraNode, inputs, maxConcurrentVerifications)
-}
-
 // processAttestationEventsWithSubscription starts DefraDB event listeners.
 func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
 	logger.Sugar.Info("Starting DefraDB event listener")
