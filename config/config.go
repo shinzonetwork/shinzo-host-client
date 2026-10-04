@@ -114,17 +114,9 @@ type ShinzoConfig struct {
 	ViewWorkerCount       int    `yaml:"view_worker_count"`       // Workers for lens transformations (default: 2)
 	ViewQueueSize         int    `yaml:"view_queue_size"`         // Queue size for view processing jobs (default: 1000)
 
-	// Queue Settings
-	CacheQueueSize int `yaml:"cache_queue_size"` // Size of job queue for document processing
-
-	// Batch Attestation Processing Settings
-	BatchWriterCount           int  `yaml:"batch_writer_count"`           // Number of batch writers
-	BatchSize                  int  `yaml:"batch_size"`                   // Max attestations per batch
-	BatchFlushInterval         int  `yaml:"batch_flush_interval"`         // Flush interval in milliseconds
-	MaxConcurrentVerifications int  `yaml:"max_concurrent_verifications"` // Max concurrent signature verifications
-	UseBlockSignatures         bool `yaml:"use_block_signatures"`         // Use block signatures for attestations
-	DocWorkerCount             int  `yaml:"doc_worker_count"`             // Number of document processing workers
-	DocQueueSize               int  `yaml:"doc_queue_size"`               // Queue size for document event notifications
+	// Attestation Processing Settings
+	DocWorkerCount int `yaml:"doc_worker_count"` // Number of document processing workers
+	DocQueueSize   int `yaml:"doc_queue_size"`   // Queue size for document event notifications
 
 	// Event Filtering
 	EventFilter EventFilterConfig `yaml:"event_filter"` // Configure filtering of P2P events
