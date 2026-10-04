@@ -25,17 +25,13 @@ const (
 	attestationBackoffBase = 10
 	// identityTruncateLength is a const for the identity tracation.
 	identityTruncateLength = 16
-	// nanosecondsPerMillisecond is a const for the number of ns per ms.
-	nanosecondsPerMillisecond = 1_000_000.0
 	// defaultTimeout is a const for the default timeout in s.
 	defaultTimeout = 5 * time.Second
 )
 
-// Short document-type names, as stored in an attestation record's doc_type.
 const (
-	docTypeTransaction = "Transaction"
-	docTypeBlock       = "Block"
-	docTypeLog         = "Log"
+	// docTypeBlock is the doc_type stored on block attestation records.
+	docTypeBlock = "Block"
 
 	// Lowercase forms used by replication filter as collection-type tags.
 	colTypeTransaction     = "transaction"

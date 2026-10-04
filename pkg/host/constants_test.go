@@ -6,7 +6,7 @@ const (
 	testViewSDL       = "type TestView { field: String }"
 	testSnapshotsPath = "/snapshots"
 
-	// View / doc / signer test fixtures shared across handler/pipeline/peer tests.
+	// View / doc / signer test fixtures.
 	testViewName     = "TestView"
 	testTestView     = "testview"
 	testContractKey1 = "0xkey1"
@@ -16,7 +16,6 @@ const (
 	testDoc3         = "doc3"
 	testSignerAddr   = "0xsigner"
 	testSignerName   = "test-signer"
-	testSigValue     = "testsig"
 
 	// Hex test addresses for replication-filter tests (case-sensitive pairs).
 	testHexLogUpper = "0xLOG"
@@ -33,18 +32,11 @@ const (
 	testSnapshotSecond  = "snap-100-200.tar"
 	testSnapshotsPathQS = "snapshots"
 
-	// Test signature crypto type (matches the ES256K identifier the
-	// signature verifier accepts).
-	testSigTypeES256K = "ES256K"
-
-	// Test JSON map keys reused across pipeline tests.
+	// JSON map key used by replication-filter tests.
 	testMapKeyAddr = "addr"
 
 	// Multi-peer libp2p multiaddr used by peer_discovery_test.go.
 	testPeerMultiaddr = "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
-
-	// CID fixture observed in snapshot_bootstrap_test.go.
-	testSnapshotCID = "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4"
 
 	// Compact CID fixtures used in attestation batch tests.
 	testCID1 = "cid1"
@@ -56,21 +48,6 @@ const (
 
 	// Generic view-name placeholder reused across host_test and handler tests.
 	testNameTest = "test"
-
-	// JSON map keys observed in Defra _version test fixtures and attestation
-	// signature blobs. They mirror the protocol-level field names that
-	// pkg/attestation parses in production.
-	testJSONFieldCID       = "cid"
-	testJSONFieldSignature = "signature"
-	testJSONFieldType      = "type"
-	testJSONFieldIdentity  = "identity"
-
-	// "value" reused as both the signature-blob JSON field name and a generic
-	// round-trip test value.
-	testValue = "value"
-
-	// Pubkey fixture stored in the signature blob `identity` field.
-	testIdentityPubkey = "testpubkey"
 
 	// Snapshot file-name fixtures used in snapshot_bootstrap_test.go.
 	testSnapName200_300 = "snap-200-300.tar"
@@ -89,13 +66,11 @@ const (
 	testNameMissingKey             = "missing key"
 
 	// DefraDB document metadata field names.
-	defraFieldDocID   = "_docID"
-	defraFieldVersion = "_version"
+	defraFieldDocID = "_docID"
 
 	// Document field names used as keys in test documents.
 	gqlFieldAddress     = "address"
 	gqlFieldTo          = "to"
-	gqlFieldHash        = "hash"
 	gqlFieldBlockNumber = "blockNumber"
 	gqlFieldNumber      = "number"
 	gqlFieldTopics      = "topics"

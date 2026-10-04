@@ -136,13 +136,12 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 	return cfg
 }()
 
-// Host represents the main application state and components of the Shinzo host. It manages the DefraDB node, P2P network, view manager, processing pipeline, health server, and other core functionalities of the host application.
+// Host represents the main application state and components of the Shinzo host. It manages the DefraDB node, P2P network, view manager, health server, and other core functionalities of the host application.
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
 
 	// signature verifier as a service
-	signatureVerifier      *attestation.DefraSignatureVerifier // Cached signature verifier for attestation processing
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
 	blockCIDCollector      *attestation.BlockCIDCollector      // Collects CIDs per block for batch verification
 
@@ -153,9 +152,6 @@ type Host struct {
 	acpServer              *defradbHttp.Server // ACP-wrapped GraphQL server (set when the ACP middleware owns the API port)
 	acpMiddleware          *acp.Middleware     // Billing gate; drained on Close so in-flight records are not lost
 	config                 *config.Config      // Host configuration including StartHeight
-
-	// EVENT-DRIVEN ATTESTATION SYSTEM: Only track attestation processing
-	processingPipeline *ProcessingPipeline // Complete message processing pipeline
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.Manager // Manages view lifecycle and processing
@@ -173,7 +169,7 @@ type Host struct {
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
-// StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the processing pipeline, view manager, and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
+// StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the view manager and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
 func StartHosting(cfg *config.Config) (*Host, error) {
 	return StartHostingWithEventSubscription(cfg)
 }
@@ -436,24 +432,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	queueSize := cfg.Shinzo.CacheQueueSize
-	if queueSize <= 0 {
-		queueSize = 50000
-	}
-
-	// Create processing pipeline with batch settings from config
-	newHost.processingPipeline = NewProcessingPipeline(
-		context.Background(), newHost, queueSize,
-		cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval,
-		cfg.Shinzo.UseBlockSignatures,
-	)
-
-	logger.Sugar.Infof("🔧 Processing pipeline initialized: queue=%d, batchWriters=%d, batchSize=%d, flushInterval=%dms, useBlockSignatures=%v",
-		queueSize, cfg.Shinzo.BatchWriterCount, cfg.Shinzo.BatchSize, cfg.Shinzo.BatchFlushInterval, cfg.Shinzo.UseBlockSignatures)
-
-	// Start the process pipeline
-	newHost.processingPipeline.Start()
-
 	if wsURL != "" {
 		cancel, channel, err := shinzohub.StartEventSubscription(wsURL, rpcClient)
 
@@ -482,10 +460,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	healthDefraURL := defraProbeAddress(defraNode, cfg.DefraDB.URL)
 
 	if defraNode != nil {
-		newHost.signatureVerifier = attestation.NewDefraSignatureVerifier(defraNode, newHost.metrics)
 		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(blockSignatureCacheSize)
 		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
-		logger.Sugar.Info("🔐 Optimized signature verifier initialized (with block signature support)")
+		logger.Sugar.Info("🔐 Block signature verifier initialized")
 	}
 
 	port := cfg.HostConfig.HealthServerPort
@@ -542,10 +519,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	return newHost, nil
 }
 
-// IsHealthy returns check for defra + processing pipeline health. This is used by the health server to determine if the host is healthy and ready to serve requests.
+// IsHealthy reports whether the host has a DefraDB node. The health server uses it to decide
+// whether the host is ready to serve requests.
 func (h *Host) IsHealthy() bool {
-	// Check if DefraDB is accessible and processing pipeline is running
-	return h.DefraNode != nil && h.processingPipeline != nil
+	return h.DefraNode != nil
 }
 
 // GetCurrentBlock returns the most recent block height that the host has processed, based on the host's metrics. This is used for monitoring the progress of block processing and data freshness.
@@ -725,10 +702,11 @@ func incrementPort(apiURL string) (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
-// Close gracefully shuts down the host, including the DefraDB node, processing pipeline, health server, playground server, and pruner. It ensures all resources are cleaned up properly.
+// Close stops the ShinzoHub event subscription, the event listener and the pruner, shuts down the
+// playground and ACP servers, and closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
-	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
+	h.processingCancel()
 
 	if h.pruner != nil {
 		h.pruner.Stop(ctx)
@@ -759,11 +737,6 @@ func (h *Host) Close(ctx context.Context) error {
 	// ViewManager cleanup (no explicit close needed - just log)
 	if h.viewManager != nil {
 		logger.Sugar.Infof("🎯 ViewManager shutdown: %d active views", h.viewManager.GetViewCount())
-	}
-
-	// Close the processing pipeline
-	if h.processingPipeline != nil {
-		h.processingPipeline.Stop()
 	}
 
 	// Close the DefraDB node
