@@ -8,10 +8,6 @@ const (
 
 	// View / doc / signer test fixtures shared across handler/pipeline/peer tests.
 	testViewName     = "TestView"
-	testWASMViewID   = "WASMView_myview"
-	testViewA        = "view-A"
-	testViewB        = "view-B"
-	testViewAB       = "view-A,view-B"
 	testTestView     = "testview"
 	testContractKey1 = "0xkey1"
 	testCreator1     = "creator1"
@@ -50,26 +46,13 @@ const (
 	// CID fixture observed in snapshot_bootstrap_test.go.
 	testSnapshotCID = "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4"
 
-	// Document docID prefix used in batch-write tests.
-	testBaeOrig = "bae-orig"
-	testBae1    = "bae-1"
-	testBae2    = "bae-2"
-	testBae3    = "bae-3"
-	testBae4    = "bae-4"
-	testBae5    = "bae-5"
-	testBaeSrc1 = "bae-src1"
-
-	// JSON map key for round-trip test fixtures in provenance tests.
-	testJSONFieldResult = "result"
-
 	// Compact CID fixtures used in attestation batch tests.
 	testCID1 = "cid1"
 	testCID2 = "cid2"
 
 	// Misc generic test fixtures.
-	testAbc  = "abc"
-	testDone = "done"
-	testNum  = "num"
+	testAbc = "abc"
+	testNum = "num"
 
 	// Generic view-name placeholder reused across host_test and handler tests.
 	testNameTest = "test"
