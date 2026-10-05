@@ -32,8 +32,8 @@ var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must 
 // ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
 var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
 
-// ErrUnsupportedChains is returned when the config names chains other than Ethereum mainnet alone.
-var ErrUnsupportedChains = fmt.Errorf("chains must be %s alone", chain.EthereumMainnet)
+// ErrUnsupportedChains is returned when the config does not list exactly one chain.
+var ErrUnsupportedChains = errors.New("chains must list exactly one chain")
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -274,9 +274,9 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 // loadChains reads and validates the chains key of the config file. A file without the key serves
-// Ethereum mainnet, and no other set of chains is accepted. Keys the config does not define are
-// ignored elsewhere in the file but rejected under chains, where a misspelled key would leave a
-// chain misconfigured without an error.
+// Ethereum mainnet; otherwise the key must list exactly one chain. Keys the config does not
+// define are ignored elsewhere in the file but rejected under chains, where a misspelled key would
+// leave a chain misconfigured without an error.
 func loadChains(data []byte) ([]chain.Config, error) {
 	// The inline map takes every top-level key other than chains, so only chains is checked.
 	var doc struct {
@@ -296,7 +296,7 @@ func loadChains(data []byte) ([]chain.Config, error) {
 	if err := chain.Validate(chains); err != nil {
 		return nil, fmt.Errorf("invalid chains: %w", err)
 	}
-	if len(chains) != 1 || chains[0].Prefix != chain.EthereumMainnet {
+	if len(chains) != 1 {
 		return nil, ErrUnsupportedChains
 	}
 	return chains, nil
