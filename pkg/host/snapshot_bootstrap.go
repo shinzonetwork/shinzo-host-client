@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/snapshot"
@@ -18,7 +19,7 @@ import (
 )
 
 // bootstrapFromSnapshots imports historical snapshots from an indexer to seed the local DB.
-func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, snapCfg hostConfig.SnapshotConfig) {
+func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, collections chain.Collections, snapCfg hostConfig.SnapshotConfig) {
 	logger.Sugar.Infof("Bootstrapping from snapshots (indexer: %s, ranges: %d)",
 		snapCfg.IndexerURL, len(snapCfg.HistoricalRanges))
 
@@ -27,7 +28,7 @@ func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, snapCfg h
 		return
 	}
 
-	imported := importSnapshots(ctx, defraNode, client, needed)
+	imported := importSnapshots(ctx, defraNode, collections, client, needed)
 
 	if imported > 0 {
 		rebuildIndexes(ctx, defraNode)
@@ -66,12 +67,12 @@ func resolveNeededSnapshots(ctx context.Context, defraNode *node.Node, snapCfg h
 }
 
 // importSnapshots downloads and imports each snapshot, returning the count of successful imports.
-func importSnapshots(ctx context.Context, defraNode *node.Node, client *snapshot.Client, needed []snapshot.Info) int {
+func importSnapshots(ctx context.Context, defraNode *node.Node, collections chain.Collections, client *snapshot.Client, needed []snapshot.Info) int {
 	tmpDir := os.TempDir()
 	var imported int
 
 	for _, snap := range needed {
-		if err := importSingleSnapshot(ctx, defraNode, client, snap, tmpDir); err != nil {
+		if err := importSingleSnapshot(ctx, defraNode, collections, client, snap, tmpDir); err != nil {
 			logger.Sugar.Warnf("Failed to import snapshot %s: %v", snap.Filename, err)
 			continue
 		}
@@ -82,7 +83,7 @@ func importSnapshots(ctx context.Context, defraNode *node.Node, client *snapshot
 }
 
 // importSingleSnapshot downloads, verifies, and imports one snapshot.
-func importSingleSnapshot(ctx context.Context, defraNode *node.Node, client *snapshot.Client, snap snapshot.Info, tmpDir string) error {
+func importSingleSnapshot(ctx context.Context, defraNode *node.Node, collections chain.Collections, client *snapshot.Client, snap snapshot.Info, tmpDir string) error {
 	if snap.Signature == nil {
 		logger.Sugar.Warnf("Snapshot %s is marked signed but has no signature data", snap.Filename)
 		return fmt.Errorf("missing signature") // nolint:err113
@@ -101,7 +102,7 @@ func importSingleSnapshot(ctx context.Context, defraNode *node.Node, client *sna
 	}
 
 	logger.Sugar.Infof("Imported snapshot %s: blocks %d-%d", snap.Filename, result.StartBlock, result.EndBlock)
-	createSnapshotAttestation(ctx, defraNode, snap.Signature)
+	createSnapshotAttestation(ctx, defraNode, collections.AttestationRecord.Name, snap.Signature)
 
 	return nil
 }
@@ -191,7 +192,7 @@ func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, in
 }
 
 // createSnapshotAttestation records an attestation for an imported snapshot.
-func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *snapshot.SignatureData) {
+func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, collection string, sig *snapshot.SignatureData) {
 	if len(sig.BlockSigMerkleRoots) == 0 {
 		logger.Sugar.Warnf("Skipping attestation for snapshot %d-%d: no block sig merkle roots",
 			sig.StartBlock, sig.EndBlock)
@@ -208,7 +209,7 @@ func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, sig *s
 		BlockNumber: &sig.EndBlock,
 	}
 
-	if err := attestationService.PostAttestationRecord(ctx, defraNode, record); err != nil {
+	if err := attestationService.PostAttestationRecord(ctx, defraNode, collection, record); err != nil {
 		logger.Sugar.Warnf("Failed to create attestation for snapshot %d-%d: %v",
 			sig.StartBlock, sig.EndBlock, err)
 	} else {

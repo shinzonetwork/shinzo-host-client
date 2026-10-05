@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	defraclient "github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -85,7 +84,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, attestationRecord)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, attestationRecord)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -95,7 +94,7 @@ func TestPostAttestationRecord(t *testing.T) {
 			source_doc
 			CIDs
 		}
-	`, constants.CollectionAttestationRecord)
+	`, testAttestationCollection)
 
 	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -141,7 +140,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		CIDs:          []string{testCID1},
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, record)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -153,7 +152,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 				CIDs
 			}
 		}
-	`, constants.CollectionAttestationRecord, testDocID)
+	`, testAttestationCollection, testDocID)
 
 	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -194,9 +193,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		CIDs:          []string{testCID1},
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, record)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
-	err = PostAttestationRecord(t.Context(), defraNode, record)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -208,7 +207,7 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 				CIDs
 			}
 		}
-	`, constants.CollectionAttestationRecord, testDocID)
+	`, testAttestationCollection, testDocID)
 
 	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -231,7 +230,7 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record1)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
 	require.NoError(t, err)
 
 	// Second indexer posts attestation for the same block
@@ -242,11 +241,11 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record2)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record2)
 	require.NoError(t, err)
 
 	// Query and verify both indexer identities are preserved
-	records, err := CheckExistingAttestation(ctx, defraNode, "block:500:deadbeef", testDocTypeBlock)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "block:500:deadbeef", testDocTypeBlock)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record")
 
@@ -285,7 +284,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Check for non-existent attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, "non-existent-doc", testDocType)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "non-existent-doc", testDocType)
 	require.NoError(t, err)
 	require.Empty(t, records)
 }
@@ -322,11 +321,11 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 		DocType:       testDocType,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	// Now check for existing attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, "check-existing-doc", testDocType)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "check-existing-doc", testDocType)
 	require.NoError(t, err)
 	require.NotNil(t, records)
 	require.Len(t, records, 1)
@@ -367,11 +366,11 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 		DocType:       testDocTypeA,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	// Query with wrong doc_type should find nothing
-	records, err := CheckExistingAttestation(ctx, defraNode, "check-doctype-doc", testDocTypeB)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "check-doctype-doc", testDocTypeB)
 	require.NoError(t, err)
 	require.Empty(t, records)
 }
@@ -412,7 +411,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 }
 
@@ -448,7 +447,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 		VoteCount:     5,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -459,7 +458,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 				vote_count
 			}
 		}
-	`, constants.CollectionAttestationRecord)
+	`, testAttestationCollection)
 
 	results, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
@@ -500,7 +499,7 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get attestation collection")
 }
@@ -542,10 +541,10 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 		DocType:       testDocTypeA,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record1)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
 	require.NoError(t, err)
 
-	records, err := CheckExistingAttestation(ctx, defraNode, "multi-check-doc", testDocTypeA)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "multi-check-doc", testDocTypeA)
 	require.NoError(t, err)
 	require.NotEmpty(t, records)
 	require.Equal(t, "multi-check-doc", records[0].AttestedDocID)
@@ -582,7 +581,7 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 
 	// This should trigger the strings.Contains(err.Error(), "No attestation records found") branch
 	// or return an error if the branch doesn't match
-	records, err := CheckExistingAttestation(ctx, defraNode, "nonexistent-doc", testDocType)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "nonexistent-doc", testDocType)
 	// The function should either return nil, nil (branch matched) or an error
 	// If the collection doesn't exist, the error may or may not contain "No attestation records found"
 	// In either case, it should not panic
@@ -719,7 +718,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
 
 	// Query for a non-existent attested doc - should return nil, nil
@@ -760,10 +759,10 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 		DocType:       testDocType,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
 
 	// Query for the existing attested doc - should return the document
@@ -862,14 +861,14 @@ func TestPostAttestationRecord_BlockNumber(t *testing.T) {
 	defraNode := client.GetNode()
 
 	blockNumber := int64(12345)
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, &Record{
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
 		AttestedDocID: "block:12345:root",
 		CIDs:          []string{"cid-a"},
 		DocType:       "Block",
 		VoteCount:     1,
 		BlockNumber:   &blockNumber,
 	}))
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, &Record{
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
 		AttestedDocID: "doc:no-block",
 		CIDs:          []string{"cid-b"},
 		DocType:       "Transaction",
@@ -918,9 +917,9 @@ func TestUpdateAttestationRecord_DoesNotRecreateAPrunedRecord(t *testing.T) {
 		VoteCount:     1,
 		BlockNumber:   &blockNumber,
 	}
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, record))
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, record))
 
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
 	existing, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
 	require.NoError(t, err)

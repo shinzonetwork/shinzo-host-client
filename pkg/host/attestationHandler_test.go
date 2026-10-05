@@ -756,8 +756,9 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	metrics := server.NewHostMetrics()
 
 	h := &Host{
-		DefraNode: defraNode,
-		metrics:   metrics,
+		DefraNode:   defraNode,
+		collections: testCollections,
+		metrics:     metrics,
 	}
 
 	// Clean up global attestedBlocks state for this block number
@@ -1010,6 +1011,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	h := &Host{
 		DefraNode:              defraNode,
+		collections:            testCollections,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                metrics,
 	}
@@ -1075,8 +1077,9 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 
 	metrics := server.NewHostMetrics()
 	h := &Host{
-		DefraNode: defraNode,
-		metrics:   metrics,
+		DefraNode:   defraNode,
+		collections: testCollections,
+		metrics:     metrics,
 	}
 
 	// Clean up global attestedBlocks state
@@ -1114,8 +1117,9 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 
 	metrics := server.NewHostMetrics()
 	h := &Host{
-		DefraNode: defraNode,
-		metrics:   metrics,
+		DefraNode:   defraNode,
+		collections: testCollections,
+		metrics:     metrics,
 	}
 
 	// Clean up global attestedBlocks state
@@ -1141,7 +1145,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 	h.processAttestationsFromBlockSignature(ctx, blockSigB)
 
 	// Query the attestation record
-	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, "block:400:aaa", docTypeBlock)
+	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, testCollections.AttestationRecord.Name, "block:400:aaa", docTypeBlock)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record for this block")
 
