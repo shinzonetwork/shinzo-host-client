@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 )
 
@@ -36,11 +35,11 @@ func intField(name string) []client.CollectionFieldDescription {
 
 func TestRetentionRuleFloor(t *testing.T) {
 	cols := []client.Collection{
-		namedCollection{name: constants.CollectionBlock, id: "block-id", fields: intField("number")},
-		namedCollection{name: constants.CollectionLog, id: "log-id", fields: intField("blockNumber")},
-		namedCollection{name: constants.CollectionSnapshotSignature, id: "snapshot-id", fields: intField("endBlock")},
-		namedCollection{name: constants.CollectionTransaction, id: "tx-id", fields: intField("blocknumber")},
-		namedCollection{name: constants.CollectionChain, id: "chain-id"},
+		namedCollection{name: testCollections.Block.Name, id: "block-id", fields: intField("number")},
+		namedCollection{name: testCollections.Log.Name, id: "log-id", fields: intField("blockNumber")},
+		namedCollection{name: testCollections.SnapshotSignature.Name, id: "snapshot-id", fields: intField("endBlock")},
+		namedCollection{name: testCollections.Transaction.Name, id: "tx-id", fields: intField("blocknumber")},
+		namedCollection{name: chain.EthereumMainnet, id: "chain-id"},
 	}
 	tests := []struct {
 		name         string
@@ -64,7 +63,7 @@ func TestRetentionRuleFloor(t *testing.T) {
 			r := NewRetentionRule(pruner.CollectionConfigFor(chain.EVM(chain.EthereumMainnet)), cutoff)
 			if !tt.unresolved {
 				require.Equal(t,
-					[]string{constants.CollectionBlock, constants.CollectionLog, constants.CollectionSnapshotSignature},
+					[]string{testCollections.Block.Name, testCollections.Log.Name, testCollections.SnapshotSignature.Name},
 					r.ResolveCollections(cols), "Chain is not pruned, and Transaction has no blockNumber field")
 			}
 			cutoff.Raise(tt.cutoff)
@@ -105,7 +104,7 @@ func TestStartHostingSharesThePrunerCutoffWithTheRule(t *testing.T) {
 		require.NoError(t, h.Close(closeCtx))
 	})
 
-	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBlock)
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, testCollections.Block.Name)
 	require.NoError(t, err)
 	for i := 1; i <= 10; i++ {
 		doc, err := client.NewDocFromMap(ctx, map[string]any{"number": i, "hash": fmt.Sprintf("h%d", i)}, col.Version())
