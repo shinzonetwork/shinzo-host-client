@@ -237,7 +237,7 @@ func TestDocWorker_ProcessesBlockSignatureEvent(t *testing.T) {
 	// Send a block signature event
 	docQueue <- docEvent{
 		docID:          "test-doc",
-		collectionName: constants.CollectionBlockSignature,
+		collectionName: testCollections.BlockSignature.Name,
 	}
 
 	// Give it time to process
@@ -388,10 +388,10 @@ func TestAttestedBlocks_SyncMap(t *testing.T) {
 func TestDocEventStruct(t *testing.T) {
 	evt := docEvent{
 		docID:          "doc-1",
-		collectionName: constants.CollectionBlockSignature,
+		collectionName: testCollections.BlockSignature.Name,
 	}
 	require.Equal(t, "doc-1", evt.docID)
-	require.Equal(t, constants.CollectionBlockSignature, evt.collectionName)
+	require.Equal(t, testCollections.BlockSignature.Name, evt.collectionName)
 }
 
 // ---------------------------------------------------------------------------
@@ -563,7 +563,7 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 	defraNode.DB.ExecRequest(ctx, mutation)
 
 	select {
@@ -666,17 +666,17 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors, "should create BlockSignature document without errors")
 
 	// Extract the doc ID from the mutation result
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
 	require.NotEmpty(t, docIDStr)
 
 	// Now fetch the document via collection.Get to get a real *client.Document
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
@@ -720,14 +720,14 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr2 := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
+	docIDStr2 := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
 
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr2)
 	require.NoError(t, err)
@@ -845,13 +845,13 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
@@ -889,13 +889,13 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
@@ -928,13 +928,13 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
@@ -1005,13 +1005,13 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature, merkleRootHex, len(cids), cidListStr, pubKeyHex, sigHex)
+	}`, testCollections.BlockSignature.Name, merkleRootHex, len(cids), cidListStr, pubKeyHex, sigHex)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
@@ -1057,12 +1057,12 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature)
+	}`, testCollections.BlockSignature.Name)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
 
 	h := &Host{
 		DefraNode:              defraNode,
@@ -1220,13 +1220,13 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 		}) {
 			_docID
 		}
-	}`, constants.CollectionBlockSignature, merkleRootHex, len(wrongCids), cidListStr, pubKeyHex, sigHex)
+	}`, testCollections.BlockSignature.Name, merkleRootHex, len(wrongCids), cidListStr, pubKeyHex, sigHex)
 
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	docIDStr := extractDocIDFromMutationResult(t, result, constants.CollectionBlockSignature)
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
 	require.NoError(t, err)
@@ -1306,7 +1306,7 @@ func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Write docs to various collections to trigger event routing
-	for _, col := range []string{constants.CollectionBlock, constants.CollectionTransaction, constants.CollectionLog} {
+	for _, col := range []string{testCollections.Block.Name, testCollections.Transaction.Name, testCollections.Log.Name} {
 		mutation := fmt.Sprintf(`mutation { add_%s(input: {blockNumber: 1}) { _docID } }`, col)
 		defraNode.DB.ExecRequest(ctx, mutation)
 	}
