@@ -18,11 +18,12 @@ import (
 
 // Sentinel errors for schema fetch and validation failures.
 var (
-	ErrSchemaFetchNetwork      = fmt.Errorf("schema fetch network error")
-	ErrSchemaFetchStatus       = fmt.Errorf("schema fetch non-OK status")
-	ErrSchemaEmptyResponse     = fmt.Errorf("schema field is empty in indexer response")
-	ErrSchemaMalformedResponse = fmt.Errorf("schema response is malformed or invalid JSON")
-	ErrSchemaMissingBlockType  = fmt.Errorf("schema missing required type Ethereum__Mainnet__Block")
+	ErrSchemaFetchNetwork        = fmt.Errorf("schema fetch network error")
+	ErrSchemaFetchStatus         = fmt.Errorf("schema fetch non-OK status")
+	ErrSchemaEmptyResponse       = fmt.Errorf("schema field is empty in indexer response")
+	ErrSchemaMalformedResponse   = fmt.Errorf("schema response is malformed or invalid JSON")
+	ErrSchemaMissingBlockType    = fmt.Errorf("schema missing required type Ethereum__Mainnet__Block")
+	ErrSchemaMissingIndexedField = fmt.Errorf("schema is missing a field the host indexes")
 )
 
 var (
