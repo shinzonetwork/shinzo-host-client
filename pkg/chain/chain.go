@@ -1,4 +1,5 @@
-// Package chain names the DefraDB collections a chain's data is stored in.
+// Package chain describes the chains a host serves: their configuration and the DefraDB collections
+// their data is stored in.
 package chain
 
 // EthereumMainnet is the collection prefix of Ethereum mainnet.
