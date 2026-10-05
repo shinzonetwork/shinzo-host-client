@@ -32,6 +32,7 @@ import (
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
+	"github.com/sourcenetwork/defradb/event"
 	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -270,15 +271,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	// Bootstrap from historical snapshots before P2P starts
-	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
-		bootstrapFromSnapshots(ctx, defraNode, collections, cfg.HostConfig.Snapshot)
-	}
-
-	// View manager has to be built before the ACP server because the
-	// middleware's view registry adapts the manager's accessors.
-	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
-
 	// Recording the served-query attesting set needs the host's observed
 	// attesters: the block-signature workers populate it and the serve path
 	// snapshots it. Built only when recording is on so the workers skip it
@@ -291,6 +283,46 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 		attesters = newObservedAttesters(window)
 	}
+
+	newHost := &Host{
+		DefraNode:              defraNode,
+		NetworkHandler:         networkHandler,
+		collections:            collections,
+		blockSignatureVerifier: attestation.NewBlockSignatureVerifier(blockSignatureCacheSize),
+		blockCIDCollector:      attestation.NewBlockCIDCollector(),
+		webhookCleanupFunction: func() {},
+		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
+		config:                 cfg,
+		metrics:                server.NewHostMetrics(),
+		attesters:              attesters,
+	}
+	logger.Sugar.Info("🔐 Block signature verifier initialized")
+
+	// The attestation listener subscribes before the host dials any peer, so blocks from the peers
+	// it dials are attested; blocks from a peer that connects before this point are not. It needs
+	// the verifier the Host is built with; without it, block signatures go unattested.
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe to DefraDB updates: %w", err)
+	}
+	processingCtx, processingCancel := context.WithCancel(context.Background())
+	newHost.processingCancel = processingCancel
+	started := false
+	defer func() {
+		if !started {
+			processingCancel()
+		}
+	}()
+	go newHost.processAttestationEventsWithSubscription(processingCtx, updates)
+
+	// Bootstrap from historical snapshots before P2P starts
+	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
+		bootstrapFromSnapshots(ctx, defraNode, collections, cfg.HostConfig.Snapshot)
+	}
+
+	// View manager has to be built before the ACP server because the
+	// middleware's view registry adapts the manager's accessors.
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
 
 	// When the middleware is enabled the host owns the GraphQL API. The
 	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.
@@ -348,21 +380,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		fmt.Printf("   (Playground proxies API requests to defradb at %s)\n", defraNode.APIURL)
 	}
 
-	newHost := &Host{
-		DefraNode:              defraNode,
-		NetworkHandler:         networkHandler,
-		collections:            collections,
-		webhookCleanupFunction: func() {},
-		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
-		processingCancel:       func() {},
-		playgroundServer:       playgroundServer,
-		acpServer:              acpServer,
-		acpMiddleware:          acpMiddleware,
-		config:                 cfg,
-		metrics:                server.NewHostMetrics(),
-		viewManager:            viewManager,
-		attesters:              attesters,
-	}
+	newHost.viewManager = viewManager
+	newHost.acpServer = acpServer
+	newHost.acpMiddleware = acpMiddleware
+	newHost.playgroundServer = playgroundServer
 
 	// Hook up metrics callback for view tracking
 	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
@@ -449,22 +470,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	// Start the event-driven attestation processing system
-	processingCtx, processingCancel := context.WithCancel(context.Background())
-	newHost.processingCancel = processingCancel
-	go newHost.processAttestationEventsWithSubscription(processingCtx)
-
-	// Block monitoring is now handled by the event-driven processAllViews goroutine
-	// No separate monitoring goroutine needed
-
 	// Initialize and start health server
 	healthDefraURL := defraProbeAddress(defraNode, cfg.DefraDB.URL)
-
-	if defraNode != nil {
-		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(blockSignatureCacheSize)
-		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
-		logger.Sugar.Info("🔐 Block signature verifier initialized")
-	}
 
 	port := cfg.HostConfig.HealthServerPort
 	if port == 0 {
@@ -517,6 +524,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}()
 	}
 
+	started = true
 	return newHost, nil
 }
 

@@ -22,11 +22,12 @@ var (
 	startTime      time.Time //nolint:gochecknoglobals,unused
 )
 
-// processAttestationEventsWithSubscription starts DefraDB event listeners.
-func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
+// processAttestationEventsWithSubscription starts DefraDB event listeners on updates, a
+// subscription to DefraDB's update events.
+func (h *Host) processAttestationEventsWithSubscription(ctx context.Context, updates event.Subscription) {
 	logger.Sugar.Info("Starting DefraDB event listener")
 	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
-	go h.startEventBusListener(ctx)
+	go h.startEventBusListener(ctx, updates)
 	logger.Sugar.Info("Event bus listener started")
 	// Wait for context cancellation
 	<-ctx.Done()
@@ -138,8 +139,9 @@ func (h *Host) docWorker(ctx context.Context) {
 	}
 }
 
-// startEventBusListener subscribes to DefraDB's event bus to track document metrics.
-func (h *Host) startEventBusListener(ctx context.Context) {
+// startEventBusListener reads update events from updates: it counts the documents peers send and
+// queues block signatures for attestation.
+func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscription) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
 		return
@@ -155,13 +157,6 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 	}
 	logger.Sugar.Infof("Started %d document workers (queue: %d)", workerCount, queueSize)
 
-	// Subscribe to document update events
-	updateSub, err := h.DefraNode.DB.Events().Subscribe(event.UpdateName)
-	if err != nil {
-		logger.Sugar.Errorf("Failed to subscribe to DefraDB events: %v", err)
-		return
-	}
-
 	logger.Sugar.Info("DefraDB event bus listener started")
 
 	for {
@@ -170,7 +165,7 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 			logger.Sugar.Info("Event bus listener stopped")
 			return
 
-		case msg, ok := <-updateSub.Message():
+		case msg, ok := <-updates.Message():
 			if !ok {
 				logger.Sugar.Warn("Event bus channel closed")
 				return
