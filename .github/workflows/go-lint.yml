@@ -33,3 +33,12 @@ jobs:
       uses: golangci/golangci-lint-action@v9
       with:
         version: v2.12.2
+
+    # Collection names come from pkg/chain. pkg/schema is left out because its schema checks
+    # name the Ethereum types.
+    - name: No hardcoded chain prefix
+      run: |
+        if git grep -n 'Ethereum__Mainnet' -- '*.go' ':!*_test.go' ':!pkg/chain/' ':!pkg/schema/'; then
+          echo "Use the names from pkg/chain instead of a hardcoded chain prefix."
+          exit 1
+        fi
