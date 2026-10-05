@@ -225,8 +225,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		retentionRule = rule
 	}
 	var replicationFilter client.ReplicationFilter
-	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections); f != nil {
-		replicationFilter = f
+	eventFilter := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections)
+	if eventFilter != nil {
+		replicationFilter = eventFilter
 	}
 
 	// wazero runs lens transforms in pure Go. wasmtime is the upstream default,
@@ -280,6 +281,15 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		} else {
 			names := rule.ResolveCollections(cols)
 			logger.Sugar.Infof("Retention rule active on %d collections (%s)", len(names), strings.Join(names, ", "))
+		}
+	}
+
+	if eventFilter != nil {
+		cols, err := defraNode.DB.GetCollections(ctx)
+		if err != nil {
+			logger.Sugar.Errorf("Event filter applies only its block range until restart, could not read collection IDs: %v", err)
+		} else {
+			eventFilter.ResolveCollections(cols)
 		}
 	}
 
