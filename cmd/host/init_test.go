@@ -114,3 +114,34 @@ func TestRunInitPrintsFullResolvedConfig(t *testing.T) {
 	require.Contains(t, out.String(), filepath.Join(home, "data"))
 	require.Contains(t, out.String(), "addr=:9090")
 }
+
+// --data-dir is never saved to config.toml; init should remind the
+// operator of that right when they set it, so they don't discover it the
+// hard way on a later start.
+func TestRunInitWarnsWhenDataDirSet(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	dataDir := filepath.Join(t.TempDir(), "bigdisk")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("data-dir", dataDir))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runInit(cmd, nil))
+	require.Contains(t, out.String(), "not saved")
+}
+
+func TestRunInitDoesNotWarnWhenDataDirUnset(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runInit(cmd, nil))
+	require.NotContains(t, out.String(), "not saved")
+}

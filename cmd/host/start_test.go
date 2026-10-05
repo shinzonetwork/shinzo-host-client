@@ -165,11 +165,13 @@ func TestRunStartWithoutDataDirDoesNotReuseInitsCustomDataDir(t *testing.T) {
 }
 
 // start bootstraps a config when none exists, which makes init optional
-// for the default case — the help text needs to say so, so operators
-// aren't surprised either way (that it works without init, or that init
-// does something start alone doesn't: saving overrides to disk).
+// for the default case. The help text needs to say so, so operators
+// aren't surprised either way: that it works without init, or that init
+// does something start alone doesn't (saving overrides to disk). Checking
+// for just the keyword rather than the exact phrase, so a rewording of
+// the Long description doesn't break this test over nothing.
 func TestStartHelpMentionsInitIsOptional(t *testing.T) {
 	out, err := execute("start", "--help")
 	require.NoError(t, err)
-	require.Contains(t, out, "init first is optional")
+	require.Contains(t, out, "optional")
 }

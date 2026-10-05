@@ -154,6 +154,20 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 	// There's no ambiguity about where this should live, so it's safe to
 	// create it fresh, entirely from defaults.
 	if missing {
+		// Check what the final, overridden result would look like before
+		// create writes anything to disk: a copy with overrides applied,
+		// so a bad override (e.g. an invalid --logger.level) is caught
+		// before the file is written, not after. Without this, a failed
+		// first run still leaves a (valid, override-less) config.toml
+		// behind, since overrides are only applied below, after create.
+		candidate := cfg
+		if err := applyOverrides(&candidate, overrides); err != nil {
+			return Config{}, err
+		}
+		if err := validate(candidate); err != nil {
+			return Config{}, err
+		}
+
 		if err := create(cfg); err != nil {
 			return Config{}, err
 		}
@@ -178,12 +192,18 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 		return Config{}, err
 	}
 
-	// Validated again here: the validate call above (or inside create, in
-	// the missing branch) only covers what was on disk/in defaults, before
-	// overrides went in. Without this, a bad override (e.g. an invalid
-	// --logger.level) would reach the caller untouched instead of erroring.
-	if err := validate(cfg); err != nil {
-		return Config{}, err
+	// Validated again here, but only for the else branch above: the
+	// candidate check in the missing branch already validated this exact
+	// combination (defaults + overrides) before create ran, so checking
+	// again would just repeat it for free, and validate will only get
+	// more expensive to repeat as hostconfig.Config grows. The else
+	// branch never went through that check, so it still needs this:
+	// without it, a bad override (e.g. an invalid --logger.level) applied
+	// on top of an existing, valid file would reach the caller untouched.
+	if !missing {
+		if err := validate(cfg); err != nil {
+			return Config{}, err
+		}
 	}
 
 	return cfg, nil
