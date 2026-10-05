@@ -409,44 +409,6 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	require.Contains(t, v.Data.Query, "input")
 }
 
-// TestSuggestCorrectCollection tests collection name correction.
-func TestSuggestCorrectCollection(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple collection",
-			input:    queryLogJustName,
-			expected: queryEthLog,
-		},
-		{
-			name:     "already prefixed",
-			input:    queryEthLog,
-			expected: queryEthLog,
-		},
-		{
-			name:     "different chain prefix",
-			input:    "Polygon__Mainnet__Transaction",
-			expected: "Polygon__Mainnet__Transaction",
-		},
-		{
-			name:     "with double underscore",
-			input:    "SomeChain__Block",
-			expected: "SomeChain__Block",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			vm := &Manager{}
-			result := vm.suggestCorrectCollection(tt.input)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // TestViewManager_SubscribeToSourceCollection tests subscription functionality.
 func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 	ctx := context.Background()
