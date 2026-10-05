@@ -7,10 +7,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
+)
+
+// The height fields come from the Ethereum chain table; heightTestSchema declares the same fields.
+var evm = chain.EVM(chain.EthereumMainnet)
+
+var (
+	blockHeightField     = evm.Block.HeightField
+	dependentHeightField = evm.Log.HeightField
+	snapshotHeightField  = evm.SnapshotSignature.HeightField
 )
 
 const (
@@ -53,8 +63,8 @@ type Ethereum__Mainnet__AttestationRecord {
 
 func heightTestCollections() CollectionConfig {
 	return CollectionConfig{
-		Block: CollectionHeight{Name: blockCollection, HeightField: blockHeightField},
-		Dependents: []CollectionHeight{
+		Block: chain.Collection{Name: blockCollection, HeightField: blockHeightField},
+		Dependents: []chain.Collection{
 			{Name: aleCollection, HeightField: dependentHeightField},
 			{Name: logCollection, HeightField: dependentHeightField},
 			{Name: txCollection, HeightField: dependentHeightField},
@@ -335,7 +345,7 @@ func TestPruneGoesPastADependentThatFails(t *testing.T) {
 	t.Run("read fails", func(t *testing.T) {
 		p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 		seedHeightBlocks(t, n, 1, 20)
-		p.heightPrunable = []CollectionHeight{{Name: logCollection, HeightField: "noSuchField"}}
+		p.heightPrunable = []chain.Collection{{Name: logCollection, HeightField: "noSuchField"}}
 
 		require.NoError(t, p.runPrune(context.Background()))
 
@@ -409,7 +419,7 @@ func TestPruneReachesDocumentsBelowTheSweepOnTheBottomPass(t *testing.T) {
 func TestPruneSkipsUnindexedHeightField(t *testing.T) {
 	p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
 
-	require.Equal(t, []CollectionHeight{
+	require.Equal(t, []chain.Collection{
 		{Name: logCollection, HeightField: dependentHeightField},
 		{Name: txCollection, HeightField: dependentHeightField},
 		{Name: attRecCollection, HeightField: dependentHeightField},
