@@ -104,7 +104,7 @@ type SchemaConfig struct {
 	// SILENTLY IGNORED. The token MUST be provided via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN
 	// environment variable. Setting this field in config.yaml will NOT work —
 	// the host will start with an empty token, causing schema fetches to
-	// receive 401/503 and fall back to the embedded schema (fail-closed).
+	// receive 401/503; a host starting on an empty store then refuses to start.
 	AuthToken string `yaml:"-"`
 }
 
