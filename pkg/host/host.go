@@ -20,7 +20,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
@@ -216,7 +215,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		retentionRule = rule
 	}
 	var replicationFilter client.ReplicationFilter
-	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
+	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections); f != nil {
 		replicationFilter = f
 	}
 
@@ -244,7 +243,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
-		constants.AllCollections...,
+		collections.Subscribed()...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %w", err)
@@ -254,7 +253,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	ctx := context.Background()
 
-	err = waitForDefraDB(ctx, defraNode)
+	err = waitForDefraDB(ctx, defraNode, collections.Block.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -881,12 +880,12 @@ func (h *Host) GetMetricsHandler() http.Handler {
 // waitForDefraDB polls the embedded DefraDB node until a trivial schema query
 // succeeds. Returns an error after maxAttempts seconds if the node never
 // responds, e.g. because schema setup failed upstream.
-func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
+func waitForDefraDB(ctx context.Context, defraNode *node.Node, blockCollection string) error {
 	fmt.Println("Waiting for defra...")
 	maxAttempts := 30
 
 	// Simple query to check if the schema is ready
-	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
+	query := `{ ` + blockCollection + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		_, err := defradb.QuerySingle[map[string]any](ctx, defraNode, query)

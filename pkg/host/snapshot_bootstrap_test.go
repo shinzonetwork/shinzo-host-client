@@ -389,7 +389,7 @@ func TestGetExistingBlockRange_EmptyDB(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
+	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode, testCollections.Block.Name)
 	require.Equal(t, int64(0), minBlock)
 	require.Equal(t, int64(0), maxBlock)
 }
@@ -474,7 +474,7 @@ func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 		require.Empty(t, result.GQL.Errors, "failed to insert block %d", num)
 	}
 
-	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
+	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode, testCollections.Block.Name)
 	require.Equal(t, int64(10), minBlock)
 	require.Equal(t, int64(30), maxBlock)
 }
@@ -499,7 +499,7 @@ func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
+	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode, testCollections.Block.Name)
 	require.Equal(t, int64(42), minBlock)
 	require.Equal(t, int64(42), maxBlock)
 }

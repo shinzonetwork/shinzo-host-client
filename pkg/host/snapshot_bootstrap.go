@@ -23,7 +23,7 @@ func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, collectio
 	logger.Sugar.Infof("Bootstrapping from snapshots (indexer: %s, ranges: %d)",
 		snapCfg.IndexerURL, len(snapCfg.HistoricalRanges))
 
-	needed, client, err := resolveNeededSnapshots(ctx, defraNode, snapCfg)
+	needed, client, err := resolveNeededSnapshots(ctx, defraNode, collections.Block.Name, snapCfg)
 	if err != nil || len(needed) == 0 {
 		return
 	}
@@ -31,14 +31,14 @@ func bootstrapFromSnapshots(ctx context.Context, defraNode *node.Node, collectio
 	imported := importSnapshots(ctx, defraNode, collections, client, needed)
 
 	if imported > 0 {
-		rebuildIndexes(ctx, defraNode)
+		rebuildIndexes(ctx, defraNode, collections.Subscribed())
 	}
 
 	logger.Sugar.Infof("Snapshot bootstrap complete: %d/%d snapshots imported", imported, len(needed))
 }
 
 // resolveNeededSnapshots lists available snapshots and filters to those not yet imported.
-func resolveNeededSnapshots(ctx context.Context, defraNode *node.Node, snapCfg hostConfig.SnapshotConfig) ([]snapshot.Info, *snapshot.Client, error) {
+func resolveNeededSnapshots(ctx context.Context, defraNode *node.Node, blockCollection string, snapCfg hostConfig.SnapshotConfig) ([]snapshot.Info, *snapshot.Client, error) {
 	client := snapshot.NewClient(snapCfg.IndexerURL)
 
 	available, err := client.ListSnapshots()
@@ -51,7 +51,7 @@ func resolveNeededSnapshots(ctx context.Context, defraNode *node.Node, snapCfg h
 		return nil, nil, nil
 	}
 
-	existingMin, existingMax := getExistingBlockRange(ctx, defraNode)
+	existingMin, existingMax := getExistingBlockRange(ctx, defraNode, blockCollection)
 	if existingMax > 0 {
 		logger.Sugar.Infof("Existing blocks in DB: %d-%d", existingMin, existingMax)
 	}
@@ -107,10 +107,10 @@ func importSingleSnapshot(ctx context.Context, defraNode *node.Node, collections
 	return nil
 }
 
-// rebuildIndexes rebuilds all collection indexes after snapshot import.
-func rebuildIndexes(ctx context.Context, defraNode *node.Node) {
-	logger.Sugar.Infof("Rebuilding indexes for %d collections...", len(constants.AllCollections))
-	if err := snapshot.RebuildAllIndexes(ctx, defraNode, constants.AllCollections); err != nil {
+// rebuildIndexes rebuilds the indexes of the named collections after snapshot import.
+func rebuildIndexes(ctx context.Context, defraNode *node.Node, names []string) {
+	logger.Sugar.Infof("Rebuilding indexes for %d collections...", len(names))
+	if err := snapshot.RebuildAllIndexes(ctx, defraNode, names); err != nil {
 		logger.Sugar.Warnf("Failed to rebuild indexes after snapshot import: %v", err)
 	}
 }
@@ -147,18 +147,17 @@ func findCoveringSnapshots(available []snapshot.Info, ranges []hostConfig.BlockR
 	return needed
 }
 
-// getExistingBlockRange queries DefraDB for the min and max block numbers already stored.
-// Returns (0, 0) if no blocks exist or on error.
-func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, int64) {
+// getExistingBlockRange queries the block collection for the min and max block numbers already
+// stored. Returns (0, 0) if no blocks exist or on error.
+func getExistingBlockRange(ctx context.Context, defraNode *node.Node, blockCollection string) (int64, int64) {
 	type blockResult struct {
 		Number int64 `json:"number"`
 	}
-	type queryResult struct {
-		Block []blockResult `json:"Ethereum__Mainnet__Block"`
-	}
+	// The result is keyed by the name of the collection queried.
+	type queryResult map[string][]blockResult
 
 	// Get highest block.
-	maxQuery := fmt.Sprintf(`query { %s(order: {number: DESC}, limit: 1) { number } }`, constants.CollectionBlock)
+	maxQuery := fmt.Sprintf(`query { %s(order: {number: DESC}, limit: 1) { number } }`, blockCollection)
 	maxResult := defraNode.DB.ExecRequest(ctx, maxQuery)
 	if maxResult.GQL.Errors != nil {
 		return 0, 0
@@ -168,13 +167,13 @@ func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, in
 		return 0, 0
 	}
 	var maxQR queryResult
-	if err := json.Unmarshal(jsonBytes, &maxQR); err != nil || len(maxQR.Block) == 0 {
+	if err := json.Unmarshal(jsonBytes, &maxQR); err != nil || len(maxQR[blockCollection]) == 0 {
 		return 0, 0
 	}
-	maxBlock := maxQR.Block[0].Number
+	maxBlock := maxQR[blockCollection][0].Number
 
 	// Get lowest block.
-	minQuery := fmt.Sprintf(`query { %s(order: {number: ASC}, limit: 1) { number } }`, constants.CollectionBlock)
+	minQuery := fmt.Sprintf(`query { %s(order: {number: ASC}, limit: 1) { number } }`, blockCollection)
 	minResult := defraNode.DB.ExecRequest(ctx, minQuery)
 	if minResult.GQL.Errors != nil {
 		return 0, maxBlock
@@ -184,11 +183,11 @@ func getExistingBlockRange(ctx context.Context, defraNode *node.Node) (int64, in
 		return 0, maxBlock
 	}
 	var minQR queryResult
-	if err := json.Unmarshal(jsonBytes, &minQR); err != nil || len(minQR.Block) == 0 {
+	if err := json.Unmarshal(jsonBytes, &minQR); err != nil || len(minQR[blockCollection]) == 0 {
 		return 0, maxBlock
 	}
 
-	return minQR.Block[0].Number, maxBlock
+	return minQR[blockCollection][0].Number, maxBlock
 }
 
 // createSnapshotAttestation records an attestation for an imported snapshot.

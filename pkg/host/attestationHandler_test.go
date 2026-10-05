@@ -222,7 +222,8 @@ func TestDocWorker_ProcessesBlockSignatureEvent(t *testing.T) {
 
 	// Host with nil DefraNode - processBlockSignatureFromEventBus will return early
 	h := &Host{
-		DefraNode: nil,
+		DefraNode:   nil,
+		collections: testCollections,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -485,7 +486,8 @@ func TestInitKnownCollectionIDs_WithRealDefraDB(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode: defraNode,
+		DefraNode:   defraNode,
+		collections: testCollections,
 	}
 
 	// Reset the global collection IDs to verify they get set
@@ -529,9 +531,10 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	cfg := *DefaultConfig
 	h := &Host{
-		DefraNode: defraNode,
-		config:    &cfg,
-		metrics:   metrics,
+		DefraNode:   defraNode,
+		collections: testCollections,
+		config:      &cfg,
+		metrics:     metrics,
 	}
 
 	// Start the listener
@@ -579,8 +582,9 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 
 	cfg := *DefaultConfig
 	h := &Host{
-		DefraNode: defraNode,
-		config:    &cfg,
+		DefraNode:   defraNode,
+		collections: testCollections,
+		config:      &cfg,
 	}
 
 	// Use a short-lived context so the listener stops after a brief run
@@ -613,7 +617,8 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testi
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode: defraNode,
+		DefraNode:   defraNode,
+		collections: testCollections,
 	}
 
 	// Invalid doc ID format -- should return early from NewDocIDFromString error
@@ -628,7 +633,8 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *tes
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode: defraNode,
+		DefraNode:   defraNode,
+		collections: testCollections,
 	}
 
 	// Valid DocID format but document does not exist -- should fail after retries
@@ -684,6 +690,7 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 	// will exit at the blockSignatureVerifier == nil check after extracting all fields
 	h := &Host{
 		DefraNode:              defraNode,
+		collections:            testCollections,
 		blockSignatureVerifier: nil,
 		metrics:                server.NewHostMetrics(),
 	}
@@ -731,6 +738,7 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	bsv := attestationService.NewBlockSignatureVerifier(100)
 	h := &Host{
 		DefraNode:              defraNode,
+		collections:            testCollections,
 		blockSignatureVerifier: bsv,
 		metrics:                server.NewHostMetrics(),
 	}
@@ -855,6 +863,7 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	h := &Host{
 		DefraNode:              defraNode,
+		collections:            testCollections,
 		blockSignatureVerifier: bsv,
 		metrics:                metrics,
 	}
@@ -894,8 +903,9 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &Host{
-		DefraNode: defraNode,
-		metrics:   server.NewHostMetrics(),
+		DefraNode:   defraNode,
+		collections: testCollections,
+		metrics:     server.NewHostMetrics(),
 	}
 
 	// Exercises blockNumber=0 case and nil verifier path
@@ -931,7 +941,7 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
-	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics()}
+	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics(), collections: testCollections}
 
 	// Should return early at the empty merkleRoot check
 	h.processBlockSignatureDocument(ctx, doc)
@@ -1056,6 +1066,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 
 	h := &Host{
 		DefraNode:              defraNode,
+		collections:            testCollections,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                server.NewHostMetrics(),
 	}
@@ -1225,6 +1236,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	h := &Host{
 		DefraNode:              defraNode,
+		collections:            testCollections,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                metrics,
 	}
@@ -1248,7 +1260,8 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode: defraNode,
+		DefraNode:   defraNode,
+		collections: testCollections,
 	}
 
 	// Use a valid doc ID format but for a non-existent doc
@@ -1273,9 +1286,10 @@ func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	cfg := *DefaultConfig
 	h := &Host{
-		DefraNode: defraNode,
-		config:    &cfg,
-		metrics:   metrics,
+		DefraNode:   defraNode,
+		collections: testCollections,
+		config:      &cfg,
+		metrics:     metrics,
 	}
 
 	// Start the listener with a timeout
