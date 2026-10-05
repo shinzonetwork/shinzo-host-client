@@ -16,6 +16,7 @@ func TestEVM(t *testing.T) {
 			// Generators write these exact names.
 			prefix: EthereumMainnet,
 			want: Collections{
+				Prefix:            "Ethereum__Mainnet",
 				Block:             Collection{Name: "Ethereum__Mainnet__Block", HeightField: "number"},
 				Transaction:       Collection{Name: "Ethereum__Mainnet__Transaction", HeightField: "blockNumber"},
 				Log:               Collection{Name: "Ethereum__Mainnet__Log", HeightField: "blockNumber"},
@@ -35,6 +36,7 @@ func TestEVM(t *testing.T) {
 		{
 			prefix: "Testchain__Devnet",
 			want: Collections{
+				Prefix:            "Testchain__Devnet",
 				Block:             Collection{Name: "Testchain__Devnet__Block", HeightField: "number"},
 				Transaction:       Collection{Name: "Testchain__Devnet__Transaction", HeightField: "blockNumber"},
 				Log:               Collection{Name: "Testchain__Devnet__Log", HeightField: "blockNumber"},

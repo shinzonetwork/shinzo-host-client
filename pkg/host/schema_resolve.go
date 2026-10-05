@@ -5,42 +5,35 @@ import (
 	"net/url"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// resolveSchema parses the indexer base URL from the config, joins the schema
-// endpoint path, and either fetches the schema dynamically or falls back to the
-// embedded schema. On fetch failure the embedded schema is returned and the
-// error is logged.
-func resolveSchema(ctx context.Context, cfg *config.Config) string {
-	parsedURL, parseErr := url.Parse(cfg.HostConfig.Snapshot.IndexerURL)
-
-	var resolvedSchema string
-	switch {
-	case parseErr != nil || parsedURL.Scheme == "" || parsedURL.Host == "":
-		logger.Sugar.Warnf("Invalid indexer URL, using embedded schema: %s", cfg.HostConfig.Snapshot.IndexerURL)
-		resolvedSchema = schema.GetSchema()
-
-	default:
-		parsedURL = parsedURL.JoinPath(cfg.Schema.IndexerSchemaEndpoint)
-
-		var schemaErr error
-		schemaHTTPClient := schema.NewSchemaHTTPClient(cfg.Schema)
-		resolvedSchema, schemaErr = schema.GetSchemaDynamic(ctx, schemaHTTPClient, parsedURL.String())
-		if schemaErr != nil {
-			switch {
-			case schema.IsDataLevelError(schemaErr):
-				logger.Sugar.Warnf("Schema data error, using embedded schema: %v", schemaErr)
-			case schema.IsNetworkLevelError(schemaErr):
-				logger.Sugar.Warnf("Schema fetch failed, using embedded schema: %v", schemaErr)
-			default:
-				logger.Sugar.Warnf("Unexpected schema error, using embedded schema: %v", schemaErr)
-			}
-		} else {
-			logger.Sugar.Infof("Successfully fetched schema from indexer: %s", parsedURL.String())
-		}
+// resolveSchema returns the schema of the chain the host serves: the first usable schema from the
+// chain's generators, tried in order, or the built-in schema when no generator is configured or
+// none serves a usable one. Each request gets the timeout from schemaCfg.
+func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config, collections chain.Collections) string {
+	if len(served.Generators) == 0 {
+		logger.Sugar.Infof("No generators configured for %s, using the built-in schema", served.Prefix)
+		return schema.GetSchema()
 	}
 
-	return resolvedSchema
+	client := schema.NewSchemaHTTPClient(schemaCfg)
+	for _, g := range served.Generators {
+		var sdl string
+		schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
+		if err == nil {
+			sdl, err = schema.FetchSchema(ctx, client, schemaURL, collections)
+		}
+		if err != nil {
+			logger.Sugar.Warnf("Schema from generator %s not used: %v", g.URL, err)
+			continue
+		}
+		logger.Sugar.Infof("Using the schema from generator %s", g.URL)
+		return sdl
+	}
+
+	logger.Sugar.Warnf("No generator served a usable schema for %s, using the built-in schema", served.Prefix)
+	return schema.GetSchema()
 }
