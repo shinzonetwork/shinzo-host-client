@@ -14,4 +14,6 @@ var ( //nolint:revive
 	ErrNoChains             = errors.New("config serves no chain") //nolint:revive
 
 	errHubBaseURLMissing = errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
+	errNoChainSchema     = errors.New("the built-in schema holds only Ethereum mainnet's tables")
+	errNoGeneratorSchema = errors.New("no configured generator served a usable schema")
 )
