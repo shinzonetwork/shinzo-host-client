@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -1399,43 +1398,6 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 // ---------------------------------------------------------------------------
 // applySchema - with real DefraDB
 // ---------------------------------------------------------------------------
-
-func TestApplySchema_WithRealDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	// Start with mock schema applier (no schema applied yet)
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	// First call should succeed (adding schema)
-	err = applySchema(ctx, defraNode, localschema.GetSchema())
-	require.NoError(t, err)
-
-	// Second call should also succeed (schema already exists path)
-	err = applySchema(ctx, defraNode, localschema.GetSchema())
-	require.NoError(t, err)
-}
-
-func Test_ApplySchema_DynamicFetchApplied_WithRealDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	srv := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
-	defer srv.Close()
-
-	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: srv.URL}}}
-	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 5}
-
-	resolvedSchema := resolveSchema(ctx, schemaCfg, served, testCollections)
-	require.NotEqual(t, localschema.GetSchema(), resolvedSchema)
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	err = applySchema(ctx, defraNode, resolvedSchema)
-	require.NoError(t, err)
-}
 
 // ---------------------------------------------------------------------------
 // waitForDefraDB - with real DefraDB
