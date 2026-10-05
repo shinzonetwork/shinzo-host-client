@@ -339,7 +339,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// View manager has to be built before the ACP server because the
 	// middleware's view registry adapts the manager's accessors.
-	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, served.Prefix)
 
 	// When the middleware is enabled the host owns the GraphQL API. The
 	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.

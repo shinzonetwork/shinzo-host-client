@@ -11,6 +11,9 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/lexer"
+	"github.com/vektah/gqlparser/v2/parser"
 	"go.uber.org/zap"
 )
 
@@ -42,11 +45,14 @@ type Manager struct {
 	wasmRegistry    *WASMRegistry
 	registryPath    string
 	metricsCallback func() *server.HostMetrics
+	// chainPrefix is the prefix of the chain the host serves. Views reading another chain are
+	// refused.
+	chainPrefix string
 }
 
-// NewManager creates a new Manager with the given DefraDB node and registry path
-// It initializes all required services and sets up the processing queue for async operations.
-func NewManager(defraNode *node.Node, registryPath string) *Manager {
+// NewManager creates a new Manager for the chain with chainPrefix, with the given DefraDB node and
+// registry path. It initializes all required services.
+func NewManager(defraNode *node.Node, registryPath, chainPrefix string) *Manager {
 	wasmRegistry, _ := NewWASMRegistry(registryPath, zap.L().Sugar())
 	return &Manager{
 		activeViews:   make(map[string]*ActiveView),
@@ -54,6 +60,7 @@ func NewManager(defraNode *node.Node, registryPath string) *Manager {
 		schemaService: NewSchemaService(),
 		wasmRegistry:  wasmRegistry,
 		registryPath:  registryPath,
+		chainPrefix:   chainPrefix,
 	}
 }
 
@@ -212,6 +219,11 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 
 	fixQueryInputData(v)
 
+	table, err := qualifySourceCollection(v, m.chainPrefix)
+	if err != nil {
+		return err
+	}
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -228,9 +240,7 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 		return err
 	}
 
-	fixCollectionName(v)
-
-	if err := m.configureLensAndSubscribe(ctx, v, lensCID); err != nil {
+	if err := m.configureLensAndSubscribe(ctx, v, lensCID, table); err != nil {
 		return err
 	}
 
@@ -278,17 +288,71 @@ func (m *Manager) setupLens(ctx context.Context, v *View) (string, error) {
 	return lensCID, nil
 }
 
-// fixCollectionName auto-fixes the collection name in the query if needed.
-func fixCollectionName(v *View) {
-	sourceCollection := extractCollectionFromQuery(v.Data.Query)
-	if sourceCollection != "" && !strings.HasPrefix(sourceCollection, chain.EthereumMainnet+"__") {
-		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, chain.EthereumMainnet+"__"+sourceCollection, 1)
-		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, chain.EthereumMainnet, sourceCollection)
+// qualifySourceCollection writes the chain into the view's source table and returns the table. It
+// returns ErrViewQueryInvalid when the query does not read one table, and ErrViewChainNotServed
+// when the table belongs to a chain the host does not serve. A table named without a chain, such
+// as Log, is read as Ethereum mainnet's, so such views run only on an Ethereum mainnet host.
+func qualifySourceCollection(v *View, chainPrefix string) (string, error) {
+	source, at, err := sourceTable(v.Data.Query)
+	if err != nil {
+		return "", fmt.Errorf("view %s: %w", v.Name, err)
 	}
+	table := source
+	if !strings.Contains(source, "__") {
+		table = chain.EthereumMainnet + "__" + source
+	}
+	if !strings.HasPrefix(table, chainPrefix+"__") {
+		return "", fmt.Errorf("view %s reads %s: %w", v.Name, table, ErrViewChainNotServed)
+	}
+	if table != source {
+		v.Data.Query = v.Data.Query[:at] + table + v.Data.Query[at+len(source):]
+		logger.Sugar.Debugf("Fixed collection name: %s → %s", source, table)
+	}
+	return table, nil
 }
 
-// configureLensAndSubscribe configures the lens and subscribes to relevant collections.
-func (m *Manager) configureLensAndSubscribe(ctx context.Context, v *View, lensCID string) error {
+// sourceTable returns the table a view's query reads and the byte offset of the table's name in the
+// query. DefraDB parses a view's query as "query { <query> }" and reads only the first root, so the
+// query must hold exactly one root, a field naming the table.
+func sourceTable(query string) (string, int, error) {
+	const prefix = "query { "
+	src := &ast.Source{Input: prefix + query + " }"}
+	doc, err := parser.ParseQuery(src)
+	if err != nil {
+		return "", 0, fmt.Errorf("%w: %w", ErrViewQueryInvalid, err)
+	}
+	if len(doc.Operations) != 1 || len(doc.Operations[0].SelectionSet) != 1 {
+		return "", 0, fmt.Errorf("query must read exactly one table: %w", ErrViewQueryInvalid)
+	}
+	field, ok := doc.Operations[0].SelectionSet[0].(*ast.Field)
+	if !ok {
+		return "", 0, fmt.Errorf("query must start with a table: %w", ErrViewQueryInvalid)
+	}
+
+	// The tokens are "query", "{", then the root field: its alias and a colon if it has an alias,
+	// then its name. Comments are tokens too and are skipped.
+	lex := lexer.New(src)
+	var tokens []lexer.Token
+	for len(tokens) < 5 {
+		tok, err := lex.ReadToken()
+		if err != nil {
+			return "", 0, fmt.Errorf("%w: %w", ErrViewQueryInvalid, err)
+		}
+		if tok.Kind != lexer.Comment {
+			tokens = append(tokens, tok)
+		}
+	}
+	name := tokens[2]
+	if tokens[3].Kind == lexer.Colon {
+		name = tokens[4]
+	}
+	// Token positions count runes, not bytes.
+	at := len(string([]rune(src.Input)[:name.Pos.Start])) - len(prefix)
+	return field.Name, at, nil
+}
+
+// configureLensAndSubscribe configures the lens and subscribes to the view and to table, its source.
+func (m *Manager) configureLensAndSubscribe(ctx context.Context, v *View, lensCID, table string) error {
 	if err := v.ConfigureLens(ctx, m.defraNode, lensCID); err != nil {
 		return fmt.Errorf("failed to configure lens for view %s: %w", v.Name, err)
 	}
@@ -297,13 +361,8 @@ func (m *Manager) configureLensAndSubscribe(ctx context.Context, v *View, lensCI
 		logger.Sugar.Warnf("Failed to subscribe to view %s: %v", v.Name, err)
 	}
 
-	if v.Data.Query != "" {
-		sourceCollection := extractCollectionFromQuery(v.Data.Query)
-		if sourceCollection != "" {
-			if err := m.subscribeToSourceCollection(ctx, sourceCollection, v.Name); err != nil {
-				logger.Sugar.Warnf("Failed to subscribe to source collection %s: %v", sourceCollection, err)
-			}
-		}
+	if err := m.subscribeToSourceCollection(ctx, table, v.Name); err != nil {
+		logger.Sugar.Warnf("Failed to subscribe to source collection %s: %v", table, err)
 	}
 
 	return nil
@@ -326,16 +385,4 @@ func (m *Manager) subscribeToSourceCollection(_ context.Context, collectionName,
 	// and trigger view processing when source documents arrive
 	logger.Sugar.Infof("View %s subscribed to source collection %s", viewName, collectionName)
 	return nil
-}
-
-// extractCollectionFromQuery returns the first identifier in a GraphQL
-// query, after trimming leading whitespace.
-func extractCollectionFromQuery(query string) string {
-	query = strings.TrimLeft(query, " \n\t\r")
-	for i, r := range query {
-		if r == '{' || r == ' ' || r == '\n' || r == '\t' {
-			return query[:i]
-		}
-	}
-	return query
 }

@@ -232,7 +232,7 @@ func TestHost_GetActiveViewNames(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := view.NewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir(), testCollections.Prefix)
 
 	host := &Host{
 		DefraNode:   defraNode,
@@ -274,7 +274,7 @@ func TestHost_Close(t *testing.T) {
 		processingCancel: func() {
 			cancelCalled = true
 		},
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	err = host.Close(ctx)
@@ -364,7 +364,7 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 		},
 	}
 
-	vm := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+	vm := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, testCollections.Prefix)
 
 	host := &Host{
 		DefraNode:              defraNode,
@@ -393,7 +393,7 @@ func TestHost_ViewManagerIntegration(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	host := &Host{
 		DefraNode:        defraNode,
@@ -612,7 +612,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingQuery(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	// No query set (nil)
@@ -633,7 +633,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	query := "SELECT * FROM something"
@@ -659,7 +659,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	emptyStr := ""
@@ -685,7 +685,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptySDL(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	query := "SELECT * FROM something"
@@ -1047,7 +1047,7 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		DefraNode:        defraNode,
@@ -1089,7 +1089,7 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		DefraNode:        defraNode,
@@ -1128,7 +1128,7 @@ func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := view.NewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir(), testCollections.Prefix)
 	h := &Host{
 		DefraNode:   defraNode,
 		viewManager: vm,
@@ -1158,7 +1158,7 @@ func TestHost_Close_WithViewManager(t *testing.T) {
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
-	vm := view.NewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir(), testCollections.Prefix)
 
 	playgroundServer := &http.Server{
 		Addr:              ":0",
@@ -1349,7 +1349,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1406,7 +1406,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1545,7 +1545,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1606,7 +1606,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
