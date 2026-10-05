@@ -10,6 +10,7 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 )
@@ -60,7 +61,7 @@ func TestRetentionRuleFloor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cutoff := &pruner.Cutoff{}
-			r := NewRetentionRule(pruner.DefaultCollectionConfig(), cutoff)
+			r := NewRetentionRule(pruner.CollectionConfigFor(chain.EVM(chain.EthereumMainnet)), cutoff)
 			if !tt.unresolved {
 				require.Equal(t,
 					[]string{constants.CollectionBlock, constants.CollectionLog, constants.CollectionSnapshotSignature},

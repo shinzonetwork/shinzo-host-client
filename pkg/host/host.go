@@ -19,6 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
@@ -195,14 +196,17 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// The pruner and the retention rule share one cutoff.
+	collections := chain.EVM(chain.EthereumMainnet)
+
+	// The pruner and the retention rule share one cutoff and the same collections.
+	pruned := pruner.CollectionConfigFor(collections)
 	var cutoff *pruner.Cutoff
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
 		cutoff = &pruner.Cutoff{}
 		// With snapshots enabled the pruner retains history and never sets a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
-			rule = NewRetentionRule(pruner.DefaultCollectionConfig(), cutoff)
+			rule = NewRetentionRule(pruned, cutoff)
 		}
 	}
 	// A nil *RetentionRule stored in the interface would not be nil.
@@ -487,7 +491,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff)
+		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff, pruned)
 		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {
