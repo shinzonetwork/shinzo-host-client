@@ -14,4 +14,6 @@ var ( //nolint:revive
 	ErrViewAlreadyRegistered = errors.New("view already registered")           //nolint:revive
 	ErrWASMDownloadFailed    = errors.New("failed to download WASM files")     //nolint:revive
 	ErrHTTPErrorResponse     = errors.New("HTTP error response")               //nolint:revive
+	ErrViewChainNotServed    = errors.New("chain not served by this host")     //nolint:revive
+	ErrViewQueryInvalid      = errors.New("view query is invalid")             //nolint:revive
 )
