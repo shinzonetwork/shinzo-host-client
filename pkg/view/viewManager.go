@@ -339,15 +339,3 @@ func extractCollectionFromQuery(query string) string {
 	}
 	return query
 }
-
-// suggestCorrectCollection suggests the correct collection name based on available collections.
-func (m *Manager) suggestCorrectCollection(invalidCollection string) string {
-	// If the collection already starts with a chain network prefix, return as-is
-	if strings.HasPrefix(invalidCollection, constants.CollectionChain+"__") ||
-		strings.Contains(invalidCollection, "__") {
-		return invalidCollection
-	}
-
-	// Prepend the default chain network prefix with double underscore separator
-	return fmt.Sprintf("%s__%s", constants.CollectionChain, invalidCollection)
-}
