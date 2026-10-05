@@ -238,7 +238,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// Called only when the store has none of the chain's tables, so a restart does not depend on
 	// the chain's generators.
 	tables := func(ctx context.Context) (string, error) {
-		return resolveSchema(ctx, cfg.Schema, served, collections), nil
+		return resolveSchema(ctx, cfg.Schema, served, collections)
 	}
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.

@@ -1677,16 +1677,17 @@ func TestStartHostingAddsGeneratorPeers(t *testing.T) {
 	addr, ok := listener.Addr().(*net.TCPAddr)
 	require.True(t, ok)
 	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
 
 	cfg := *DefaultConfig
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = testLoopbackAddr
 	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
 	cfg.HostConfig.HealthServerPort = addr.Port
-	cfg.Schema.HTTPClientTimeoutSecs = 1
 	cfg.Chains = []chain.Config{{
 		Prefix:     chain.EthereumMainnet,
-		Generators: []chain.Generator{{URL: "http://127.0.0.1:1", Peer: testPeerMultiaddr}},
+		Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}},
 	}}
 
 	h, err := StartHosting(&cfg)
