@@ -44,8 +44,8 @@ shinzo:
   doc_worker_count: 32
   doc_queue_size: 50000
   # Event Replication Filter
-  # Controls which P2P documents the host stores. Blocks and BlockSignatures
-  # always pass through regardless of filter settings.
+  # Controls which P2P documents the host stores. Blocks are checked only
+  # against block_range; BlockSignatures and SnapshotSignatures always pass.
   event_filter:
     enabled: false                 # Set to false to accept all documents (no filtering)
     # Mode: "allowlist" (default) - only accept documents matching a group.
