@@ -22,6 +22,9 @@ type Config struct {
 type Generator struct {
 	// URL is the base URL of the generator's HTTP API, for example "http://10.0.0.5:8080".
 	URL string `yaml:"url"`
+	// Peer is the generator's P2P address, which the host dials with its bootstrap peers. Like a
+	// bootstrap peer, it is a multiaddr or an IP address with or without a port. It is optional.
+	Peer string `yaml:"peer"`
 }
 
 // Validate checks every chain's prefix and generator URLs. Two prefixes that differ only in case
