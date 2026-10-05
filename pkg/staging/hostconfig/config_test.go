@@ -239,6 +239,13 @@ func TestLoadFailsIfExplicitConfigMissing(t *testing.T) {
 
 	_, err := Load(home, "", configPath, nil)
 	require.Error(t, err)
+
+	// Simulates an explicit path on a drive that isn't mounted yet: the
+	// failure shouldn't leave a stray directory behind where that mount
+	// point would go, home included — nothing gets created on this path
+	// at all.
+	require.NoDirExists(t, home)
+	require.NoDirExists(t, filepath.Dir(configPath))
 }
 
 func TestLoadBootstrapsDefaultLocationIfMissing(t *testing.T) {
@@ -290,6 +297,22 @@ level = "bogus"
 
 	_, err := Load(home, "", configPath, nil)
 	require.ErrorIs(t, err, errInvalidLevel)
+}
+
+// A config bootstrapped fresh from defaults is valid on its own, but an
+// override landing on top of it can still make it invalid — validate must
+// catch that too, not just whatever was in defaults/on disk before
+// overrides were applied. Each case gets its own home: the first Load
+// call still bootstraps a (valid, default) file on disk before the
+// override is applied and rejected, so reusing a home across cases would
+// mean the second case silently loads the first one's leftover file
+// instead of bootstrapping its own.
+func TestLoadRejectsInvalidOverride(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "myhost"), "", "", map[string]any{"logger.level": "bogus"})
+	require.ErrorIs(t, err, errInvalidLevel)
+
+	_, err = Load(filepath.Join(t.TempDir(), "myhost"), "", "", map[string]any{"http.addr": "notanaddr"})
+	require.ErrorIs(t, err, errInvalidAddr)
 }
 
 func TestLoadDoesNotRememberPreviousCall(t *testing.T) {

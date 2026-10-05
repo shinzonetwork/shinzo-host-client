@@ -117,10 +117,6 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 		return Config{}, err
 	}
 
-	if err := createPath(cfg); err != nil {
-		return Config{}, err
-	}
-
 	_, statErr := os.Stat(cfg.ConfigPath)
 	missing := errors.Is(statErr, fs.ErrNotExist)
 
@@ -142,6 +138,14 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 	}
 
 	if err := applyDefaults(&cfg); err != nil {
+		return Config{}, err
+	}
+
+	// Only reached once we know we're actually bootstrapping or loading,
+	// never on a path we're about to reject above, so an explicit but
+	// missing/unmounted path (e.g. a backup drive that isn't mounted yet)
+	// is never left with a stray, empty directory created in its place.
+	if err := createPath(cfg); err != nil {
 		return Config{}, err
 	}
 
@@ -171,6 +175,14 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 	// Applied last, onto the in-memory result only — never saved back,
 	// whether cfg was just created above or loaded from an existing file.
 	if err := applyOverrides(&cfg, overrides); err != nil {
+		return Config{}, err
+	}
+
+	// Validated again here: the validate call above (or inside create, in
+	// the missing branch) only covers what was on disk/in defaults, before
+	// overrides went in. Without this, a bad override (e.g. an invalid
+	// --logger.level) would reach the caller untouched instead of erroring.
+	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
 
