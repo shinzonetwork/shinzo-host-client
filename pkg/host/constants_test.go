@@ -1,5 +1,7 @@
 package host
 
+import "github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+
 const (
 	testQueryBlocks   = "SELECT * FROM blocks"
 	testQueryTest     = "SELECT * FROM test"
@@ -75,3 +77,6 @@ const (
 	gqlFieldNumber      = "number"
 	gqlFieldTopics      = "topics"
 )
+
+// testCollections are the Ethereum mainnet collections the tests use.
+var testCollections = chain.EVM(chain.EthereumMainnet)

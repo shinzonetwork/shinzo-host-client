@@ -141,6 +141,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
+	collections    chain.Collections       // Collections of the chain this host serves
 
 	// signature verifier as a service
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
@@ -276,7 +277,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// Bootstrap from historical snapshots before P2P starts
 	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
-		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
+		bootstrapFromSnapshots(ctx, defraNode, collections, cfg.HostConfig.Snapshot)
 	}
 
 	// View manager has to be built before the ACP server because the
@@ -355,6 +356,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	newHost := &Host{
 		DefraNode:              defraNode,
 		NetworkHandler:         networkHandler,
+		collections:            collections,
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},
