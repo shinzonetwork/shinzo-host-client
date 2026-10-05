@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +59,7 @@ func TestAllowReplication(t *testing.T) {
 				Enabled: true,
 				Mode:    filterModeAllowlist,
 			},
-			collectionID: constants.CollectionBlockSignature,
+			collectionID: testCollections.BlockSignature.Name,
 			fields:       map[string]any{},
 			want:         true,
 		},
@@ -70,7 +69,7 @@ func TestAllowReplication(t *testing.T) {
 				Enabled: true,
 				Mode:    filterModeAllowlist,
 			},
-			collectionID: constants.CollectionSnapshotSignature,
+			collectionID: testCollections.SnapshotSignature.Name,
 			fields:       map[string]any{},
 			want:         true,
 		},
@@ -81,7 +80,7 @@ func TestAllowReplication(t *testing.T) {
 				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			collectionID: constants.CollectionBlock,
+			collectionID: testCollections.Block.Name,
 			fields:       map[string]any{gqlFieldNumber: uint64(150)},
 			want:         true,
 		},
@@ -92,7 +91,7 @@ func TestAllowReplication(t *testing.T) {
 				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			collectionID: constants.CollectionBlock,
+			collectionID: testCollections.Block.Name,
 			fields:       map[string]any{gqlFieldNumber: uint64(50)},
 			want:         false,
 		},
@@ -108,7 +107,7 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionTransaction,
+			collectionID: testCollections.Transaction.Name,
 			fields:       map[string]any{gqlFieldTo: "0xabc"},
 			want:         true,
 		},
@@ -124,7 +123,7 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionLog,
+			collectionID: testCollections.Log.Name,
 			fields:       map[string]any{gqlFieldAddress: "0xdef", gqlFieldTopics: []string{"0xtopic0"}},
 			want:         true,
 		},
@@ -140,7 +139,7 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionAccessListEntry,
+			collectionID: testCollections.AccessListEntry.Name,
 			fields:       map[string]any{gqlFieldAddress: "0x123"},
 			want:         true,
 		},
@@ -167,7 +166,7 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionTransaction,
+			collectionID: testCollections.Transaction.Name,
 			fields:       map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)},
 			want:         false,
 		},
@@ -1218,7 +1217,7 @@ func TestAllowReplication_BlockNoNumberField(t *testing.T) {
 	require.NotNil(t, f)
 
 	// Block collection with no gqlFieldNumber field should be allowed (can't determine)
-	got := f.AllowReplication(context.Background(), constants.CollectionBlock, "docID", map[string]any{})
+	got := f.AllowReplication(context.Background(), testCollections.Block.Name, "docID", map[string]any{})
 	require.True(t, got)
 }
 
@@ -1241,12 +1240,12 @@ func TestAllowReplication_TransactionBelowBlockRange(t *testing.T) {
 	require.NotNil(t, f)
 
 	// Transaction with blockNumber below range
-	got := f.AllowReplication(context.Background(), constants.CollectionTransaction, "docID",
+	got := f.AllowReplication(context.Background(), testCollections.Transaction.Name, "docID",
 		map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 
 	// Transaction with blockNumber above range
-	got = f.AllowReplication(context.Background(), constants.CollectionTransaction, "docID",
+	got = f.AllowReplication(context.Background(), testCollections.Transaction.Name, "docID",
 		map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(300)})
 	require.False(t, got)
 }
@@ -1269,12 +1268,12 @@ func TestAllowReplication_LogBlockRange(t *testing.T) {
 	}, testCollections)
 
 	// Log with blockNumber in range, matching address
-	got := f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
+	got := f.AllowReplication(context.Background(), testCollections.Log.Name, "docID",
 		map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldBlockNumber: uint64(150)})
 	require.True(t, got)
 
 	// Log with blockNumber out of range
-	got = f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
+	got = f.AllowReplication(context.Background(), testCollections.Log.Name, "docID",
 		map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 }
@@ -1293,12 +1292,12 @@ func TestAllowReplication_AccessListEntryBlockRange(t *testing.T) {
 	}, testCollections)
 
 	// AccessListEntry with blockNumber in range
-	got := f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
+	got := f.AllowReplication(context.Background(), testCollections.AccessListEntry.Name, "docID",
 		map[string]any{gqlFieldAddress: testHexAleLower, gqlFieldBlockNumber: uint64(150)})
 	require.True(t, got)
 
 	// AccessListEntry with blockNumber below range
-	got = f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
+	got = f.AllowReplication(context.Background(), testCollections.AccessListEntry.Name, "docID",
 		map[string]any{gqlFieldAddress: testHexAleLower, gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 }
