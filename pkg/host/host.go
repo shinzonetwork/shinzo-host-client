@@ -145,6 +145,9 @@ type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
 	collections    chain.Collections       // Collections of the chain this host serves
+	// collectionNames maps the IDs of the chain's collections to their names. Only the attestation
+	// listener reads and writes it.
+	collectionNames map[string]string
 
 	// signature verifier as a service
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
