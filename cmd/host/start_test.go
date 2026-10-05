@@ -136,3 +136,40 @@ func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 	require.NoError(t, runStart(cmd, nil))
 	require.Contains(t, out.String(), "addr=:9191")
 }
+
+// Demonstrates the documented data-dir tradeoff, at the CLI level rather
+// than hostconfig's own: --data-dir isn't persisted, so init --data-dir X
+// followed by a bare start doesn't remember X — start falls back to the
+// default location instead, a different, still-empty directory. Not a
+// bug; this is what happens if you forget to repeat the flag.
+func TestRunStartWithoutDataDirDoesNotReuseInitsCustomDataDir(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	customDataDir := filepath.Join(t.TempDir(), "bigdisk")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("data-dir", customDataDir))
+	cmd.SetOut(&bytes.Buffer{})
+	require.NoError(t, runInit(cmd, nil))
+
+	cmd = startCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	// Deliberately not repeating --data-dir here.
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runStart(cmd, nil))
+	require.Contains(t, out.String(), filepath.Join(home, "data"), "start without --data-dir falls back to the default, not init's custom one")
+	require.NotContains(t, out.String(), customDataDir)
+}
+
+// start bootstraps a config when none exists, which makes init optional
+// for the default case — the help text needs to say so, so operators
+// aren't surprised either way (that it works without init, or that init
+// does something start alone doesn't: saving overrides to disk).
+func TestStartHelpMentionsInitIsOptional(t *testing.T) {
+	out, err := execute("start", "--help")
+	require.NoError(t, err)
+	require.Contains(t, out, "init first is optional")
+}

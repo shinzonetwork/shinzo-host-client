@@ -12,6 +12,12 @@ func startCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Run the Shinzo Host",
+		Long: `Run the Shinzo Host.
+
+If no config exists yet at the resolved location, start creates one from
+defaults automatically. Running init first is optional, not required.
+Use init instead when you want to set things up, e.g. pass overrides to
+save, before the first start.`,
 		Example: `  host start
   host start --config /data/shinzo-host/config.toml
   host start --home /data/shinzo-host

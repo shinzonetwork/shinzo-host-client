@@ -315,6 +315,17 @@ func TestLoadRejectsInvalidOverride(t *testing.T) {
 	require.ErrorIs(t, err, errInvalidAddr)
 }
 
+// A typo'd override key (e.g. a CLI flag that doesn't match a real
+// hostconfig field) must be a loud error, not silently ignored — this is
+// applyOverrides' DisallowUnknownFields decoder, exercised through the
+// public Load entry point rather than calling applyOverrides directly.
+func TestLoadRejectsUnknownOverrideKey(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	_, err := Load(home, "", "", map[string]any{"logger.leve": "warn"}) //nolint:misspell // deliberate typo of "level", exercising the unknown-field case
+	require.Error(t, err)
+}
+
 func TestLoadDoesNotRememberPreviousCall(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
