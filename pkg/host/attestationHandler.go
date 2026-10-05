@@ -47,14 +47,6 @@ var (
 // Populated at runtime by initKnownCollectionIDs after fetching real collection IDs from DefraDB.
 var collectionIDToName = map[string]string{} //nolint:gochecknoglobals
 
-// collectionsWithMetrics - mapping collection to bool.
-var collectionsWithMetrics = map[string]bool{ //nolint:gochecknoglobals
-	constants.CollectionBlockSignature:  true,
-	constants.CollectionTransaction:     true,
-	constants.CollectionLog:             true,
-	constants.CollectionAccessListEntry: true,
-}
-
 // initKnownCollectionIDs fetches the CollectionIDs for collections we care about at startup.
 func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
@@ -204,9 +196,16 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 
 				if h.metrics != nil {
 					h.metrics.IncrementDocumentsReceived()
-				}
-				if collectionsWithMetrics[collectionName] && h.metrics != nil {
-					h.metrics.IncrementDocumentByType(collectionName)
+					switch collectionName {
+					case h.collections.Transaction.Name:
+						h.metrics.IncrementTransactionsProcessed()
+					case h.collections.Log.Name:
+						h.metrics.IncrementLogsProcessed()
+					case h.collections.AccessListEntry.Name:
+						h.metrics.IncrementAccessListsProcessed()
+					case h.collections.BlockSignature.Name:
+						h.metrics.IncrementBlockSignaturesProcessed()
+					}
 				}
 				if collectionName == constants.CollectionBlockSignature {
 					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
@@ -459,7 +458,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		} else {
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationsCreated()
-				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
+				h.metrics.IncrementBlocksProcessed()
 			}
 			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		}
