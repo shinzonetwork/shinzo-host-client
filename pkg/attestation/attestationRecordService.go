@@ -16,12 +16,13 @@ import (
 // Record represents an attestation record with verified signatures.
 type Record = constants.AttestationRecord
 
-// PostAttestationRecord posts the attestation record to DefraDB using read-modify-write
-// to correctly merge source_doc lists when multiple indexers attest to the same block.
+// PostAttestationRecord writes record to the attestation collection named collection, using
+// read-modify-write to correctly merge source_doc lists when multiple indexers attest to the
+// same block.
 // It returns an error wrapping ErrDocumentNotFound when the existing record is deleted between
 // the read and the write, which the pruner does to records at or below its cutoff.
-func PostAttestationRecord(ctx context.Context, defraNode *node.Node, record *Record) error {
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+func PostAttestationRecord(ctx context.Context, defraNode *node.Node, collection string, record *Record) error {
+	col, err := defraNode.DB.GetCollectionByName(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("failed to get attestation collection: %w", err)
 	}
@@ -122,11 +123,11 @@ func lookupExistingAttestation(ctx context.Context, defraNode *node.Node, col cl
 		%s(filter: {attested_doc: {_eq: "%s"}}) {
 			_docID
 		}
-	}`, constants.CollectionAttestationRecord, attestedDocID)
+	}`, col.Name(), attestedDocID)
 
 	result := defraNode.DB.ExecRequest(ctx, query)
 
-	docIDStr := extractDocIDFromResult(result.GQL.Data, constants.CollectionAttestationRecord)
+	docIDStr := extractDocIDFromResult(result.GQL.Data, col.Name())
 	if docIDStr == "" {
 		return nil, nil // nolint:nilnil
 	}
@@ -206,8 +207,9 @@ func updateAttestationRecord(ctx context.Context, col client.Collection, existin
 	return err
 }
 
-// CheckExistingAttestation checks if an attestation already exists for a document.
-func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID string, docType string) ([]Record, error) {
+// CheckExistingAttestation returns the records in the attestation collection named collection
+// for a document.
+func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, collection string, docID string, docType string) ([]Record, error) {
 	// Query the general attestation collection for this specific document
 	query := fmt.Sprintf(`
 		query {
@@ -220,7 +222,7 @@ func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, docID s
 				vote_count
 			}
 		}
-	`, constants.CollectionAttestationRecord, docID, docType)
+	`, collection, docID, docType)
 
 	existing, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	if err != nil {

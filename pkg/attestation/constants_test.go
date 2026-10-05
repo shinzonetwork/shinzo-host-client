@@ -34,6 +34,9 @@ const (
 	jsonFieldDocID     = "_docID"
 	jsonFieldSourceDoc = "source-doc"
 
+	// testAttestationCollection is the attestation collection the test schemas define.
+	testAttestationCollection = "Ethereum__Mainnet__AttestationRecord"
+
 	testDocAndAttestationSchema = `
 		type TestDoc {
 			name: String
