@@ -61,24 +61,24 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 
 	for _, col := range cols {
 		switch col.Name() {
-		case constants.CollectionBlockSignature:
+		case h.collections.BlockSignature.Name:
 			blockSigCollectionID = col.CollectionID()
-			collectionIDToName[blockSigCollectionID] = constants.CollectionBlockSignature
-		case constants.CollectionBlock:
+			collectionIDToName[blockSigCollectionID] = h.collections.BlockSignature.Name
+		case h.collections.Block.Name:
 			blockCollectionID = col.CollectionID()
-			collectionIDToName[blockCollectionID] = constants.CollectionBlock
-		case constants.CollectionTransaction:
+			collectionIDToName[blockCollectionID] = h.collections.Block.Name
+		case h.collections.Transaction.Name:
 			transactionCollectionID = col.CollectionID()
-			collectionIDToName[transactionCollectionID] = constants.CollectionTransaction
-		case constants.CollectionLog:
+			collectionIDToName[transactionCollectionID] = h.collections.Transaction.Name
+		case h.collections.Log.Name:
 			logCollectionID = col.CollectionID()
-			collectionIDToName[logCollectionID] = constants.CollectionLog
-		case constants.CollectionAccessListEntry:
+			collectionIDToName[logCollectionID] = h.collections.Log.Name
+		case h.collections.AccessListEntry.Name:
 			accessListCollectionID = col.CollectionID()
-			collectionIDToName[accessListCollectionID] = constants.CollectionAccessListEntry
-		case constants.CollectionAttestationRecord:
+			collectionIDToName[accessListCollectionID] = h.collections.AccessListEntry.Name
+		case h.collections.AttestationRecord.Name:
 			attRecCollectionID = col.CollectionID()
-			collectionIDToName[attRecCollectionID] = constants.CollectionAttestationRecord
+			collectionIDToName[attRecCollectionID] = h.collections.AttestationRecord.Name
 		}
 	}
 
@@ -131,7 +131,7 @@ func (h *Host) docWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case evt := <-docQueue:
-			if evt.collectionName == constants.CollectionBlockSignature {
+			if evt.collectionName == h.collections.BlockSignature.Name {
 				h.processBlockSignatureFromEventBus(ctx, evt.docID)
 			}
 		}
@@ -207,7 +207,7 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 						h.metrics.IncrementBlockSignaturesProcessed()
 					}
 				}
-				if collectionName == constants.CollectionBlockSignature {
+				if collectionName == h.collections.BlockSignature.Name {
 					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
 				}
 			}
@@ -222,7 +222,7 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 		return
 	}
 
-	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, h.collections.BlockSignature.Name)
 	if err != nil {
 		logger.Sugar.Warnf("Failed to get BlockSignature collection: %v", err)
 		return

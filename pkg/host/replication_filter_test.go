@@ -32,7 +32,7 @@ func TestNewEventReplicationFilter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			if tt.wantNil {
 				require.Nil(t, f)
 			} else {
@@ -174,7 +174,7 @@ func TestAllowReplication(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.AllowReplication(context.Background(), tt.collectionID, "docID", tt.fields)
 			require.Equal(t, tt.want, got)
@@ -250,7 +250,7 @@ func TestAllowBlock(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowBlock(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -302,7 +302,7 @@ func TestAllowTransaction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowTransaction(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -369,7 +369,7 @@ func TestAllowLog(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowLog(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -421,7 +421,7 @@ func TestAllowAccessListEntry(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowAccessListEntry(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -515,7 +515,7 @@ func TestMatchesGroups(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.matchesGroups(tt.address, tt.topics, tt.colType)
 			require.Equal(t, tt.want, got)
@@ -576,7 +576,7 @@ func TestGroupMatches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.groupMatches(&tt.group, tt.address, tt.topics, tt.colType)
 			require.Equal(t, tt.want, got)
@@ -770,7 +770,7 @@ func TestInBlockRange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.inBlockRange(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -937,7 +937,7 @@ func TestGroupMatches_EmptyAddress(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -954,7 +954,7 @@ func TestGroupMatches_TopicsNonLogType(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -971,7 +971,7 @@ func TestGroupMatches_CascadeFromTxToLog(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: true,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -988,7 +988,7 @@ func TestGroupMatches_CascadeFromTxToAccessListEntry(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: true,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1044,7 +1044,7 @@ func TestMatchesGroups_BlocklistNoEnabledGroups(t *testing.T) {
 		Groups: []config.FilterGroup{
 			{Enabled: false, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 		},
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	// Blocklist with no matching (all groups disabled) => !false => true
@@ -1072,7 +1072,7 @@ func TestHasEnabledGroups_Empty(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled: true,
 		Groups:  []config.FilterGroup{},
-	})
+	}, testCollections)
 	require.False(t, f.hasEnabledGroups())
 }
 
@@ -1083,7 +1083,7 @@ func TestHasEnabledGroups_AllDisabled(t *testing.T) {
 			{Enabled: false},
 			{Enabled: false},
 		},
-	})
+	}, testCollections)
 	require.False(t, f.hasEnabledGroups())
 }
 
@@ -1094,7 +1094,7 @@ func TestHasEnabledGroups_OneEnabled(t *testing.T) {
 			{Enabled: false},
 			{Enabled: true},
 		},
-	})
+	}, testCollections)
 	require.True(t, f.hasEnabledGroups())
 }
 
@@ -1106,7 +1106,7 @@ func TestGroupMatches_ContractFilterWrongType(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1129,7 +1129,7 @@ func TestGroupMatches_MultipleContracts(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1162,7 +1162,7 @@ func TestGroupMatches_LogTypeTopicsMatch(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1190,7 +1190,7 @@ func TestGroupMatches_LogMultipleTopicFilters(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1214,7 +1214,7 @@ func TestAllowReplication_BlockNoNumberField(t *testing.T) {
 		Enabled:    true,
 		Mode:       filterModeAllowlist,
 		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	// Block collection with no gqlFieldNumber field should be allowed (can't determine)
@@ -1237,7 +1237,7 @@ func TestAllowReplication_TransactionBelowBlockRange(t *testing.T) {
 				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 			},
 		},
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	// Transaction with blockNumber below range
@@ -1266,7 +1266,7 @@ func TestAllowReplication_LogBlockRange(t *testing.T) {
 				Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
 			},
 		},
-	})
+	}, testCollections)
 
 	// Log with blockNumber in range, matching address
 	got := f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
@@ -1290,7 +1290,7 @@ func TestAllowReplication_AccessListEntryBlockRange(t *testing.T) {
 				Contracts: []config.ContractFilter{{Address: testHexAleUpper, Types: []string{colTypeAccessListEntry}}},
 			},
 		},
-	})
+	}, testCollections)
 
 	// AccessListEntry with blockNumber in range
 	got := f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
