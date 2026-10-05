@@ -235,7 +235,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	resolvedSchema := resolveSchema(context.Background(), cfg.Schema, served, collections)
+	// Called only when the store has none of the chain's tables, so a restart does not depend on
+	// the chain's generators.
+	tables := func(ctx context.Context) (string, error) {
+		return resolveSchema(ctx, cfg.Schema, served, collections), nil
+	}
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
@@ -247,7 +251,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		schema.ChainApplier{Tables: resolvedSchema, Collections: collections},
+		schema.ChainApplier{Tables: tables, Collections: collections},
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,

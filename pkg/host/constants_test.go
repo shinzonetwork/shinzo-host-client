@@ -1,6 +1,8 @@
 package host
 
 import (
+	"context"
+
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
@@ -88,4 +90,7 @@ const (
 var testCollections = chain.EVM(chain.EthereumMainnet)
 
 // testSchemaApplier creates the test chain's collections the way a host does.
-var testSchemaApplier = localschema.ChainApplier{Tables: localschema.GetSchema(), Collections: testCollections}
+var testSchemaApplier = localschema.ChainApplier{
+	Tables:      func(context.Context) (string, error) { return localschema.GetSchema(), nil },
+	Collections: testCollections,
+}

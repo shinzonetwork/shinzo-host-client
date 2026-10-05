@@ -32,15 +32,16 @@ func attestationRecordSchema(c chain.Collections) string {
 
 // ChainApplier creates a chain's collections in DefraDB. It implements defradb.SchemaApplier.
 type ChainApplier struct {
-	// Tables is the SDL of the chain's tables, from its generators or the built-in schema.
-	Tables      string
+	// Tables returns the SDL of the chain's tables. ApplySchema calls it only when the database
+	// holds none of them.
+	Tables      func(ctx context.Context) (string, error)
 	Collections chain.Collections
 }
 
-// ApplySchema creates the chain's tables unless the database already holds them, then the chain's
-// attestation record collection if it is missing. It returns ErrSchemaOtherChainStored when the
-// database holds another chain's tables, and ErrSchemaPartiallyStored when it holds only some of
-// this chain's tables.
+// ApplySchema creates the chain's tables from Tables unless the database already holds them, then
+// the chain's attestation record collection if it is missing. It returns ErrSchemaOtherChainStored
+// when the database holds another chain's tables, and ErrSchemaPartiallyStored when it holds only
+// some of this chain's tables.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -67,7 +68,11 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	switch len(missing) {
 	case 0:
 	case len(tables):
-		if _, err := n.DB.AddCollection(ctx, a.Tables); err != nil {
+		sdl, err := a.Tables(ctx)
+		if err != nil {
+			return fmt.Errorf("%s tables: %w", a.Collections.Prefix, err)
+		}
+		if _, err := n.DB.AddCollection(ctx, sdl); err != nil {
 			return fmt.Errorf("add %s tables: %w", a.Collections.Prefix, err)
 		}
 	default:
