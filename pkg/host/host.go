@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -434,9 +435,19 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if networkHandler != nil {
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
+		peerAddrs := slices.Clone(cfg.DefraDB.P2P.BootstrapPeers)
+		for _, g := range served.Generators {
+			if g.Peer != "" {
+				peerAddrs = append(peerAddrs, g.Peer)
+			}
+		}
+
 		// Resolve bootstrap peers: auto-discover peer IDs for addresses that don't include them
 		discoveryTimeout := time.Duration(cfg.DefraDB.P2P.PeerDiscoveryTimeoutMs) * time.Millisecond
-		bootstrapPeers := resolveBootstrapPeers(context.Background(), cfg.DefraDB.P2P.BootstrapPeers, discoveryTimeout)
+		bootstrapPeers := resolveBootstrapPeers(context.Background(), peerAddrs, discoveryTimeout)
+		// A generator's peer may also be listed as a bootstrap peer.
+		slices.Sort(bootstrapPeers)
+		bootstrapPeers = slices.Compact(bootstrapPeers)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
 
 		for _, peer := range bootstrapPeers {

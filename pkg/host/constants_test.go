@@ -40,6 +40,9 @@ const (
 	// JSON map key used by replication-filter tests.
 	testMapKeyAddr = "addr"
 
+	// Loopback address on a port the OS picks.
+	testLoopbackAddr = "127.0.0.1:0"
+
 	// Multi-peer libp2p multiaddr used by peer_discovery_test.go.
 	testPeerMultiaddr = "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
 
