@@ -11,16 +11,11 @@ const (
 	testCID1  = "cid-1"
 	testCID2  = "cid-2"
 	testCID3  = "cid-3"
-	testCID4  = "cid-4"
-	testCIDA  = "cid-a"
-	testCIDB  = "cid-b"
 	testCIDA1 = "cid-a1"
 	testCIDB1 = "cid-b1"
 
 	// Source doc IDs used across attestation-record test fixtures.
-	testSource1     = "source-1"
-	testSource2     = "source-2"
-	testBlockSource = "block-source"
+	testSource1 = "source-1"
 
 	// Signature identity / value fixtures.
 	testSigAabb = "aabb"
