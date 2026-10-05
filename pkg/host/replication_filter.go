@@ -3,6 +3,9 @@ package host
 import (
 	"context"
 	"strings"
+	"sync/atomic"
+
+	"github.com/sourcenetwork/defradb/client"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -15,6 +18,8 @@ import (
 type EventReplicationFilter struct {
 	cfg         config.EventFilterConfig
 	collections chain.Collections
+	// names maps a collection ID to the collection's name.
+	names atomic.Pointer[map[string]string]
 }
 
 // NewEventReplicationFilter creates a filter that applies cfg to the collections of one chain.
@@ -27,15 +32,34 @@ func NewEventReplicationFilter(cfg config.EventFilterConfig, collections chain.C
 	return &EventReplicationFilter{cfg: cfg, collections: collections}
 }
 
-// AllowReplication implements client.ReplicationFilter.
+// ResolveCollections maps the IDs of cols to their names. DefraDB names a document's collection by
+// ID, which exists only once the schema is applied; until then only the block range applies. A
+// replicator retry passes the version ID instead, which equals the collection ID until the
+// collection is patched.
+func (f *EventReplicationFilter) ResolveCollections(cols []client.Collection) {
+	names := make(map[string]string, len(cols))
+	for _, col := range cols {
+		names[col.CollectionID()] = col.Name()
+	}
+	f.names.Store(&names)
+}
+
+// AllowReplication implements client.ReplicationFilter. DefraDB can ask before a document's field
+// values have arrived and treats a refusal as final, so a rule that needs a missing field allows
+// the document; DefraDB asks again once it has fetched the values.
 func (f *EventReplicationFilter) AllowReplication(
 	_ context.Context,
 	collectionID string,
 	_ string,
 	fields map[string]any,
 ) bool {
-	// Structural collections always pass — we never filter blocks or block signatures.
-	switch collectionID {
+	var name string
+	if names := f.names.Load(); names != nil {
+		name = (*names)[collectionID]
+	}
+
+	// A block is checked against the block range by its number; signatures always pass.
+	switch name {
 	case f.collections.Block.Name:
 		return f.allowBlock(fields)
 	case f.collections.BlockSignature.Name, f.collections.SnapshotSignature.Name:
@@ -48,7 +72,7 @@ func (f *EventReplicationFilter) AllowReplication(
 		return false
 	}
 
-	switch collectionID {
+	switch name {
 	case f.collections.Transaction.Name:
 		return f.allowTransaction(fields)
 	case f.collections.Log.Name:
@@ -83,17 +107,26 @@ func (f *EventReplicationFilter) allowBlock(fields map[string]any) bool {
 }
 
 func (f *EventReplicationFilter) allowTransaction(fields map[string]any) bool {
+	if !hasFields(fields, "to") {
+		return true
+	}
 	to, _ := fieldString(fields, "to")
 	return f.matchesGroups(to, nil, colTypeTransaction)
 }
 
 func (f *EventReplicationFilter) allowLog(fields map[string]any) bool {
+	if !hasFields(fields, "address", "topics") {
+		return true
+	}
 	addr, _ := fieldString(fields, "address")
 	topics := fieldStringSlice(fields, "topics")
 	return f.matchesGroups(addr, topics, colTypeLog)
 }
 
 func (f *EventReplicationFilter) allowAccessListEntry(fields map[string]any) bool {
+	if !hasFields(fields, "address") {
+		return true
+	}
 	addr, _ := fieldString(fields, "address")
 	return f.matchesGroups(addr, nil, colTypeAccessListEntry)
 }
@@ -235,6 +268,16 @@ func (f *EventReplicationFilter) inBlockRange(fields map[string]any) bool {
 // ---------------------------------------------------------------------------
 // Field extraction helpers
 // ---------------------------------------------------------------------------
+
+// hasFields reports whether fields holds every key. A key holding nil is present: the field is null.
+func hasFields(fields map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := fields[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
 
 func fieldString(fields map[string]any, key string) (string, bool) {
 	v, ok := fields[key]
