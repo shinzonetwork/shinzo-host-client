@@ -22,6 +22,8 @@ type Collection struct {
 
 // Collections are the DefraDB collections of one chain.
 type Collections struct {
+	// Prefix is the chain's prefix, which every collection name starts with.
+	Prefix            string
 	Block             Collection
 	Transaction       Collection
 	Log               Collection
@@ -36,6 +38,7 @@ type Collections struct {
 func EVM(prefix string) Collections {
 	name := func(table string) string { return prefix + "__" + table }
 	return Collections{
+		Prefix:            prefix,
 		Block:             Collection{Name: name("Block"), HeightField: blockHeightField},
 		Transaction:       Collection{Name: name("Transaction"), HeightField: dependentHeightField},
 		Log:               Collection{Name: name("Log"), HeightField: dependentHeightField},

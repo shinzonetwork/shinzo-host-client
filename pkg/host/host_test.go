@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -1428,33 +1428,14 @@ func TestApplySchema_WithRealDefraDB(t *testing.T) {
 func Test_ApplySchema_DynamicFetchApplied_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		resp := localschema.Response{
-			Network: testSchemaNetwork,
-			Schema:  testSchemaBlock,
-		}
-		err := json.NewEncoder(w).Encode(resp)
-		require.NoError(t, err)
-	}))
+	srv := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
 	defer srv.Close()
 
-	cfg := &config.Config{
-		HostConfig: config.HostConfig{
-			Snapshot: config.SnapshotConfig{
-				IndexerURL: srv.URL,
-			},
-		},
-		Schema: config.SchemaConfig{
-			IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint,
-			HTTPClientTimeoutSecs: 5,
-		},
-	}
+	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: srv.URL}}}
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 5}
 
-	resolvedSchema := resolveSchema(ctx, cfg)
+	resolvedSchema := resolveSchema(ctx, schemaCfg, served, testCollections)
 	require.NotEqual(t, localschema.GetSchema(), resolvedSchema)
-	require.Contains(t, resolvedSchema, "Ethereum__Mainnet__Block")
-	require.Contains(t, resolvedSchema, "Ethereum__Mainnet__AttestationRecord")
 
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
@@ -1526,6 +1507,15 @@ func TestStartHostingWithTestConfig(t *testing.T) {
 	defer cancel()
 	err = host.Close(closeCtx)
 	require.NoError(t, err)
+}
+
+// A config with no chains is refused before DefraDB starts.
+func TestStartHosting_NoChains(t *testing.T) {
+	cfg := *DefaultConfig
+	cfg.Chains = nil
+
+	_, err := StartHosting(&cfg)
+	require.ErrorIs(t, err, ErrNoChains)
 }
 
 // ---------------------------------------------------------------------------

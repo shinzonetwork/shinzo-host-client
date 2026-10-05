@@ -197,7 +197,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	collections := chain.EVM(chain.EthereumMainnet)
+	// LoadConfig accepts exactly one chain. A config built in code may hold none.
+	if len(cfg.Chains) == 0 {
+		return nil, ErrNoChains
+	}
+	served := cfg.Chains[0]
+	collections := chain.EVM(served.Prefix)
 
 	// The pruner and the retention rule share one cutoff and the same collections.
 	pruneCollections := pruner.CollectionConfigFor(collections)
@@ -226,9 +231,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	schemaCtx, schemaCtxCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Schema.HTTPClientTimeoutSecs)*time.Second)
-	resolvedSchema := resolveSchema(schemaCtx, cfg)
-	schemaCtxCancel()
+	resolvedSchema := resolveSchema(context.Background(), cfg.Schema, served, collections)
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
