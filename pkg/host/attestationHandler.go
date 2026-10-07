@@ -22,15 +22,11 @@ var (
 	startTime      time.Time //nolint:gochecknoglobals,unused
 )
 
-// processAttestationEventsWithSubscription starts DefraDB event listeners on updates, a
-// subscription to DefraDB's update events.
+// processAttestationEventsWithSubscription runs the attestation listener on updates, a
+// subscription to DefraDB's update events, and returns when the listener stops.
 func (h *Host) processAttestationEventsWithSubscription(ctx context.Context, updates event.Subscription) {
 	logger.Sugar.Info("Starting DefraDB event listener")
-	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
-	go h.startEventBusListener(ctx, updates)
-	logger.Sugar.Info("Event bus listener started")
-	// Wait for context cancellation
-	<-ctx.Done()
+	h.startEventBusListener(ctx, updates)
 	logger.Sugar.Info("Event listeners stopped")
 }
 

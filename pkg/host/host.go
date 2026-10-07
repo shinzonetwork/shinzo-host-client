@@ -153,6 +153,7 @@ type Host struct {
 	webhookCleanupFunction func()
 	LensRegistryPath       string
 	processingCancel       context.CancelFunc  // For canceling the event processing goroutine
+	listenerDone           <-chan struct{}     // Closed once the attestation listener has stopped
 	playgroundServer       *http.Server        // Playground HTTP server (if enabled)
 	acpServer              *defradbHttp.Server // ACP-wrapped GraphQL server (set when the ACP middleware owns the API port)
 	acpMiddleware          *acp.Middleware     // Billing gate; drained on Close so in-flight records are not lost
@@ -314,7 +315,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 			processingCancel()
 		}
 	}()
-	go newHost.processAttestationEventsWithSubscription(processingCtx, updates)
+	listenerDone := make(chan struct{})
+	newHost.listenerDone = listenerDone
+	go func() {
+		defer close(listenerDone)
+		newHost.processAttestationEventsWithSubscription(processingCtx, updates)
+	}()
 
 	// Bootstrap from historical snapshots before P2P starts
 	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
@@ -727,6 +733,12 @@ func incrementPort(apiURL string) (string, error) {
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()
+	if h.listenerDone != nil {
+		select {
+		case <-h.listenerDone:
+		case <-ctx.Done():
+		}
+	}
 
 	if h.pruner != nil {
 		h.pruner.Stop(ctx)
