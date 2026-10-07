@@ -39,6 +39,11 @@ func TestChainApplier(t *testing.T) {
 			stored:  defradb.NewSchemaApplierFromProvidedSchema("type " + collections.Block.Name + " { number: Int }"),
 			wantErr: ErrSchemaPartiallyStored,
 		},
+		{
+			desc:    "another chain's tables stored",
+			stored:  defradb.NewSchemaApplierFromProvidedSchema(SchemaGraphQL),
+			wantErr: ErrSchemaOtherChainStored,
+		},
 	}
 
 	for _, c := range cases {
