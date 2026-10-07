@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -1704,4 +1706,40 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	})
 
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
+}
+
+// A restart compares the stored tables with the schema the chain's generator serves, and refuses to
+// start when they differ.
+func TestStartHosting_RefusesDriftedStore(t *testing.T) {
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Chains = []chain.Config{{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL}}}}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+
+	withExtraTable := generatorSchema(t) + "\ntype " + chain.EthereumMainnet + "__Extra { a: Int }"
+	drifted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: withExtraTable}))
+	}))
+	t.Cleanup(drifted.Close)
+	cfg.Chains = []chain.Config{{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: drifted.URL}}}}
+
+	_, err = StartHosting(&cfg)
+	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
 }

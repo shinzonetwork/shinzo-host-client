@@ -89,8 +89,9 @@ const (
 // testCollections are the Ethereum mainnet collections the tests use.
 var testCollections = chain.EVM(chain.EthereumMainnet)
 
-// testSchemaApplier creates the test chain's collections the way a host does.
+// testSchemaApplier creates the test chain's collections the way a host with no generators does.
 var testSchemaApplier = localschema.ChainApplier{
 	Tables:      func(context.Context) (string, error) { return localschema.GetSchema(), nil },
+	Served:      func(context.Context) (string, bool) { return "", false },
 	Collections: testCollections,
 }
