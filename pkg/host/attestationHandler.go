@@ -22,18 +22,6 @@ var (
 	startTime      time.Time //nolint:gochecknoglobals,unused
 )
 
-// processAttestationEventsWithSubscription starts DefraDB event listeners on updates, a
-// subscription to DefraDB's update events.
-func (h *Host) processAttestationEventsWithSubscription(ctx context.Context, updates event.Subscription) {
-	logger.Sugar.Info("Starting DefraDB event listener")
-	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
-	go h.startEventBusListener(ctx, updates)
-	logger.Sugar.Info("Event bus listener started")
-	// Wait for context cancellation
-	<-ctx.Done()
-	logger.Sugar.Info("Event listeners stopped")
-}
-
 // Known collection IDs - stored at startup for direct comparison.
 var (
 	blockSigCollectionID    string //nolint:gochecknoglobals
@@ -140,7 +128,7 @@ func (h *Host) docWorker(ctx context.Context) {
 }
 
 // startEventBusListener reads update events from updates: it counts the documents peers send and
-// queues block signatures for attestation.
+// queues block signatures for attestation. It returns once its document workers have stopped.
 func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscription) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
@@ -151,9 +139,17 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 		logger.Sugar.Errorf("Failed to initialize known collection IDs: %v", err)
 	}
 
+	// The workers stop when the listener returns, and the listener waits for them, so whoever waits
+	// for the listener knows no worker is still using DefraDB.
+	workerCtx, stopWorkers := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() {
+		stopWorkers()
+		workers.Wait()
+	}()
 	workerCount, queueSize := h.initDocQueue()
 	for range workerCount {
-		go h.docWorker(ctx)
+		workers.Go(func() { h.docWorker(workerCtx) })
 	}
 	logger.Sugar.Infof("Started %d document workers (queue: %d)", workerCount, queueSize)
 

@@ -284,6 +284,46 @@ func TestHost_Close(t *testing.T) {
 	require.True(t, cancelCalled)
 }
 
+func TestHost_Close_WaitsForListener(t *testing.T) {
+	listenerDone := make(chan struct{})
+	host := &Host{webhookCleanupFunction: func() {}, processingCancel: func() {}, listenerDone: listenerDone}
+
+	closed := make(chan struct{})
+	go func() {
+		_ = host.Close(context.Background())
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the listener stopped")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(listenerDone)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after the listener stopped")
+	}
+}
+
+func TestHost_Close_StopsWaitingWhenContextEnds(t *testing.T) {
+	host := &Host{webhookCleanupFunction: func() {}, processingCancel: func() {}, listenerDone: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	closed := make(chan struct{})
+	go func() {
+		_ = host.Close(ctx)
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close kept waiting for a listener after its context ended")
+	}
+}
+
 func TestHost_ProcessViewRegistrationEvent_NoViewManager(t *testing.T) {
 	host := &Host{
 		viewManager: nil,
