@@ -307,6 +307,17 @@ func TestHost_Close_WaitsForListener(t *testing.T) {
 	}
 }
 
+func TestHost_Close_StopsNetwork(t *testing.T) {
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
+	require.NoError(t, err)
+	networkHandler := defradb.NewNetworkHandler(defraNode, defradb.DefaultConfig)
+	require.NoError(t, networkHandler.StartNetwork())
+	host := &Host{DefraNode: defraNode, NetworkHandler: networkHandler, webhookCleanupFunction: func() {}, processingCancel: func() {}}
+
+	require.NoError(t, host.Close(context.Background()))
+	require.False(t, networkHandler.IsNetworkActive())
+}
+
 func TestHost_Close_StopsWaitingWhenContextEnds(t *testing.T) {
 	host := &Host{webhookCleanupFunction: func() {}, processingCancel: func() {}, listenerDone: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
