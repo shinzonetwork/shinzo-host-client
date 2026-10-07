@@ -496,7 +496,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// Start health server in background
 	go func() {
-		if err := newHost.healthServer.Start(); err != nil {
+		if err := newHost.healthServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Sugar.Errorf("Health server failed: %v", err)
 		}
 	}()
@@ -739,6 +739,13 @@ func (h *Host) Close(ctx context.Context) error {
 	if h.playgroundServer != nil {
 		if err := h.playgroundServer.Shutdown(ctx); err != nil {
 			fmt.Printf("Error shutting down playground server: %v\n", err)
+		}
+	}
+
+	// The health server's handlers read the host and query DefraDB, so it stops before DefraDB closes.
+	if h.healthServer != nil {
+		if err := h.healthServer.Stop(ctx); err != nil {
+			fmt.Printf("Error shutting down health server: %v\n", err)
 		}
 	}
 

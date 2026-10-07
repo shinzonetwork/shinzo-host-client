@@ -507,6 +507,8 @@ func TestHost_Close_WithHealthServer(t *testing.T) {
 
 	metrics := server.NewHostMetrics()
 	hs := server.NewHealthServer(0, nil, "", metrics, "")
+	served := make(chan error, 1)
+	go func() { served <- hs.Start() }()
 
 	host := &Host{
 		DefraNode:              nil,
@@ -517,6 +519,12 @@ func TestHost_Close_WithHealthServer(t *testing.T) {
 
 	err := host.Close(ctx)
 	require.NoError(t, err)
+	select {
+	case err := <-served:
+		require.ErrorIs(t, err, http.ErrServerClosed)
+	case <-time.After(time.Second):
+		t.Fatal("Close left the health server running")
+	}
 }
 
 func TestHost_Close_WithProcessingPipeline(t *testing.T) {
