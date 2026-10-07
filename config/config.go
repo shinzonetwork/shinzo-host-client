@@ -35,6 +35,9 @@ var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must
 // ErrUnsupportedChains is returned when the config does not list exactly one chain.
 var ErrUnsupportedChains = errors.New("chains must list exactly one chain")
 
+// ErrSnapshotChain is returned when snapshots are enabled for a chain other than Ethereum mainnet.
+var ErrSnapshotChain = fmt.Errorf("snapshots are supported only for %s", chain.EthereumMainnet)
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	Enabled                bool     `yaml:"enabled"`
@@ -209,6 +212,11 @@ func LoadConfig(path string) (*Config, error) {
 
 	if cfg.Chains, err = loadChains(data); err != nil {
 		return nil, err
+	}
+	// A snapshot does not name its chain, so nothing would stop another chain's host from importing
+	// an Ethereum mainnet snapshot.
+	if cfg.HostConfig.Snapshot.Enabled && cfg.Chains[0].Prefix != chain.EthereumMainnet {
+		return nil, fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotChain)
 	}
 
 	// Apply environment variable overrides
