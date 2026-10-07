@@ -1,4 +1,4 @@
-type Ethereum__Mainnet__AttestationRecord {
+type AttestationRecord {
     attested_doc: String @index
     source_doc: [String]
     CIDs: [String]

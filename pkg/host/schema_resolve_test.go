@@ -73,7 +73,7 @@ func TestResolveSchema(t *testing.T) {
 				require.Equal(t, localschema.GetSchema(), got)
 			} else {
 				require.NotEqual(t, localschema.GetSchema(), got)
-				require.Contains(t, got, testCollections.AttestationRecord.Name)
+				require.Contains(t, got, testCollections.Block.Name)
 			}
 		})
 	}

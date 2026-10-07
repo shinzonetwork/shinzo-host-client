@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	_ "embed"
-
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
 
@@ -31,12 +29,6 @@ var (
 	ErrSchemaMissingIndexedField = fmt.Errorf("schema is missing a field the host indexes")
 )
 
-// AttestationRecordTypeDef is the GraphQL type definition of the attestation records the host
-// writes. Generators do not serve it, so the host appends it to a fetched schema.
-//
-//go:embed attestationRecord.graphql
-var AttestationRecordTypeDef string
-
 // maxSchemaBodyBytes caps the schema response size to mitigate DoS via oversized payloads.
 // 64 KB provides ~20x headroom over the current ~3.2 KB schema while keeping a tight
 // anomaly ceiling for unauthenticated fetches — NewSchemaHTTPClient does not enforce
@@ -51,9 +43,8 @@ type Response struct {
 }
 
 // FetchSchema fetches a chain's schema from fullURL, a generator's schema endpoint, and returns
-// it ready to apply: checked against the chain's collections, with the host's indexes and the
-// host's AttestationRecord type. It returns an error on an HTTP error, a malformed response or a
-// failed check.
+// it ready to apply: checked against the chain's collections and with the host's indexes. It
+// returns an error on an HTTP error, a malformed response or a failed check.
 func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, collections chain.Collections) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
@@ -87,7 +78,7 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, c
 	if err != nil {
 		return "", fmt.Errorf("apply host indexes: %w", err)
 	}
-	return AppendAttestationRecord(withIndexes), nil
+	return withIndexes, nil
 }
 
 // checkSchema checks a generator's schema response against the chain's collections: it is for
@@ -115,11 +106,6 @@ func checkSchema(resp Response, c chain.Collections) error {
 		}
 	}
 	return nil
-}
-
-// AppendAttestationRecord appends the host's AttestationRecord type to a fetched schema.
-func AppendAttestationRecord(baseSchema string) string {
-	return strings.TrimSpace(baseSchema) + "\n\n" + AttestationRecordTypeDef + "\n"
 }
 
 // authTransport wraps an http.RoundTripper to inject a Bearer token
