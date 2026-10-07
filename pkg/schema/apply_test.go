@@ -28,6 +28,8 @@ func TestChainApplier(t *testing.T) {
 		desc      string
 		stored    defradb.SchemaApplier
 		tablesErr error
+		// served is the SDL a generator serves; empty means no generator answers.
+		served    string
 		wantFetch bool
 		wantErr   error
 	}{
@@ -39,7 +41,18 @@ func TestChainApplier(t *testing.T) {
 			wantFetch: true,
 			wantErr:   errUnavailable,
 		},
-		{desc: "tables stored", stored: defradb.NewSchemaApplierFromProvidedSchema(tables)},
+		{desc: "tables stored, no generator answers", stored: defradb.NewSchemaApplierFromProvidedSchema(tables)},
+		{
+			desc:   "tables stored, a generator serves the same tables",
+			stored: defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served: tables,
+		},
+		{
+			desc:    "tables stored, a generator serves other tables",
+			stored:  defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:  tables + "\ntype " + testPrefix + "__Extra { a: Int }",
+			wantErr: ErrSchemaDrift,
+		},
 		{
 			desc:   "tables and attestation records stored",
 			stored: defradb.NewSchemaApplierFromProvidedSchema(tables + "\n" + attestationRecordSchema(collections)),
@@ -69,6 +82,7 @@ func TestChainApplier(t *testing.T) {
 					fetched = true
 					return tables, c.tablesErr
 				},
+				Served:      func(context.Context) (string, bool) { return c.served, c.served != "" },
 				Collections: collections,
 			}
 
