@@ -109,8 +109,7 @@ func checkSchema(resp Response, c chain.Collections) error {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaHostOwnedType)
 		}
 	}
-	written := []chain.Collection{c.Block, c.Transaction, c.Log, c.AccessListEntry, c.BlockSignature, c.SnapshotSignature}
-	for _, col := range written {
+	for _, col := range c.Generated() {
 		if doc.Definitions.ForName(col.Name) == nil {
 			return fmt.Errorf("type %s: %w", col.Name, ErrSchemaMissingType)
 		}
