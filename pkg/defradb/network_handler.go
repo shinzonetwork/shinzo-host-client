@@ -252,7 +252,8 @@ func (nh *NetworkHandler) startReconnectionLoop() {
 
 // startNoPeersEventListener subscribes to P2PNoPeers events and forces an
 // immediate reconnect when the node has lost all of its active peers. It runs
-// until stop is closed, the network's context ends or the subscription closes.
+// until stop is closed, the network's context ends or the subscription closes,
+// and closes the subscription before returning.
 func (nh *NetworkHandler) startNoPeersEventListener(stop <-chan struct{}) {
 	if nh.node == nil || nh.node.DB == nil {
 		return
@@ -263,6 +264,7 @@ func (nh *NetworkHandler) startNoPeersEventListener(stop <-chan struct{}) {
 		return
 	}
 	nh.wg.Go(func() {
+		defer CloseSubscription(nh.node.DB.Events(), sub)
 		for {
 			select {
 			case <-stop:

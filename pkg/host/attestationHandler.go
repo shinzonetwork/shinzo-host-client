@@ -10,6 +10,7 @@ import (
 
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
@@ -136,12 +137,13 @@ func (h *Host) docWorker(ctx context.Context) {
 }
 
 // startEventBusListener reads update events from updates: it counts the documents peers send and
-// queues block signatures for attestation.
+// queues block signatures for attestation. It closes updates when it stops.
 func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscription) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
 		return
 	}
+	defer defradb.CloseSubscription(h.DefraNode.DB.Events(), updates)
 
 	if err := h.initKnownCollectionIDs(ctx); err != nil {
 		logger.Sugar.Errorf("Failed to initialize known collection IDs: %v", err)

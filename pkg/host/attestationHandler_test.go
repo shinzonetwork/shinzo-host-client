@@ -609,6 +609,13 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("startEventBusListener did not return after context timeout")
 	}
+
+	select {
+	case _, open := <-updates.Message():
+		require.False(t, open)
+	default:
+		t.Fatal("the listener left its subscription open")
+	}
 }
 
 // ---------------------------------------------------------------------------
