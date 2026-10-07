@@ -228,13 +228,16 @@ func (nh *NetworkHandler) startReconnectionLoop() {
 		return
 	}
 	interval := time.Duration(nh.cfg.DefraDB.P2P.ReconnectIntervalMs) * time.Millisecond
-	nh.reconnectStop = make(chan struct{})
+	// The loops select on their own copy of the stop channel: StopNetwork clears nh.reconnectStop
+	// while they may still be running.
+	stop := make(chan struct{})
+	nh.reconnectStop = stop
 	nh.reconnectTicker = time.NewTicker(interval)
 	nh.wg.Go(func() {
 		defer nh.reconnectTicker.Stop()
 		for {
 			select {
-			case <-nh.reconnectStop:
+			case <-stop:
 				return
 			case <-nh.ctx.Done():
 				return
@@ -244,12 +247,13 @@ func (nh *NetworkHandler) startReconnectionLoop() {
 			}
 		}
 	})
-	nh.startNoPeersEventListener()
+	nh.startNoPeersEventListener(stop)
 }
 
 // startNoPeersEventListener subscribes to P2PNoPeers events and forces an
-// immediate reconnect when the node has lost all of its active peers.
-func (nh *NetworkHandler) startNoPeersEventListener() {
+// immediate reconnect when the node has lost all of its active peers. It runs
+// until stop is closed, the network's context ends or the subscription closes.
+func (nh *NetworkHandler) startNoPeersEventListener(stop <-chan struct{}) {
 	if nh.node == nil || nh.node.DB == nil {
 		return
 	}
@@ -261,7 +265,7 @@ func (nh *NetworkHandler) startNoPeersEventListener() {
 	nh.wg.Go(func() {
 		for {
 			select {
-			case <-nh.reconnectStop:
+			case <-stop:
 				return
 			case <-nh.ctx.Done():
 				return
