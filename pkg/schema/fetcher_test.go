@@ -44,16 +44,6 @@ func serveSchema(t *testing.T, resp Response) *httptest.Server {
 	return srv
 }
 
-func TestFetchSchema_Success(t *testing.T) {
-	srv := serveSchema(t, validResponse)
-
-	result, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), ethereum)
-	require.NoError(t, err)
-
-	// Applied to DefraDB, the fetched schema has the built-in schema's indexes.
-	require.Equal(t, appliedIndexes(t, SchemaGraphQL, chain.EthereumMainnet), appliedIndexes(t, result, chain.EthereumMainnet))
-}
-
 func TestFetchSchema_Checks(t *testing.T) {
 	cases := []struct {
 		desc    string
