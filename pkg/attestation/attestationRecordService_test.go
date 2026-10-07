@@ -245,7 +245,9 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query and verify both indexer identities are preserved
-	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "block:500:deadbeef", testDocTypeBlock)
+	query := fmt.Sprintf(`%s(filter: {attested_doc: {_eq: "block:500:deadbeef"}, doc_type: {_eq: "%s"}}) { attested_doc source_doc }`,
+		testAttestationCollection, testDocTypeBlock)
+	records, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record")
 
@@ -253,126 +255,6 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	require.Contains(t, record.SourceDocIDs, "indexer-A", "Should contain first indexer")
 	require.Contains(t, record.SourceDocIDs, "indexer-B", "Should contain second indexer")
 	require.Len(t, record.SourceDocIDs, 2, "Should have exactly 2 indexer identities")
-}
-
-// ========================================
-// CHECK EXISTING ATTESTATION TESTS
-// ========================================
-
-func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Check for non-existent attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "non-existent-doc", testDocType)
-	require.NoError(t, err)
-	require.Empty(t, records)
-}
-
-func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// First, create an attestation record
-	record := &Record{
-		AttestedDocID: "check-existing-doc",
-		SourceDocIDs:  []string{jsonFieldSourceDoc},
-		CIDs:          []string{"cid-check-1"},
-		DocType:       testDocType,
-		VoteCount:     1,
-	}
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
-	require.NoError(t, err)
-
-	// Now check for existing attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "check-existing-doc", testDocType)
-	require.NoError(t, err)
-	require.NotNil(t, records)
-	require.Len(t, records, 1)
-	require.Equal(t, "check-existing-doc", records[0].AttestedDocID)
-	require.Equal(t, []string{"source-doc"}, records[0].SourceDocIDs)
-	require.ElementsMatch(t, []string{"cid-check-1"}, records[0].CIDs)
-}
-
-func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create an attestation record with doc_type testDocTypeA
-	record := &Record{
-		AttestedDocID: "check-doctype-doc",
-		SourceDocIDs:  []string{jsonFieldSourceDoc},
-		CIDs:          []string{"cid-dt-1"},
-		DocType:       testDocTypeA,
-		VoteCount:     1,
-	}
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
-	require.NoError(t, err)
-
-	// Query with wrong doc_type should find nothing
-	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "check-doctype-doc", testDocTypeB)
-	require.NoError(t, err)
-	require.Empty(t, records)
 }
 
 // ========================================
@@ -502,97 +384,6 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get attestation collection")
-}
-
-// ========================================
-// CHECK EXISTING ATTESTATION - ADDITIONAL ERROR PATHS
-// ========================================
-
-func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create two attestation records for same attested_doc and doc_type
-	// Using upsert, the second one will merge with the first
-	record1 := &Record{
-		AttestedDocID: "multi-check-doc",
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          []string{testCID1},
-		DocType:       testDocTypeA,
-		VoteCount:     1,
-	}
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
-	require.NoError(t, err)
-
-	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "multi-check-doc", testDocTypeA)
-	require.NoError(t, err)
-	require.NotEmpty(t, records)
-	require.Equal(t, "multi-check-doc", records[0].AttestedDocID)
-}
-
-// ========================================
-// "No attestation records found" ERROR STRING BRANCH TESTS
-// ========================================
-// This test calls CheckExistingAttestation against a DefraDB instance that has NO
-// attestation schema applied. When the collection doesn't exist, defradb.QueryArray
-// returns an error whose message contains "No attestation records found" (or similar),
-// and the function under test should treat this as a non-error (return nil).
-
-func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a defra node WITHOUT applying the attestation schema
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	// Do NOT apply the attestation schema - collection won't exist
-	defraNode := client.GetNode()
-
-	// This should trigger the strings.Contains(err.Error(), "No attestation records found") branch
-	// or return an error if the branch doesn't match
-	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "nonexistent-doc", testDocType)
-	// The function should either return nil, nil (branch matched) or an error
-	// If the collection doesn't exist, the error may or may not contain "No attestation records found"
-	// In either case, it should not panic
-	if err != nil {
-		// The error string from DefraDB when collection doesn't exist
-		// may contain something like "No attestation records found" or a different error.
-		// The function wraps non-matching errors, so we check for the wrapper.
-		require.Contains(t, err.Error(), "failed to check existing attestation")
-	} else {
-		require.Nil(t, records)
-	}
 }
 
 // ========================================

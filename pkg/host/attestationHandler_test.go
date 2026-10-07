@@ -1168,7 +1168,9 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 	h.processAttestationsFromBlockSignature(ctx, blockSigB)
 
 	// Query the attestation record
-	records, err := attestationService.CheckExistingAttestation(ctx, defraNode, testCollections.AttestationRecord.Name, "block:400:aaa", docTypeBlock)
+	query := fmt.Sprintf(`%s(filter: {attested_doc: {_eq: "block:400:aaa"}, doc_type: {_eq: "%s"}}) { attested_doc source_doc }`,
+		testCollections.AttestationRecord.Name, docTypeBlock)
+	records, err := defradb.QueryArray[attestationService.Record](ctx, defraNode, query)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record for this block")
 
