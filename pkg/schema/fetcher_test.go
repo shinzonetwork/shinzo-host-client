@@ -50,8 +50,7 @@ func TestFetchSchema_Success(t *testing.T) {
 	result, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), ethereum)
 	require.NoError(t, err)
 
-	// Applied to DefraDB, the fetched schema has the built-in schema's indexes, including those of
-	// the AttestationRecord type the host adds.
+	// Applied to DefraDB, the fetched schema has the built-in schema's indexes.
 	require.Equal(t, appliedIndexes(t, SchemaGraphQL, chain.EthereumMainnet), appliedIndexes(t, result, chain.EthereumMainnet))
 }
 
@@ -73,7 +72,7 @@ func TestFetchSchema_Checks(t *testing.T) {
 		},
 		{
 			desc:    "host's AttestationRecord type",
-			resp:    Response{Network: chain.EthereumMainnet, Schema: generatorSchema + "\n" + AttestationRecordTypeDef},
+			resp:    Response{Network: chain.EthereumMainnet, Schema: generatorSchema + "\n" + attestationRecordSchema(ethereum)},
 			wantErr: ErrSchemaHostOwnedType,
 		},
 		{
@@ -184,14 +183,6 @@ func TestFetchSchema_OversizedPayload(t *testing.T) {
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv), ethereum)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
-}
-
-func TestAppendAttestationRecord(t *testing.T) {
-	t.Parallel()
-
-	result := AppendAttestationRecord(generatorSchema)
-	require.True(t, strings.HasSuffix(result, AttestationRecordTypeDef+"\n"))
-	require.Contains(t, result, ethereum.Block.Name)
 }
 
 func TestNewSchemaHTTPClient(t *testing.T) {
@@ -348,7 +339,6 @@ func TestFetchSchema_AuthToken(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Contains(t, result, "Ethereum__Mainnet__Block")
-			require.Contains(t, result, "Ethereum__Mainnet__AttestationRecord")
 		})
 	}
 }

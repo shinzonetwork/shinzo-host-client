@@ -14,7 +14,7 @@ Open an issue to discuss your change before submitting a PR. PRs without an atta
 | `pkg/view/` | View lifecycle management, WASM lens registry, and schema service. |
 | `pkg/attestation/` | Attestation record service and signature verification. |
 | `pkg/shinzohub/` | WebSocket event subscription and RPC client for the ShinzoHub chain node. |
-| `pkg/schema/` | Embedded GraphQL schema files (standard and branchable variants). |
+| `pkg/schema/` | The built-in schema, and fetching, checking and applying a chain's schema. |
 | `pkg/constants/` | The attestation record type. |
 | `pkg/server/` | Health and metrics HTTP server. |
 | `pkg/snapshot/` | Historical snapshot download and import. |

@@ -24,6 +24,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
@@ -240,7 +241,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),
+		schema.ChainApplier{Tables: resolvedSchema, Collections: collections},
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
