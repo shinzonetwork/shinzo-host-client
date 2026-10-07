@@ -728,8 +728,8 @@ func incrementPort(apiURL string) (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
-// Close stops the ShinzoHub event subscription, the event listener and the pruner, shuts down the
-// playground and ACP servers, and closes the DefraDB node.
+// Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruner,
+// shuts down the playground and ACP servers, and closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()
@@ -737,6 +737,12 @@ func (h *Host) Close(ctx context.Context) error {
 		select {
 		case <-h.listenerDone:
 		case <-ctx.Done():
+		}
+	}
+
+	if h.NetworkHandler != nil {
+		if err := h.NetworkHandler.StopNetwork(); err != nil {
+			fmt.Printf("Error stopping P2P network: %v\n", err)
 		}
 	}
 
