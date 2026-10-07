@@ -412,12 +412,8 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 
 	err = schemaApplier.ApplySchema(ctx, defraNode)
 	if err != nil {
-		if strings.Contains(err.Error(), "collection already exists") {
-			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
-		} else {
-			defer func() { _ = defraNode.Close(ctx) }()
-			return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
-		}
+		defer func() { _ = defraNode.Close(ctx) }()
+		return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	err = defraNode.DB.AddP2PCollections(ctx, collectionsOfInterest)
