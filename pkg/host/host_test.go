@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
+	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -1699,4 +1702,85 @@ func TestStartHostingAddsGeneratorPeers(t *testing.T) {
 	})
 
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
+}
+
+// DefraDB's API answers only once the chain's tables exist.
+func TestStartHostingServesAPIAfterTables(t *testing.T) {
+	// Both listeners stay open until both ports are picked, so the two ports differ.
+	var ports []int
+	var listeners []net.Listener
+	for range 2 {
+		listener, err := net.Listen("tcp", testLoopbackAddr)
+		require.NoError(t, err)
+		listeners = append(listeners, listener)
+		addr, ok := listener.Addr().(*net.TCPAddr)
+		require.True(t, ok)
+		ports = append(ports, addr.Port)
+	}
+	for _, listener := range listeners {
+		require.NoError(t, listener.Close())
+	}
+	apiPort, healthPort := ports[0], ports[1]
+
+	// The generator holds the schema until released, so the host is still creating its tables.
+	fetching := make(chan struct{}, 1)
+	release := make(chan struct{})
+	releaseSchema := sync.OnceFunc(func() { close(release) })
+	serveSchema := schemaHandler(t, chain.EthereumMainnet)
+	generator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case fetching <- struct{}{}:
+		default:
+		}
+		<-release
+		serveSchema(w, r)
+	}))
+	t.Cleanup(generator.Close)
+	t.Cleanup(releaseSchema)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	// StartDefraInstance rewrites a loopback address to the LAN IP, so an API that DefraDB started
+	// early would not answer the loopback dial below. It leaves 0.0.0.0 alone.
+	cfg.DefraDB.URL = net.JoinHostPort("0.0.0.0", strconv.Itoa(apiPort))
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = healthPort
+	cfg.Chains = []chain.Config{{
+		Prefix:     chain.EthereumMainnet,
+		Generators: []chain.Generator{{URL: generator.URL}},
+	}}
+
+	var h *Host
+	started := make(chan error, 1)
+	go func() {
+		var err error
+		h, err = StartHosting(&cfg)
+		started <- err
+	}()
+
+	select {
+	case <-fetching:
+	case err := <-started:
+		t.Fatalf("StartHosting returned before fetching the schema: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("StartHosting never fetched the schema")
+	}
+	apiAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(apiPort))
+	if conn, err := net.DialTimeout("tcp", apiAddr, time.Second); err == nil {
+		_ = conn.Close()
+		t.Fatal("the API answered before the chain's tables existed")
+	}
+
+	releaseSchema()
+	require.NoError(t, <-started)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+
+	api, err := defradbHttp.NewClient(apiAddr)
+	require.NoError(t, err)
+	result := api.ExecRequest(context.Background(), "{ "+h.collections.Block.Name+" { __typename } }")
+	require.Empty(t, result.GQL.Errors)
 }

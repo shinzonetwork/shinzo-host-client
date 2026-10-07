@@ -155,12 +155,13 @@ type Host struct {
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
-	processingCancel       context.CancelFunc  // For canceling the event processing goroutine
-	listenerDone           <-chan struct{}     // Closed once the attestation listener has stopped
-	playgroundServer       *http.Server        // Playground HTTP server (if enabled)
-	acpServer              *defradbHttp.Server // ACP-wrapped GraphQL server (set when the ACP middleware owns the API port)
-	acpMiddleware          *acp.Middleware     // Billing gate; drained on Close so in-flight records are not lost
-	config                 *config.Config      // Host configuration including StartHeight
+	processingCancel       context.CancelFunc   // For canceling the event processing goroutine
+	listenerDone           <-chan struct{}      // Closed once the attestation listener has stopped
+	playgroundServer       *http.Server         // Playground HTTP server (if enabled)
+	apiServer              *defradbHttp.Server  // Serves DefraDB's API, wrapped in the ACP middleware when it is enabled
+	apiHandler             *defradbHttp.Handler // DefraDB's API handler that apiServer serves
+	acpMiddleware          *acp.Middleware      // Billing gate; drained on Close so in-flight records are not lost
+	config                 *config.Config       // Host configuration including StartHeight
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.Manager // Manages view lifecycle and processing
@@ -245,12 +246,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		return servedSchema(ctx, cfg.Schema, served)
 	}
 
-	// When the ACP middleware is enabled the host owns the GraphQL API port.
-	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
-	// the auto-start of the HTTP server is suppressed.
-	if acpCfg.Enabled {
-		nodeOpts.SetDisableAPI(true)
-	}
+	// DefraDB would start its API in node.Start, before StartDefraInstance applies the chain's
+	// schema. The host serves it after that (startAPIServer).
+	nodeOpts.SetDisableAPI(true)
 
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
@@ -347,21 +345,27 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		bootstrapFromSnapshots(ctx, defraNode, collections, cfg.HostConfig.Snapshot)
 	}
 
-	// View manager has to be built before the ACP server because the
+	// View manager has to be built before the ACP middleware because the
 	// middleware's view registry adapts the manager's accessors.
 	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, served.Prefix)
 
-	// When the middleware is enabled the host owns the GraphQL API. The
-	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.
-	// defraNode.APIURL is populated inside startACPServer so the playground
-	// proxy below uses our address.
-	var acpServer *defradbHttp.Server
+	apiHandler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
+	if err != nil {
+		return nil, fmt.Errorf("defradb handler: %w", err)
+	}
+	var handler http.Handler = apiHandler
 	var acpMiddleware *acp.Middleware
 	if acpCfg.Enabled {
-		acpServer, acpMiddleware, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL, attesters)
+		acpMiddleware, err = newACPMiddleware(acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, attesters)
 		if err != nil {
-			return nil, fmt.Errorf("acp server: %w", err)
+			return nil, fmt.Errorf("acp middleware: %w", err)
 		}
+		handler = acpMiddleware.Wrap(apiHandler)
+	}
+	// startAPIServer sets defraNode.APIURL, which the playground proxy below and the health probe use.
+	apiServer, err := startAPIServer(ctx, handler, cfg.DefraDB.URL, defraNode)
+	if err != nil {
+		return nil, fmt.Errorf("api server: %w", err)
 	}
 
 	// Log API URL
@@ -408,7 +412,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	newHost.viewManager = viewManager
-	newHost.acpServer = acpServer
+	newHost.apiServer = apiServer
+	newHost.apiHandler = apiHandler
 	newHost.acpMiddleware = acpMiddleware
 	newHost.playgroundServer = playgroundServer
 
@@ -749,7 +754,7 @@ func incrementPort(apiURL string) (string, error) {
 }
 
 // Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruner,
-// shuts down the playground and ACP servers, and closes the DefraDB node.
+// shuts down the playground and API servers, and closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()
@@ -778,12 +783,15 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
-	// Shut down the ACP-wrapped GraphQL server before closing defradb;
-	// the server holds a handler that calls into defraNode.DB.
-	if h.acpServer != nil {
-		if err := h.acpServer.Shutdown(ctx); err != nil {
-			fmt.Printf("Error shutting down ACP server: %v\n", err)
+	// Shut down the API server before closing defradb; its handler calls into defraNode.DB.
+	if h.apiServer != nil {
+		if err := h.apiServer.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down API server: %v\n", err)
 		}
+	}
+	// DefraDB's Close closes only an API handler it created itself.
+	if h.apiHandler != nil {
+		h.apiHandler.Close()
 	}
 
 	// The server no longer accepts requests, so drain the service records it
@@ -824,24 +832,19 @@ func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *n
 	}, nil
 }
 
-// startACPServer constructs the host-owned GraphQL HTTP server: it wraps
-// defradb's API handler with the ACP middleware, binds the listener on
-// the resolved LAN address, points defraNode.APIURL at the address so
-// the playground proxy uses it, and waits for the server to answer a
-// health check before returning. Caller shuts the returned server down
-// via Host.Close.
-func startACPServer(
-	ctx context.Context,
+// newACPMiddleware builds the ACP middleware, which gates GraphQL requests to acp.GraphQLPath: a
+// balance check against the hub and, when an accounting service is configured, service-record
+// submission.
+func newACPMiddleware(
 	acpCfg acp.Config,
 	internalCfg *defradb.Config,
 	hubBaseURL string,
 	defraNode *node.Node,
 	viewManager *view.Manager,
-	defraURL string,
 	attesters *observedAttesters,
-) (*defradbHttp.Server, *acp.Middleware, error) {
+) (*acp.Middleware, error) {
 	if hubBaseURL == "" {
-		return nil, nil, errHubBaseURLMissing
+		return nil, errHubBaseURLMissing
 	}
 	// The host reads the hub over its Cosmos LCD (REST) port.
 	lcdURL := deriveShinzoHubURLs(hubBaseURL).lcd
@@ -855,63 +858,63 @@ func startACPServer(
 
 	recording, err := buildRecording(acpCfg, internalCfg, defraNode, attesters)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar)
+	return acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar), nil
+}
 
-	handler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
-	if err != nil {
-		return nil, nil, fmt.Errorf("defradb handler: %w", err)
-	}
-
+// startAPIServer serves handler on defraURL, points defraNode.APIURL at the bound address, and
+// waits for the server to answer a health check before returning. Caller shuts the returned server
+// down via Host.Close.
+func startAPIServer(ctx context.Context, handler http.Handler, defraURL string, defraNode *node.Node) (*defradbHttp.Server, error) {
 	// Bind on host:port. Loopback hosts (localhost, 127.0.0.1, ::1) are
 	// promoted to 0.0.0.0 so the same listener accepts both external
 	// connections and in-process loopback calls (e.g. healthcheck probes).
 	host, port, splitErr := net.SplitHostPort(defraURL)
 	if splitErr != nil {
-		return nil, nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
+		return nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
 	}
 	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
 		host = "0.0.0.0"
 	}
 	listenAddr := net.JoinHostPort(host, port)
 
-	server, err := defradbHttp.NewServer(mw.Wrap(handler), options.NodeHTTP().SetAddress(listenAddr))
+	server, err := defradbHttp.NewServer(handler, options.NodeHTTP().SetAddress(listenAddr))
 	if err != nil {
-		return nil, nil, fmt.Errorf("defradb server: %w", err)
+		return nil, fmt.Errorf("defradb server: %w", err)
 	}
 	if err := server.SetListener(); err != nil {
-		return nil, nil, fmt.Errorf("listener: %w", err)
+		return nil, fmt.Errorf("listener: %w", err)
 	}
 
 	go func() {
 		if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Sugar.Errorf("ACP server stopped: %v", err)
+			logger.Sugar.Errorf("API server stopped: %v", err)
 		}
 	}()
 
 	defraNode.APIURL = server.Address()
 
-	healthCtx, cancel := context.WithTimeout(ctx, acpHealthCheckTimeout)
+	healthCtx, cancel := context.WithTimeout(ctx, apiHealthCheckTimeout)
 	defer cancel()
 
 	healthClient, err := defradbHttp.NewClient(server.Address())
 	if err != nil {
 		_ = server.Shutdown(ctx)
-		return nil, nil, fmt.Errorf("health client: %w", err)
+		return nil, fmt.Errorf("health client: %w", err)
 	}
 	if err := healthClient.HealthCheck(healthCtx); err != nil {
 		_ = server.Shutdown(ctx)
-		return nil, nil, fmt.Errorf("health check: %w", err)
+		return nil, fmt.Errorf("health check: %w", err)
 	}
 
-	return server, mw, nil
+	return server, nil
 }
 
-// acpHealthCheckTimeout bounds the post-listen health check on the
-// ACP-wrapped server. The server is local; a slow response indicates
+// apiHealthCheckTimeout bounds the post-listen health check on the
+// API server. The server is local; a slow response indicates
 // startup is wedged and the host should fail rather than hang.
-const acpHealthCheckTimeout = 5 * time.Second
+const apiHealthCheckTimeout = 5 * time.Second
 
 // epochPollInterval bounds how often the balance gate re-reads the hub height to
 // learn the current settlement epoch. Balances only change at epoch close, so a
