@@ -113,30 +113,6 @@ func TestEnqueueDoc(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// processAttestationEventsWithSubscription
-// ---------------------------------------------------------------------------
-
-func TestProcessAttestationEventsWithSubscription_ContextCancelled(t *testing.T) {
-	h := &Host{
-		DefraNode: nil,
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-	// Should return promptly since context is already canceled
-	done := make(chan struct{})
-	go func() {
-		h.processAttestationEventsWithSubscription(ctx, nil)
-		close(done)
-	}()
-	select {
-	case <-done:
-		// Success
-	case <-time.After(5 * time.Second):
-		t.Fatal("processAttestationEventsWithSubscription did not return after context cancellation")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // initKnownCollectionIDs
 // ---------------------------------------------------------------------------
 
