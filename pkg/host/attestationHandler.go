@@ -10,6 +10,7 @@ import (
 
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
@@ -128,7 +129,8 @@ func (h *Host) docWorker(ctx context.Context) {
 }
 
 // startEventBusListener reads update events from updates: it counts the documents peers send and
-// queues block signatures for attestation. It returns once its document workers have stopped.
+// queues block signatures for attestation. It closes updates when it stops, and returns once its
+// document workers have stopped.
 func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscription) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
@@ -151,6 +153,10 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 	for range workerCount {
 		workers.Go(func() { h.docWorker(workerCtx) })
 	}
+	// Deferred calls run last in, first out, so updates is closed, and read until it is, before the
+	// workers are waited on: a stopping worker's write publishes an update, and once updates' buffer
+	// is full the bus stalls until someone reads it.
+	defer defradb.CloseSubscription(h.DefraNode.DB.Events(), updates)
 	logger.Sugar.Infof("Started %d document workers (queue: %d)", workerCount, queueSize)
 
 	logger.Sugar.Info("DefraDB event bus listener started")
