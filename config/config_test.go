@@ -427,6 +427,12 @@ func TestLoadConfig_Chains(t *testing.T) {
 			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
 			wantErr: ErrUnsupportedChains,
 		},
+		{desc: "snapshots for Ethereum", yaml: "host:\n  snapshot:\n    enabled: true\n", want: ethereum},
+		{
+			desc:    "snapshots for another chain",
+			yaml:    "chains:\n  - prefix: Testchain__Devnet\nhost:\n  snapshot:\n    enabled: true\n",
+			wantErr: ErrSnapshotChain,
+		},
 	}
 
 	for _, c := range cases {
