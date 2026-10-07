@@ -118,10 +118,9 @@ host:
   health_server_port: 8080
   open_browser_on_start: false
   # Snapshot Bootstrap - download historical data from an indexer on first startup.
-  # Set enabled: false to skip snapshot import entirely.
+  # Import runs only with enabled: true and indexer_url set to an indexer that serves snapshots.
   snapshot:
     enabled: false
-    indexer_url: "http://35.206.105.60:8080"
     historical_ranges:
       - start: 24528700
         end: 24528999
