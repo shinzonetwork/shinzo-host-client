@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/sourcenetwork/immutable"
@@ -205,32 +203,4 @@ func updateAttestationRecord(ctx context.Context, col client.Collection, existin
 		return fmt.Errorf("attestation %s: %w", record.AttestedDocID, ErrDocumentNotFound)
 	}
 	return err
-}
-
-// CheckExistingAttestation returns the records in the attestation collection named collection
-// for a document.
-func CheckExistingAttestation(ctx context.Context, defraNode *node.Node, collection string, docID string, docType string) ([]Record, error) {
-	// Query the general attestation collection for this specific document
-	query := fmt.Sprintf(`
-		query {
-			%s(filter: {attested_doc: {_eq: "%s"}, doc_type: {_eq: "%s"}}) {
-				_docID
-				attested_doc
-				source_doc
-				CIDs
-				doc_type
-				vote_count
-			}
-		}
-	`, collection, docID, docType)
-
-	existing, err := defradb.QueryArray[Record](ctx, defraNode, query)
-	if err != nil {
-		if strings.Contains(err.Error(), "No attestation records found") {
-			return nil, nil // No existing attestation, not an error
-		}
-		return nil, fmt.Errorf("failed to check existing attestation for document %s: %w", docID, err)
-	}
-
-	return existing, nil
 }
