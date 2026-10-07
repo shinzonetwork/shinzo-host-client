@@ -34,14 +34,18 @@ func attestationRecordSchema(c chain.Collections) string {
 type ChainApplier struct {
 	// Tables returns the SDL of the chain's tables. ApplySchema calls it only when the database
 	// holds none of them.
-	Tables      func(ctx context.Context) (string, error)
+	Tables func(ctx context.Context) (string, error)
+	// Served returns the SDL a generator serves for the chain, or false when no generator answers.
+	// ApplySchema calls it only when the database holds the chain's tables, to compare them with it.
+	Served      func(ctx context.Context) (string, bool)
 	Collections chain.Collections
 }
 
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
 // the chain's attestation record collection if it is missing. It returns ErrSchemaOtherChainStored
-// when the database holds another chain's tables, and ErrSchemaPartiallyStored when it holds only
-// some of this chain's tables.
+// when the database holds another chain's tables, ErrSchemaPartiallyStored when it holds only some
+// of this chain's tables, and ErrSchemaDrift when it holds them and they differ from the tables a
+// generator serves.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -67,6 +71,11 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	}
 	switch len(missing) {
 	case 0:
+		if sdl, ok := a.Served(ctx); ok {
+			if err := checkStored(sdl, cols, a.Collections); err != nil {
+				return err
+			}
+		}
 	case len(tables):
 		sdl, err := a.Tables(ctx)
 		if err != nil {

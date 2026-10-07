@@ -107,3 +107,44 @@ func TestResolveSchemaUsesFirstUsableGenerator(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, secondCalled.Load(), "a generator after the first usable one was contacted")
 }
+
+func TestServedSchema(t *testing.T) {
+	valid := schemaHandler(t, chain.EthereumMainnet)
+	wrongNetwork := schemaHandler(t, "Ethereum__Sepolia")
+	failing := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }
+	// A schema for the chain that the fetch checks would refuse: it lacks most of the tables.
+	partialSDL := "type " + testCollections.Block.Name + " { number: Int }"
+	partial := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: partialSDL}))
+	}
+
+	cases := []struct {
+		desc       string
+		generators []http.HandlerFunc
+		want       string
+		wantOK     bool
+	}{
+		{desc: "no generators"},
+		{desc: "the first generator's schema is used unchecked", generators: []http.HandlerFunc{partial, valid}, want: partialSDL, wantOK: true},
+		{desc: "a failing generator and one for another chain are skipped", generators: []http.HandlerFunc{failing, wrongNetwork, valid}, want: generatorSchema(t), wantOK: true},
+		{desc: "no generator answers", generators: []http.HandlerFunc{failing, wrongNetwork}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			served := chain.Config{Prefix: chain.EthereumMainnet}
+			for _, handler := range c.generators {
+				srv := httptest.NewServer(handler)
+				t.Cleanup(srv.Close)
+				served.Generators = append(served.Generators, chain.Generator{URL: srv.URL})
+			}
+			schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+
+			got, ok := servedSchema(context.Background(), schemaCfg, served)
+
+			require.Equal(t, c.wantOK, ok)
+			require.Equal(t, c.want, got)
+		})
+	}
+}
