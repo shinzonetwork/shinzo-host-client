@@ -306,7 +306,7 @@ func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg DefraP2PConfi
 }
 
 // StartDefraInstance initializes and starts a DefraDB node instance with the provided configuration.
-func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, retentionRule client.RetentionRule, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
+func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, retentionRule client.RetentionRule) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
 	ctx := context.Background()
 
 	if cfg == nil {
@@ -416,11 +416,6 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 		return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
-	err = defraNode.DB.AddP2PCollections(ctx, collectionsOfInterest)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add collections of interest %v: %w", collectionsOfInterest, err)
-	}
-
 	// Create network handler
 	networkHandler := NewNetworkHandler(defraNode, cfg)
 
@@ -439,7 +434,7 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 }
 
 // StartDefraInstanceWithTestConfig is a simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test.
-func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier SchemaApplier, collectionsOfInterest ...string) (*node.Node, error) {
+func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier SchemaApplier) (*node.Node, error) {
 	ipAddress, err := getLANIP()
 	if err != nil {
 		return nil, err
@@ -453,7 +448,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier S
 	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
 	cfg.DefraDB.KeyringSecret = "testSecret"
-	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, nil, collectionsOfInterest...)
+	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, nil)
 	return node, err
 }
 
