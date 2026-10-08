@@ -222,7 +222,8 @@ func TestChainsApplier(t *testing.T) {
 		chains = append(chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
 	}
 
-	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, chainsApplier{schemaCfg: schemaCfg, chains: chains})
+	applier := &chainsApplier{schemaCfg: schemaCfg, chains: chains}
+	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
 	require.NoError(t, err)
 	defer func() { _ = node.Close(ctx) }()
 	var subscribed []string
@@ -234,17 +235,18 @@ func TestChainsApplier(t *testing.T) {
 		}
 		subscribed = append(subscribed, collections.Subscribed()...)
 	}
+	require.Equal(t, chains, applier.enabled)
 	got, err := node.DB.ListP2PCollections(ctx)
 	require.NoError(t, err)
 	require.ElementsMatch(t, subscribed, got)
 
 	// Every stored chain is listed, so a restart is accepted.
-	require.NoError(t, chainsApplier{schemaCfg: schemaCfg, chains: chains}.ApplySchema(ctx, node))
+	require.NoError(t, applier.ApplySchema(ctx, node))
 
 	// A view named like a BlockSignature table does not mark a chain.
 	_, err = node.DB.AddView(ctx, chain.EVM(other).Block.Name+" { number }", "type Unlisted__BlockSignature { number: Int }")
 	require.NoError(t, err)
-	require.NoError(t, chainsApplier{schemaCfg: schemaCfg, chains: chains}.ApplySchema(ctx, node))
+	require.NoError(t, applier.ApplySchema(ctx, node))
 
 	// The store holds a chain the config does not list, and the config lists a chain the store does
 	// not hold yet, whose generator serves its tables. The unlisted chain is refused before any table
@@ -253,8 +255,27 @@ func TestChainsApplier(t *testing.T) {
 	thirdGenerator := httptest.NewServer(schemaHandler(t, third))
 	t.Cleanup(thirdGenerator.Close)
 	thirdChain := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: thirdGenerator.URL}}}
-	err = chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], thirdChain}}.ApplySchema(ctx, node)
+	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], thirdChain}}).ApplySchema(ctx, node)
 	require.ErrorIs(t, err, errUnlistedChain)
 	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
 	require.Error(t, err)
+
+	// The store holds a table the other chain's generator does not serve, so that chain is disabled
+	// and unsubscribed, and the first chain is still served.
+	_, err = node.DB.AddCollection(ctx, "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	require.Equal(t, chains[:1], applier.enabled)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
+
+	// Only drift disables a chain: a later chain with no schema still stops the host.
+	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], {Prefix: third}}}).ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errNoChainSchema)
+
+	// Drift in the first chain stops the host.
+	_, err = node.DB.AddCollection(ctx, "type "+chain.EthereumMainnet+"__Extra { a: Int }")
+	require.NoError(t, err)
+	require.ErrorIs(t, applier.ApplySchema(ctx, node), localschema.ErrSchemaDrift)
 }
