@@ -3,35 +3,36 @@ package schema
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	_ "embed"
 
+	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/parser"
+
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
 
 // Sentinel errors for schema fetch and validation failures.
 var (
-	ErrSchemaFetchNetwork      = fmt.Errorf("schema fetch network error")
-	ErrSchemaFetchStatus       = fmt.Errorf("schema fetch non-OK status")
-	ErrSchemaEmptyResponse     = fmt.Errorf("schema field is empty in indexer response")
-	ErrSchemaMalformedResponse = fmt.Errorf("schema response is malformed or invalid JSON")
-	ErrSchemaMissingBlockType  = fmt.Errorf("schema missing required type Ethereum__Mainnet__Block")
+	ErrSchemaFetchNetwork        = fmt.Errorf("schema fetch network error")
+	ErrSchemaFetchStatus         = fmt.Errorf("schema fetch non-OK status")
+	ErrSchemaEmptyResponse       = fmt.Errorf("schema field is empty in indexer response")
+	ErrSchemaMalformedResponse   = fmt.Errorf("schema response is malformed or invalid JSON")
+	ErrSchemaWrongNetwork        = fmt.Errorf("schema is for another chain")
+	ErrSchemaForeignType         = fmt.Errorf("schema has a type outside the chain's prefix")
+	ErrSchemaHostOwnedType       = fmt.Errorf("schema declares a type the host owns")
+	ErrSchemaMissingType         = fmt.Errorf("schema is missing a collection the generator writes")
+	ErrSchemaMissingIndexedField = fmt.Errorf("schema is missing a field the host indexes")
 )
 
-var (
-	blockTypeRegEx       = regexp.MustCompile(`type\s+Ethereum__Mainnet__Block\s*\{`)
-	attestationTypeRegEx = regexp.MustCompile(`type\s+Ethereum__Mainnet__AttestationRecord\s*\{`)
-)
-
-// AttestationRecordTypeDef is the GraphQL type definition for Ethereum__Mainnet__AttestationRecord.
-// This type is NOT included in the indexer's schema response and must be appended by the host.
+// AttestationRecordTypeDef is the GraphQL type definition of the attestation records the host
+// writes. Generators do not serve it, so the host appends it to a fetched schema.
 //
 //go:embed attestationRecord.graphql
 var AttestationRecordTypeDef string
@@ -49,10 +50,11 @@ type Response struct {
 	Schema  string `json:"schema"`
 }
 
-// FetchSchema fetches the GraphQL schema from the given full URL (base URL + endpoint path),
-// appends the AttestationRecord type definition, and validates the result.
-// Returns an error on HTTP errors, malformed responses, or validation failures (fail-closed).
-func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (string, error) {
+// FetchSchema fetches a chain's schema from fullURL, a generator's schema endpoint, and returns
+// it ready to apply: checked against the chain's collections, with the host's indexes and the
+// host's AttestationRecord type. It returns an error on an HTTP error, a malformed response or a
+// failed check.
+func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, collections chain.Collections) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("create schema request: %w: %w", ErrSchemaFetchNetwork, err)
@@ -78,58 +80,47 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string) (
 		return "", ErrSchemaEmptyResponse
 	}
 
-	result := AppendAttestationRecord(schemaResp.Schema)
-	if err := ValidateSchema(result); err != nil {
-		return "", fmt.Errorf("validate schema: %w", err)
+	if err := checkSchema(schemaResp, collections); err != nil {
+		return "", fmt.Errorf("check schema: %w", err)
 	}
-
-	return result, nil
+	withIndexes, err := applyHostIndexes(schemaResp.Schema, collections.Prefix, SchemaGraphQL)
+	if err != nil {
+		return "", fmt.Errorf("apply host indexes: %w", err)
+	}
+	return AppendAttestationRecord(withIndexes), nil
 }
 
-// AppendAttestationRecord appends the Ethereum__Mainnet__AttestationRecord type definition
-// to the base schema. If the type is already present, the schema is returned unchanged.
-func AppendAttestationRecord(baseSchema string) string {
-	if attestationTypeRegEx.MatchString(baseSchema) {
-		return baseSchema
+// checkSchema checks a generator's schema response against the chain's collections: it is for
+// this chain, every type is under the chain's prefix, the host's AttestationRecord type is left
+// out, and every collection the generator writes is there.
+func checkSchema(resp Response, c chain.Collections) error {
+	if resp.Network != c.Prefix {
+		return fmt.Errorf("network %q, want %q: %w", resp.Network, c.Prefix, ErrSchemaWrongNetwork)
 	}
-	return strings.TrimSpace(baseSchema) + "\n\n" + AttestationRecordTypeDef + "\n"
-}
-
-// ValidateSchema checks that the schema contains the required type definitions.
-// Returns an error if Ethereum__Mainnet__Block is missing.
-func ValidateSchema(schemaStr string) error {
-	// TODO: Update this function to perform more comprehensive validation check beyond Block schema verification
-	if !blockTypeRegEx.MatchString(schemaStr) {
-		return ErrSchemaMissingBlockType
+	doc, err := parser.ParseSchema(&ast.Source{Input: resp.Schema})
+	if err != nil {
+		return fmt.Errorf("parse schema: %w: %w", ErrSchemaMalformedResponse, err)
 	}
-
+	for _, def := range doc.Definitions {
+		if !strings.HasPrefix(def.Name, c.Prefix+"__") {
+			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaForeignType)
+		}
+		if def.Name == c.AttestationRecord.Name {
+			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaHostOwnedType)
+		}
+	}
+	written := []chain.Collection{c.Block, c.Transaction, c.Log, c.AccessListEntry, c.BlockSignature, c.SnapshotSignature}
+	for _, col := range written {
+		if doc.Definitions.ForName(col.Name) == nil {
+			return fmt.Errorf("type %s: %w", col.Name, ErrSchemaMissingType)
+		}
+	}
 	return nil
 }
 
-// IsDataLevelError reports whether the given error is a data-level schema fetch error
-// (e.g. malformed JSON, empty schema, missing required types).
-// Network-level errors like DNS failure, connection refused, or HTTP non-200 return false.
-//
-// This classifier assumes single-level sentinel wrapping: FetchSchema wraps each error
-// with exactly one sentinel error via %w. Transitive wrapping of multiple sentinels
-// (e.g., fmt.Errorf("...: %w: %w", ErrSchemaFetchNetwork, ErrSchemaMalformedResponse))
-// could cause misclassification and must not be introduced without updating these classifiers.
-func IsDataLevelError(err error) bool {
-	return errors.Is(err, ErrSchemaMalformedResponse) ||
-		errors.Is(err, ErrSchemaEmptyResponse) ||
-		errors.Is(err, ErrSchemaMissingBlockType)
-}
-
-// IsNetworkLevelError reports whether the given error is a network-level schema fetch error
-// (e.g. DNS failure, connection refused, timeout, or HTTP non-200 status).
-//
-// This classifier assumes single-level sentinel wrapping: FetchSchema wraps each error
-// with exactly one sentinel error via %w. Transitive wrapping of multiple sentinels
-// (e.g., fmt.Errorf("...: %w: %w", ErrSchemaFetchNetwork, ErrSchemaMalformedResponse))
-// could cause misclassification and must not be introduced without updating these classifiers.
-func IsNetworkLevelError(err error) bool {
-	return errors.Is(err, ErrSchemaFetchNetwork) ||
-		errors.Is(err, ErrSchemaFetchStatus)
+// AppendAttestationRecord appends the host's AttestationRecord type to a fetched schema.
+func AppendAttestationRecord(baseSchema string) string {
+	return strings.TrimSpace(baseSchema) + "\n\n" + AttestationRecordTypeDef + "\n"
 }
 
 // authTransport wraps an http.RoundTripper to inject a Bearer token

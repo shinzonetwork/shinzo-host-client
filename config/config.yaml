@@ -117,6 +117,12 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
   max_docs_per_cycle: 50000 # Documents removed per cycle. Must exceed the arrival rate over one interval.
+# chains lists the chains this host serves. Without it the host serves Ethereum mainnet with the
+# built-in schema. A chain's schema comes from its generators, tried in order.
+# chains:
+#   - prefix: Ethereum__Mainnet
+#     generators:
+#       - url: http://35.254.135.221:8080
 schema:
   indexer_schema_endpoint: /api/v1/schema
   http_client_timeout_secs: 30

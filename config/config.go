@@ -1,12 +1,16 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	"gopkg.in/yaml.v3"
@@ -27,6 +31,9 @@ var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must 
 
 // ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
 var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
+
+// ErrUnsupportedChains is returned when the config names chains other than Ethereum mainnet alone.
+var ErrUnsupportedChains = fmt.Errorf("chains must be %s alone", chain.EthereumMainnet)
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -82,6 +89,8 @@ type Config struct {
 	Logger     LoggerConfig  `yaml:"logger"`
 	HostConfig HostConfig    `yaml:"host"`
 	Pruner     pruner.Config `yaml:"pruner"`
+	// Chains are the chains the host serves. A config without the key serves Ethereum mainnet.
+	Chains []chain.Config `yaml:"chains"`
 }
 
 // SchemaConfig represents configuration for dynamic schema fetching.
@@ -198,6 +207,10 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if cfg.Chains, err = loadChains(data); err != nil {
+		return nil, err
+	}
+
 	// Apply environment variable overrides
 	if v := os.Getenv("START_HEIGHT"); v != "" {
 		height, err := strconv.ParseUint(v, 10, 64)
@@ -258,6 +271,35 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// loadChains reads and validates the chains key of the config file. A file without the key serves
+// Ethereum mainnet, and no other set of chains is accepted. Keys the config does not define are
+// ignored elsewhere in the file but rejected under chains, where a misspelled key would leave a
+// chain misconfigured without an error.
+func loadChains(data []byte) ([]chain.Config, error) {
+	// The inline map takes every top-level key other than chains, so only chains is checked.
+	var doc struct {
+		Chains []chain.Config `yaml:"chains"`
+		Other  map[string]any `yaml:",inline"`
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to parse chains: %w", err)
+	}
+
+	chains := doc.Chains
+	if chains == nil {
+		chains = []chain.Config{{Prefix: chain.EthereumMainnet}}
+	}
+	if err := chain.Validate(chains); err != nil {
+		return nil, fmt.Errorf("invalid chains: %w", err)
+	}
+	if len(chains) != 1 || chains[0].Prefix != chain.EthereumMainnet {
+		return nil, ErrUnsupportedChains
+	}
+	return chains, nil
 }
 
 // ToInternalConfig converts the host config to the pkg/defradb internal config

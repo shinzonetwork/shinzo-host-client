@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
@@ -384,6 +386,64 @@ func TestLoadConfig_SchemaAuthToken(t *testing.T) {
 			cfg, err := LoadConfig(configPath)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantToken, cfg.Schema.AuthToken)
+		})
+	}
+}
+
+func TestLoadConfig_Chains(t *testing.T) {
+	ethereum := []chain.Config{{Prefix: chain.EthereumMainnet}}
+	cases := []struct {
+		desc       string
+		yaml       string
+		want       []chain.Config
+		wantErr    error
+		wantErrMsg string
+	}{
+		{desc: "empty file", yaml: "", want: ethereum},
+		{desc: "no chains key", yaml: "pruner:\n  max_blocks: 1000\n", want: ethereum},
+		{
+			desc: "Ethereum with generators",
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    generators:\n      - url: http://10.0.0.5:8080\n      - url: http://10.0.0.6:8080\n",
+			want: []chain.Config{{
+				Prefix:     chain.EthereumMainnet,
+				Generators: []chain.Generator{{URL: "http://10.0.0.5:8080"}, {URL: "http://10.0.0.6:8080"}},
+			}},
+		},
+		{
+			desc: "unknown keys outside chains are ignored",
+			yaml: "not_a_key: 1\npruner:\n  not_a_key: 2\nchains:\n  - prefix: Ethereum__Mainnet\n",
+			want: ethereum,
+		},
+		{
+			desc:       "misspelled key under chains",
+			yaml:       "pruner:\n  max_blocks: 1000\nchains:\n  - prefix: Ethereum__Mainnet\n    generator:\n      - url: http://10.0.0.5:8080\n",
+			wantErrMsg: "line 5: field generator not found",
+		},
+		{desc: "invalid prefix", yaml: "chains:\n  - prefix: Ethereum\n", wantErr: chain.ErrInvalidPrefix},
+		{desc: "empty chains list", yaml: "chains: []\n", wantErr: ErrUnsupportedChains},
+		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n", wantErr: ErrUnsupportedChains},
+		{
+			desc:    "a second chain",
+			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
+			wantErr: ErrUnsupportedChains,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(c.yaml), 0o600))
+
+			cfg, err := LoadConfig(path)
+			switch {
+			case c.wantErr != nil:
+				require.ErrorIs(t, err, c.wantErr)
+			case c.wantErrMsg != "":
+				require.ErrorContains(t, err, c.wantErrMsg)
+			default:
+				require.NoError(t, err)
+				require.Equal(t, c.want, cfg.Chains)
+			}
 		})
 	}
 }

@@ -132,6 +132,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 		HostConfig: config.HostConfig{
 			LensRegistryPath: "./.defra/lens",
 		},
+		Chains: []chain.Config{{Prefix: chain.EthereumMainnet}},
 	}
 	return cfg
 }()
@@ -196,7 +197,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	collections := chain.EVM(chain.EthereumMainnet)
+	// The config holds exactly one chain.
+	served := cfg.Chains[0]
+	collections := chain.EVM(served.Prefix)
 
 	// The pruner and the retention rule share one cutoff and the same collections.
 	pruned := pruner.CollectionConfigFor(collections)
@@ -225,9 +228,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	schemaCtx, schemaCtxCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Schema.HTTPClientTimeoutSecs)*time.Second)
-	resolvedSchema := resolveSchema(schemaCtx, cfg)
-	schemaCtxCancel()
+	resolvedSchema := resolveSchema(context.Background(), cfg.Schema, served, collections)
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
