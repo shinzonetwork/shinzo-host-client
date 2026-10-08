@@ -14,6 +14,7 @@ import (
 	gocid "github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
@@ -22,6 +23,7 @@ import (
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/event"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -490,22 +492,19 @@ func TestInitKnownCollectionIDs_WithRealDefraDB(t *testing.T) {
 		collections: testCollections,
 	}
 
-	// Reset the global collection IDs to verify they get set
-	blockSigCollectionID = ""
-	blockCollectionID = ""
-	transactionCollectionID = ""
-	logCollectionID = ""
-	accessListCollectionID = ""
-
 	err = h.initKnownCollectionIDs(ctx)
 	require.NoError(t, err)
 
-	// Verify that at least the block signature collection ID was set
-	require.NotEmpty(t, blockSigCollectionID, "blockSigCollectionID should be set")
-	require.NotEmpty(t, blockCollectionID, "blockCollectionID should be set")
-	require.NotEmpty(t, transactionCollectionID, "transactionCollectionID should be set")
-	require.NotEmpty(t, logCollectionID, "logCollectionID should be set")
-	require.NotEmpty(t, accessListCollectionID, "accessListCollectionID should be set")
+	want := make(map[string]string)
+	for _, c := range []chain.Collection{
+		testCollections.Block, testCollections.Transaction, testCollections.Log,
+		testCollections.AccessListEntry, testCollections.BlockSignature, testCollections.AttestationRecord,
+	} {
+		col, err := defraNode.DB.GetCollectionByName(ctx, c.Name)
+		require.NoError(t, err)
+		want[col.CollectionID()] = c.Name
+	}
+	require.Equal(t, want, h.collectionNames)
 }
 
 func TestInitKnownCollectionIDs_NilDB(t *testing.T) {
@@ -1282,6 +1281,61 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 // ---------------------------------------------------------------------------
 // startEventBusListener - relay event with metrics and collection routing
 // ---------------------------------------------------------------------------
+
+// The listener counts a document a peer sends under its collection, and ignores updates for
+// collections outside the chain.
+func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
+	ctx := context.Background()
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	metrics := server.NewHostMetrics()
+	cfg := *DefaultConfig
+	h := &Host{DefraNode: defraNode, collections: testCollections, config: &cfg, metrics: metrics}
+
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+	listenerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go h.startEventBusListener(listenerCtx, updates)
+
+	relay := func(collectionID string) {
+		defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: collectionID, IsRelay: true}))
+	}
+	// An update for an unknown collection is not counted.
+	relay("not-a-collection")
+
+	// Each collection gets a different number of updates, so a counter wired to the wrong
+	// collection ends with the wrong count.
+	relays := map[string]int{
+		testCollections.Block.Name:           1,
+		testCollections.Transaction.Name:     2,
+		testCollections.Log.Name:             3,
+		testCollections.AccessListEntry.Name: 4,
+		testCollections.BlockSignature.Name:  5,
+	}
+	total := 0
+	for name, n := range relays {
+		col, err := defraNode.DB.GetCollectionByName(ctx, name)
+		require.NoError(t, err)
+		for range n {
+			relay(col.CollectionID())
+		}
+		total += n
+	}
+
+	c := testCollections
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Equal(ct, int64(total), atomic.LoadInt64(&metrics.DocumentsReceived))
+		assert.Equal(ct, int64(relays[c.Transaction.Name]), atomic.LoadInt64(&metrics.TransactionsProcessed))
+		assert.Equal(ct, int64(relays[c.Log.Name]), atomic.LoadInt64(&metrics.LogsProcessed))
+		assert.Equal(ct, int64(relays[c.AccessListEntry.Name]), atomic.LoadInt64(&metrics.AccessListsProcessed))
+		assert.Equal(ct, int64(relays[c.BlockSignature.Name]), atomic.LoadInt64(&metrics.BlockSignaturesProcessed))
+		// A relayed Block counts only as received.
+		assert.Zero(ct, atomic.LoadInt64(&metrics.BlocksProcessed))
+	}, 5*time.Second, 10*time.Millisecond)
+}
 
 func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 	ctx := context.Background()

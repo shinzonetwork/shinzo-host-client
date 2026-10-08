@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,10 +19,7 @@ import (
 )
 
 // attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
-var (
-	attestedBlocks sync.Map  //nolint:gochecknoglobals
-	startTime      time.Time //nolint:gochecknoglobals,unused
-)
+var attestedBlocks sync.Map //nolint:gochecknoglobals
 
 // processAttestationEventsWithSubscription runs the attestation listener on updates, a
 // subscription to DefraDB's update events, and returns when the listener stops.
@@ -31,56 +29,28 @@ func (h *Host) processAttestationEventsWithSubscription(ctx context.Context, upd
 	logger.Sugar.Info("Event listeners stopped")
 }
 
-// Known collection IDs - stored at startup for direct comparison.
-var (
-	blockSigCollectionID    string //nolint:gochecknoglobals
-	blockCollectionID       string //nolint:gochecknoglobals
-	transactionCollectionID string //nolint:gochecknoglobals
-	logCollectionID         string //nolint:gochecknoglobals
-	accessListCollectionID  string //nolint:gochecknoglobals
-	attRecCollectionID      string //nolint:gochecknoglobals
-)
-
-// collectionIDToName - mapping for ID to Name.
-// Populated at runtime by initKnownCollectionIDs after fetching real collection IDs from DefraDB.
-var collectionIDToName = map[string]string{} //nolint:gochecknoglobals
-
-// initKnownCollectionIDs fetches the CollectionIDs for collections we care about at startup.
+// initKnownCollectionIDs maps the IDs of the chain's collections to their names. Update events
+// carry only a collection ID.
 func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		return ErrDefraNodeUnavailable
 	}
 
-	// Get BlockSignature collection ID
 	cols, err := h.DefraNode.DB.GetCollections(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get collections: %w", err)
 	}
 
+	c := h.collections
+	known := []string{c.Block.Name, c.Transaction.Name, c.Log.Name, c.AccessListEntry.Name, c.BlockSignature.Name, c.AttestationRecord.Name}
+	h.collectionNames = make(map[string]string, len(known))
 	for _, col := range cols {
-		switch col.Name() {
-		case h.collections.BlockSignature.Name:
-			blockSigCollectionID = col.CollectionID()
-			collectionIDToName[blockSigCollectionID] = h.collections.BlockSignature.Name
-		case h.collections.Block.Name:
-			blockCollectionID = col.CollectionID()
-			collectionIDToName[blockCollectionID] = h.collections.Block.Name
-		case h.collections.Transaction.Name:
-			transactionCollectionID = col.CollectionID()
-			collectionIDToName[transactionCollectionID] = h.collections.Transaction.Name
-		case h.collections.Log.Name:
-			logCollectionID = col.CollectionID()
-			collectionIDToName[logCollectionID] = h.collections.Log.Name
-		case h.collections.AccessListEntry.Name:
-			accessListCollectionID = col.CollectionID()
-			collectionIDToName[accessListCollectionID] = h.collections.AccessListEntry.Name
-		case h.collections.AttestationRecord.Name:
-			attRecCollectionID = col.CollectionID()
-			collectionIDToName[attRecCollectionID] = h.collections.AttestationRecord.Name
+		if slices.Contains(known, col.Name()) {
+			h.collectionNames[col.CollectionID()] = col.Name()
 		}
 	}
 
-	logger.Sugar.Infof("Initialized %d known collection IDs", knownCollectionIDs)
+	logger.Sugar.Infof("Initialized %d known collection IDs", len(h.collectionNames))
 	return nil
 }
 
@@ -175,7 +145,7 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 					continue
 				}
 
-				collectionName, known := collectionIDToName[update.CollectionID]
+				collectionName, known := h.collectionNames[update.CollectionID]
 				if !known {
 					continue
 				}
@@ -210,7 +180,6 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 
 // processBlockSignatureFromEventBus fetches a BlockSignature document by DocID and processes it.
 func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID string) {
-	startTime = time.Now()
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		return
 	}
