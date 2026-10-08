@@ -208,8 +208,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	// StartDefraInstance creates the tables of every configured chain; everything else below uses only
-	// the first.
+	// StartDefraInstance creates and subscribes to the tables of every configured chain; everything
+	// else below uses only the first.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -263,7 +263,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		replicationFilter,
 		retentionRule,
 		resolveCollections,
-		collections.Subscribed()...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %w", err)

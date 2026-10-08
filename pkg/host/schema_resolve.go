@@ -15,14 +15,16 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// chainsApplier creates the tables of every chain in chains. It implements defradb.SchemaApplier.
+// chainsApplier creates the tables of every chain in chains and subscribes to them. It implements
+// defradb.SchemaApplier.
 type chainsApplier struct {
 	schemaCfg config.SchemaConfig
 	chains    []chain.Config
 }
 
-// ApplySchema creates each chain's tables with schema.ChainApplier, in config order. Before creating
-// any, it returns errUnlistedChain when the store holds a chain that chains does not list.
+// ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
+// to them. Before creating any, it returns errUnlistedChain when the store holds a chain that chains
+// does not list.
 func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -56,6 +58,9 @@ func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		}
 		if err := applier.ApplySchema(ctx, n); err != nil {
 			return err
+		}
+		if err := n.DB.AddP2PCollections(ctx, collections.Subscribed()); err != nil {
+			return fmt.Errorf("subscribe %s: %w", c.Prefix, err)
 		}
 	}
 	return nil
