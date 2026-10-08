@@ -211,11 +211,16 @@ func createSnapshotAttestation(ctx context.Context, defraNode *node.Node, collec
 		BlockNumber: &sig.EndBlock,
 	}
 
-	if err := attestationService.PostAttestationRecord(ctx, defraNode, collection, record); err != nil {
+	created, err := attestationService.PostAttestationRecord(ctx, defraNode, collection, record)
+	switch {
+	case err != nil:
 		logger.Sugar.Warnf("Failed to create attestation for snapshot %d-%d: %v",
 			sig.StartBlock, sig.EndBlock, err)
-	} else {
+	case created:
 		logger.Sugar.Infof("Created attestation for snapshot %d-%d (signer: %s)",
+			sig.StartBlock, sig.EndBlock, truncateString(sig.SignatureIdentity, identityTruncateLength))
+	default:
+		logger.Sugar.Infof("Updated attestation for snapshot %d-%d (signer: %s)",
 			sig.StartBlock, sig.EndBlock, truncateString(sig.SignatureIdentity, identityTruncateLength))
 	}
 }

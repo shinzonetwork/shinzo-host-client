@@ -18,9 +18,6 @@ import (
 	"github.com/sourcenetwork/immutable"
 )
 
-// attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
-var attestedBlocks sync.Map //nolint:gochecknoglobals
-
 // initKnownCollectionIDs maps the IDs of the chain's subscribed collections to their names. Update
 // events carry only a collection ID.
 func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
@@ -400,7 +397,8 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 
 	var lastErr error
 	for attempt := range maxAttestationRetries {
-		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, h.collections.AttestationRecord.Name, record); err != nil {
+		created, err := attestationService.PostAttestationRecord(ctx, h.DefraNode, h.collections.AttestationRecord.Name, record)
+		if err != nil {
 			if errors.Is(err, attestationService.ErrDocumentNotFound) {
 				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff", blockNumber)
 				return
@@ -417,15 +415,14 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 			}
 			return
 		}
-		// Success
-		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
-			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
-		} else {
+		if created {
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationsCreated()
 				h.metrics.IncrementBlocksProcessed()
 			}
 			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
+		} else {
+			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		}
 		if h.metrics != nil {
 			h.metrics.UpdateMostRecentBlock(uint64(blockNumber)) //nolint:gosec // block numbers are always positive
