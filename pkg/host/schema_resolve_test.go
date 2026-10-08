@@ -114,12 +114,14 @@ func TestServedSchemas(t *testing.T) {
 	valid := schemaHandler(t, chain.EthereumMainnet)
 	wrongNetwork := schemaHandler(t, "Ethereum__Sepolia")
 	failing := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }
+	serving := func(sdl string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: sdl}))
+		}
+	}
 	// A schema for the chain that the fetch checks would refuse: it lacks most of the tables.
 	partialSDL := "type " + testCollections.Block.Name + " { number: Int }"
-	partial := func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: partialSDL}))
-	}
 
 	// answer is a schema servedSchemas yielded, with the index of the generator that served it.
 	type answer struct {
@@ -134,13 +136,18 @@ func TestServedSchemas(t *testing.T) {
 		{desc: "no generators"},
 		{
 			desc:       "schemas are yielded unchecked, in order",
-			generators: []http.HandlerFunc{partial, valid},
+			generators: []http.HandlerFunc{serving(partialSDL), valid},
 			want:       []answer{{generator: 0, schema: partialSDL}, {generator: 1, schema: generatorSchema(t)}},
 		},
 		{
 			desc:       "a failing generator and one for another chain are skipped",
 			generators: []http.HandlerFunc{failing, wrongNetwork, valid},
 			want:       []answer{{generator: 2, schema: generatorSchema(t)}},
+		},
+		{
+			desc:       "a generator serving a schema that does not parse is skipped",
+			generators: []http.HandlerFunc{serving("type {"), valid},
+			want:       []answer{{generator: 1, schema: generatorSchema(t)}},
 		},
 		{desc: "no generator answers", generators: []http.HandlerFunc{failing, wrongNetwork}},
 	}
@@ -158,8 +165,8 @@ func TestServedSchemas(t *testing.T) {
 			schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
 
 			var got []answer
-			for url, sdl := range servedSchemas(context.Background(), schemaCfg, served) {
-				got = append(got, answer{generator: slices.Index(urls, url), schema: sdl})
+			for url, resp := range servedSchemas(context.Background(), schemaCfg, served) {
+				got = append(got, answer{generator: slices.Index(urls, url), schema: resp.Schema})
 			}
 
 			require.Equal(t, c.want, got)

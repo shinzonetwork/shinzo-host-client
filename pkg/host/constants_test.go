@@ -92,7 +92,9 @@ var testCollections = chain.EVM(chain.EthereumMainnet)
 
 // testSchemaApplier creates the test chain's collections the way a host with no generators does.
 var testSchemaApplier = localschema.ChainApplier{
-	Tables:      func(context.Context) (string, error) { return localschema.GetSchema(), nil },
-	Served:      func(context.Context) iter.Seq2[string, string] { return func(func(string, string) bool) {} },
+	Tables: func(context.Context) (string, error) { return localschema.GetSchema(), nil },
+	Served: func(context.Context) iter.Seq2[string, localschema.Response] {
+		return func(func(string, localschema.Response) bool) {}
+	},
 	Collections: testCollections,
 }

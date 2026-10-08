@@ -6,10 +6,20 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/parser"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 )
+
+// parseSDL parses sdl as FetchResponse does.
+func parseSDL(t *testing.T, sdl string) *ast.SchemaDocument {
+	t.Helper()
+	doc, err := parser.ParseSchema(&ast.Source{Input: sdl})
+	require.NoError(t, err)
+	return doc
+}
 
 func TestCheckStored(t *testing.T) {
 	ctx := context.Background()
@@ -89,7 +99,7 @@ func TestCheckStored(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
-			err := checkStored(c.served, stored, collections)
+			err := checkStored(parseSDL(t, c.served), stored, collections)
 			if c.wantDiff == "" {
 				require.NoError(t, err)
 				return
