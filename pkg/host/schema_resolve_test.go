@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -109,7 +110,7 @@ func TestResolveSchemaUsesFirstUsableGenerator(t *testing.T) {
 	require.False(t, secondCalled.Load(), "a generator after the first usable one was contacted")
 }
 
-func TestServedSchema(t *testing.T) {
+func TestServedSchemas(t *testing.T) {
 	valid := schemaHandler(t, chain.EthereumMainnet)
 	wrongNetwork := schemaHandler(t, "Ethereum__Sepolia")
 	failing := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }
@@ -120,34 +121,66 @@ func TestServedSchema(t *testing.T) {
 		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: partialSDL}))
 	}
 
+	// answer is a schema servedSchemas yielded, with the index of the generator that served it.
+	type answer struct {
+		generator int
+		schema    string
+	}
 	cases := []struct {
 		desc       string
 		generators []http.HandlerFunc
-		want       string
-		wantOK     bool
+		want       []answer
 	}{
 		{desc: "no generators"},
-		{desc: "the first generator's schema is used unchecked", generators: []http.HandlerFunc{partial, valid}, want: partialSDL, wantOK: true},
-		{desc: "a failing generator and one for another chain are skipped", generators: []http.HandlerFunc{failing, wrongNetwork, valid}, want: generatorSchema(t), wantOK: true},
+		{
+			desc:       "schemas are yielded unchecked, in order",
+			generators: []http.HandlerFunc{partial, valid},
+			want:       []answer{{generator: 0, schema: partialSDL}, {generator: 1, schema: generatorSchema(t)}},
+		},
+		{
+			desc:       "a failing generator and one for another chain are skipped",
+			generators: []http.HandlerFunc{failing, wrongNetwork, valid},
+			want:       []answer{{generator: 2, schema: generatorSchema(t)}},
+		},
 		{desc: "no generator answers", generators: []http.HandlerFunc{failing, wrongNetwork}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
 			served := chain.Config{Prefix: chain.EthereumMainnet}
+			var urls []string
 			for _, handler := range c.generators {
 				srv := httptest.NewServer(handler)
 				t.Cleanup(srv.Close)
 				served.Generators = append(served.Generators, chain.Generator{URL: srv.URL})
+				urls = append(urls, srv.URL)
 			}
 			schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
 
-			got, ok := servedSchema(context.Background(), schemaCfg, served)
+			var got []answer
+			for url, sdl := range servedSchemas(context.Background(), schemaCfg, served) {
+				got = append(got, answer{generator: slices.Index(urls, url), schema: sdl})
+			}
 
-			require.Equal(t, c.wantOK, ok)
 			require.Equal(t, c.want, got)
 		})
 	}
+}
+
+func TestServedSchemasStopsEarly(t *testing.T) {
+	first := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(first.Close)
+	var secondCalled atomic.Bool
+	second := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { secondCalled.Store(true) }))
+	t.Cleanup(second.Close)
+
+	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: first.URL}, {URL: second.URL}}}
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+
+	for range servedSchemas(context.Background(), schemaCfg, served) {
+		break
+	}
+	require.False(t, secondCalled.Load(), "a generator was contacted after the caller stopped")
 }
 
 func TestChainsApplier(t *testing.T) {

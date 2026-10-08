@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"iter"
 	"net/url"
 	"strings"
 
@@ -48,8 +49,8 @@ func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			Tables: func(ctx context.Context) (string, error) {
 				return resolveSchema(ctx, a.schemaCfg, c, collections)
 			},
-			Served: func(ctx context.Context) (string, bool) {
-				return servedSchema(ctx, a.schemaCfg, c)
+			Served: func(ctx context.Context) iter.Seq2[string, string] {
+				return servedSchemas(ctx, a.schemaCfg, c)
 			},
 			Collections: collections,
 		}
@@ -93,26 +94,35 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 	return "", errNoGeneratorSchema
 }
 
-// servedSchema returns the schema served by the first of the chain's generators to answer, tried in
-// order, or false when none answers. A generator answers when it returns a schema for the chain.
-// The schema is returned unchecked, so that every difference from the stored tables counts.
-func servedSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) (string, bool) {
-	client := schema.NewSchemaHTTPClient(schemaCfg)
-	for _, g := range served.Generators {
-		var resp schema.Response
-		schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
-		if err == nil {
-			resp, err = schema.FetchResponse(ctx, client, schemaURL)
+// servedSchemas yields the URL of each of the chain's generators and the schema it serves, in order,
+// skipping those that do not answer. A generator answers when it returns a schema for the chain.
+// Generators are asked one at a time as the caller ranges, so none is asked after the caller stops.
+// The schemas are yielded without FetchSchema's checks, so a schema those checks refuse is compared
+// with the stored tables instead of being skipped.
+func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) iter.Seq2[string, string] {
+	return func(yield func(string, string) bool) {
+		client := schema.NewSchemaHTTPClient(schemaCfg)
+		answered := false
+		for _, g := range served.Generators {
+			var resp schema.Response
+			schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
+			if err == nil {
+				resp, err = schema.FetchResponse(ctx, client, schemaURL)
+			}
+			if err == nil && resp.Network != served.Prefix {
+				err = fmt.Errorf("network %q: %w", resp.Network, schema.ErrSchemaWrongNetwork)
+			}
+			if err != nil {
+				logger.Sugar.Warnf("Generator %s did not answer for %s: %v", g.URL, served.Prefix, err)
+				continue
+			}
+			answered = true
+			if !yield(g.URL, resp.Schema) {
+				return
+			}
 		}
-		if err == nil && resp.Network != served.Prefix {
-			err = fmt.Errorf("network %q: %w", resp.Network, schema.ErrSchemaWrongNetwork)
+		if !answered {
+			logger.Sugar.Warnf("No generator answered for %s, so the stored tables are not compared with a served schema", served.Prefix)
 		}
-		if err != nil {
-			logger.Sugar.Warnf("Generator %s did not answer for %s: %v", g.URL, served.Prefix, err)
-			continue
-		}
-		return resp.Schema, true
 	}
-	logger.Sugar.Warnf("No generator answered for %s, so the stored tables are not compared with a served schema", served.Prefix)
-	return "", false
 }

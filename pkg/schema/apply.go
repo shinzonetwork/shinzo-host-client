@@ -3,7 +3,9 @@ package schema
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
+	"iter"
 	"strings"
 
 	"github.com/sourcenetwork/defradb/node"
@@ -31,16 +33,17 @@ type ChainApplier struct {
 	// Tables returns the SDL of the chain's tables. ApplySchema calls it only when the database
 	// holds none of them.
 	Tables func(ctx context.Context) (string, error)
-	// Served returns the SDL a generator serves for the chain, or false when no generator answers.
-	// ApplySchema calls it only when the database holds the chain's tables, to compare them with it.
-	Served      func(ctx context.Context) (string, bool)
+	// Served yields the URL of each answering generator and the SDL it serves for the chain.
+	// ApplySchema calls it only when the database holds the chain's tables, and stops at the first
+	// SDL that matches them.
+	Served      func(ctx context.Context) iter.Seq2[string, string]
 	Collections chain.Collections
 }
 
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
 // the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
 // when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
-// and they differ from the tables a generator serves.
+// and no SDL from Served matches them. If Served yields nothing, the tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -60,10 +63,17 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	}
 	switch len(missing) {
 	case 0:
-		if sdl, ok := a.Served(ctx); ok {
-			if err := checkStored(sdl, cols, a.Collections); err != nil {
-				return err
+		var errs []error
+		for generator, sdl := range a.Served(ctx) {
+			err := checkStored(sdl, cols, a.Collections)
+			if err == nil {
+				errs = nil
+				break
 			}
+			errs = append(errs, fmt.Errorf("generator %s: %w", generator, err))
+		}
+		if err := errors.Join(errs...); err != nil {
+			return err
 		}
 	case len(tables):
 		sdl, err := a.Tables(ctx)
