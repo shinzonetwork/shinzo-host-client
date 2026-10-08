@@ -33,17 +33,17 @@ type ChainApplier struct {
 	// Tables returns the SDL of the chain's tables. ApplySchema calls it only when the database
 	// holds none of them.
 	Tables func(ctx context.Context) (string, error)
-	// Served yields the URL of each answering generator and the SDL it serves for the chain.
-	// ApplySchema calls it only when the database holds the chain's tables, and stops at the first
-	// SDL that matches them.
-	Served      func(ctx context.Context) iter.Seq2[string, string]
+	// Served yields the URL of each answering generator and its response for the chain, as
+	// FetchResponse returns it. ApplySchema calls it only when the database holds the chain's
+	// tables, and stops at the first served schema that matches them.
+	Served      func(ctx context.Context) iter.Seq2[string, Response]
 	Collections chain.Collections
 }
 
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
 // the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
 // when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
-// and no SDL from Served matches them. If Served yields nothing, the tables are not compared.
+// and no schema from Served matches them. If Served yields nothing, the tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -64,8 +64,8 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	switch len(missing) {
 	case 0:
 		var errs []error
-		for generator, sdl := range a.Served(ctx) {
-			err := checkStored(sdl, cols, a.Collections)
+		for generator, resp := range a.Served(ctx) {
+			err := checkStored(resp.document, cols, a.Collections)
 			if err == nil {
 				errs = nil
 				break
