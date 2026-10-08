@@ -4,10 +4,6 @@ defradb:
   keyring_secret: "pingpong"
   p2p:
     enabled: true
-    bootstrap_peers:
-      - '/ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT' # IND1
-      - '/ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5' # IND2
-      - '/ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT' # IND3
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
@@ -25,6 +21,17 @@ defradb:
     # num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
     # Badger value log configuration
     value_log_file_size_mb: 128     # Size of each vlog file (smaller = faster GC)
+# The chain this host serves. Its schema comes from its generators, tried in order, and the host
+# dials each generator's peer.
+chains:
+  - prefix: Ethereum__Mainnet
+    generators:
+      - url: http://35.254.135.221:8080 # IND1
+        peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
+      - url: http://34.57.239.57:8080 # IND2
+        peer: /ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5
+      - url: http://34.134.119.63:8080 # IND3
+        peer: /ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT
 shinzo:
   minimum_attestations: 1
   start_height: 0 # Indexer auto-detects from chain tip
@@ -109,10 +116,9 @@ host:
   health_server_port: 8080
   open_browser_on_start: false
   # Snapshot Bootstrap - download historical data from an indexer on first startup.
-  # Set enabled: false to skip snapshot import entirely.
+  # Import runs only with enabled: true and indexer_url set to an indexer that serves snapshots.
   snapshot:
     enabled: false
-    indexer_url: "http://35.206.105.60:8080"
     historical_ranges:
       - start: 24528700
         end: 24528999
@@ -125,7 +131,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.6.5-ethereum-mainnet
+    image: ghcr.io/shinzonetwork/shinzo-host-client:ethereum-mainnet-latest
     user: "1001:1001" # update to match your user and group id.
     mem_limit: 16g
     mem_reservation: 13g
