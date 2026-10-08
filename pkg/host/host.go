@@ -25,7 +25,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
@@ -205,7 +204,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// The config holds exactly one chain.
+	// StartDefraInstance creates the tables of every configured chain; everything else below uses only
+	// the first.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -237,23 +237,14 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	// Called only when the store has none of the chain's tables, so a restart does not depend on
-	// the chain's generators.
-	tables := func(ctx context.Context) (string, error) {
-		return resolveSchema(ctx, cfg.Schema, served, collections)
-	}
-	servedSDL := func(ctx context.Context) (string, bool) {
-		return servedSchema(ctx, cfg.Schema, served)
-	}
-
-	// DefraDB would start its API in node.Start, before StartDefraInstance applies the chain's
-	// schema. The host serves it after that (startAPIServer).
+	// DefraDB would start its API in node.Start, before StartDefraInstance applies the schema. The
+	// host serves it after that (startAPIServer).
 	nodeOpts.SetDisableAPI(true)
 
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		schema.ChainApplier{Tables: tables, Served: servedSDL, Collections: collections},
+		chainsApplier{schemaCfg: cfg.Schema, chains: cfg.Chains},
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,

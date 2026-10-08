@@ -16,6 +16,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
@@ -147,4 +148,38 @@ func TestServedSchema(t *testing.T) {
 			require.Equal(t, c.want, got)
 		})
 	}
+}
+
+func TestChainsApplier(t *testing.T) {
+	const other = "Testchain__Devnet"
+	ctx := context.Background()
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+	var chains []chain.Config
+	for _, prefix := range []string{chain.EthereumMainnet, other} {
+		generator := httptest.NewServer(schemaHandler(t, prefix))
+		t.Cleanup(generator.Close)
+		chains = append(chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
+	}
+
+	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, chainsApplier{schemaCfg: schemaCfg, chains: chains})
+	require.NoError(t, err)
+	defer func() { _ = node.Close(ctx) }()
+	for _, c := range chains {
+		collections := chain.EVM(c.Prefix)
+		for _, col := range append(collections.Generated(), collections.AttestationRecord) {
+			_, err := node.DB.GetCollectionByName(ctx, col.Name)
+			require.NoError(t, err, col.Name)
+		}
+	}
+
+	// Every stored chain is listed, so a restart is accepted.
+	require.NoError(t, chainsApplier{schemaCfg: schemaCfg, chains: chains}.ApplySchema(ctx, node))
+
+	// The store holds a chain the config does not list, and the config lists a chain the store does
+	// not hold yet. The unlisted chain is refused before any table is created.
+	const third = "Third__Chain"
+	err = chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], {Prefix: third}}}.ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errUnlistedChain)
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
+	require.Error(t, err)
 }

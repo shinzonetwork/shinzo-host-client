@@ -14,10 +14,6 @@ import (
 // ErrSchemaPartiallyStored is returned when the database holds only some of a chain's tables.
 var ErrSchemaPartiallyStored = fmt.Errorf("database holds only some of the chain's tables")
 
-// ErrSchemaOtherChainStored is returned when the database holds the tables of a chain other than
-// the one being applied.
-var ErrSchemaOtherChainStored = fmt.Errorf("database holds another chain's tables")
-
 // attestationRecordTemplate declares the attestation record collection under the type name
 // AttestationRecord, which attestationRecordSchema replaces with the chain's collection name.
 //
@@ -42,23 +38,16 @@ type ChainApplier struct {
 }
 
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
-// the chain's attestation record collection if it is missing. It returns ErrSchemaOtherChainStored
-// when the database holds another chain's tables, ErrSchemaPartiallyStored when it holds only some
-// of this chain's tables, and ErrSchemaDrift when it holds them and they differ from the tables a
-// generator serves.
+// the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
+// when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
+// and they differ from the tables a generator serves.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
 		return fmt.Errorf("read stored collections: %w", err)
 	}
-	// Every chain has a "<prefix>__BlockSignature" table, so one under another prefix means the
-	// database holds another chain.
-	signatureSuffix := strings.TrimPrefix(a.Collections.BlockSignature.Name, a.Collections.Prefix)
 	stored := make(map[string]bool, len(cols))
 	for _, col := range cols {
-		if prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix); ok && prefix != a.Collections.Prefix {
-			return fmt.Errorf("%s: %w", prefix, ErrSchemaOtherChainStored)
-		}
 		stored[col.Name()] = true
 	}
 

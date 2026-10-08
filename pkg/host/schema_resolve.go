@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
+
+	"github.com/sourcenetwork/defradb/node"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -11,7 +14,52 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// resolveSchema returns the schema of the chain the host serves. With generators configured, it is
+// chainsApplier creates the tables of every chain in chains. It implements defradb.SchemaApplier.
+type chainsApplier struct {
+	schemaCfg config.SchemaConfig
+	chains    []chain.Config
+}
+
+// ApplySchema creates each chain's tables with schema.ChainApplier, in config order. Before creating
+// any, it returns errUnlistedChain when the store holds a chain that chains does not list.
+func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
+	cols, err := n.DB.GetCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored collections: %w", err)
+	}
+	configured := make(map[string]bool, len(a.chains))
+	for _, c := range a.chains {
+		configured[c.Prefix] = true
+	}
+	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
+	// list means the store holds another chain.
+	signatureSuffix := chain.EVM("").BlockSignature.Name
+	for _, col := range cols {
+		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
+		if ok && !configured[prefix] {
+			return fmt.Errorf("%s: %w", prefix, errUnlistedChain)
+		}
+	}
+
+	for _, c := range a.chains {
+		collections := chain.EVM(c.Prefix)
+		applier := schema.ChainApplier{
+			Tables: func(ctx context.Context) (string, error) {
+				return resolveSchema(ctx, a.schemaCfg, c, collections)
+			},
+			Served: func(ctx context.Context) (string, bool) {
+				return servedSchema(ctx, a.schemaCfg, c)
+			},
+			Collections: collections,
+		}
+		if err := applier.ApplySchema(ctx, n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolveSchema returns the schema of one of the host's chains. With generators configured, it is
 // the first usable schema they serve, tried in order, or errNoGeneratorSchema when none serves one.
 // With none configured, Ethereum mainnet uses the built-in schema and any other chain gets
 // errNoChainSchema. The built-in schema is never a fallback: generators may serve tables that
@@ -45,8 +93,8 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 }
 
 // servedSchema returns the schema served by the first of the chain's generators to answer, tried in
-// order, or false when none answers. A generator answers when it returns a schema for the served
-// chain. The schema is returned unchecked, so that every difference from the stored tables counts.
+// order, or false when none answers. A generator answers when it returns a schema for the chain.
+// The schema is returned unchecked, so that every difference from the stored tables counts.
 func servedSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) (string, bool) {
 	client := schema.NewSchemaHTTPClient(schemaCfg)
 	for _, g := range served.Generators {
