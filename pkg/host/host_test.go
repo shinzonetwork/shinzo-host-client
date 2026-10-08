@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
@@ -280,6 +282,57 @@ func TestHost_Close(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, cleanupCalled)
 	require.True(t, cancelCalled)
+}
+
+func TestHost_Close_WaitsForListener(t *testing.T) {
+	listenerDone := make(chan struct{})
+	host := &Host{webhookCleanupFunction: func() {}, processingCancel: func() {}, listenerDone: listenerDone}
+
+	closed := make(chan struct{})
+	go func() {
+		_ = host.Close(context.Background())
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the listener stopped")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(listenerDone)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after the listener stopped")
+	}
+}
+
+func TestHost_Close_StopsNetwork(t *testing.T) {
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
+	require.NoError(t, err)
+	networkHandler := defradb.NewNetworkHandler(defraNode, defradb.DefaultConfig)
+	require.NoError(t, networkHandler.StartNetwork())
+	host := &Host{DefraNode: defraNode, NetworkHandler: networkHandler, webhookCleanupFunction: func() {}, processingCancel: func() {}}
+
+	require.NoError(t, host.Close(context.Background()))
+	require.False(t, networkHandler.IsNetworkActive())
+}
+
+func TestHost_Close_StopsWaitingWhenContextEnds(t *testing.T) {
+	host := &Host{webhookCleanupFunction: func() {}, processingCancel: func() {}, listenerDone: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	closed := make(chan struct{})
+	go func() {
+		_ = host.Close(ctx)
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close kept waiting for a listener after its context ended")
+	}
 }
 
 func TestHost_ProcessViewRegistrationEvent_NoViewManager(t *testing.T) {
@@ -1615,4 +1668,34 @@ func TestHost_Close_Full(t *testing.T) {
 
 	err = h.Close(ctx)
 	require.NoError(t, err)
+}
+
+// A generator's peer is added to the host's peers along with the bootstrap peers.
+func TestStartHostingAddsGeneratorPeers(t *testing.T) {
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Schema.HTTPClientTimeoutSecs = 1
+	cfg.Chains = []chain.Config{{
+		Prefix:     chain.EthereumMainnet,
+		Generators: []chain.Generator{{URL: "http://127.0.0.1:1", Peer: testPeerMultiaddr}},
+	}}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+
+	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
 }
