@@ -1,5 +1,7 @@
 package pruner
 
+import "github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+
 const defaultMaxDocsPerCycle = 50000
 
 // Config represents pruner configuration for removing old documents.
@@ -14,39 +16,26 @@ type Config struct {
 	MaxDocsPerCycle int64 `yaml:"max_docs_per_cycle"`
 }
 
-// Height field names the default collections use.
-const (
-	blockHeightField     = "number"
-	dependentHeightField = "blockNumber"
-	// A snapshot covers a range, so retention follows the newest block in it.
-	snapshotHeightField = "endBlock"
-)
-
-// CollectionHeight names a collection and the field holding the block height its documents
-// belong to. The height sweep orders on that field, so it has to be indexed.
-type CollectionHeight struct {
-	Name        string
-	HeightField string
-}
-
 // CollectionConfig defines which collections to prune. The sweep deletes the lowest heights first
-// across all of them, and at one height it deletes the dependents before the block.
+// across all of them, and at one height it deletes the dependents before the block. It orders on
+// each collection's height field, so that field has to be indexed.
 type CollectionConfig struct {
-	Block      CollectionHeight
-	Dependents []CollectionHeight
+	Block      chain.Collection
+	Dependents []chain.Collection
 }
 
-// DefaultCollectionConfig returns the default Ethereum mainnet collection config.
-func DefaultCollectionConfig() CollectionConfig {
+// CollectionConfigFor returns the collections to prune for a chain: its blocks, and every other
+// collection of the chain as a dependent.
+func CollectionConfigFor(c chain.Collections) CollectionConfig {
 	return CollectionConfig{
-		Block: CollectionHeight{Name: "Ethereum__Mainnet__Block", HeightField: blockHeightField},
-		Dependents: []CollectionHeight{
-			{Name: "Ethereum__Mainnet__AccessListEntry", HeightField: dependentHeightField},
-			{Name: "Ethereum__Mainnet__Log", HeightField: dependentHeightField},
-			{Name: "Ethereum__Mainnet__Transaction", HeightField: dependentHeightField},
-			{Name: "Ethereum__Mainnet__BlockSignature", HeightField: dependentHeightField},
-			{Name: "Ethereum__Mainnet__AttestationRecord", HeightField: dependentHeightField},
-			{Name: "Ethereum__Mainnet__SnapshotSignature", HeightField: snapshotHeightField},
+		Block: c.Block,
+		Dependents: []chain.Collection{
+			c.AccessListEntry,
+			c.Log,
+			c.Transaction,
+			c.BlockSignature,
+			c.AttestationRecord,
+			c.SnapshotSignature,
 		},
 	}
 }

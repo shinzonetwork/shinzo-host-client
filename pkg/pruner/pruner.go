@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -65,7 +66,7 @@ type Pruner struct {
 	// retainHistory turns pruning off, for a node bootstrapped with history it should keep.
 	retainHistory bool
 	// heightPrunable is the subset of Dependents the sweep can order on.
-	heightPrunable []CollectionHeight
+	heightPrunable []chain.Collection
 	stopChan       chan struct{}
 	wg             sync.WaitGroup
 	mu             sync.RWMutex
@@ -94,14 +95,10 @@ type Metrics struct {
 }
 
 // NewPruner creates a new Pruner instance that publishes its cutoff to cutoff.
-func NewPruner(cfg *Config, defraNode *node.Node, cutoff *Cutoff, collections ...CollectionConfig) *Pruner {
-	cols := DefaultCollectionConfig()
-	if len(collections) > 0 {
-		cols = collections[0]
-	}
+func NewPruner(cfg *Config, defraNode *node.Node, cutoff *Cutoff, collections CollectionConfig) *Pruner {
 	return &Pruner{
 		cfg:         cfg,
-		collections: cols,
+		collections: collections,
 		defraNode:   defraNode,
 		cutoff:      cutoff,
 		from:        make(map[string]int64),
@@ -218,8 +215,8 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 
 // resolveHeightPrunable returns the dependents whose height field carries an index. A field that
 // is absent has no index either, so both cases are skipped.
-func (p *Pruner) resolveHeightPrunable(ctx context.Context) []CollectionHeight {
-	prunable := make([]CollectionHeight, 0, len(p.collections.Dependents))
+func (p *Pruner) resolveHeightPrunable(ctx context.Context) []chain.Collection {
+	prunable := make([]chain.Collection, 0, len(p.collections.Dependents))
 	var skipped []string
 
 	for _, dep := range p.collections.Dependents {
@@ -357,7 +354,7 @@ type heightDoc struct {
 // front is one collection's place in a sweep: the page read from its position, whether anything
 // due lies beyond that page, and how many documents the sweep has handed to DefraDB from it.
 type front struct {
-	col       CollectionHeight
+	col       chain.Collection
 	isBlock   bool
 	from      int64
 	page      []heightDoc

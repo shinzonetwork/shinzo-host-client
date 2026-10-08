@@ -19,7 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
@@ -140,6 +140,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
+	collections    chain.Collections       // Collections of the chain this host serves
 
 	// signature verifier as a service
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
@@ -195,14 +196,17 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// The pruner and the retention rule share one cutoff.
+	collections := chain.EVM(chain.EthereumMainnet)
+
+	// The pruner and the retention rule share one cutoff and the same collections.
+	pruned := pruner.CollectionConfigFor(collections)
 	var cutoff *pruner.Cutoff
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
 		cutoff = &pruner.Cutoff{}
 		// With snapshots enabled the pruner retains history and never sets a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
-			rule = NewRetentionRule(pruner.DefaultCollectionConfig(), cutoff)
+			rule = NewRetentionRule(pruned, cutoff)
 		}
 	}
 	// A nil *RetentionRule stored in the interface would not be nil.
@@ -211,7 +215,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		retentionRule = rule
 	}
 	var replicationFilter client.ReplicationFilter
-	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
+	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections); f != nil {
 		replicationFilter = f
 	}
 
@@ -239,7 +243,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
-		constants.AllCollections...,
+		collections.Subscribed()...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %w", err)
@@ -249,7 +253,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	ctx := context.Background()
 
-	err = waitForDefraDB(ctx, defraNode)
+	err = waitForDefraDB(ctx, defraNode, collections.Block.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +276,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// Bootstrap from historical snapshots before P2P starts
 	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
-		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
+		bootstrapFromSnapshots(ctx, defraNode, collections, cfg.HostConfig.Snapshot)
 	}
 
 	// View manager has to be built before the ACP server because the
@@ -351,6 +355,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	newHost := &Host{
 		DefraNode:              defraNode,
 		NetworkHandler:         networkHandler,
+		collections:            collections,
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		processingCancel:       func() {},
@@ -487,7 +492,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff)
+		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff, pruned)
 		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 		if err := p.Start(ctx); err != nil {
@@ -875,12 +880,12 @@ func (h *Host) GetMetricsHandler() http.Handler {
 // waitForDefraDB polls the embedded DefraDB node until a trivial schema query
 // succeeds. Returns an error after maxAttempts seconds if the node never
 // responds, e.g. because schema setup failed upstream.
-func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
+func waitForDefraDB(ctx context.Context, defraNode *node.Node, blockCollection string) error {
 	fmt.Println("Waiting for defra...")
 	maxAttempts := 30
 
 	// Simple query to check if the schema is ready
-	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
+	query := `{ ` + blockCollection + ` { __typename } }`
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		_, err := defradb.QuerySingle[map[string]any](ctx, defraNode, query)

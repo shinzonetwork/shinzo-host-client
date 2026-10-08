@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
@@ -281,9 +281,9 @@ func (m *Manager) setupLens(ctx context.Context, v *View) (string, error) {
 // fixCollectionName auto-fixes the collection name in the query if needed.
 func fixCollectionName(v *View) {
 	sourceCollection := extractCollectionFromQuery(v.Data.Query)
-	if sourceCollection != "" && !strings.HasPrefix(sourceCollection, constants.CollectionChain+"__") {
-		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, constants.CollectionChain+"__"+sourceCollection, 1)
-		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, constants.CollectionChain, sourceCollection)
+	if sourceCollection != "" && !strings.HasPrefix(sourceCollection, chain.EthereumMainnet+"__") {
+		v.Data.Query = strings.Replace(v.Data.Query, sourceCollection, chain.EthereumMainnet+"__"+sourceCollection, 1)
+		logger.Sugar.Debugf("Fixed collection name: %s → %s__%s", sourceCollection, chain.EthereumMainnet, sourceCollection)
 	}
 }
 
@@ -338,16 +338,4 @@ func extractCollectionFromQuery(query string) string {
 		}
 	}
 	return query
-}
-
-// suggestCorrectCollection suggests the correct collection name based on available collections.
-func (m *Manager) suggestCorrectCollection(invalidCollection string) string {
-	// If the collection already starts with a chain network prefix, return as-is
-	if strings.HasPrefix(invalidCollection, constants.CollectionChain+"__") ||
-		strings.Contains(invalidCollection, "__") {
-		return invalidCollection
-	}
-
-	// Prepend the default chain network prefix with double underscore separator
-	return fmt.Sprintf("%s__%s", constants.CollectionChain, invalidCollection)
 }

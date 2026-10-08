@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	defraclient "github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -85,7 +84,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, attestationRecord)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, attestationRecord)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -95,7 +94,7 @@ func TestPostAttestationRecord(t *testing.T) {
 			source_doc
 			CIDs
 		}
-	`, constants.CollectionAttestationRecord)
+	`, testAttestationCollection)
 
 	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -106,332 +105,6 @@ func TestPostAttestationRecord(t *testing.T) {
 	require.Equal(t, []string{testDocResult.DocID}, record.SourceDocIDs)
 	require.NotNil(t, record.CIDs)
 	require.Len(t, record.CIDs, 1)
-}
-
-// ========================================
-// MERGING ATTESTATION RECORDS TESTS
-// ========================================
-
-func TestMergeAttestationRecords_SameDocument(t *testing.T) {
-	record1 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          []string{testCID1, testCID2},
-	}
-
-	record2 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource2},
-		CIDs:          []string{testCID3, testCID4},
-	}
-
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.NoError(t, err)
-	require.NotNil(t, merged)
-	require.Equal(t, testDocID, merged.AttestedDocID)
-	require.Len(t, merged.SourceDocIDs, 2)
-	require.Contains(t, merged.SourceDocIDs, testSource1)
-	require.Contains(t, merged.SourceDocIDs, testSource2)
-	require.Len(t, merged.CIDs, 4)
-	require.Contains(t, merged.CIDs, testCID1)
-	require.Contains(t, merged.CIDs, testCID2)
-	require.Contains(t, merged.CIDs, testCID3)
-	require.Contains(t, merged.CIDs, testCID4)
-}
-
-func TestMergeAttestationRecords_WithDuplicateCIDs(t *testing.T) {
-	record1 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          []string{testCID1, testCID2, testCID3},
-	}
-
-	record2 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource2},
-		CIDs:          []string{testCID2, testCID3, testCID4}, // cid-2 and cid-3 are duplicates
-	}
-
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.NoError(t, err)
-	require.NotNil(t, merged)
-	require.Equal(t, testDocID, merged.AttestedDocID)
-	require.Len(t, merged.CIDs, 4) // Should deduplicate
-	require.Contains(t, merged.CIDs, testCID1)
-	require.Contains(t, merged.CIDs, testCID2)
-	require.Contains(t, merged.CIDs, testCID3)
-	require.Contains(t, merged.CIDs, testCID4)
-
-	// Verify no duplicates
-	cidCount := make(map[string]int)
-	for _, cid := range merged.CIDs {
-		cidCount[cid]++
-	}
-	for cid, count := range cidCount {
-		require.Equal(t, 1, count, "CID %s should appear exactly once", cid)
-	}
-}
-
-func TestMergeAttestationRecords_DifferentDocuments(t *testing.T) {
-	record1 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          []string{testCID1, testCID2},
-	}
-
-	record2 := &Record{
-		AttestedDocID: "doc-456", // Different document
-		SourceDocIDs:  []string{testSource2},
-		CIDs:          []string{testCID3, testCID4},
-	}
-
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.Error(t, err)
-	require.Nil(t, merged)
-	require.Contains(t, err.Error(), "cannot merge records with different attested document IDs")
-}
-
-func TestMergeAttestationRecords_EmptyRecords(t *testing.T) {
-	record1 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          []string{},
-	}
-
-	record2 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource2},
-		CIDs:          []string{testCID1, testCID2},
-	}
-
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.NoError(t, err)
-	require.NotNil(t, merged)
-	require.Equal(t, testDocID, merged.AttestedDocID)
-	require.Len(t, merged.CIDs, 2)
-	require.Contains(t, merged.CIDs, testCID1)
-	require.Contains(t, merged.CIDs, testCID2)
-}
-
-func TestMergeAttestationRecords_BothEmpty(t *testing.T) {
-	record1 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          []string{},
-	}
-
-	record2 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource2},
-		CIDs:          []string{},
-	}
-
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.NoError(t, err)
-	require.NotNil(t, merged)
-	require.Equal(t, testDocID, merged.AttestedDocID)
-	require.Len(t, merged.CIDs, 0)
-}
-
-// ========================================
-// INTEGRATION TESTS WITH DEFRADB
-// ========================================
-
-func TestMergeAttestationRecords_IntegrationWithDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	// Define schema inline for this test
-	testSchema := `
-		type TestDoc {
-			name: String
-		}
-		type Ethereum__Mainnet__AttestationRecord {
-			attested_doc: String @index
-			source_doc: [String]
-			CIDs: [String]
-			doc_type: String @index
-			vote_count: Int @crdt(type: pcounter)
-			blockNumber: Int @index
-		}
-	`
-
-	// Create and start client using new API with test config
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir() // Use temp directory for test data
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false             // Disable P2P networking for testing
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{} // No bootstrap peers
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	// Apply schema using the new Client method
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	type TestDoc struct {
-		Name    string `json:"name"`
-		DocID   string `json:"_docID"`
-		Version []struct {
-			CID string `json:"cid"`
-		} `json:"_version"`
-	}
-
-	// Create two test documents
-	createDoc1Mutation := `
-		mutation {
-			add_TestDoc(input: {name: "test-document-1"}) {
-				_docID
-				name
-				_version {
-					cid
-					signature {
-						type
-						identity
-						value
-					}
-				}
-			}
-		}
-	`
-
-	createDoc2Mutation := `
-		mutation {
-			add_TestDoc(input: {name: "test-document-2"}) {
-				_docID
-				name
-				_version {
-					cid
-					signature {
-						type
-						identity
-						value
-					}
-				}
-			}
-		}
-	`
-
-	doc1Result, err := defradb.PostMutation[TestDoc](t.Context(), defraNode, createDoc1Mutation)
-	require.NoError(t, err)
-	require.NotNil(t, doc1Result)
-
-	doc2Result, err := defradb.PostMutation[TestDoc](t.Context(), defraNode, createDoc2Mutation)
-	require.NoError(t, err)
-	require.NotNil(t, doc2Result)
-
-	// Create attestation records for the same attested document but from different sources
-	attestedDocID := "view-doc-123"
-
-	record1 := &Record{
-		AttestedDocID: attestedDocID,
-		SourceDocIDs:  []string{doc1Result.DocID},
-		CIDs:          []string{doc1Result.Version[0].CID},
-	}
-
-	record2 := &Record{
-		AttestedDocID: attestedDocID,
-		SourceDocIDs:  []string{doc2Result.DocID},
-		CIDs:          []string{doc2Result.Version[0].CID},
-	}
-
-	// Merge the records
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.NoError(t, err)
-	require.NotNil(t, merged)
-	require.Equal(t, attestedDocID, merged.AttestedDocID)
-	require.Len(t, merged.CIDs, 2)
-	require.Contains(t, merged.CIDs, doc1Result.Version[0].CID)
-	require.Contains(t, merged.CIDs, doc2Result.Version[0].CID)
-
-	err = PostAttestationRecord(t.Context(), defraNode, merged)
-	require.NoError(t, err)
-
-	// Verify the merged record was stored correctly
-	query := fmt.Sprintf(`
-		%s {
-			_docID
-			attested_doc
-			source_doc
-			CIDs
-		}
-	`, constants.CollectionAttestationRecord)
-
-	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-
-	storedRecord := results[0]
-	require.Equal(t, attestedDocID, storedRecord.AttestedDocID)
-	require.Len(t, storedRecord.SourceDocIDs, 2)
-	require.Contains(t, storedRecord.SourceDocIDs, doc1Result.DocID)
-	require.Contains(t, storedRecord.SourceDocIDs, doc2Result.DocID)
-	require.Len(t, storedRecord.CIDs, 2)
-	require.Contains(t, storedRecord.CIDs, doc1Result.Version[0].CID)
-	require.Contains(t, storedRecord.CIDs, doc2Result.Version[0].CID)
-}
-
-// ========================================
-// PERFORMANCE TESTS
-// ========================================
-
-func TestMergeAttestationRecords_Performance(t *testing.T) {
-	// Test merging records with many CIDs
-	const numCIDs = 1000
-
-	// Create first record with many CIDs
-	cids1 := make([]string, numCIDs)
-	for i := range numCIDs {
-		cids1[i] = fmt.Sprintf("cid-1-%d", i)
-	}
-
-	record1 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource1},
-		CIDs:          cids1,
-	}
-
-	// Create second record with overlapping CIDs
-	cids2 := make([]string, numCIDs)
-	for i := range numCIDs {
-		if i < numCIDs/2 {
-			// First half overlaps with record1
-			cids2[i] = fmt.Sprintf("cid-1-%d", i)
-		} else {
-			// Second half is unique
-			cids2[i] = fmt.Sprintf("cid-2-%d", i)
-		}
-	}
-
-	record2 := &Record{
-		AttestedDocID: testDocID,
-		SourceDocIDs:  []string{testSource2},
-		CIDs:          cids2,
-	}
-
-	// Merge records
-	merged, err := MergeAttestationRecords(record1, record2)
-	require.NoError(t, err)
-	require.NotNil(t, merged)
-	require.Equal(t, testDocID, merged.AttestedDocID)
-
-	// Should have numCIDs + numCIDs/2 unique CIDs (no duplicates)
-	expectedCIDs := numCIDs + numCIDs/2
-	require.Len(t, merged.CIDs, expectedCIDs)
-
-	// Verify no duplicates
-	cidSet := make(map[string]bool)
-	for _, cid := range merged.CIDs {
-		require.False(t, cidSet[cid], "Duplicate CID found: %s", cid)
-		cidSet[cid] = true
-	}
 }
 
 func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
@@ -467,7 +140,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		CIDs:          []string{testCID1},
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, record)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -479,7 +152,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 				CIDs
 			}
 		}
-	`, constants.CollectionAttestationRecord, testDocID)
+	`, testAttestationCollection, testDocID)
 
 	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
@@ -520,9 +193,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		CIDs:          []string{testCID1},
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, record)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
-	err = PostAttestationRecord(t.Context(), defraNode, record)
+	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -534,34 +207,11 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 				CIDs
 			}
 		}
-	`, constants.CollectionAttestationRecord, testDocID)
+	`, testAttestationCollection, testDocID)
 
 	results, err := defradb.QueryArray[Record](t.Context(), defraNode, query)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(results), 1)
-}
-
-func TestMergeAttestationRecords_MultipleOldRecords(t *testing.T) {
-	records := []*Record{
-		{AttestedDocID: testDocID, SourceDocIDs: []string{testSource1}, CIDs: []string{testCID1}},
-		{AttestedDocID: testDocID, SourceDocIDs: []string{testSource2}, CIDs: []string{testCID2, testCID3}},
-		{AttestedDocID: testDocID, SourceDocIDs: []string{"source-3"}, CIDs: []string{testCID3, testCID4}},
-	}
-
-	merged := records[0]
-	var err error
-	for i := 1; i < len(records); i++ {
-		merged, err = MergeAttestationRecords(merged, records[i])
-		require.NoError(t, err)
-	}
-
-	require.NotNil(t, merged)
-	require.Equal(t, testDocID, merged.AttestedDocID)
-	require.Len(t, merged.SourceDocIDs, 3)
-	require.Contains(t, merged.SourceDocIDs, testSource1)
-	require.Contains(t, merged.SourceDocIDs, testSource2)
-	require.Contains(t, merged.SourceDocIDs, "source-3")
-	require.ElementsMatch(t, []string{testCID1, testCID2, testCID3, testCID4}, merged.CIDs)
 }
 
 func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
@@ -580,7 +230,7 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record1)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
 	require.NoError(t, err)
 
 	// Second indexer posts attestation for the same block
@@ -591,11 +241,11 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record2)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record2)
 	require.NoError(t, err)
 
 	// Query and verify both indexer identities are preserved
-	records, err := CheckExistingAttestation(ctx, defraNode, "block:500:deadbeef", testDocTypeBlock)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "block:500:deadbeef", testDocTypeBlock)
 	require.NoError(t, err)
 	require.Len(t, records, 1, "Should have exactly one attestation record")
 
@@ -634,7 +284,7 @@ func TestCheckExistingAttestation_NoExistingRecords(t *testing.T) {
 	defraNode := client.GetNode()
 
 	// Check for non-existent attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, "non-existent-doc", testDocType)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "non-existent-doc", testDocType)
 	require.NoError(t, err)
 	require.Empty(t, records)
 }
@@ -671,11 +321,11 @@ func TestCheckExistingAttestation_WithExistingRecord(t *testing.T) {
 		DocType:       testDocType,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	// Now check for existing attestation
-	records, err := CheckExistingAttestation(ctx, defraNode, "check-existing-doc", testDocType)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "check-existing-doc", testDocType)
 	require.NoError(t, err)
 	require.NotNil(t, records)
 	require.Len(t, records, 1)
@@ -716,231 +366,13 @@ func TestCheckExistingAttestation_WrongDocType(t *testing.T) {
 		DocType:       testDocTypeA,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	// Query with wrong doc_type should find nothing
-	records, err := CheckExistingAttestation(ctx, defraNode, "check-doctype-doc", testDocTypeB)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "check-doctype-doc", testDocTypeB)
 	require.NoError(t, err)
 	require.Empty(t, records)
-}
-
-// ========================================
-// IS DOCUMENT ATTESTED VIA BLOCK TESTS
-// ========================================
-
-func TestIsDocumentAttestedViaBlock_NoBlockAttestation(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// No block attestations exist
-	attested, err := IsDocumentAttestedViaBlock(ctx, defraNode, 100, "some-cid")
-	require.NoError(t, err)
-	require.False(t, attested)
-}
-
-func TestIsDocumentAttestedViaBlock_CIDFound(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create a block attestation record with attested_doc = "block:42"
-	record := &Record{
-		AttestedDocID: "block:42",
-		SourceDocIDs:  []string{testBlockSource},
-		CIDs:          []string{"target-cid", "other-cid"},
-		DocType:       testDocTypeBlock,
-		VoteCount:     1,
-	}
-	err = PostAttestationRecord(ctx, defraNode, record)
-	require.NoError(t, err)
-
-	// Check for a CID that is in the block attestation
-	attested, err := IsDocumentAttestedViaBlock(ctx, defraNode, 42, "target-cid")
-	require.NoError(t, err)
-	require.True(t, attested)
-}
-
-func TestIsDocumentAttestedViaBlock_CIDNotFound(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create a block attestation record
-	record := &Record{
-		AttestedDocID: "block:50",
-		SourceDocIDs:  []string{testBlockSource},
-		CIDs:          []string{"cid-in-block"},
-		DocType:       testDocTypeBlock,
-		VoteCount:     1,
-	}
-	err = PostAttestationRecord(ctx, defraNode, record)
-	require.NoError(t, err)
-
-	// Check for a CID that is NOT in the block attestation
-	attested, err := IsDocumentAttestedViaBlock(ctx, defraNode, 50, "cid-not-in-block")
-	require.NoError(t, err)
-	require.False(t, attested)
-}
-
-// ========================================
-// GET BLOCK ATTESTATIONS TESTS
-// ========================================
-
-func TestGetBlockAttestations_NoRecords(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	records, err := GetBlockAttestations(ctx, defraNode, 999)
-	require.NoError(t, err)
-	require.Empty(t, records)
-}
-
-func TestGetBlockAttestations_WithRecords(t *testing.T) {
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create block attestation records with the prefix "block:100:"
-	record1 := &Record{
-		AttestedDocID: "block:100:merkle-root-a",
-		SourceDocIDs:  []string{"indexer-1"},
-		CIDs:          []string{"cid-100-a"},
-		DocType:       testDocTypeBlock,
-		VoteCount:     1,
-	}
-	record2 := &Record{
-		AttestedDocID: "block:100:merkle-root-b",
-		SourceDocIDs:  []string{"indexer-2"},
-		CIDs:          []string{"cid-100-b"},
-		DocType:       testDocTypeBlock,
-		VoteCount:     1,
-	}
-	// Also create a record for a different block to make sure it's not returned
-	record3 := &Record{
-		AttestedDocID: "block:200:merkle-root-c",
-		SourceDocIDs:  []string{"indexer-1"},
-		CIDs:          []string{"cid-200-c"},
-		DocType:       testDocTypeBlock,
-		VoteCount:     1,
-	}
-
-	err = PostAttestationRecord(ctx, defraNode, record1)
-	require.NoError(t, err)
-	err = PostAttestationRecord(ctx, defraNode, record2)
-	require.NoError(t, err)
-	err = PostAttestationRecord(ctx, defraNode, record3)
-	require.NoError(t, err)
-
-	// Query block attestations for block 100
-	records, err := GetBlockAttestations(ctx, defraNode, 100)
-	require.NoError(t, err)
-	require.Len(t, records, 2)
-
-	attestedDocs := make(map[string]bool)
-	for _, r := range records {
-		attestedDocs[r.AttestedDocID] = true
-	}
-	require.True(t, attestedDocs["block:100:merkle-root-a"])
-	require.True(t, attestedDocs["block:100:merkle-root-b"])
-	require.False(t, attestedDocs["block:200:merkle-root-c"])
 }
 
 // ========================================
@@ -979,7 +411,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 }
 
@@ -1015,7 +447,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 		VoteCount:     5,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -1026,7 +458,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 				vote_count
 			}
 		}
-	`, constants.CollectionAttestationRecord)
+	`, testAttestationCollection)
 
 	results, err := defradb.QueryArray[Record](ctx, defraNode, query)
 	require.NoError(t, err)
@@ -1067,7 +499,7 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get attestation collection")
 }
@@ -1109,132 +541,22 @@ func TestCheckExistingAttestation_ReturnsMultipleRecords(t *testing.T) {
 		DocType:       testDocTypeA,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record1)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
 	require.NoError(t, err)
 
-	records, err := CheckExistingAttestation(ctx, defraNode, "multi-check-doc", testDocTypeA)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "multi-check-doc", testDocTypeA)
 	require.NoError(t, err)
 	require.NotEmpty(t, records)
 	require.Equal(t, "multi-check-doc", records[0].AttestedDocID)
 }
 
 // ========================================
-// IS DOCUMENT ATTESTED VIA BLOCK - ADDITIONAL PATHS
-// ========================================
-
-func TestIsDocumentAttestedViaBlock_MultipleRecords_CIDInSecond(t *testing.T) {
-	// Test that the function checks CIDs across all returned records
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create a block attestation with specific CIDs
-	record := &Record{
-		AttestedDocID: "block:77",
-		SourceDocIDs:  []string{testBlockSource},
-		CIDs:          []string{testCIDA, testCIDB, "target-cid-77"},
-		DocType:       testDocTypeBlock,
-		VoteCount:     1,
-	}
-	err = PostAttestationRecord(ctx, defraNode, record)
-	require.NoError(t, err)
-
-	// Target CID is in the record - should be found
-	attested, err := IsDocumentAttestedViaBlock(ctx, defraNode, 77, "target-cid-77")
-	require.NoError(t, err)
-	require.True(t, attested)
-
-	// CID not in any record
-	attested, err = IsDocumentAttestedViaBlock(ctx, defraNode, 77, "not-in-any-record")
-	require.NoError(t, err)
-	require.False(t, attested)
-}
-
-// ========================================
-// GET BLOCK ATTESTATIONS - ADDITIONAL PATHS
-// ========================================
-
-func TestGetBlockAttestations_DifferentBlockNumbers(t *testing.T) {
-	// Make sure filtering by block prefix works correctly
-	ctx := context.Background()
-
-	testSchema := testAttestationRecordSchema
-
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	err = client.ApplySchema(ctx, testSchema)
-	require.NoError(t, err)
-
-	defraNode := client.GetNode()
-
-	// Create block attestations for multiple blocks
-	for _, bn := range []int{300, 300, 301} {
-		record := &Record{
-			AttestedDocID: fmt.Sprintf("block:%d:merkle-%d", bn, bn),
-			SourceDocIDs:  []string{fmt.Sprintf("indexer-%d", bn)},
-			CIDs:          []string{fmt.Sprintf("cid-%d", bn)},
-			DocType:       testDocTypeBlock,
-			VoteCount:     1,
-		}
-		err = PostAttestationRecord(ctx, defraNode, record)
-		require.NoError(t, err)
-	}
-
-	// Query block 300 - should find records
-	records, err := GetBlockAttestations(ctx, defraNode, 300)
-	require.NoError(t, err)
-	require.NotEmpty(t, records)
-
-	// Query block 301 - should find 1 record
-	records, err = GetBlockAttestations(ctx, defraNode, 301)
-	require.NoError(t, err)
-	require.Len(t, records, 1)
-
-	// Query non-existent block
-	records, err = GetBlockAttestations(ctx, defraNode, 9999)
-	require.NoError(t, err)
-	require.Empty(t, records)
-}
-
-// ========================================
 // "No attestation records found" ERROR STRING BRANCH TESTS
 // ========================================
-// These tests call CheckExistingAttestation, IsDocumentAttestedViaBlock, and
-// GetBlockAttestations against a DefraDB instance that has NO attestation
-// schema applied. When the collection doesn't exist, defradb.QueryArray returns
-// an error whose message contains "No attestation records found" (or similar),
-// and the functions under test should treat this as a non-error (return nil/false).
+// This test calls CheckExistingAttestation against a DefraDB instance that has NO
+// attestation schema applied. When the collection doesn't exist, defradb.QueryArray
+// returns an error whose message contains "No attestation records found" (or similar),
+// and the function under test should treat this as a non-error (return nil).
 
 func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 	ctx := context.Background()
@@ -1259,7 +581,7 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 
 	// This should trigger the strings.Contains(err.Error(), "No attestation records found") branch
 	// or return an error if the branch doesn't match
-	records, err := CheckExistingAttestation(ctx, defraNode, "nonexistent-doc", testDocType)
+	records, err := CheckExistingAttestation(ctx, defraNode, testAttestationCollection, "nonexistent-doc", testDocType)
 	// The function should either return nil, nil (branch matched) or an error
 	// If the collection doesn't exist, the error may or may not contain "No attestation records found"
 	// In either case, it should not panic
@@ -1268,66 +590,6 @@ func TestCheckExistingAttestation_MissingSchema_ReturnsNilNil(t *testing.T) {
 		// may contain something like "No attestation records found" or a different error.
 		// The function wraps non-matching errors, so we check for the wrapper.
 		require.Contains(t, err.Error(), "failed to check existing attestation")
-	} else {
-		require.Nil(t, records)
-	}
-}
-
-func TestIsDocumentAttestedViaBlock_MissingSchema_ReturnsFalseNil(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a defra node WITHOUT applying the attestation schema
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	// Do NOT apply the attestation schema
-	defraNode := client.GetNode()
-
-	// This should trigger the "No attestation records found" branch
-	attested, err := IsDocumentAttestedViaBlock(ctx, defraNode, 999, "some-cid")
-	if err != nil {
-		require.Contains(t, err.Error(), "failed to query block attestation")
-	} else {
-		require.False(t, attested)
-	}
-}
-
-func TestGetBlockAttestations_MissingSchema_ReturnsNilNil(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a defra node WITHOUT applying the attestation schema
-	testConfig := defradb.DefaultConfig
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-	testConfig.DefraDB.URL = testListenAddrLocal
-	testConfig.DefraDB.P2P.ListenAddr = testListenAddrP2P
-	testConfig.DefraDB.P2P.Enabled = false
-	testConfig.DefraDB.P2P.BootstrapPeers = []string{}
-
-	client, err := defradb.NewClient(testConfig)
-	require.NoError(t, err)
-	err = client.Start(t.Context())
-	require.NoError(t, err)
-	defer func() { _ = client.Stop(t.Context()) }()
-
-	// Do NOT apply the attestation schema
-	defraNode := client.GetNode()
-
-	// This should trigger the "No attestation records found" branch
-	records, err := GetBlockAttestations(ctx, defraNode, 999)
-	if err != nil {
-		require.Contains(t, err.Error(), "failed to query block attestations")
 	} else {
 		require.Nil(t, records)
 	}
@@ -1456,7 +718,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	defraNode := client.GetNode()
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
 
 	// Query for a non-existent attested doc - should return nil, nil
@@ -1497,10 +759,10 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 		DocType:       testDocType,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, record)
+	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
 
 	// Query for the existing attested doc - should return the document
@@ -1599,14 +861,14 @@ func TestPostAttestationRecord_BlockNumber(t *testing.T) {
 	defraNode := client.GetNode()
 
 	blockNumber := int64(12345)
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, &Record{
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
 		AttestedDocID: "block:12345:root",
 		CIDs:          []string{"cid-a"},
 		DocType:       "Block",
 		VoteCount:     1,
 		BlockNumber:   &blockNumber,
 	}))
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, &Record{
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
 		AttestedDocID: "doc:no-block",
 		CIDs:          []string{"cid-b"},
 		DocType:       "Transaction",
@@ -1655,9 +917,9 @@ func TestUpdateAttestationRecord_DoesNotRecreateAPrunedRecord(t *testing.T) {
 		VoteCount:     1,
 		BlockNumber:   &blockNumber,
 	}
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, record))
+	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, record))
 
-	col, err := defraNode.DB.GetCollectionByName(ctx, constants.CollectionAttestationRecord)
+	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
 	existing, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
 	require.NoError(t, err)

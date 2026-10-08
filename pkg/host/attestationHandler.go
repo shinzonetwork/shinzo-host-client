@@ -47,14 +47,6 @@ var (
 // Populated at runtime by initKnownCollectionIDs after fetching real collection IDs from DefraDB.
 var collectionIDToName = map[string]string{} //nolint:gochecknoglobals
 
-// collectionsWithMetrics - mapping collection to bool.
-var collectionsWithMetrics = map[string]bool{ //nolint:gochecknoglobals
-	constants.CollectionBlockSignature:  true,
-	constants.CollectionTransaction:     true,
-	constants.CollectionLog:             true,
-	constants.CollectionAccessListEntry: true,
-}
-
 // initKnownCollectionIDs fetches the CollectionIDs for collections we care about at startup.
 func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
@@ -69,24 +61,24 @@ func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
 
 	for _, col := range cols {
 		switch col.Name() {
-		case constants.CollectionBlockSignature:
+		case h.collections.BlockSignature.Name:
 			blockSigCollectionID = col.CollectionID()
-			collectionIDToName[blockSigCollectionID] = constants.CollectionBlockSignature
-		case constants.CollectionBlock:
+			collectionIDToName[blockSigCollectionID] = h.collections.BlockSignature.Name
+		case h.collections.Block.Name:
 			blockCollectionID = col.CollectionID()
-			collectionIDToName[blockCollectionID] = constants.CollectionBlock
-		case constants.CollectionTransaction:
+			collectionIDToName[blockCollectionID] = h.collections.Block.Name
+		case h.collections.Transaction.Name:
 			transactionCollectionID = col.CollectionID()
-			collectionIDToName[transactionCollectionID] = constants.CollectionTransaction
-		case constants.CollectionLog:
+			collectionIDToName[transactionCollectionID] = h.collections.Transaction.Name
+		case h.collections.Log.Name:
 			logCollectionID = col.CollectionID()
-			collectionIDToName[logCollectionID] = constants.CollectionLog
-		case constants.CollectionAccessListEntry:
+			collectionIDToName[logCollectionID] = h.collections.Log.Name
+		case h.collections.AccessListEntry.Name:
 			accessListCollectionID = col.CollectionID()
-			collectionIDToName[accessListCollectionID] = constants.CollectionAccessListEntry
-		case constants.CollectionAttestationRecord:
+			collectionIDToName[accessListCollectionID] = h.collections.AccessListEntry.Name
+		case h.collections.AttestationRecord.Name:
 			attRecCollectionID = col.CollectionID()
-			collectionIDToName[attRecCollectionID] = constants.CollectionAttestationRecord
+			collectionIDToName[attRecCollectionID] = h.collections.AttestationRecord.Name
 		}
 	}
 
@@ -139,7 +131,7 @@ func (h *Host) docWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case evt := <-docQueue:
-			if evt.collectionName == constants.CollectionBlockSignature {
+			if evt.collectionName == h.collections.BlockSignature.Name {
 				h.processBlockSignatureFromEventBus(ctx, evt.docID)
 			}
 		}
@@ -204,11 +196,18 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 
 				if h.metrics != nil {
 					h.metrics.IncrementDocumentsReceived()
+					switch collectionName {
+					case h.collections.Transaction.Name:
+						h.metrics.IncrementTransactionsProcessed()
+					case h.collections.Log.Name:
+						h.metrics.IncrementLogsProcessed()
+					case h.collections.AccessListEntry.Name:
+						h.metrics.IncrementAccessListsProcessed()
+					case h.collections.BlockSignature.Name:
+						h.metrics.IncrementBlockSignaturesProcessed()
+					}
 				}
-				if collectionsWithMetrics[collectionName] && h.metrics != nil {
-					h.metrics.IncrementDocumentByType(collectionName)
-				}
-				if collectionName == constants.CollectionBlockSignature {
+				if collectionName == h.collections.BlockSignature.Name {
 					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
 				}
 			}
@@ -223,7 +222,7 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 		return
 	}
 
-	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, h.collections.BlockSignature.Name)
 	if err != nil {
 		logger.Sugar.Warnf("Failed to get BlockSignature collection: %v", err)
 		return
@@ -436,7 +435,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 
 	var lastErr error
 	for attempt := range maxAttestationRetries {
-		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, h.collections.AttestationRecord.Name, record); err != nil {
 			if errors.Is(err, attestationService.ErrDocumentNotFound) {
 				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff", blockNumber)
 				return
@@ -459,7 +458,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		} else {
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationsCreated()
-				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
+				h.metrics.IncrementBlocksProcessed()
 			}
 			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		}
