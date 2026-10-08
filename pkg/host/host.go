@@ -204,8 +204,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// StartDefraInstance creates the tables of every configured chain; everything else below uses only
-	// the first.
+	// StartDefraInstance creates and subscribes to the tables of every configured chain; everything
+	// else below uses only the first.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -241,6 +241,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// host serves it after that (startAPIServer).
 	nodeOpts.SetDisableAPI(true)
 
+	var subscribed []string
+	for _, c := range cfg.Chains {
+		subscribed = append(subscribed, chain.EVM(c.Prefix).Subscribed()...)
+	}
+
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
@@ -248,7 +253,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
-		collections.Subscribed()...,
+		subscribed...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %w", err)
