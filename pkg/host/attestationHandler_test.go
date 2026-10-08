@@ -343,23 +343,6 @@ func TestProcessAttestationsFromBlockSignature_NoCIDs(_ *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// attestedBlocks sync.Map
-// ---------------------------------------------------------------------------
-
-func TestAttestedBlocks_SyncMap(t *testing.T) {
-	// Test the sync.Map used for deduplication
-	attestedBlocks.Delete(int64(999)) // Clean up from any previous tests
-
-	_, existed := attestedBlocks.LoadOrStore(int64(999), true)
-	require.False(t, existed)
-
-	_, existed = attestedBlocks.LoadOrStore(int64(999), true)
-	require.True(t, existed)
-
-	attestedBlocks.Delete(int64(999)) // Clean up
-}
-
-// ---------------------------------------------------------------------------
 // docEvent struct
 // ---------------------------------------------------------------------------
 
@@ -757,9 +740,6 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 		metrics:     metrics,
 	}
 
-	// Clean up global attestedBlocks state for this block number
-	attestedBlocks.Delete(int64(200))
-
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       200,
 		MerkleRoot:        "deadbeef",
@@ -774,11 +754,8 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	require.True(t, metrics.AttestationsCreated > 0 || metrics.AttestationErrors > 0,
 		"either attestations created or errors should be incremented")
 
-	// Second call with same block should hit the "existed" path in attestedBlocks
+	// Second call with the same block updates the record
 	h.processAttestationsFromBlockSignature(ctx, blockSig)
-
-	// Clean up
-	attestedBlocks.Delete(int64(200))
 }
 
 func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing.T) {
@@ -1081,10 +1058,6 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 		metrics:     metrics,
 	}
 
-	// Clean up global attestedBlocks state
-	attestedBlocks.Delete(int64(300))
-	defer attestedBlocks.Delete(int64(300))
-
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       300,
 		MerkleRoot:        "abcdef",
@@ -1094,10 +1067,12 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 
 	// First call creates attestation
 	h.processAttestationsFromBlockSignature(ctx, blockSig)
-	_ = atomic.LoadInt64(&metrics.AttestationsCreated)
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
 
-	// Second call hits the "existed" path — should update rather than create
+	// Second call updates the record, so nothing more is counted as created
 	h.processAttestationsFromBlockSignature(ctx, blockSig)
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.BlocksProcessed))
 
 	// MostRecentBlock should have been updated
 	require.GreaterOrEqual(t, atomic.LoadUint64(&metrics.MostRecentBlock), uint64(300))
@@ -1120,10 +1095,6 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 		collections: testCollections,
 		metrics:     metrics,
 	}
-
-	// Clean up global attestedBlocks state
-	attestedBlocks.Delete(int64(400))
-	defer attestedBlocks.Delete(int64(400))
 
 	// First indexer attests to block 400
 	blockSigA := &attestationService.BlockSignature{

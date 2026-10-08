@@ -16,25 +16,26 @@ type Record = constants.AttestationRecord
 
 // PostAttestationRecord writes record to the attestation collection named collection, using
 // read-modify-write to correctly merge source_doc lists when multiple indexers attest to the
-// same block.
+// same block. It reports whether it created the record; false means it merged record into one
+// the collection already held.
 // It returns an error wrapping ErrDocumentNotFound when the existing record is deleted between
 // the read and the write, which the pruner does to records at or below its cutoff.
-func PostAttestationRecord(ctx context.Context, defraNode *node.Node, collection string, record *Record) error {
+func PostAttestationRecord(ctx context.Context, defraNode *node.Node, collection string, record *Record) (bool, error) {
 	col, err := defraNode.DB.GetCollectionByName(ctx, collection)
 	if err != nil {
-		return fmt.Errorf("failed to get attestation collection: %w", err)
+		return false, fmt.Errorf("failed to get attestation collection: %w", err)
 	}
 
 	existingDoc, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
 	if errors.Is(err, client.ErrDocumentNotFoundOrNotAuthorized) {
-		return fmt.Errorf("attestation %s: %w", record.AttestedDocID, ErrDocumentNotFound)
+		return false, fmt.Errorf("attestation %s: %w", record.AttestedDocID, ErrDocumentNotFound)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to lookup existing attestation: %w", err)
+		return false, fmt.Errorf("failed to lookup existing attestation: %w", err)
 	}
 
 	if existingDoc != nil {
-		return updateAttestationRecord(ctx, col, existingDoc, record)
+		return false, updateAttestationRecord(ctx, col, existingDoc, record)
 	}
 
 	// Create new document
@@ -60,10 +61,13 @@ func PostAttestationRecord(ctx context.Context, defraNode *node.Node, collection
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
 	if err != nil {
-		return fmt.Errorf("failed to create attestation document: %w", err)
+		return false, fmt.Errorf("failed to create attestation document: %w", err)
 	}
 
-	return col.SaveDocument(ctx, doc)
+	if err := col.SaveDocument(ctx, doc); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // mergeStringListField reads an existing string list field from a document and merges

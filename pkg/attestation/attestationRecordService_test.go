@@ -84,7 +84,7 @@ func TestPostAttestationRecord(t *testing.T) {
 		attestationRecord.CIDs = append(attestationRecord.CIDs, version.CID)
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, attestationRecord)
+	_, err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, attestationRecord)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -140,7 +140,7 @@ func TestPostAttestationRecord_NewDocument_CreatesSingleRecord(t *testing.T) {
 		CIDs:          []string{testCID1},
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -193,9 +193,9 @@ func TestPostAttestationRecord_OldDocument_DuplicateCreateIsHandled(t *testing.T
 		CIDs:          []string{testCID1},
 	}
 
-	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
-	err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(t.Context(), defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -230,8 +230,9 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
+	created, err := PostAttestationRecord(ctx, defraNode, testAttestationCollection, record1)
 	require.NoError(t, err)
+	require.True(t, created)
 
 	// Second indexer posts attestation for the same block
 	record2 := &Record{
@@ -241,8 +242,9 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 		DocType:       testDocTypeBlock,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record2)
+	created, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record2)
 	require.NoError(t, err)
+	require.False(t, created)
 
 	// Query and verify both indexer identities are preserved
 	query := fmt.Sprintf(`%s(filter: {attested_doc: {_eq: "block:500:deadbeef"}, doc_type: {_eq: "%s"}}) { attested_doc source_doc }`,
@@ -293,7 +295,7 @@ func TestPostAttestationRecord_EmptyCIDs(t *testing.T) {
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 }
 
@@ -329,7 +331,7 @@ func TestPostAttestationRecord_MultipleCIDs(t *testing.T) {
 		VoteCount:     5,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	query := fmt.Sprintf(`
@@ -381,7 +383,7 @@ func TestPostAttestationRecord_MissingSchema_ReturnsError(t *testing.T) {
 		VoteCount:     1,
 	}
 
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to get attestation collection")
 }
@@ -550,7 +552,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 		DocType:       testDocType,
 		VoteCount:     1,
 	}
-	err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
 	require.NoError(t, err)
 
 	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
@@ -652,19 +654,21 @@ func TestPostAttestationRecord_BlockNumber(t *testing.T) {
 	defraNode := client.GetNode()
 
 	blockNumber := int64(12345)
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
 		AttestedDocID: "block:12345:root",
 		CIDs:          []string{"cid-a"},
 		DocType:       "Block",
 		VoteCount:     1,
 		BlockNumber:   &blockNumber,
-	}))
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
+	})
+	require.NoError(t, err)
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
 		AttestedDocID: "doc:no-block",
 		CIDs:          []string{"cid-b"},
 		DocType:       "Transaction",
 		VoteCount:     1,
-	}))
+	})
+	require.NoError(t, err)
 
 	require.Equal(t, int64(12345), storedBlockNumber(t, defraNode, "block:12345:root"))
 	require.Nil(t, storedBlockNumber(t, defraNode, "doc:no-block"))
@@ -708,7 +712,8 @@ func TestUpdateAttestationRecord_DoesNotRecreateAPrunedRecord(t *testing.T) {
 		VoteCount:     1,
 		BlockNumber:   &blockNumber,
 	}
-	require.NoError(t, PostAttestationRecord(ctx, defraNode, testAttestationCollection, record))
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, record)
+	require.NoError(t, err)
 
 	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
