@@ -1,22 +1,43 @@
 package hostconfig
 
-import "regexp"
+import (
+	"net"
+	"strconv"
+)
 
 func validate(cfg Config) error {
-	if cfg.Name == "" {
-		return errEmptyName
+	if err := validateLogger(cfg.Logger); err != nil {
+		return err
 	}
 
-	// Name is capped at 63 characters (this leading character plus up to
-	// 62 more), matching Kubernetes' DNS-1123 label length limit, borrowed
-	// as a familiar, well established convention since Name becomes part
-	// of a directory path. Lowercase only: macOS and Windows filesystems
-	// are case-insensitive by default, so "Host1" and "host1" would
-	// otherwise collide on one directory. Underscores and a trailing
-	// hyphen are still allowed, unlike a real DNS-1123 label, since Name
-	// only needs to be filesystem-safe, not a valid DNS label.
-	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`).MatchString(cfg.Name) {
-		return errInvalidName
+	if err := validateHTTP(cfg.HTTP); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateLogger(lc LoggerConfig) error {
+	switch lc.Level {
+	case logLevelDebug, logLevelInfo, logLevelWarn, logLevelError:
+		return nil
+	default:
+		return errInvalidLevel
+	}
+}
+
+func validateHTTP(hc HTTPConfig) error {
+	_, port, err := net.SplitHostPort(hc.Addr)
+	if err != nil {
+		return errInvalidAddr
+	}
+
+	// SplitHostPort only checks the host:port shape, it doesn't check that
+	// port is actually a number, e.g. ":notaport" passes it. ParseUint
+	// with a 16-bit size catches that and rejects anything outside the
+	// valid port range (0-65535) in one step.
+	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+		return errInvalidAddr
 	}
 
 	return nil
