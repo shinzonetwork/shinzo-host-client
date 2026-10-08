@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -68,8 +69,8 @@ func TestApplyHostIndexes_MissingIndexedField(t *testing.T) {
 	require.ErrorIs(t, err, ErrSchemaMissingIndexedField)
 }
 
-// appliedIndexes applies sdl to a new DefraDB node and returns its indexes as "<table>.<fields>
-// unique=<bool>", with prefix removed from the collection names.
+// appliedIndexes applies sdl to a new DefraDB node and returns its indexes as collectionIndexes
+// lists them.
 func appliedIndexes(t *testing.T, sdl, prefix string) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -79,6 +80,12 @@ func appliedIndexes(t *testing.T, sdl, prefix string) []string {
 
 	cols, err := node.DB.GetCollections(ctx)
 	require.NoError(t, err)
+	return collectionIndexes(cols, prefix)
+}
+
+// collectionIndexes returns the indexes of cols as "<table>.<fields> unique=<bool>", sorted, with
+// prefix removed from the collection names.
+func collectionIndexes(cols []client.Collection, prefix string) []string {
 	var indexes []string
 	for _, col := range cols {
 		table := strings.TrimPrefix(col.Name(), prefix+"__")

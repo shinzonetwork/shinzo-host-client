@@ -110,3 +110,71 @@ func TestChainApplier(t *testing.T) {
 		})
 	}
 }
+
+func TestChainApplier_MatchesV070(t *testing.T) {
+	// The collections of a v0.7.0 host, read from /api/v0/collections on a production host running
+	// it. A collection's ID hashes its name and its fields' names, kinds and CRDT types, so equal IDs
+	// mean the same tables. DefraDB also names a subscribed collection's pubsub topic after its ID,
+	// so a host with other IDs listens on topics v0.7.0 generators do not publish on. IDs do not
+	// cover indexes, so those are compared too.
+	wantIDs := map[string]string{
+		"Ethereum__Mainnet__AccessListEntry":   "bafyreihipupkpou65ots2fmkdzadqta46qatc4gojnwiaz6qhpca2cfmba",
+		"Ethereum__Mainnet__AttestationRecord": "bafyreicmnsr7utuszbl7qgbw7b7gukrx2cate4xxldnjvkequyvvq6vtlu",
+		"Ethereum__Mainnet__Block":             "bafyreiftz6gvxpt5kfd5iao3ssro5kt3a4yoaiskzbleygu3ir5kep4va4",
+		"Ethereum__Mainnet__BlockSignature":    "bafyreihfwcqxc46ev2vffmkhwou73npv5n5wwt54527no7wvr26u4wujdq",
+		"Ethereum__Mainnet__Log":               "bafyreiaomf72pp3gpwxwgs57c25y533igglr25eng3v5bfn2zmeqdotgsu",
+		"Ethereum__Mainnet__SnapshotSignature": "bafyreidqkow4wga5lc4gjpjwlith6teccdtmrpdauenws7vbko6higdd5q",
+		"Ethereum__Mainnet__Transaction":       "bafyreigtkycjzgns3aczf264nadoj5td4rzjvpbq56ni33nm7v7q3lls6i",
+	}
+	wantIndexes := []string{
+		"AccessListEntry._transactionID(descending=false) unique=false",
+		"AccessListEntry.blockNumber(descending=false) unique=false",
+		"AttestationRecord.attested_doc(descending=false) unique=false",
+		"AttestationRecord.blockNumber(descending=false) unique=false",
+		"AttestationRecord.doc_type(descending=false) unique=false",
+		"Block.hash(descending=false) unique=true",
+		"Block.number(descending=false) unique=false",
+		"BlockSignature.blockNumber(descending=false) unique=false",
+		"Log._blockID(descending=false) unique=false",
+		"Log._transactionID(descending=false) unique=false",
+		"Log.address(descending=false) unique=false",
+		"Log.blockNumber(descending=false) unique=false",
+		"SnapshotSignature.endBlock(descending=false) unique=false",
+		"Transaction._blockID(descending=false) unique=false",
+		"Transaction.blockNumber(descending=false) unique=false",
+		"Transaction.hash(descending=false) unique=true",
+	}
+
+	srv := serveSchema(t, validResponse)
+	cases := []struct {
+		desc   string
+		tables func(ctx context.Context) (string, error)
+	}{
+		{desc: "built-in schema", tables: func(context.Context) (string, error) { return GetSchema(), nil }},
+		{
+			desc: "generator schema",
+			tables: func(ctx context.Context) (string, error) {
+				return FetchSchema(ctx, NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), ethereum)
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			ctx := context.Background()
+			applier := ChainApplier{Tables: c.tables, Collections: ethereum}
+			node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+			require.NoError(t, err)
+			defer func() { _ = node.Close(ctx) }()
+
+			cols, err := node.DB.GetCollections(ctx)
+			require.NoError(t, err)
+			gotIDs := make(map[string]string, len(cols))
+			for _, col := range cols {
+				gotIDs[col.Name()] = col.CollectionID()
+			}
+			require.Equal(t, wantIDs, gotIDs)
+			require.Equal(t, wantIndexes, collectionIndexes(cols, chain.EthereumMainnet))
+		})
+	}
+}
