@@ -1673,8 +1673,12 @@ func TestHost_Close_Full(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A generator's peer is added to the host's peers along with the bootstrap peers.
+// Every chain's generator peers are added to the host's peers.
 func TestStartHostingAddsGeneratorPeers(t *testing.T) {
+	const (
+		other     = "Testchain__Devnet"
+		otherPeer = "/ip4/10.0.0.2/tcp/9171/p2p/12D3KooWNgg9VnEWeaoJYg5J2ehi9Ktfsxyise2Hkf4Mb12CaG6H"
+	)
 	listener, err := net.Listen("tcp", testLoopbackAddr)
 	require.NoError(t, err)
 	addr, ok := listener.Addr().(*net.TCPAddr)
@@ -1682,16 +1686,18 @@ func TestStartHostingAddsGeneratorPeers(t *testing.T) {
 	require.NoError(t, listener.Close())
 	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
 	t.Cleanup(generator.Close)
+	otherGenerator := httptest.NewServer(schemaHandler(t, other))
+	t.Cleanup(otherGenerator.Close)
 
 	cfg := *DefaultConfig
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = testLoopbackAddr
 	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
 	cfg.HostConfig.HealthServerPort = addr.Port
-	cfg.Chains = []chain.Config{{
-		Prefix:     chain.EthereumMainnet,
-		Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}},
-	}}
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}}},
+		{Prefix: other, Generators: []chain.Generator{{URL: otherGenerator.URL, Peer: otherPeer}}},
+	}
 
 	h, err := StartHosting(&cfg)
 	require.NoError(t, err)
@@ -1701,7 +1707,42 @@ func TestStartHostingAddsGeneratorPeers(t *testing.T) {
 		require.NoError(t, h.Close(ctx))
 	})
 
-	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
+	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
+}
+
+// The host subscribes to the tables of every configured chain.
+func TestStartHostingSubscribesEveryChain(t *testing.T) {
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Chains = nil
+	var want []string
+	for _, prefix := range []string{chain.EthereumMainnet, "Testchain__Devnet"} {
+		generator := httptest.NewServer(schemaHandler(t, prefix))
+		t.Cleanup(generator.Close)
+		cfg.Chains = append(cfg.Chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
+		want = append(want, chain.EVM(prefix).Subscribed()...)
+	}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+
+	got, err := h.DefraNode.DB.ListP2PCollections(context.Background())
+	require.NoError(t, err)
+	require.ElementsMatch(t, want, got)
 }
 
 // DefraDB's API answers only once the chain's tables exist.
