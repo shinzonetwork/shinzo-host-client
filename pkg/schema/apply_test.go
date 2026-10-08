@@ -105,11 +105,11 @@ func TestChainApplier(t *testing.T) {
 					fetched = true
 					return tables, c.tablesErr
 				},
-				Served: func(context.Context) iter.Seq2[string, string] {
-					return func(yield func(string, string) bool) {
+				Served: func(context.Context) iter.Seq2[string, Response] {
+					return func(yield func(string, Response) bool) {
 						for i, sdl := range c.served {
 							read++
-							if !yield(generatorURL(i), sdl) {
+							if !yield(generatorURL(i), Response{Schema: sdl, document: parseSDL(t, sdl)}) {
 								return
 							}
 						}

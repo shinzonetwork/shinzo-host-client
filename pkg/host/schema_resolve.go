@@ -52,7 +52,7 @@ func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			Tables: func(ctx context.Context) (string, error) {
 				return resolveSchema(ctx, a.schemaCfg, c, collections)
 			},
-			Served: func(ctx context.Context) iter.Seq2[string, string] {
+			Served: func(ctx context.Context) iter.Seq2[string, schema.Response] {
 				return servedSchemas(ctx, a.schemaCfg, c)
 			},
 			Collections: collections,
@@ -100,8 +100,9 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 	return "", errNoGeneratorSchema
 }
 
-// servedSchemas yields the URL of each of the chain's generators and the schema it serves, in order,
-// skipping those that do not answer. A generator answers when it returns a schema for the chain.
+// servedSchemas yields the URL of each of the chain's generators and its schema response, in order,
+// skipping those that do not answer. A generator answers when it returns a schema for the chain and
+// the schema parses.
 // Generators are asked one at a time as the caller ranges, so none is asked after the caller stops.
 // The schemas are yielded without FetchSchema's checks, so a schema those checks refuse is compared
 // with the stored tables instead of being skipped. The requests share one deadline, the timeout
@@ -109,8 +110,8 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 // chain's check, so a restart can wait that timeout once per chain: the chain's generators that do
 // not answer delay its check by that timeout once, not once each, and a generator that hangs leaves
 // less of it, or none, for the ones after it.
-func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) iter.Seq2[string, string] {
-	return func(yield func(string, string) bool) {
+func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) iter.Seq2[string, schema.Response] {
+	return func(yield func(string, schema.Response) bool) {
 		// Each range gets its own deadline. A zero timeout leaves the requests unbounded, as it does
 		// in the HTTP client.
 		ctx := ctx
@@ -135,7 +136,7 @@ func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 				continue
 			}
 			answered = true
-			if !yield(g.URL, resp.Schema) {
+			if !yield(g.URL, resp) {
 				return
 			}
 		}

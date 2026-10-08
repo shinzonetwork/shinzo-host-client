@@ -22,6 +22,7 @@ var (
 	ErrSchemaFetchStatus         = fmt.Errorf("schema fetch non-OK status")
 	ErrSchemaEmptyResponse       = fmt.Errorf("schema field is empty in indexer response")
 	ErrSchemaMalformedResponse   = fmt.Errorf("schema response is malformed or invalid JSON")
+	ErrSchemaInvalidSDL          = fmt.Errorf("schema is not valid GraphQL SDL")
 	ErrSchemaWrongNetwork        = fmt.Errorf("schema is for another chain")
 	ErrSchemaForeignType         = fmt.Errorf("schema has a type outside the chain's prefix")
 	ErrSchemaHostOwnedType       = fmt.Errorf("schema declares a type the host owns")
@@ -40,6 +41,8 @@ const maxSchemaBodyBytes = 64 << 10 // 64 KB
 type Response struct {
 	Network string `json:"network"`
 	Schema  string `json:"schema"`
+	// document is Schema parsed. FetchResponse sets it, so a Response built any other way has none.
+	document *ast.SchemaDocument
 }
 
 // FetchSchema fetches a chain's schema from fullURL, a generator's schema endpoint, and returns
@@ -60,9 +63,9 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, c
 	return withIndexes, nil
 }
 
-// FetchResponse fetches a generator's schema response from fullURL, its schema endpoint, and
-// returns it unchecked. It returns an error on an HTTP error, a malformed response or an empty
-// schema.
+// FetchResponse fetches a generator's schema response from fullURL, its schema endpoint, without
+// checking it against a chain, and parses the schema. It returns an error on an HTTP error, a
+// malformed response, an empty schema or a schema that does not parse.
 func FetchResponse(ctx context.Context, httpClient *http.Client, fullURL string) (Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
@@ -88,20 +91,22 @@ func FetchResponse(ctx context.Context, httpClient *http.Client, fullURL string)
 	if strings.TrimSpace(schemaResp.Schema) == "" {
 		return Response{}, ErrSchemaEmptyResponse
 	}
+	doc, err := parser.ParseSchema(&ast.Source{Input: schemaResp.Schema})
+	if err != nil {
+		return Response{}, fmt.Errorf("parse schema: %w: %w", ErrSchemaInvalidSDL, err)
+	}
+	schemaResp.document = doc
 	return schemaResp, nil
 }
 
-// checkSchema checks a generator's schema response against the chain's collections: it is for
-// this chain, every type is under the chain's prefix, the host's AttestationRecord type is left
-// out, and every collection the generator writes is there.
+// checkSchema checks a generator's schema response, as FetchResponse returns it, against the
+// chain's collections: it is for this chain, every type is under the chain's prefix, the host's
+// AttestationRecord type is left out, and every collection the generator writes is there.
 func checkSchema(resp Response, c chain.Collections) error {
 	if resp.Network != c.Prefix {
 		return fmt.Errorf("network %q, want %q: %w", resp.Network, c.Prefix, ErrSchemaWrongNetwork)
 	}
-	doc, err := parser.ParseSchema(&ast.Source{Input: resp.Schema})
-	if err != nil {
-		return fmt.Errorf("parse schema: %w: %w", ErrSchemaMalformedResponse, err)
-	}
+	doc := resp.document
 	for _, def := range doc.Definitions {
 		if !strings.HasPrefix(def.Name, c.Prefix+"__") {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaForeignType)

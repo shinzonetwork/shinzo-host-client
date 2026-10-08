@@ -81,7 +81,7 @@ func TestFetchSchema_Checks(t *testing.T) {
 		{
 			desc:    "schema that does not parse",
 			resp:    Response{Network: chain.EthereumMainnet, Schema: "type {"},
-			wantErr: ErrSchemaMalformedResponse,
+			wantErr: ErrSchemaInvalidSDL,
 		},
 	}
 
