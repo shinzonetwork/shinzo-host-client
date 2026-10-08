@@ -421,11 +421,17 @@ func TestLoadConfig_Chains(t *testing.T) {
 		},
 		{desc: "invalid prefix", yaml: "chains:\n  - prefix: Ethereum\n", wantErr: chain.ErrInvalidPrefix},
 		{desc: "empty chains list", yaml: "chains: []\n", wantErr: ErrUnsupportedChains},
-		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n", wantErr: ErrUnsupportedChains},
+		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n", want: []chain.Config{{Prefix: "Testchain__Devnet"}}},
 		{
 			desc:    "a second chain",
 			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
 			wantErr: ErrUnsupportedChains,
+		},
+		{desc: "snapshots for Ethereum", yaml: "host:\n  snapshot:\n    enabled: true\n", want: ethereum},
+		{
+			desc:    "snapshots for another chain",
+			yaml:    "chains:\n  - prefix: Testchain__Devnet\nhost:\n  snapshot:\n    enabled: true\n",
+			wantErr: ErrSnapshotChain,
 		},
 	}
 

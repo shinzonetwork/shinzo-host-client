@@ -137,7 +137,8 @@ host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080
   open_browser_on_start: false
-  # Snapshot Bootstrap - download historical data from an indexer on first startup.
+  # Snapshot Bootstrap - download historical data from an indexer on first startup. Ethereum
+  # mainnet only.
   # Set enabled: false to skip snapshot import entirely.
   snapshot:
     enabled: false
