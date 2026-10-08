@@ -1,6 +1,9 @@
 package host
 
-import "github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+import (
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+)
 
 const (
 	testQueryBlocks   = "SELECT * FROM blocks"
@@ -80,3 +83,6 @@ const (
 
 // testCollections are the Ethereum mainnet collections the tests use.
 var testCollections = chain.EVM(chain.EthereumMainnet)
+
+// testSchemaApplier creates the test chain's collections the way a host does.
+var testSchemaApplier = localschema.ChainApplier{Tables: localschema.GetSchema(), Collections: testCollections}

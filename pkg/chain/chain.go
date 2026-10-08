@@ -49,6 +49,12 @@ func EVM(prefix string) Collections {
 	}
 }
 
+// Generated returns the collections a chain's generators write: all but AttestationRecord, which
+// the host writes.
+func (c Collections) Generated() []Collection {
+	return []Collection{c.Block, c.Transaction, c.Log, c.AccessListEntry, c.BlockSignature, c.SnapshotSignature}
+}
+
 // Subscribed returns the names of the collections the host subscribes to over P2P.
 // AttestationRecord is not among them: each host keeps its own attestations. Neither is
 // SnapshotSignature: the host verifies snapshots against the signatures in the snapshot list.

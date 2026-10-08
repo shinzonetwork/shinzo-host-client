@@ -24,6 +24,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
@@ -240,7 +241,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),
+		schema.ChainApplier{Tables: resolvedSchema, Collections: collections},
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
@@ -257,12 +258,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	err = waitForDefraDB(ctx, defraNode, collections.Block.Name)
 	if err != nil {
 		return nil, err
-	}
-
-	// Apply local schema after DefraDB is ready (for use with non-branchable)
-	err = applySchema(ctx, defraNode, resolvedSchema)
-	if err != nil {
-		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	if rule != nil {
@@ -1017,24 +1012,6 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 // isPlaygroundEnabled checks the environment variable to determine if the GraphQL Playground should be enabled. This allows for dynamic control over the playground feature without changing code, which is useful for testing and different deployment environments.
 func isPlaygroundEnabled() bool {
 	return playgroundEnabled
-}
-
-// applySchema applies the GraphQL schema to DefraDB node.
-func applySchema(ctx context.Context, defraNode *node.Node, schemaStr string) error {
-	fmt.Println("Applying schema...")
-
-	_, err := defraNode.DB.AddCollection(ctx, schemaStr)
-	if err != nil && strings.Contains(err.Error(), "collection already exists") {
-		fmt.Println("Schema already exists, trying to add new types individually...")
-		// Try adding Config__LastProcessedPage separately in case it's new
-		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int }`
-		_, configErr := defraNode.DB.AddCollection(ctx, configSchema)
-		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
-			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)
-		}
-		return nil
-	}
-	return err
 }
 
 // RegisterViewWithManager registers a view and manages its lifecycle.

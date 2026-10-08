@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
-	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -297,7 +295,7 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a real DefraDB instance with the indexer schema
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1159,7 +1157,7 @@ func TestHost_GetPeerInfo_WithP2PEnabled(t *testing.T) {
 	ctx := context.Background()
 
 	// Start a DefraDB instance that includes P2P
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1185,7 +1183,7 @@ func TestHost_GetPeerInfo_WithP2PEnabled(t *testing.T) {
 func TestHost_SignMessages_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1213,7 +1211,7 @@ func TestHost_SignMessages_WithRealDefraDB(t *testing.T) {
 func TestHost_GetNodePublicKey_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1234,7 +1232,7 @@ func TestHost_GetNodePublicKey_WithRealDefraDB(t *testing.T) {
 func TestHost_GetPeerPublicKey_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1400,43 +1398,6 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 // applySchema - with real DefraDB
 // ---------------------------------------------------------------------------
 
-func TestApplySchema_WithRealDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	// Start with mock schema applier (no schema applied yet)
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	// First call should succeed (adding schema)
-	err = applySchema(ctx, defraNode, localschema.GetSchema())
-	require.NoError(t, err)
-
-	// Second call should also succeed (schema already exists path)
-	err = applySchema(ctx, defraNode, localschema.GetSchema())
-	require.NoError(t, err)
-}
-
-func Test_ApplySchema_DynamicFetchApplied_WithRealDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	srv := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
-	defer srv.Close()
-
-	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: srv.URL}}}
-	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 5}
-
-	resolvedSchema := resolveSchema(ctx, schemaCfg, served, testCollections)
-	require.NotEqual(t, localschema.GetSchema(), resolvedSchema)
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	err = applySchema(ctx, defraNode, resolvedSchema)
-	require.NoError(t, err)
-}
-
 // ---------------------------------------------------------------------------
 // waitForDefraDB - with real DefraDB
 // ---------------------------------------------------------------------------
@@ -1444,7 +1405,7 @@ func Test_ApplySchema_DynamicFetchApplied_WithRealDefraDB(t *testing.T) {
 func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -1637,7 +1598,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 func TestHost_Close_Full(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 
 	metrics := server.NewHostMetrics()
