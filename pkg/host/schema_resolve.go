@@ -32,11 +32,12 @@ func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		configured[c.Prefix] = true
 	}
 	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
-	// list means the store holds another chain.
+	// list means the store holds another chain. A view's name is whatever its SDL declares, so views
+	// are skipped.
 	signatureSuffix := chain.EVM("").BlockSignature.Name
 	for _, col := range cols {
 		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
-		if ok && !configured[prefix] {
+		if ok && !col.Version().Query.HasValue() && !configured[prefix] {
 			return fmt.Errorf("%s: %w", prefix, errUnlistedChain)
 		}
 	}

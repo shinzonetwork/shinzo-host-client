@@ -175,6 +175,11 @@ func TestChainsApplier(t *testing.T) {
 	// Every stored chain is listed, so a restart is accepted.
 	require.NoError(t, chainsApplier{schemaCfg: schemaCfg, chains: chains}.ApplySchema(ctx, node))
 
+	// A view named like a BlockSignature table does not mark a chain.
+	_, err = node.DB.AddView(ctx, chain.EVM(other).Block.Name+" { number }", "type Unlisted__BlockSignature { number: Int }")
+	require.NoError(t, err)
+	require.NoError(t, chainsApplier{schemaCfg: schemaCfg, chains: chains}.ApplySchema(ctx, node))
+
 	// The store holds a chain the config does not list, and the config lists a chain the store does
 	// not hold yet. The unlisted chain is refused before any table is created.
 	const third = "Third__Chain"
