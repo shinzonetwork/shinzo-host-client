@@ -184,13 +184,18 @@ func TestChainsApplier(t *testing.T) {
 	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, chainsApplier{schemaCfg: schemaCfg, chains: chains})
 	require.NoError(t, err)
 	defer func() { _ = node.Close(ctx) }()
+	var subscribed []string
 	for _, c := range chains {
 		collections := chain.EVM(c.Prefix)
 		for _, col := range append(collections.Generated(), collections.AttestationRecord) {
 			_, err := node.DB.GetCollectionByName(ctx, col.Name)
 			require.NoError(t, err, col.Name)
 		}
+		subscribed = append(subscribed, collections.Subscribed()...)
 	}
+	got, err := node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, subscribed, got)
 
 	// Every stored chain is listed, so a restart is accepted.
 	require.NoError(t, chainsApplier{schemaCfg: schemaCfg, chains: chains}.ApplySchema(ctx, node))
