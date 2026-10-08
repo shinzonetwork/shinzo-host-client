@@ -141,30 +141,29 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 		return Config{}, err
 	}
 
-	// Only reached once we know we're actually bootstrapping or loading,
-	// never on a path we're about to reject above, so an explicit but
-	// missing/unmounted path (e.g. a backup drive that isn't mounted yet)
-	// is never left with a stray, empty directory created in its place.
-	if err := createPath(cfg); err != nil {
-		return Config{}, err
-	}
-
 	// Default location, nothing there yet. This is just a genuine first
 	// run (e.g. starting on a brand-new machine, nothing ever set up).
 	// There's no ambiguity about where this should live, so it's safe to
 	// create it fresh, entirely from defaults.
 	if missing {
-		// Check what the final, overridden result would look like before
-		// create writes anything to disk: a copy with overrides applied,
-		// so a bad override (e.g. an invalid --logger.level) is caught
-		// before the file is written, not after. Without this, a failed
-		// first run still leaves a (valid, override-less) config.toml
-		// behind, since overrides are only applied below, after create.
+		// Check what the final, overridden result would look like
+		// before anything below touches disk: a copy with overrides
+		// applied, so a bad override (e.g. an invalid --logger.level) is
+		// caught first. Without this, a failed first run still left
+		// directories (and, before that fix, a config.toml) behind, since
+		// overrides are only applied for real below, after create.
 		candidate := cfg
 		if err := applyOverrides(&candidate, overrides); err != nil {
 			return Config{}, err
 		}
 		if err := validate(candidate); err != nil {
+			return Config{}, err
+		}
+
+		// Only reached once the would-be result is confirmed valid, so a
+		// failed first run (e.g. a bad override) leaves nothing behind
+		// at all, not even the directories.
+		if err := createPath(cfg); err != nil {
 			return Config{}, err
 		}
 
@@ -182,6 +181,13 @@ func Load(home, dataDir, configPath string, overrides map[string]any) (Config, e
 		}
 
 		if err := validate(cfg); err != nil {
+			return Config{}, err
+		}
+
+		// Defensive: config.toml already exists, but the rest of the
+		// directory structure (data/keys/filter) might not, e.g. an
+		// older instance, or one of them got deleted by hand.
+		if err := createPath(cfg); err != nil {
 			return Config{}, err
 		}
 	}

@@ -316,15 +316,16 @@ func TestLoadRejectsInvalidOverride(t *testing.T) {
 }
 
 // A failed first run (nothing at the default location yet, but the
-// override itself is bad) shouldn't leave anything behind: the bad
-// override is checked before create ever writes the defaults-only file,
-// not after.
-func TestLoadRejectsInvalidOverrideWithoutWritingAFile(t *testing.T) {
+// override itself is bad) shouldn't leave anything behind at all: the bad
+// override is checked before createPath makes any directory or create
+// writes the defaults-only file, not after either of those.
+func TestLoadRejectsInvalidOverrideWithoutTouchingDisk(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 
 	_, err := Load(home, "", "", map[string]any{"logger.level": "bogus"})
 	require.ErrorIs(t, err, errInvalidLevel)
 	require.NoFileExists(t, filepath.Join(home, "config.toml"))
+	require.NoDirExists(t, home)
 }
 
 // A typo'd override key (e.g. a CLI flag that doesn't match a real
