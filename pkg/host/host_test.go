@@ -1680,7 +1680,7 @@ func TestHost_Close_Full(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Every chain's generator peers are added to the host's peers.
+// Every enabled chain's generator peers are added to the host's peers, and a disabled chain's are not.
 func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	const (
 		other     = "Testchain__Devnet"
@@ -1715,6 +1715,18 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	})
 
 	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
+
+	// After a restart, the other chain's stored tables differ from what its generator serves, so the
+	// chain is disabled and its generator is not dialed.
+	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
+	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
 }
 
 // A restart compares the stored tables with the schema the chain's generator serves, and refuses to
