@@ -143,7 +143,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
-	collections    chain.Collections       // Collections of the chain this host serves
+	collections    chain.Collections       // Collections of the first configured chain, which the attestation listener serves
 	// collectionNames maps the IDs of the chain's collections to their names. Only the attestation
 	// listener reads and writes it.
 	collectionNames map[string]string
@@ -204,8 +204,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// StartDefraInstance creates and subscribes to the tables of every configured chain; everything
-	// else below uses only the first.
+	// Every configured chain's tables are created and subscribed to, and its generators dialed. The
+	// readiness probe, pruner, retention rule, event filter, attestation listener, views and snapshots
+	// use only the first.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -463,16 +464,18 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
 		peerAddrs := slices.Clone(cfg.DefraDB.P2P.BootstrapPeers)
-		for _, g := range served.Generators {
-			if g.Peer != "" {
-				peerAddrs = append(peerAddrs, g.Peer)
+		for _, c := range cfg.Chains {
+			for _, g := range c.Generators {
+				if g.Peer != "" {
+					peerAddrs = append(peerAddrs, g.Peer)
+				}
 			}
 		}
 
 		// Resolve bootstrap peers: auto-discover peer IDs for addresses that don't include them
 		discoveryTimeout := time.Duration(cfg.DefraDB.P2P.PeerDiscoveryTimeoutMs) * time.Millisecond
 		bootstrapPeers := resolveBootstrapPeers(context.Background(), peerAddrs, discoveryTimeout)
-		// A generator's peer may also be listed as a bootstrap peer.
+		// A generator's peer may also be listed as a bootstrap peer or under another chain.
 		slices.Sort(bootstrapPeers)
 		bootstrapPeers = slices.Compact(bootstrapPeers)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))

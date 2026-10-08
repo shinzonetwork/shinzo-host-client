@@ -39,93 +39,10 @@ const prefix = "Testchain__Devnet"
 // A generator's block reaches the host over P2P, and the host records an attestation for it.
 func TestHostAttestsGeneratorBlock(t *testing.T) {
 	ctx := context.Background()
-	cols := chain.EVM(prefix)
-	fixture, err := os.ReadFile("../pkg/schema/testdata/generator_schema.graphql")
-	require.NoError(t, err)
-	sdl := strings.ReplaceAll(string(fixture), chain.EthereumMainnet, prefix)
-
-	// The stand-in generator: a DefraDB node that publishes the chain's tables, as a generator
-	// does, and a server for their schema.
-	opts := options.Node().SetDisableAPI(true)
-	opts.P2P().SetEnablePubSub(true).SetListenAddresses("/ip4/127.0.0.1/tcp/0")
-	opts.Store().SetPath(t.TempDir())
-	gen, err := node.New(ctx, opts)
-	require.NoError(t, err)
-	require.NoError(t, gen.Start(ctx))
-	t.Cleanup(func() { _ = gen.Close(context.Background()) })
-	_, err = gen.DB.AddCollection(ctx, sdl)
-	require.NoError(t, err)
-	var generated []string
-	for _, col := range cols.Generated() {
-		generated = append(generated, col.Name)
-	}
-	require.NoError(t, gen.DB.AddP2PCollections(ctx, generated))
-	genAddrs, err := gen.DB.PeerInfo(ctx)
-	require.NoError(t, err)
-
-	schemaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		assert.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: sdl}))
-	}))
-	t.Cleanup(schemaServer.Close)
-
-	// Pubsub does not replay, so the generator writes only once the host has joined every topic it
-	// subscribes to. Listening for join events before the host starts means none is missed.
-	joins, err := gen.DB.Events().Subscribe(event.TopicPeerEventName)
-	require.NoError(t, err)
-	t.Cleanup(func() { defradb.CloseSubscription(gen.DB.Events(), joins) })
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	healthAddr, ok := listener.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-	require.NoError(t, listener.Close())
-
-	// StartHosting binds the host to the machine's LAN address, so the test needs a default route.
-	cfg := *host.DefaultConfig
-	cfg.DefraDB.Store.Path = t.TempDir()
-	cfg.DefraDB.URL = "127.0.0.1:0"
-	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
-	cfg.HostConfig.HealthServerPort = healthAddr.Port
-	cfg.HostConfig.LensRegistryPath = t.TempDir()
-	cfg.Chains = []chain.Config{{
-		Prefix:     prefix,
-		Generators: []chain.Generator{{URL: schemaServer.URL, Peer: genAddrs[0]}},
-	}}
-	h, err := host.StartHosting(&cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		require.NoError(t, h.Close(ctx))
-	})
-
-	hostAddrs, err := h.DefraNode.DB.PeerInfo(ctx)
-	require.NoError(t, err)
-	hostPeer, err := peer.AddrInfoFromString(hostAddrs[0])
-	require.NoError(t, err)
-	// A collection's pubsub topic is its collection ID.
-	topics := make(map[string]string)
-	for _, name := range cols.Subscribed() {
-		genCol, err := gen.DB.GetCollectionByName(ctx, name)
-		require.NoError(t, err)
-		hostCol, err := h.DefraNode.DB.GetCollectionByName(ctx, name)
-		require.NoError(t, err)
-		require.Equal(t, genCol.CollectionID(), hostCol.CollectionID(), name)
-		topics[genCol.CollectionID()] = name
-	}
-	deadline := time.After(10 * time.Second)
-	for len(topics) > 0 {
-		select {
-		case msg := <-joins.Message():
-			joined, ok := msg.Data.(event.TopicPeerEvent)
-			if ok && joined.EventType == client.PeerEventTypeJoined && joined.PeerID == hostPeer.ID.String() {
-				delete(topics, joined.Topic)
-			}
-		case <-deadline:
-			t.Fatalf("the host did not join the topics of %v", slices.Collect(maps.Values(topics)))
-		}
-	}
+	gen := startStandIn(t, prefix)
+	h := startHost(t, []chain.Config{gen.config})
+	gen.waitForHost(t, h)
+	cols := gen.cols
 
 	// The stand-in writes a block's documents, then a BlockSignature over their head CIDs signed with
 	// a secp256k1 key, the way the generator's block handler signs a block.
@@ -134,7 +51,7 @@ func TestHostAttestsGeneratorBlock(t *testing.T) {
 	collector := node.NewBatchCIDCollector()
 	signingCtx := node.ContextWithBatchSigning(ctx, collector)
 	for _, col := range blockCols {
-		addDocument(signingCtx, t, gen, col.Name, map[string]any{col.HeightField: blockNumber})
+		addDocument(signingCtx, t, gen.node, col.Name, map[string]any{col.HeightField: blockNumber})
 	}
 	cids := collector.GetCIDs()
 	require.Len(t, cids, len(blockCols))
@@ -149,7 +66,7 @@ func TestHostAttestsGeneratorBlock(t *testing.T) {
 		signed[i] = id.String()
 	}
 	sort.Strings(signed)
-	addDocument(ctx, t, gen, cols.BlockSignature.Name, map[string]any{
+	addDocument(ctx, t, gen.node, cols.BlockSignature.Name, map[string]any{
 		"blockNumber":       blockNumber,
 		"merkleRoot":        hex.EncodeToString(root),
 		"cidCount":          len(signed),
@@ -197,6 +114,141 @@ func TestHostAttestsGeneratorBlock(t *testing.T) {
 			assert.Equal(c, []attestation.Record{want}, records)
 		}
 	}, 10*time.Second, 50*time.Millisecond)
+}
+
+// Each configured chain's blocks reach the host.
+func TestHostReceivesEveryChain(t *testing.T) {
+	ctx := context.Background()
+	gens := []standIn{startStandIn(t, prefix), startStandIn(t, "Otherchain__Devnet")}
+	h := startHost(t, []chain.Config{gens[0].config, gens[1].config})
+	for _, gen := range gens {
+		gen.waitForHost(t, h)
+		addDocument(ctx, t, gen.node, gen.cols.Block.Name, map[string]any{gen.cols.Block.HeightField: 1000})
+	}
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for _, gen := range gens {
+			blocks, err := defradb.QueryArray[map[string]any](ctx, h.DefraNode, gen.cols.Block.Name+" { _docID }")
+			if assert.NoError(c, err) {
+				assert.Len(c, blocks, 1, gen.cols.Block.Name)
+			}
+		}
+	}, 10*time.Second, 50*time.Millisecond)
+}
+
+// standIn stands in for one chain's generator: a DefraDB node that publishes the chain's tables,
+// and a server for their schema.
+type standIn struct {
+	cols   chain.Collections
+	node   *node.Node
+	config chain.Config // the host's chains entry for this stand-in
+	joins  event.Subscription
+}
+
+// startStandIn starts a stand-in generator for the chain with chainPrefix.
+func startStandIn(t *testing.T, chainPrefix string) standIn {
+	t.Helper()
+	ctx := context.Background()
+	cols := chain.EVM(chainPrefix)
+	fixture, err := os.ReadFile("../pkg/schema/testdata/generator_schema.graphql")
+	require.NoError(t, err)
+	sdl := strings.ReplaceAll(string(fixture), chain.EthereumMainnet, chainPrefix)
+
+	opts := options.Node().SetDisableAPI(true)
+	opts.P2P().SetEnablePubSub(true).SetListenAddresses("/ip4/127.0.0.1/tcp/0")
+	opts.Store().SetPath(t.TempDir())
+	n, err := node.New(ctx, opts)
+	require.NoError(t, err)
+	require.NoError(t, n.Start(ctx))
+	t.Cleanup(func() { _ = n.Close(context.Background()) })
+	_, err = n.DB.AddCollection(ctx, sdl)
+	require.NoError(t, err)
+	var generated []string
+	for _, col := range cols.Generated() {
+		generated = append(generated, col.Name)
+	}
+	require.NoError(t, n.DB.AddP2PCollections(ctx, generated))
+	addrs, err := n.DB.PeerInfo(ctx)
+	require.NoError(t, err)
+
+	schemaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		assert.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chainPrefix, Schema: sdl}))
+	}))
+	t.Cleanup(schemaServer.Close)
+
+	// Pubsub does not replay, so documents are written only once the host has joined every topic it
+	// subscribes to. Listening for join events before the host starts means none is missed.
+	joins, err := n.DB.Events().Subscribe(event.TopicPeerEventName)
+	require.NoError(t, err)
+	t.Cleanup(func() { defradb.CloseSubscription(n.DB.Events(), joins) })
+
+	return standIn{
+		cols:   cols,
+		node:   n,
+		config: chain.Config{Prefix: chainPrefix, Generators: []chain.Generator{{URL: schemaServer.URL, Peer: addrs[0]}}},
+		joins:  joins,
+	}
+}
+
+// waitForHost requires h's tables for g's chain to have g's collection IDs, then waits until h has
+// joined each of their topics.
+func (g standIn) waitForHost(t *testing.T, h *host.Host) {
+	t.Helper()
+	ctx := context.Background()
+	hostAddrs, err := h.DefraNode.DB.PeerInfo(ctx)
+	require.NoError(t, err)
+	hostPeer, err := peer.AddrInfoFromString(hostAddrs[0])
+	require.NoError(t, err)
+	// A collection's pubsub topic is its collection ID.
+	topics := make(map[string]string)
+	for _, name := range g.cols.Subscribed() {
+		genCol, err := g.node.DB.GetCollectionByName(ctx, name)
+		require.NoError(t, err)
+		hostCol, err := h.DefraNode.DB.GetCollectionByName(ctx, name)
+		require.NoError(t, err)
+		require.Equal(t, genCol.CollectionID(), hostCol.CollectionID(), name)
+		topics[genCol.CollectionID()] = name
+	}
+	deadline := time.After(10 * time.Second)
+	for len(topics) > 0 {
+		select {
+		case msg := <-g.joins.Message():
+			joined, ok := msg.Data.(event.TopicPeerEvent)
+			if ok && joined.EventType == client.PeerEventTypeJoined && joined.PeerID == hostPeer.ID.String() {
+				delete(topics, joined.Topic)
+			}
+		case <-deadline:
+			t.Fatalf("the host did not join the topics of %v", slices.Collect(maps.Values(topics)))
+		}
+	}
+}
+
+// startHost starts a host serving chains.
+func startHost(t *testing.T, chains []chain.Config) *host.Host {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	healthAddr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+
+	// StartHosting binds the host to the machine's LAN address, so the test needs a default route.
+	cfg := *host.DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = "127.0.0.1:0"
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = healthAddr.Port
+	cfg.HostConfig.LensRegistryPath = t.TempDir()
+	cfg.Chains = chains
+	h, err := host.StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+	return h
 }
 
 // addDocument writes fields as a new document in the collection named collection on n.
