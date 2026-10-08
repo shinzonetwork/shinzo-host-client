@@ -208,9 +208,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	// Every configured chain's tables are created and subscribed to, and its generators dialed. The
-	// readiness probe, pruner, retention rule, event filter, attestation listener, views and snapshots
-	// use only the first.
+	// The readiness probe, pruner, retention rule, event filter, attestation listener, views and
+	// snapshots use only the first chain. chainsApplier never disables it: drift there stops the host.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -257,9 +256,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	internalCfg := cfg.ToInternalConfig()
+	applier := &chainsApplier{schemaCfg: cfg.Schema, chains: cfg.Chains}
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		chainsApplier{schemaCfg: cfg.Schema, chains: cfg.Chains},
+		applier,
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
@@ -455,7 +455,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
 		peerAddrs := slices.Clone(cfg.DefraDB.P2P.BootstrapPeers)
-		for _, c := range cfg.Chains {
+		for _, c := range applier.enabled {
 			for _, g := range c.Generators {
 				if g.Peer != "" {
 					peerAddrs = append(peerAddrs, g.Peer)

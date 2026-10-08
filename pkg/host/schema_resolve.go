@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"net/url"
@@ -16,17 +17,21 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// chainsApplier creates the tables of every chain in chains and subscribes to them. It implements
-// defradb.SchemaApplier.
+// chainsApplier creates the tables of every chain in chains and subscribes to the enabled chains. It
+// implements defradb.SchemaApplier.
 type chainsApplier struct {
 	schemaCfg config.SchemaConfig
 	chains    []chain.Config
+	// enabled is set by ApplySchema to the chains it subscribed to, in config order.
+	enabled []chain.Config
 }
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
-// to them. Before creating any, it returns errUnlistedChain when the store holds a chain that chains
-// does not list.
-func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
+// to them. A chain after the first whose tables drift (schema.ErrSchemaDrift) is disabled: it is
+// unsubscribed and left out of enabled. Any other failure, and drift in the first chain, is
+// returned. Before creating any table, it returns errUnlistedChain when the store holds a chain
+// that chains does not list.
+func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
 		return fmt.Errorf("read stored collections: %w", err)
@@ -46,7 +51,8 @@ func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		}
 	}
 
-	for _, c := range a.chains {
+	var enabled []chain.Config
+	for i, c := range a.chains {
 		collections := chain.EVM(c.Prefix)
 		applier := schema.ChainApplier{
 			Tables: func(ctx context.Context) (string, error) {
@@ -57,13 +63,27 @@ func (a chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			},
 			Collections: collections,
 		}
-		if err := applier.ApplySchema(ctx, n); err != nil {
+		err = applier.ApplySchema(ctx, n)
+		// The host prunes, attests and builds views only for the first chain, so drift there is returned
+		// instead of disabling it.
+		if i > 0 && errors.Is(err, schema.ErrSchemaDrift) {
+			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
+			// made by an earlier start is removed.
+			if err := n.DB.DeleteP2PCollections(ctx, collections.Subscribed()); err != nil {
+				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
+			}
+			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
+			continue
+		}
+		if err != nil {
 			return err
 		}
 		if err := n.DB.AddP2PCollections(ctx, collections.Subscribed()); err != nil {
 			return fmt.Errorf("subscribe %s: %w", c.Prefix, err)
 		}
+		enabled = append(enabled, c)
 	}
+	a.enabled = enabled
 	return nil
 }
 
