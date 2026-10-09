@@ -51,10 +51,11 @@ type Recorder interface {
 
 // Recording configures service-record submission on the allow path. A nil
 // Recording (or nil Recorder) means the gate serves without recording. Attesters
-// returns the host's observed attesting set at serve time, or nil.
+// returns the attesting set the host observes, at serve time, for the chain the
+// named view reads, or nil.
 type Recording struct {
 	Recorder  Recorder
-	Attesters func() []string
+	Attesters func(view string) []string
 }
 
 // Middleware gates incoming GraphQL queries on the billing model.
@@ -258,7 +259,7 @@ func (m *Middleware) Drain(ctx context.Context) {
 func (m *Middleware) record(payer common.Address, ext billing.Extensions, view viewLookup, rows uint64) {
 	var attested []string
 	if m.recording.Attesters != nil {
-		attested = m.recording.Attesters()
+		attested = m.recording.Attesters(view.Name)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultRecordTimeout)
 	defer cancel()

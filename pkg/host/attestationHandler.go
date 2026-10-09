@@ -385,9 +385,9 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collec
 			return
 		}
 
-		// A verified peer signature is the host observing that indexer attesting.
-		if h.attesters != nil {
-			h.attesters.Observe(blockSig.SignatureIdentity)
+		// A verified peer signature is the host observing that indexer attesting on chain c.
+		if set := h.attesters[c.Prefix]; set != nil {
+			set.Observe(blockSig.SignatureIdentity)
 		}
 
 		if h.metrics != nil {

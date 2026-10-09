@@ -163,9 +163,9 @@ type Host struct {
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.Manager // Manages view lifecycle and processing
 
-	// Indexers seen attesting, snapshotted into service records. Nil when
-	// recording is off.
-	attesters *observedAttesters
+	// Indexers seen attesting on each enabled chain, by prefix, snapshotted into service records for
+	// the chain a billed view reads. Nil when recording is off.
+	attesters map[string]*observedAttesters
 
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
@@ -282,25 +282,28 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	// Recording the served-query attesting set needs the host's observed
-	// attesters: the block-signature workers populate it and the serve path
-	// snapshots it. Built only when recording is on so the workers skip it
-	// otherwise.
-	var attesters *observedAttesters
-	if acpCfg.Enabled && acpCfg.ASBaseURL != "" {
-		window := acpCfg.AttesterWindow
-		if window <= 0 {
-			window = DefaultAttesterWindow
-		}
-		attesters = newObservedAttesters(window)
-	}
-
 	enabled := make([]chain.Collections, len(applier.enabled))
 	enabledPrefixes := make([]string, len(applier.enabled))
 	for i, c := range applier.enabled {
 		enabled[i] = chain.EVM(c.Prefix)
 		enabledPrefixes[i] = c.Prefix
 	}
+
+	// Recording the served-query attesting set needs each enabled chain's observed attesters: the
+	// chain's block-signature workers populate its set and the serve path snapshots the set of the
+	// chain a billed view reads. Built only when recording is on so the workers skip it otherwise.
+	var attesters map[string]*observedAttesters
+	if acpCfg.Enabled && acpCfg.ASBaseURL != "" {
+		window := acpCfg.AttesterWindow
+		if window <= 0 {
+			window = DefaultAttesterWindow
+		}
+		attesters = make(map[string]*observedAttesters, len(applier.enabled))
+		for _, c := range applier.enabled {
+			attesters[c.Prefix] = newObservedAttesters(window)
+		}
+	}
+
 	prefixes := make([]string, len(cfg.Chains))
 	for i, c := range cfg.Chains {
 		prefixes[i] = c.Prefix
@@ -358,7 +361,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	var handler http.Handler = apiHandler
 	var acpMiddleware *acp.Middleware
 	if acpCfg.Enabled {
-		acpMiddleware, err = newACPMiddleware(acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, attesters)
+		acpMiddleware, err = newACPMiddleware(acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, viewAttesters(viewManager, attesters))
 		if err != nil {
 			return nil, fmt.Errorf("acp middleware: %w", err)
 		}
@@ -834,9 +837,9 @@ func (h *Host) Close(ctx context.Context) error {
 
 // buildRecording constructs service-record submission when an accounting service
 // URL is configured; otherwise the gate serves without recording. attesters
-// supplies the observed attesting set snapshotted into each record, and is
-// non-nil whenever an accounting service URL is set.
-func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters *observedAttesters) (*acp.Recording, error) {
+// supplies the observed attesting set snapshotted into each record for the chain
+// the billed view reads.
+func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters func(view string) []string) (*acp.Recording, error) {
 	if acpCfg.ASBaseURL == "" {
 		return nil, nil //nolint:nilnil // (nil recording, nil error) signals billing is disabled, a valid state
 	}
@@ -847,7 +850,7 @@ func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *n
 	client := accounting.NewClient(acpCfg.ASBaseURL, acp.DefaultRecordTimeout)
 	return &acp.Recording{
 		Recorder:  accounting.NewRecorder(client, nodeKey, acpCfg.ChainID),
-		Attesters: attesters.Snapshot,
+		Attesters: attesters,
 	}, nil
 }
 
@@ -860,7 +863,7 @@ func newACPMiddleware(
 	hubBaseURL string,
 	defraNode *node.Node,
 	viewManager *view.Manager,
-	attesters *observedAttesters,
+	attesters func(view string) []string,
 ) (*acp.Middleware, error) {
 	if hubBaseURL == "" {
 		return nil, errHubBaseURLMissing
