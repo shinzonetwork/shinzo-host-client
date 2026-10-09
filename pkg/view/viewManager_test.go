@@ -558,17 +558,18 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 		served    []string
 		query     string
 		wantQuery string
+		wantChain string
 		wantErr   error
 	}{
-		{desc: "table without a chain on an Ethereum host", served: ethereum, query: queryLogAddr, wantQuery: queryEthLogAddr},
+		{desc: "table without a chain on an Ethereum host", served: ethereum, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
 		{desc: "table without a chain on another chain's host", served: []string{other}, query: queryLogAddr, wantErr: ErrViewChainNotServed},
-		{desc: "the served chain's table", served: []string{other}, query: otherLogAddr, wantQuery: otherLogAddr},
+		{desc: "the served chain's table", served: []string{other}, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
 		{desc: "another chain's table", served: ethereum, query: otherLogAddr, wantErr: ErrViewChainNotServed},
-		{desc: "aliased table without a chain on an Ethereum host", served: ethereum, query: "Logs: Log { address }", wantQuery: "Logs: Ethereum__Mainnet__Log { address }"},
+		{desc: "aliased table without a chain on an Ethereum host", served: ethereum, query: "Logs: Log { address }", wantQuery: "Logs: Ethereum__Mainnet__Log { address }", wantChain: chain.EthereumMainnet},
 		{desc: "two tables", served: ethereum, query: queryEthLogAddr + " " + queryEthLogAddr, wantErr: ErrViewQueryInvalid},
-		{desc: "table without a chain on a host serving Ethereum and another chain", served: both, query: queryLogAddr, wantQuery: queryEthLogAddr},
-		{desc: "table without a chain when Ethereum is not the first chain", served: []string{other, chain.EthereumMainnet}, query: queryLogAddr, wantQuery: queryEthLogAddr},
-		{desc: "the second chain's table", served: both, query: otherLogAddr, wantQuery: otherLogAddr},
+		{desc: "table without a chain on a host serving Ethereum and another chain", served: both, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "table without a chain when Ethereum is not the first chain", served: []string{other, chain.EthereumMainnet}, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "the second chain's table", served: both, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
 		{desc: "a chain the host does not serve", served: both, query: third + "__Log { address }", wantErr: ErrViewChainNotServed},
 	}
 
@@ -600,6 +601,9 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, c.wantQuery, v.Data.Query)
+			gotChain, ok := vm.Chain(v.Name)
+			require.True(t, ok)
+			require.Equal(t, c.wantChain, gotChain)
 		})
 	}
 }
