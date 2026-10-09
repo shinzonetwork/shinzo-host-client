@@ -281,12 +281,21 @@ func TestChainsApplier(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
 
+	// Drift disables a chain wherever it is listed.
+	driftedFirst := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[1], chains[0]}}
+	require.NoError(t, driftedFirst.ApplySchema(ctx, node))
+	require.Equal(t, chains[:1], driftedFirst.enabled)
+
 	// Only drift disables a chain: a later chain with no schema still stops the host.
 	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], {Prefix: third}}}).ApplySchema(ctx, node)
 	require.ErrorIs(t, err, errNoChainSchema)
 
-	// Drift in the first chain stops the host.
+	// When drift disables every chain, the host does not start, and the error names each chain.
 	_, err = node.DB.AddCollection(ctx, "type "+chain.EthereumMainnet+"__Extra { a: Int }")
 	require.NoError(t, err)
-	require.ErrorIs(t, applier.ApplySchema(ctx, node), localschema.ErrSchemaDrift)
+	err = applier.ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errNoChainEnabled)
+	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
+	require.ErrorContains(t, err, chain.EthereumMainnet)
+	require.ErrorContains(t, err, other)
 }
