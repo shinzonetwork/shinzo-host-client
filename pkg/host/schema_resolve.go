@@ -17,20 +17,25 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// chainsApplier creates the tables of every chain in chains and subscribes to the enabled chains. It
-// implements defradb.SchemaApplier.
+// chainsApplier creates the chains' tables and subscribes to the enabled chains; ApplySchema says which
+// chains it disables. It implements defradb.SchemaApplier.
 type chainsApplier struct {
 	schemaCfg config.SchemaConfig
 	chains    []chain.Config
 	// enabled is set by ApplySchema to the chains it subscribed to, in config order.
 	enabled []chain.Config
+	// unanswered is set by ApplySchema to the prefixes of the chains it left out because no generator
+	// answered. The store holds none of their tables.
+	unanswered []string
 }
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
 // to them. A chain whose tables drift (schema.ErrSchemaDrift) is disabled: it is unsubscribed and
-// left out of enabled. When drift disables every chain, it returns errNoChainEnabled with each
-// chain's error. Any other failure is returned. Before creating any table, it returns
-// errUnlistedChain when the store holds a chain that chains does not list.
+// left out of enabled. A chain is also disabled when the store holds none of its tables and no
+// generator answered (errNoGeneratorAnswered); it is tried again at the next start. When every
+// chain is disabled, it returns errNoChainEnabled with each chain's error. Any other failure is
+// returned. Before creating any table, it returns errUnlistedChain when the store holds a chain
+// that chains does not list.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -52,6 +57,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	}
 
 	var enabled []chain.Config
+	var unanswered []string
 	var disabled []error
 	for _, c := range a.chains {
 		collections := chain.EVM(c.Prefix)
@@ -75,6 +81,14 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
 			continue
 		}
+		// Generators are asked for a chain's tables only when the store holds none of them, so a
+		// chain left out here has no tables and no subscription.
+		if errors.Is(err, errNoGeneratorAnswered) {
+			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
+			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
+			unanswered = append(unanswered, c.Prefix)
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -87,6 +101,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		return fmt.Errorf("%w: %w", errNoChainEnabled, errors.Join(disabled...))
 	}
 	a.enabled = enabled
+	a.unanswered = unanswered
 	return nil
 }
 

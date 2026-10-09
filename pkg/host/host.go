@@ -172,7 +172,7 @@ type Host struct {
 
 	// mostRecentBlockReceived uint64
 
-	pruners []*pruner.Pruner // One document pruner per configured chain
+	pruners []*pruner.Pruner // One document pruner per configured chain that has tables
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -211,8 +211,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
-	// Each configured chain, enabled or not, has its own pruner, and the retention rule gives each
-	// chain's collections that pruner's cutoff. pruned follows the order of cfg.Chains.
+	// Every configured chain gets a cutoff and a retention-rule entry in pruned, in cfg.Chains order.
+	// Each chain with tables, enabled or not (all but the ones no generator answered for), gets a
+	// pruner below.
 	var pruned []prunedChain
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
@@ -541,6 +542,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		cfg.Pruner.SetDefaults()
 
 		for i, c := range cfg.Chains {
+			// A chain no generator answered for has no tables to prune.
+			if slices.Contains(applier.unanswered, c.Prefix) {
+				continue
+			}
 			chainCfg := cfg.Pruner
 			if c.MaxBlocks > 0 {
 				chainCfg.MaxBlocks = c.MaxBlocks
