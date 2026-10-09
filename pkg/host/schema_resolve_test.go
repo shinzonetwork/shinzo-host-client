@@ -61,9 +61,10 @@ func TestResolveSchema(t *testing.T) {
 		{desc: "a valid generator", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{valid}},
 		{desc: "the first generator fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, valid}},
 		{desc: "the first generator times out", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{slow, valid}},
-		{desc: "every generator fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, wrongNetwork}, wantErr: errNoGeneratorSchema},
+		{desc: "every generator fails or times out", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, slow}, wantErr: errNoGeneratorAnswered},
+		{desc: "one generator serves another chain and the next fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{wrongNetwork, failing}, wantErr: errNoGeneratorSchema},
 		{desc: "another chain with no generators", prefix: other, wantErr: errNoChainSchema},
-		{desc: "another chain whose generators fail", prefix: other, generators: []http.HandlerFunc{failing, valid}, wantErr: errNoGeneratorSchema},
+		{desc: "another chain whose generators fail or serve Ethereum mainnet", prefix: other, generators: []http.HandlerFunc{failing, valid}, wantErr: errNoGeneratorSchema},
 		{desc: "another chain with a valid generator", prefix: other, generators: []http.HandlerFunc{otherValid}},
 	}
 
@@ -111,8 +112,9 @@ func TestResolveSchemaUsesFirstUsableGenerator(t *testing.T) {
 }
 
 func TestServedSchemas(t *testing.T) {
+	const sepolia = "Ethereum__Sepolia"
 	valid := schemaHandler(t, chain.EthereumMainnet)
-	wrongNetwork := schemaHandler(t, "Ethereum__Sepolia")
+	wrongNetwork := schemaHandler(t, sepolia)
 	failing := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }
 	serving := func(sdl string) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
@@ -140,16 +142,19 @@ func TestServedSchemas(t *testing.T) {
 			want:       []answer{{generator: 0, schema: partialSDL}, {generator: 1, schema: generatorSchema(t)}},
 		},
 		{
-			desc:       "a failing generator and one for another chain are skipped",
+			desc:       "a failing generator is skipped and one for another chain is yielded",
 			generators: []http.HandlerFunc{failing, wrongNetwork, valid},
-			want:       []answer{{generator: 2, schema: generatorSchema(t)}},
+			want: []answer{
+				{generator: 1, schema: strings.ReplaceAll(generatorSchema(t), chain.EthereumMainnet, sepolia)},
+				{generator: 2, schema: generatorSchema(t)},
+			},
 		},
 		{
 			desc:       "a generator serving a schema that does not parse is skipped",
 			generators: []http.HandlerFunc{serving("type {"), valid},
 			want:       []answer{{generator: 1, schema: generatorSchema(t)}},
 		},
-		{desc: "no generator answers", generators: []http.HandlerFunc{failing, wrongNetwork}},
+		{desc: "no generator answers", generators: []http.HandlerFunc{failing, serving("type {")}},
 	}
 
 	for _, c := range cases {

@@ -34,10 +34,14 @@ func TestChainApplier(t *testing.T) {
 		tablesErr error
 		// served are the SDLs the answering generators serve, in order.
 		served []string
+		// network is the network every served response names; testPrefix when empty.
+		network string
 		// wantRead is how many of the served SDLs ApplySchema reads.
 		wantRead  int
 		wantFetch bool
 		wantErr   error
+		// wantReason is what the error says about each served schema ApplySchema reads.
+		wantReason string
 	}{
 		{desc: "empty database", stored: &defradb.MockSchemaApplierThatSucceeds{}, wantFetch: true},
 		{
@@ -55,18 +59,29 @@ func TestChainApplier(t *testing.T) {
 			wantRead: 1,
 		},
 		{
-			desc:     "tables stored, a generator serves other tables",
-			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
-			served:   []string{otherTables},
-			wantRead: 1,
-			wantErr:  ErrSchemaDrift,
+			desc:       "tables stored, a generator serves other tables",
+			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:     []string{otherTables},
+			wantRead:   1,
+			wantErr:    ErrSchemaDrift,
+			wantReason: testPrefix + "__Extra",
 		},
 		{
-			desc:     "tables stored, neither of two generators serves the same tables",
-			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
-			served:   []string{otherTables, otherTables},
-			wantRead: 2,
-			wantErr:  ErrSchemaDrift,
+			desc:       "tables stored, neither of two generators serves the same tables",
+			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:     []string{otherTables, otherTables},
+			wantRead:   2,
+			wantErr:    ErrSchemaDrift,
+			wantReason: testPrefix + "__Extra",
+		},
+		{
+			desc:       "tables stored, a generator serves the same tables for another chain",
+			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:     []string{tables},
+			network:    chain.EthereumMainnet,
+			wantRead:   1,
+			wantErr:    ErrSchemaDrift,
+			wantReason: fmt.Sprintf("network %q", chain.EthereumMainnet),
 		},
 		{
 			desc:     "tables stored, the first of two generators serves the same tables",
@@ -100,6 +115,10 @@ func TestChainApplier(t *testing.T) {
 
 			var fetched bool
 			var read int
+			network := c.network
+			if network == "" {
+				network = testPrefix
+			}
 			applier := ChainApplier{
 				Tables: func(context.Context) (string, error) {
 					fetched = true
@@ -109,7 +128,7 @@ func TestChainApplier(t *testing.T) {
 					return func(yield func(string, Response) bool) {
 						for i, sdl := range c.served {
 							read++
-							if !yield(generatorURL(i), Response{Schema: sdl, document: parseSDL(t, sdl)}) {
+							if !yield(generatorURL(i), Response{Network: network, Schema: sdl, document: parseSDL(t, sdl)}) {
 								return
 							}
 						}
@@ -124,7 +143,7 @@ func TestChainApplier(t *testing.T) {
 			if c.wantErr != nil {
 				require.ErrorIs(t, err, c.wantErr)
 				for i := range c.wantRead {
-					require.ErrorContains(t, err, "generator "+generatorURL(i)+": "+testPrefix+"__Extra")
+					require.ErrorContains(t, err, "generator "+generatorURL(i)+": "+c.wantReason)
 				}
 				return
 			}
