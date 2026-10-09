@@ -46,8 +46,7 @@ jobs:
         go test -count=1 -timeout=3m \
           -covermode=atomic \
           -coverprofile=coverage.out \
-          ./pkg/... \
-          ./cmd/host/...
+          ./...
     
     - name: Run integration test
       run: go test -count=1 -tags integration ./integration/
