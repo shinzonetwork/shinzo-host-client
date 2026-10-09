@@ -1688,9 +1688,9 @@ func TestHost_Close_Full(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Every enabled chain's generators are dialed and the chain is handed to the attestation listener; a
-// disabled chain is neither.
-func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
+// Every enabled chain's generators are dialed, the chain is handed to the attestation listener and its
+// views register; a disabled chain gets none of these.
+func TestStartHosting_ServesEnabledChains(t *testing.T) {
 	const (
 		other     = "Testchain__Devnet"
 		otherPeer = "/ip4/10.0.0.2/tcp/9171/p2p/12D3KooWNgg9VnEWeaoJYg5J2ehi9Ktfsxyise2Hkf4Mb12CaG6H"
@@ -1725,9 +1725,11 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 
 	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	otherLog := view.View{Name: "OtherLog", Data: viewbundle.View{Query: other + "__Log { address }", Sdl: "type OtherLog { address: String }"}}
+	require.NoError(t, h.RegisterViewWithManager(context.Background(), otherLog))
 
 	// After a restart, the other chain's stored tables differ from what its generator serves, so the
-	// chain is disabled and its generator is not dialed.
+	// chain is disabled: its generator is not dialed and registering a view on it is refused.
 	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1738,6 +1740,7 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
 	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	require.ErrorIs(t, h.RegisterViewWithManager(context.Background(), otherLog), view.ErrViewChainNotServed)
 }
 
 // A restart compares the stored tables with the schema the chain's generator serves, and refuses to
