@@ -206,8 +206,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	// The readiness probe, event filter, views and snapshots use only the first chain. chainsApplier
-	// never disables it: drift there stops the host.
+	// The readiness probe, event filter and snapshots use only the first chain. chainsApplier never
+	// disables it: drift there stops the host.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -300,8 +300,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	enabled := make([]chain.Collections, len(applier.enabled))
+	enabledPrefixes := make([]string, len(applier.enabled))
 	for i, c := range applier.enabled {
 		enabled[i] = chain.EVM(c.Prefix)
+		enabledPrefixes[i] = c.Prefix
 	}
 	prefixes := make([]string, len(cfg.Chains))
 	for i, c := range cfg.Chains {
@@ -351,7 +353,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// View manager has to be built before the ACP middleware because the
 	// middleware's view registry adapts the manager's accessors.
-	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, served.Prefix)
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, enabledPrefixes...)
 
 	apiHandler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
 	if err != nil {
