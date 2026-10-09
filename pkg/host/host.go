@@ -1003,7 +1003,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 // StartHostingWithTestConfig starts the host with a test configuration, including a temporary DefraDB store path and dynamic health server port. This is used for testing to avoid conflicts with existing instances and to ensure isolation.
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
-	testConfig := DefaultConfig
+	testConfig := *DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.URL = "127.0.0.1:0"
 
@@ -1011,7 +1011,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig.Shinzo.StartHeight = 0
 
 	// Create host with dynamic health server port
-	host, err := StartHosting(testConfig)
+	host, err := StartHosting(&testConfig)
 	if err != nil {
 		return nil, err
 	}
