@@ -81,8 +81,8 @@ func TestRetentionRuleFloor(t *testing.T) {
 }
 
 // Each configured chain's pruner publishes its own cutoff to the retention rule, a drift-disabled
-// chain's included, and Close stops every pruner. With max_blocks 2, blocks 1-10 give a cutoff of 8
-// and blocks 1-20 a cutoff of 18.
+// chain's included, and Close stops every pruner. Ethereum keeps pruner.max_blocks 2, so blocks 1-10
+// give a cutoff of 8; the other chain keeps its own max_blocks 5, so blocks 1-20 give 15.
 func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 	const other = "Testchain__Devnet"
 	ctx := context.Background()
@@ -104,6 +104,7 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 		t.Cleanup(generator.Close)
 		cfg.Chains = append(cfg.Chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
 	}
+	cfg.Chains[1].MaxBlocks = 5
 
 	h, err := StartHosting(&cfg)
 	require.NoError(t, err)
@@ -125,7 +126,7 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 		}
 		blockTables[prefix] = col.CollectionID()
 	}
-	want := map[string]int64{chain.EthereumMainnet: 8, other: 18}
+	want := map[string]int64{chain.EthereumMainnet: 8, other: 15}
 	requireFloors := func(h *Host) {
 		t.Helper()
 		require.Eventually(t, func() bool {
