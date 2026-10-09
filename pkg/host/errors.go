@@ -7,7 +7,6 @@ var ( //nolint:revive
 	ErrViewManagerNil       = errors.New("ViewManager not initialized")                  //nolint:revive
 	ErrViewMissingQuery     = errors.New("view missing query")                           //nolint:revive
 	ErrViewMissingSDL       = errors.New("view missing SDL")                             //nolint:revive
-	ErrDefraDBNotReady      = errors.New("DefraDB failed to become ready")               //nolint:revive
 	ErrUnsupportedPlatform  = errors.New("unsupported platform")                         //nolint:revive
 	ErrNoPeerIDMismatchInfo = errors.New("error does not contain peer ID mismatch info") //nolint:revive
 	ErrEmptyMerkleRoot      = errors.New("empty merkleRoot")

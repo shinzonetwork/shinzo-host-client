@@ -1461,22 +1461,6 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 }
 
 // ---------------------------------------------------------------------------
-// waitForDefraDB - with real DefraDB
-// ---------------------------------------------------------------------------
-
-func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	// Should succeed quickly since DefraDB is already ready
-	err = waitForDefraDB(ctx, defraNode, testCollections.Block.Name)
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------
 // Close - with pruner
 // ---------------------------------------------------------------------------
 
