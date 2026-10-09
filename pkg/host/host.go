@@ -206,8 +206,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	// The readiness probe, event filter and snapshots use only the first chain. chainsApplier never
-	// disables it: drift there stops the host.
+	// The event filter and snapshots use only the first chain. chainsApplier never disables it: drift
+	// there stops the host.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -272,11 +272,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// P2P peers will be added after ViewManager is initialized (see below)
 
 	ctx := context.Background()
-
-	err = waitForDefraDB(ctx, defraNode, collections.Block.Name)
-	if err != nil {
-		return nil, err
-	}
 
 	// Recording the served-query attesting set needs the host's observed
 	// attesters: the block-signature workers populate it and the serve path
@@ -942,32 +937,6 @@ func (h *Host) GetMetricsHandler() http.Handler {
 		})
 	}
 	return h.metrics
-}
-
-// waitForDefraDB polls the embedded DefraDB node until a trivial schema query
-// succeeds. Returns an error after maxAttempts seconds if the node never
-// responds, e.g. because schema setup failed upstream.
-func waitForDefraDB(ctx context.Context, defraNode *node.Node, blockCollection string) error {
-	fmt.Println("Waiting for defra...")
-	maxAttempts := 30
-
-	// Simple query to check if the schema is ready
-	query := `{ ` + blockCollection + ` { __typename } }`
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := defradb.QuerySingle[map[string]any](ctx, defraNode, query)
-		if err == nil {
-			fmt.Println("Defra is responsive!")
-			return nil
-		}
-
-		if attempt < maxAttempts {
-			fmt.Printf("Attempt %d failed... Trying again\n", attempt)
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	return fmt.Errorf("after %d retry attempts: %w", maxAttempts, ErrDefraDBNotReady)
 }
 
 func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohub.ShinzoEvent) {
