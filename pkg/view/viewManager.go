@@ -30,6 +30,8 @@ type Registrar interface {
 type ActiveView struct {
 	Lens            *client.LensConfig
 	ContractAddress string
+	// Chain is the prefix of the chain the view's source table belongs to.
+	Chain string
 }
 
 // Manager orchestrates the complete lifecycle of Shinzo views including:
@@ -207,6 +209,18 @@ func (m *Manager) ContractAddress(viewName string) (string, bool) {
 	return av.ContractAddress, true
 }
 
+// Chain returns the prefix of the chain the active view viewName reads, and false when no such view
+// is active.
+func (m *Manager) Chain(viewName string) (string, bool) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	av, ok := m.activeViews[viewName]
+	if !ok {
+		return "", false
+	}
+	return av.Chain, true
+}
+
 // RegisterView implements the full view registration flow with validation.
 // RegisterView registers a view with DefraDB and sets up all required infrastructure.
 func (m *Manager) RegisterView(ctx context.Context, v *View) error {
@@ -220,7 +234,7 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 
 	fixQueryInputData(v)
 
-	table, _, err := qualifySourceCollection(v, m.chainPrefixes)
+	table, chainPrefix, err := qualifySourceCollection(v, m.chainPrefixes)
 	if err != nil {
 		return err
 	}
@@ -253,6 +267,7 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 			DestinationCollectionVersionID: v.Data.Sdl,
 		},
 		ContractAddress: v.ContractAddress,
+		Chain:           chainPrefix,
 	}
 
 	return nil

@@ -750,7 +750,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 		makeTestCID("block-data-1"),
 		makeTestCID("block-data-2"),
 	}
-	docIDStr := addSignedBlockSignature(ctx, t, defraNode, testCollections.BlockSignature.Name, 123, cids)
+	docIDStr, _ := addSignedBlockSignature(ctx, t, defraNode, testCollections.BlockSignature.Name, 123, cids)
 	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
@@ -1119,16 +1119,19 @@ func TestStartEventBusListener_CountsQueueDropsPerChain(t *testing.T) {
 
 // Each chain's relayed block signature is attested in that chain's own AttestationRecord table.
 func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
+	const other = "Testchain__Devnet"
 	ctx := context.Background()
-	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, "Testchain__Devnet")
+	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, other)
 
 	cfg := *DefaultConfig
+	attesters := map[string]*observedAttesters{chain.EthereumMainnet: newObservedAttesters(time.Minute), other: newObservedAttesters(time.Minute)}
 	h := &Host{
 		DefraNode:              defraNode,
 		chains:                 chains,
 		config:                 &cfg,
 		metrics:                server.NewHostMetrics(),
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
+		attesters:              attesters,
 	}
 
 	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
@@ -1137,11 +1140,14 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 	defer cancel()
 	go h.startEventBusListener(listenerCtx, updates)
 
-	// The chains sign different CIDs, so a record written to the other chain's table shows.
+	// The chains sign different CIDs with different keys, so a record written to the other chain's
+	// table, or a signer observed on the other chain, shows.
 	cids := make(map[string][]string, len(chains))
+	signers := make(map[string]string, len(chains))
 	for _, c := range chains {
 		cids[c.Prefix] = []string{makeTestCID(c.Prefix)}
-		docID := addSignedBlockSignature(ctx, t, defraNode, c.BlockSignature.Name, 42, cids[c.Prefix])
+		docID, signer := addSignedBlockSignature(ctx, t, defraNode, c.BlockSignature.Name, 42, cids[c.Prefix])
+		signers[c.Prefix] = signer
 		col, err := defraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
 		require.NoError(t, err)
 		defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: col.CollectionID(), DocID: docID, IsRelay: true}))
@@ -1155,6 +1161,9 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 			}
 		}
 	}, 5*time.Second, 20*time.Millisecond)
+	for _, c := range chains {
+		require.Equal(t, []string{signers[c.Prefix]}, attesters[c.Prefix].Snapshot(), c.Prefix)
+	}
 }
 
 // startChainsNode starts a DefraDB node holding the tables of a chain for each of prefixes.
@@ -1174,9 +1183,9 @@ func startChainsNode(t *testing.T, prefixes ...string) (*node.Node, []chain.Coll
 	return defraNode, chains
 }
 
-// addSignedBlockSignature writes a BlockSignature for blockNumber to table, signed over cids, and
-// returns its document ID.
-func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.Node, table string, blockNumber int, cids []string) string {
+// addSignedBlockSignature writes a BlockSignature for blockNumber to table, signed over cids with a
+// new key, and returns its document ID and the signer's identity.
+func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.Node, table string, blockNumber int, cids []string) (docID, signer string) {
 	t.Helper()
 	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
@@ -1205,5 +1214,5 @@ func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.
 	}`, table, blockNumber, hex.EncodeToString(merkleRoot), len(cids), strings.Join(quoted, ", "),
 		privKey.GetPublic().String(), hex.EncodeToString(sig)))
 	require.Empty(t, result.GQL.Errors)
-	return extractDocIDFromMutationResult(t, result, table)
+	return extractDocIDFromMutationResult(t, result, table), privKey.GetPublic().String()
 }
