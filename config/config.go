@@ -127,8 +127,8 @@ type ShinzoConfig struct {
 	ViewQueueSize         int    `yaml:"view_queue_size"`         // Queue size for view processing jobs (default: 1000)
 
 	// Attestation Processing Settings
-	DocWorkerCount int `yaml:"doc_worker_count"` // Number of document processing workers
-	DocQueueSize   int `yaml:"doc_queue_size"`   // Queue size for document event notifications
+	DocWorkerCount int `yaml:"doc_worker_count"` // Attestation workers for each enabled chain
+	DocQueueSize   int `yaml:"doc_queue_size"`   // Block signatures each enabled chain's attestation queue holds
 
 	// Event Filtering
 	EventFilter EventFilterConfig `yaml:"event_filter"` // Configure filtering of P2P events
