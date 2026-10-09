@@ -300,6 +300,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	for i, c := range applier.enabled {
 		enabled[i] = chain.EVM(c.Prefix)
 	}
+	prefixes := make([]string, len(cfg.Chains))
+	for i, c := range cfg.Chains {
+		prefixes[i] = c.Prefix
+	}
 	newHost := &Host{
 		DefraNode:              defraNode,
 		NetworkHandler:         networkHandler,
@@ -309,7 +313,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		config:                 cfg,
-		metrics:                server.NewHostMetrics(),
+		metrics:                server.NewHostMetrics(prefixes...),
 		attesters:              attesters,
 	}
 	logger.Sugar.Info("🔐 Block signature verifier initialized")

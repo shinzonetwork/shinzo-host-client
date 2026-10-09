@@ -41,6 +41,27 @@ func TestNewHostMetrics(t *testing.T) {
 	require.Equal(t, "non-branchable", m.SchemaType)
 }
 
+// A host's chain counters are found by prefix and listed in config order.
+func TestHostMetricsChains(t *testing.T) {
+	m := NewHostMetrics("Ethereum__Mainnet", "BSC__Mainnet")
+	chains := m.Chains()
+	require.Len(t, chains, 2)
+	require.Equal(t, "Ethereum__Mainnet", chains[0].Prefix)
+	require.Equal(t, "BSC__Mainnet", chains[1].Prefix)
+	require.Same(t, chains[1], m.Chain("BSC__Mainnet"))
+	require.Nil(t, m.Chain("Other__Chain"))
+}
+
+// TakeQueuePeak returns the deepest depth observed since the previous call.
+func TestChainMetricsQueuePeak(t *testing.T) {
+	c := NewHostMetrics("Ethereum__Mainnet").Chain("Ethereum__Mainnet")
+	for _, depth := range []int{3, 5, 2} {
+		c.ObserveQueueDepth(depth)
+	}
+	require.Equal(t, int64(5), c.TakeQueuePeak())
+	require.Zero(t, c.TakeQueuePeak())
+}
+
 // ---------------------------------------------------------------------------
 // Increment* methods – single and concurrent
 // ---------------------------------------------------------------------------
