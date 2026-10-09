@@ -217,7 +217,10 @@ func TestServedSchemasStopsEarly(t *testing.T) {
 }
 
 func TestChainsApplier(t *testing.T) {
-	const other = "Testchain__Devnet"
+	const (
+		other = "Testchain__Devnet"
+		third = "Third__Chain"
+	)
 	ctx := context.Background()
 	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
 	var chains []chain.Config
@@ -259,10 +262,26 @@ func TestChainsApplier(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, applier.ApplySchema(ctx, node))
 
+	// A chain the store holds no tables for, whose generator does not answer, is disabled with nothing
+	// stored or subscribed for it, and the other chains are still served.
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(down.Close)
+	unanswered := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: down.URL}}}
+	withUnanswered := &chainsApplier{schemaCfg: schemaCfg, chains: append(slices.Clone(chains), unanswered)}
+	require.NoError(t, withUnanswered.ApplySchema(ctx, node))
+	require.Equal(t, chains, withUnanswered.enabled)
+	require.Equal(t, []string{third}, withUnanswered.unanswered)
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
+	require.Error(t, err)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, subscribed, got)
+
 	// The store holds a chain the config does not list, and the config lists a chain the store does
 	// not hold yet, whose generator serves its tables. The unlisted chain is refused before any table
 	// is created.
-	const third = "Third__Chain"
 	thirdGenerator := httptest.NewServer(schemaHandler(t, third))
 	t.Cleanup(thirdGenerator.Close)
 	thirdChain := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: thirdGenerator.URL}}}
@@ -286,9 +305,16 @@ func TestChainsApplier(t *testing.T) {
 	require.NoError(t, driftedFirst.ApplySchema(ctx, node))
 	require.Equal(t, chains[:1], driftedFirst.enabled)
 
-	// Only drift disables a chain: a later chain with no schema still stops the host.
+	// Any other chain that cannot be provisioned stops the host: one with no generators configured, and
+	// one whose generator answered with a schema the checks refuse (Ethereum mainnet's, for another chain).
 	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], {Prefix: third}}}).ApplySchema(ctx, node)
 	require.ErrorIs(t, err, errNoChainSchema)
+	refusing := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(refusing.Close)
+	refused := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: refusing.URL}}}
+	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], refused}}).ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errNoGeneratorSchema)
+	require.NotErrorIs(t, err, errNoChainEnabled)
 
 	// When drift disables every chain, the host does not start, and the error names each chain.
 	_, err = node.DB.AddCollection(ctx, "type "+chain.EthereumMainnet+"__Extra { a: Int }")
@@ -298,4 +324,18 @@ func TestChainsApplier(t *testing.T) {
 	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
 	require.ErrorContains(t, err, chain.EthereumMainnet)
 	require.ErrorContains(t, err, other)
+}
+
+// When no generator answers for the only chain, StartDefraInstance returns errNoChainEnabled.
+func TestChainsApplierNoChainAnswered(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(down.Close)
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+	applier := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: down.URL}}}}}
+
+	_, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+	require.ErrorIs(t, err, errNoChainEnabled)
+	require.ErrorIs(t, err, errNoGeneratorAnswered)
 }
