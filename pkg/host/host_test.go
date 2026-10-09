@@ -1479,7 +1479,7 @@ func TestHost_Close_WithPruner(t *testing.T) {
 		DefraNode:              nil,
 		webhookCleanupFunction: func() {},
 		processingCancel:       func() {},
-		// pruner is nil by default - this is a safe close
+		// no pruners - this is a safe close
 	}
 
 	err := host.Close(ctx)

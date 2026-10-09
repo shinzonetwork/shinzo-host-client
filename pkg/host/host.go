@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -171,7 +172,7 @@ type Host struct {
 
 	// mostRecentBlockReceived uint64
 
-	pruner *pruner.Pruner // Document pruner for removing old blocks
+	pruners []*pruner.Pruner // One document pruner per configured chain
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -205,20 +206,22 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	// The readiness probe, pruner, retention rule, event filter, views and snapshots use only the
-	// first chain. chainsApplier never disables it: drift there stops the host.
+	// The readiness probe, event filter, views and snapshots use only the first chain. chainsApplier
+	// never disables it: drift there stops the host.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
-	// The pruner and the retention rule share one cutoff and the same collections.
-	pruneCollections := pruner.CollectionConfigFor(collections)
-	var cutoff *pruner.Cutoff
+	// Each configured chain, enabled or not, has its own pruner, and the retention rule gives each
+	// chain's collections that pruner's cutoff.
+	var pruned []prunedChain
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
-		cutoff = &pruner.Cutoff{}
-		// With snapshots enabled the pruner retains history and never sets a cutoff.
+		for _, c := range cfg.Chains {
+			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(chain.EVM(c.Prefix)), cutoff: &pruner.Cutoff{}})
+		}
+		// With snapshots enabled the pruners retain history and never set a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
-			rule = NewRetentionRule(pruneCollections, cutoff)
+			rule = NewRetentionRule(pruned)
 		}
 	}
 	// A nil *RetentionRule stored in the interface would not be nil.
@@ -536,18 +539,20 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
 	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
 
-	// Initialize pruner for removing old replicated blocks
+	// Initialize the pruners for removing old replicated blocks
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff, pruneCollections)
-		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
+		for _, c := range pruned {
+			p := pruner.NewPruner(&cfg.Pruner, defraNode, c.cutoff, c.collections)
+			p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
-		if err := p.Start(ctx); err != nil {
-			logger.Sugar.Warnf("Failed to start pruner: %v", err)
+			if err := p.Start(ctx); err != nil {
+				logger.Sugar.Warnf("Failed to start pruner: %v (chain: %s)", err, c.collections.Prefix)
+			}
+
+			newHost.pruners = append(newHost.pruners, p)
 		}
-
-		newHost.pruner = p
 	}
 
 	go newHost.reportStats(processingCtx)
@@ -756,7 +761,7 @@ func incrementPort(apiURL string) (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
-// Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruner,
+// Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruners,
 // shuts down the playground and API servers, drains the in-flight billing service records, and
 // closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
@@ -775,10 +780,14 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
-	if h.pruner != nil {
-		h.pruner.Stop(ctx)
-		h.pruner = nil
+	// Each pruner stops in its own goroutine, so no pruner waits for another's cycle before it is
+	// signalled, and all of them share the one budget.
+	var stopping sync.WaitGroup
+	for _, p := range h.pruners {
+		stopping.Go(func() { p.Stop(ctx) })
 	}
+	stopping.Wait()
+	h.pruners = nil
 
 	// Close the playground server if it's running
 	if h.playgroundServer != nil {
