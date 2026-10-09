@@ -64,8 +64,8 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			Collections: collections,
 		}
 		err = applier.ApplySchema(ctx, n)
-		// The host prunes and builds views only for the first chain, so drift there is returned instead
-		// of disabling it.
+		// The host builds views only for the first chain, so drift there is returned instead of
+		// disabling it.
 		if i > 0 && errors.Is(err, schema.ErrSchemaDrift) {
 			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
 			// made by an earlier start is removed.
