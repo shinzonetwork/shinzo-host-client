@@ -27,10 +27,10 @@ type chainsApplier struct {
 }
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
-// to them. A chain after the first whose tables drift (schema.ErrSchemaDrift) is disabled: it is
-// unsubscribed and left out of enabled. Any other failure, and drift in the first chain, is
-// returned. Before creating any table, it returns errUnlistedChain when the store holds a chain
-// that chains does not list.
+// to them. A chain whose tables drift (schema.ErrSchemaDrift) is disabled: it is unsubscribed and
+// left out of enabled. When drift disables every chain, it returns errNoChainEnabled with each
+// chain's error. Any other failure is returned. Before creating any table, it returns
+// errUnlistedChain when the store holds a chain that chains does not list.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -52,7 +52,8 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	}
 
 	var enabled []chain.Config
-	for i, c := range a.chains {
+	var disabled []error
+	for _, c := range a.chains {
 		collections := chain.EVM(c.Prefix)
 		applier := schema.ChainApplier{
 			Tables: func(ctx context.Context) (string, error) {
@@ -64,15 +65,14 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			Collections: collections,
 		}
 		err = applier.ApplySchema(ctx, n)
-		// The event filter and snapshots read only the first chain, so drift there is returned instead
-		// of disabling it.
-		if i > 0 && errors.Is(err, schema.ErrSchemaDrift) {
+		if errors.Is(err, schema.ErrSchemaDrift) {
 			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
 			// made by an earlier start is removed.
 			if err := n.DB.DeleteP2PCollections(ctx, collections.Subscribed()); err != nil {
 				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
 			}
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
+			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
 			continue
 		}
 		if err != nil {
@@ -82,6 +82,9 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			return fmt.Errorf("subscribe %s: %w", c.Prefix, err)
 		}
 		enabled = append(enabled, c)
+	}
+	if len(enabled) == 0 {
+		return fmt.Errorf("%w: %w", errNoChainEnabled, errors.Join(disabled...))
 	}
 	a.enabled = enabled
 	return nil
