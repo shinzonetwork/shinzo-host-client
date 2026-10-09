@@ -995,10 +995,19 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptySDL(t *testing.T) {
 // SignMessages, GetNodePublicKey, GetPeerPublicKey - nil config/DefraNode
 // ---------------------------------------------------------------------------
 
+// emptyStoreConfig returns DefaultConfig with its store in a new temporary directory, so the store
+// holds no identity. DefaultConfig's own store is a fixed path that other tests write to.
+func emptyStoreConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	return &cfg
+}
+
 func TestHost_SignMessages_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
-		config:    DefaultConfig,
+		config:    emptyStoreConfig(t),
 	}
 
 	_, _, err := h.SignMessages("test message")
@@ -1008,7 +1017,7 @@ func TestHost_SignMessages_NilDefraNode(t *testing.T) {
 func TestHost_GetNodePublicKey_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
-		config:    DefaultConfig,
+		config:    emptyStoreConfig(t),
 	}
 
 	_, err := h.GetNodePublicKey()
@@ -1018,7 +1027,7 @@ func TestHost_GetNodePublicKey_NilDefraNode(t *testing.T) {
 func TestHost_GetPeerPublicKey_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
-		config:    DefaultConfig,
+		config:    emptyStoreConfig(t),
 	}
 
 	_, err := h.GetPeerPublicKey()
