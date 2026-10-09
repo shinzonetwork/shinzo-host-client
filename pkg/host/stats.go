@@ -25,16 +25,23 @@ func blockAdvance(prevBlock, block int64) int64 {
 	return block - prevBlock
 }
 
-// reportStats logs throughput until ctx is cancelled. Counters are reported as the
-// change since the previous line rather than as running totals, so each line carries a
-// rate. block, viewsActive, procMs, heapMiB, nextGCMiB and goroutines are
-// current values instead. /metrics exposes the same counters, but only as a snapshot.
+// reportStats logs throughput until ctx is cancelled: one host line, then one line per configured
+// chain. Counters are reported as the change since the previous line rather than as running totals,
+// so each line carries a rate. block, viewsActive, procMs, heapMiB, nextGCMiB and goroutines are
+// current values instead, and a chain's queuePeak is the deepest its attestation queue got since the
+// previous line. /metrics exposes the host counters, but only as a snapshot.
 func (h *Host) reportStats(ctx context.Context) {
 	ticker := time.NewTicker(statsInterval)
 	defer ticker.Stop()
 
 	prev := h.metrics.GetSnapshot()
 	prevBlock := h.GetCurrentBlock()
+	chains := h.metrics.Chains()
+	prevDocs := make([]int64, len(chains))
+	prevDrops := make([]int64, len(chains))
+	for i, c := range chains {
+		prevDocs[i], prevDrops[i] = c.DocumentsReceived.Load(), c.QueueDrops.Load()
+	}
 
 	// objects plus unused is the bytes held by in-use spans.
 	samples := []metrics.Sample{
@@ -82,6 +89,13 @@ func (h *Host) reportStats(ctx context.Context) {
 				gcCycles-prevGC,
 				runtime.NumGoroutine(),
 			)
+
+			for i, c := range chains {
+				docs, drops := c.DocumentsReceived.Load(), c.QueueDrops.Load()
+				logger.Sugar.Infof("chain stats: chain=%s docs=%d queueDrops=%d queuePeak=%d",
+					c.Prefix, docs-prevDocs[i], drops-prevDrops[i], c.TakeQueuePeak())
+				prevDocs[i], prevDrops[i] = docs, drops
+			}
 
 			prev, prevBlock, prevGC = cur, block, gcCycles
 		}

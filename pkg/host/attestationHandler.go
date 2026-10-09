@@ -13,16 +13,18 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
 	"github.com/sourcenetwork/immutable"
 )
 
-// attestedChain is an enabled chain as the attestation listener serves it: its tables, and the
-// queue of its block signatures waiting for one of its workers.
+// attestedChain is an enabled chain as the attestation listener serves it: its tables, the queue of
+// its block signatures waiting for one of its workers, and its counters (nil without host metrics).
 type attestedChain struct {
 	collections chain.Collections
 	signatures  chan string
+	metrics     *server.ChainMetrics
 }
 
 // chainTable is one of an enabled chain's tables.
@@ -74,16 +76,17 @@ func (h *Host) docQueueSettings() (workerCount, queueSize int) {
 	return workerCount, queueSize
 }
 
-// enqueueSignature adds a block signature's document ID to queue, dropping the oldest ID when the
-// queue is full.
-func enqueueSignature(queue chan string, docID string) {
+// enqueueSignature adds a block signature's document ID to queue, dropping the oldest IDs while the
+// queue is full, and returns how many it dropped.
+func enqueueSignature(queue chan string, docID string) (dropped int) {
 	for {
 		select {
 		case queue <- docID:
-			return
+			return dropped
 		default:
 			select {
 			case <-queue:
+				dropped++
 			default:
 			}
 		}
@@ -123,6 +126,9 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 	chains := make([]*attestedChain, len(h.chains))
 	for i, c := range h.chains {
 		chains[i] = &attestedChain{collections: c, signatures: make(chan string, queueSize)}
+		if h.metrics != nil {
+			chains[i].metrics = h.metrics.Chain(c.Prefix)
+		}
 		for range workerCount {
 			workers.Go(func() { h.signatureWorker(workerCtx, chains[i]) })
 		}
@@ -171,6 +177,10 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 				}
 
 				c := table.chain.collections
+				m := table.chain.metrics
+				if m != nil {
+					m.DocumentsReceived.Add(1)
+				}
 				if h.metrics != nil {
 					h.metrics.IncrementDocumentsReceived()
 					switch table.name {
@@ -185,7 +195,11 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 					}
 				}
 				if table.name == c.BlockSignature.Name {
-					enqueueSignature(table.chain.signatures, update.DocID)
+					dropped := enqueueSignature(table.chain.signatures, update.DocID)
+					if m != nil {
+						m.QueueDrops.Add(int64(dropped))
+						m.ObserveQueueDepth(len(table.chain.signatures))
+					}
 				}
 			}
 		}
