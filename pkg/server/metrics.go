@@ -54,18 +54,66 @@ type HostMetrics struct {
 	// Build configuration metrics
 	BuildTags  string `json:"build_tags"`
 	SchemaType string `json:"schema_type"`
+
+	// chains holds each configured chain's counters, in config order.
+	chains []*ChainMetrics
 }
 
-// NewHostMetrics creates a new metrics instance.
-func NewHostMetrics() *HostMetrics {
+// ChainMetrics counts one chain's relayed documents and its attestation queue.
+type ChainMetrics struct {
+	Prefix            string
+	DocumentsReceived atomic.Int64
+	QueueDrops        atomic.Int64 // Block signatures dropped because the chain's attestation queue was full
+	queuePeak         atomic.Int64
+}
+
+// NewHostMetrics creates a new metrics instance with counters for each chain in prefixes.
+func NewHostMetrics(prefixes ...string) *HostMetrics {
 	buildTags := "standard"
 	schemaType := "non-branchable"
 
+	chains := make([]*ChainMetrics, len(prefixes))
+	for i, prefix := range prefixes {
+		chains[i] = &ChainMetrics{Prefix: prefix}
+	}
 	return &HostMetrics{
 		StartTime:  time.Now(),
 		BuildTags:  buildTags,
 		SchemaType: schemaType,
+		chains:     chains,
 	}
+}
+
+// Chain returns the counters of the chain with prefix, or nil when m has none for it.
+func (m *HostMetrics) Chain(prefix string) *ChainMetrics {
+	for _, c := range m.chains {
+		if c.Prefix == prefix {
+			return c
+		}
+	}
+	return nil
+}
+
+// Chains returns every chain's counters, in config order.
+func (m *HostMetrics) Chains() []*ChainMetrics {
+	return m.chains
+}
+
+// ObserveQueueDepth records depth if it is the deepest the chain's queue has been since the last
+// TakeQueuePeak.
+func (c *ChainMetrics) ObserveQueueDepth(depth int) {
+	d := int64(depth)
+	for {
+		current := c.queuePeak.Load()
+		if d <= current || c.queuePeak.CompareAndSwap(current, d) {
+			return
+		}
+	}
+}
+
+// TakeQueuePeak returns the deepest queue depth observed since the previous call and resets it.
+func (c *ChainMetrics) TakeQueuePeak() int64 {
+	return c.queuePeak.Swap(0)
 }
 
 // IncrementAttestationsCreated atomically increments the attestations created counter.

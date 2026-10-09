@@ -88,12 +88,12 @@ func TestTruncateString(t *testing.T) {
 func TestEnqueueSignature(t *testing.T) {
 	queue := make(chan string, 2)
 
-	enqueueSignature(queue, testDoc1)
-	enqueueSignature(queue, testDoc2)
+	require.Zero(t, enqueueSignature(queue, testDoc1))
+	require.Zero(t, enqueueSignature(queue, testDoc2))
 	require.Len(t, queue, 2)
 
 	// The queue is full, so the oldest ID is dropped
-	enqueueSignature(queue, testDoc3)
+	require.Equal(t, 1, enqueueSignature(queue, testDoc3))
 	require.Equal(t, []string{testDoc2, testDoc3}, []string{<-queue, <-queue})
 }
 
@@ -1006,7 +1006,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	ctx := context.Background()
 	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, "Testchain__Devnet")
 
-	metrics := server.NewHostMetrics()
+	metrics := server.NewHostMetrics(chain.EthereumMainnet, "Testchain__Devnet")
 	cfg := *DefaultConfig
 	h := &Host{DefraNode: defraNode, chains: chains, config: &cfg, metrics: metrics}
 
@@ -1025,6 +1025,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	// Each collection of each chain gets a different number of updates, so a counter wired to the
 	// wrong collection, or a chain the listener does not know, ends with the wrong count.
 	var total, transactions, logs, accessListEntries, blockSignatures int
+	perChain := make(map[string]int, len(chains))
 	for i, c := range chains {
 		relays := map[string]int{
 			c.Block.Name:           1 + 5*i,
@@ -1040,6 +1041,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 				relay(col.CollectionID())
 			}
 			total += n
+			perChain[c.Prefix] += n
 		}
 		transactions += relays[c.Transaction.Name]
 		logs += relays[c.Log.Name]
@@ -1055,7 +1057,64 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 		assert.Equal(ct, int64(blockSignatures), atomic.LoadInt64(&metrics.BlockSignaturesProcessed))
 		// A relayed Block counts only as received.
 		assert.Zero(ct, atomic.LoadInt64(&metrics.BlocksProcessed))
+		for prefix, n := range perChain {
+			assert.Equal(ct, int64(n), metrics.Chain(prefix).DocumentsReceived.Load(), prefix)
+		}
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// A full attestation queue drops the oldest block signatures and counts the drops on its own chain
+// only, and the queue's peak depth reads back once.
+func TestStartEventBusListener_CountsQueueDropsPerChain(t *testing.T) {
+	const (
+		flooded = "Testchain__Devnet"
+		// A valid document ID with no document, so a worker keeps retrying its fetch while the
+		// listener fills the queue.
+		absentDocID = "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48"
+		burst       = 50
+	)
+	ctx := context.Background()
+	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, flooded)
+
+	metrics := server.NewHostMetrics(chain.EthereumMainnet, flooded)
+	cfg := *DefaultConfig
+	cfg.Shinzo.DocQueueSize = 1
+	cfg.Shinzo.DocWorkerCount = 1
+	h := &Host{DefraNode: defraNode, chains: chains, config: &cfg, metrics: metrics}
+
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+	listenerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		h.startEventBusListener(listenerCtx, updates)
+	}()
+
+	relaySignatures := func(c chain.Collections, n int) {
+		col, err := defraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
+		require.NoError(t, err)
+		for range n {
+			defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: col.CollectionID(), DocID: absentDocID, IsRelay: true}))
+		}
+	}
+	relaySignatures(chains[0], 1)
+	relaySignatures(chains[1], burst)
+
+	ethereum, other := metrics.Chain(chain.EthereumMainnet), metrics.Chain(flooded)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Equal(ct, int64(1), ethereum.DocumentsReceived.Load())
+		assert.Equal(ct, int64(burst), other.DocumentsReceived.Load())
+	}, 5*time.Second, 10*time.Millisecond)
+	// The listener finishes the update it is on before it stops, so the counters below are final.
+	cancel()
+	<-stopped
+
+	require.Positive(t, other.QueueDrops.Load())
+	require.Zero(t, ethereum.QueueDrops.Load())
+	require.Equal(t, int64(1), other.TakeQueuePeak())
+	require.Zero(t, other.TakeQueuePeak())
 }
 
 // Each chain's relayed block signature is attested in that chain's own AttestationRecord table.
