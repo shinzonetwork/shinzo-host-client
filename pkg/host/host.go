@@ -212,7 +212,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	collections := chain.EVM(served.Prefix)
 
 	// Each configured chain, enabled or not, has its own pruner, and the retention rule gives each
-	// chain's collections that pruner's cutoff.
+	// chain's collections that pruner's cutoff. pruned follows the order of cfg.Chains.
 	var pruned []prunedChain
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
@@ -543,12 +543,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		for _, c := range pruned {
-			p := pruner.NewPruner(&cfg.Pruner, defraNode, c.cutoff, c.collections)
+		for i, c := range cfg.Chains {
+			chainCfg := cfg.Pruner
+			if c.MaxBlocks > 0 {
+				chainCfg.MaxBlocks = c.MaxBlocks
+			}
+			p := pruner.NewPruner(&chainCfg, defraNode, pruned[i].cutoff, pruned[i].collections)
 			p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
 			if err := p.Start(ctx); err != nil {
-				logger.Sugar.Warnf("Failed to start pruner: %v (chain: %s)", err, c.collections.Prefix)
+				logger.Sugar.Warnf("Failed to start pruner: %v (chain: %s)", err, c.Prefix)
 			}
 
 			newHost.pruners = append(newHost.pruners, p)

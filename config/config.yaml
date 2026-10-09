@@ -121,6 +121,7 @@ pruner:
 # built-in schema. A chain's schema comes from its generators, tried in order.
 # chains:
 #   - prefix: Ethereum__Mainnet
+#     max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
 #     generators:
 #       - url: http://35.254.135.221:8080
 #         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
