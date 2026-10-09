@@ -1680,7 +1680,8 @@ func TestHost_Close_Full(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Every enabled chain's generator peers are added to the host's peers, and a disabled chain's are not.
+// Every enabled chain's generators are dialed and the chain is handed to the attestation listener; a
+// disabled chain is neither.
 func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	const (
 		other     = "Testchain__Devnet"
@@ -1715,6 +1716,7 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	})
 
 	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
 
 	// After a restart, the other chain's stored tables differ from what its generator serves, so the
 	// chain is disabled and its generator is not dialed.
@@ -1727,6 +1729,7 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
 	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
 }
 
 // A restart compares the stored tables with the schema the chain's generator serves, and refuses to
@@ -1842,6 +1845,6 @@ func TestStartHosting_ServesAPIAfterTables(t *testing.T) {
 
 	api, err := defradbHttp.NewClient(apiAddr)
 	require.NoError(t, err)
-	result := api.ExecRequest(context.Background(), "{ "+h.collections.Block.Name+" { __typename } }")
+	result := api.ExecRequest(context.Background(), "{ "+testCollections.Block.Name+" { __typename } }")
 	require.Empty(t, result.GQL.Errors)
 }

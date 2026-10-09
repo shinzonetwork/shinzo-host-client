@@ -55,7 +55,7 @@ shinzo:
   batch_processing_enabled: true     # Enable batch processing for efficiency
   batch_max_views_per_job: 50         # Split large batches to prevent memory issues
   batch_query_cache_size: 1000        # Cache query templates for reuse
-  # Attestation Processing Settings
+  # Attestation Processing Settings, for each enabled chain
   doc_worker_count: 32
   doc_queue_size: 50000
   # Event Replication Filter

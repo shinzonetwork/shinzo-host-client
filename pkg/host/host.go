@@ -143,10 +143,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
-	collections    chain.Collections       // Collections of the first configured chain, which the attestation listener serves
-	// collectionNames maps the IDs of the chain's subscribed collections to their names. Only the
-	// attestation listener reads and writes it.
-	collectionNames map[string]string
+	chains         []chain.Collections     // The enabled chains; the attestation listener attests their block signatures
 
 	// signature verifier as a service
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
@@ -208,8 +205,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	// The readiness probe, pruner, retention rule, event filter, attestation listener, views and
-	// snapshots use only the first chain. chainsApplier never disables it: drift there stops the host.
+	// The readiness probe, pruner, retention rule, event filter, views and snapshots use only the
+	// first chain. chainsApplier never disables it: drift there stops the host.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
@@ -299,10 +296,14 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		attesters = newObservedAttesters(window)
 	}
 
+	enabled := make([]chain.Collections, len(applier.enabled))
+	for i, c := range applier.enabled {
+		enabled[i] = chain.EVM(c.Prefix)
+	}
 	newHost := &Host{
 		DefraNode:              defraNode,
 		NetworkHandler:         networkHandler,
-		collections:            collections,
+		chains:                 enabled,
 		blockSignatureVerifier: attestation.NewBlockSignatureVerifier(blockSignatureCacheSize),
 		blockCIDCollector:      attestation.NewBlockCIDCollector(),
 		webhookCleanupFunction: func() {},
