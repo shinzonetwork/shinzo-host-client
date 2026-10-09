@@ -222,10 +222,16 @@ func TestChainsApplier(t *testing.T) {
 		chains = append(chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
 	}
 
-	applier := &chainsApplier{schemaCfg: schemaCfg, chains: chains}
-	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+	// The store holds the first chain before the other is added, as when a chain is added to the
+	// config of a host that already serves one.
+	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &chainsApplier{schemaCfg: schemaCfg, chains: chains[:1]})
 	require.NoError(t, err)
 	defer func() { _ = node.Close(ctx) }()
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(other).Block.Name)
+	require.Error(t, err)
+
+	applier := &chainsApplier{schemaCfg: schemaCfg, chains: chains}
+	require.NoError(t, applier.ApplySchema(ctx, node))
 	var subscribed []string
 	for _, c := range chains {
 		collections := chain.EVM(c.Prefix)
