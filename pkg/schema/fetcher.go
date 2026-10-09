@@ -28,6 +28,9 @@ var (
 	ErrSchemaHostOwnedType       = fmt.Errorf("schema declares a type the host owns")
 	ErrSchemaMissingType         = fmt.Errorf("schema is missing a collection the generator writes")
 	ErrSchemaMissingIndexedField = fmt.Errorf("schema is missing a field the host indexes")
+	// ErrSchemaNoResponse marks a FetchSchema error that came from FetchResponse: the generator
+	// returned no usable schema response, as opposed to a schema the checks refuse.
+	ErrSchemaNoResponse = fmt.Errorf("generator returned no usable schema response")
 )
 
 // maxSchemaBodyBytes caps the schema response size to mitigate DoS via oversized payloads.
@@ -47,11 +50,12 @@ type Response struct {
 
 // FetchSchema fetches a chain's schema from fullURL, a generator's schema endpoint, and returns
 // it ready to apply: checked against the chain's collections and with the host's indexes. It
-// returns an error on an HTTP error, a malformed response or a failed check.
+// returns an error on an HTTP error, a malformed response or a failed check. An error from
+// FetchResponse also wraps ErrSchemaNoResponse.
 func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, collections chain.Collections) (string, error) {
 	schemaResp, err := FetchResponse(ctx, httpClient, fullURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrSchemaNoResponse, err)
 	}
 	if err := checkSchema(schemaResp, collections); err != nil {
 		return "", fmt.Errorf("check schema: %w", err)

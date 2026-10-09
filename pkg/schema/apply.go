@@ -33,9 +33,9 @@ type ChainApplier struct {
 	// Tables returns the SDL of the chain's tables. ApplySchema calls it only when the database
 	// holds none of them.
 	Tables func(ctx context.Context) (string, error)
-	// Served yields the URL of each answering generator and its response for the chain, as
-	// FetchResponse returns it. ApplySchema calls it only when the database holds the chain's
-	// tables, and stops at the first served schema that matches them.
+	// Served yields the URL of each answering generator and its response, as FetchResponse returns
+	// it, whatever chain the response's network names. ApplySchema calls it only when the database
+	// holds the chain's tables, and stops at the first served schema that matches them.
 	Served      func(ctx context.Context) iter.Seq2[string, Response]
 	Collections chain.Collections
 }
@@ -43,7 +43,9 @@ type ChainApplier struct {
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
 // the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
 // when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
-// and no schema from Served matches them. If Served yields nothing, the tables are not compared.
+// and no schema from Served matches them. A response whose network names another chain matches
+// nothing, and its part of the error also wraps ErrSchemaWrongNetwork. If Served yields nothing,
+// the tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -65,7 +67,14 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	case 0:
 		var errs []error
 		for generator, resp := range a.Served(ctx) {
-			err := checkStored(resp.document, cols, a.Collections)
+			// A response for another chain is refused whatever tables it declares, as FetchSchema
+			// refuses it. Comparing its tables alone would accept one that declares this chain's.
+			var err error
+			if resp.Network != a.Collections.Prefix {
+				err = fmt.Errorf("network %q, want %q: %w: %w", resp.Network, a.Collections.Prefix, ErrSchemaWrongNetwork, ErrSchemaDrift)
+			} else {
+				err = checkStored(resp.document, cols, a.Collections)
+			}
 			if err == nil {
 				errs = nil
 				break

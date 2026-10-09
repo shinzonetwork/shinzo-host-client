@@ -12,8 +12,9 @@ var ( //nolint:revive
 	ErrEmptyMerkleRoot      = errors.New("empty merkleRoot")
 	ErrNoChains             = errors.New("config serves no chain") //nolint:revive
 
-	errHubBaseURLMissing = errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
-	errNoChainSchema     = errors.New("the built-in schema holds only Ethereum mainnet's tables")
-	errNoGeneratorSchema = errors.New("no configured generator served a usable schema")
-	errUnlistedChain     = errors.New("the store holds a chain the config does not list")
+	errHubBaseURLMissing   = errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
+	errNoChainSchema       = errors.New("the built-in schema holds only Ethereum mainnet's tables")
+	errNoGeneratorAnswered = errors.New("no configured generator answered")
+	errNoGeneratorSchema   = errors.New("no answering generator served a schema the checks accept")
+	errUnlistedChain       = errors.New("the store holds a chain the config does not list")
 )

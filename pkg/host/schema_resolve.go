@@ -88,7 +88,11 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 }
 
 // resolveSchema returns the schema of one of the host's chains. With generators configured, it is
-// the first usable schema they serve, tried in order, or errNoGeneratorSchema when none serves one.
+// the first schema they serve that passes FetchSchema's checks, tried in order. A generator answers
+// when FetchResponse accepts its response; a response whose network names another chain is an
+// answer whose schema the checks refuse. When no schema passes, it returns errNoGeneratorSchema if a
+// generator answered, and errNoGeneratorAnswered if none did (each failed with
+// schema.ErrSchemaNoResponse).
 // With none configured, Ethereum mainnet uses the built-in schema and any other chain gets
 // errNoChainSchema. The built-in schema is never a fallback: generators may serve tables that
 // differ from it, and a host whose tables differ receives none of the chain's data. Each request
@@ -103,11 +107,15 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 	}
 
 	client := schema.NewSchemaHTTPClient(schemaCfg)
+	refused := false
 	for _, g := range served.Generators {
 		var sdl string
 		schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
 		if err == nil {
 			sdl, err = schema.FetchSchema(ctx, client, schemaURL, collections)
+			if err != nil && !errors.Is(err, schema.ErrSchemaNoResponse) {
+				refused = true
+			}
 		}
 		if err != nil {
 			logger.Sugar.Warnf("Schema from generator %s not used: %v", g.URL, err)
@@ -117,18 +125,22 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 		return sdl, nil
 	}
 
-	return "", errNoGeneratorSchema
+	if refused {
+		return "", errNoGeneratorSchema
+	}
+	return "", errNoGeneratorAnswered
 }
 
 // servedSchemas yields the URL of each of the chain's generators and its schema response, in order,
-// skipping those that do not answer. A generator answers when it returns a schema for the chain and
-// the schema parses.
+// skipping those that do not answer. A generator answers when FetchResponse accepts its response; a
+// response whose network names another chain is an answer whose schema is refused.
 // Generators are asked one at a time as the caller ranges, so none is asked after the caller stops.
-// The schemas are yielded without FetchSchema's checks, so a schema those checks refuse is compared
-// with the stored tables instead of being skipped. The requests share one deadline, the timeout
-// schemaCfg gives a single request, counted from when the caller starts ranging, which bounds this
-// chain's check, so a restart can wait that timeout once per chain: the chain's generators that do
-// not answer delay its check by that timeout once, not once each, and a generator that hangs leaves
+// The responses are yielded without FetchSchema's checks: schema.ChainApplier refuses a response for
+// another chain and compares any other with the stored tables, so a schema the other checks refuse
+// is compared instead of being skipped. The requests share one deadline, the timeout schemaCfg
+// gives a single request, counted from when the caller starts ranging, which bounds this chain's
+// check, so a restart can wait that timeout once per chain: the chain's generators that do not
+// answer delay its check by that timeout once, not once each, and a generator that hangs leaves
 // less of it, or none, for the ones after it.
 func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) iter.Seq2[string, schema.Response] {
 	return func(yield func(string, schema.Response) bool) {
@@ -147,9 +159,6 @@ func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 			schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
 			if err == nil {
 				resp, err = schema.FetchResponse(ctx, client, schemaURL)
-			}
-			if err == nil && resp.Network != served.Prefix {
-				err = fmt.Errorf("network %q: %w", resp.Network, schema.ErrSchemaWrongNetwork)
 			}
 			if err != nil {
 				logger.Sugar.Warnf("Generator %s did not answer for %s: %v", g.URL, served.Prefix, err)
