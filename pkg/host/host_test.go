@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1762,6 +1763,66 @@ func TestStartHosting_RefusesDriftedStore(t *testing.T) {
 
 	_, err = StartHosting(&cfg)
 	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
+}
+
+// A chain no generator answers for at its first start is left out: its generators are not dialed and
+// it gets no tables and no pruner. It comes up at the next start once a generator answers.
+func TestStartHosting_LeavesOutUnansweredChain(t *testing.T) {
+	const (
+		other     = "Testchain__Devnet"
+		otherPeer = "/ip4/10.0.0.2/tcp/9171/p2p/12D3KooWNgg9VnEWeaoJYg5J2ehi9Ktfsxyise2Hkf4Mb12CaG6H"
+	)
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
+	var otherAnswers atomic.Bool
+	otherSchema := schemaHandler(t, other)
+	otherGenerator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !otherAnswers.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		otherSchema(w, r)
+	}))
+	t.Cleanup(otherGenerator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Pruner.Enabled = true
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}}},
+		{Prefix: other, Generators: []chain.Generator{{URL: otherGenerator.URL, Peer: otherPeer}}},
+	}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Len(t, h.pruners, 1)
+	_, err = h.DefraNode.DB.GetCollectionByName(context.Background(), chain.EVM(other).Block.Name)
+	require.Error(t, err)
+
+	otherAnswers.Store(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	require.Contains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Len(t, h.pruners, 2)
 }
 
 // DefraDB's API answers only once the chain's tables exist.
