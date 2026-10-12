@@ -23,19 +23,26 @@ import (
 )
 
 const (
-	testChainID          = 91273002
-	testViewFilteredLogs = "FilteredLogs"
-	testViewFilteredTxs  = "FilteredTxs"
-	testContractA        = "0xabc"
-	testContractB        = "0xdef"
-	testOpBNamed         = "Bar"
+	testChainID           = 91273002
+	testViewFilteredLogs  = "FilteredLogs"
+	testViewFilteredTxs   = "FilteredTxs"
+	testViewBlock         = "Block"
+	testQueryFilteredLogs = "{ FilteredLogs { hash } }"
+	testContractA         = "0xabc"
+	testContractB         = "0xdef"
+	testOpBNamed          = "Bar"
 )
 
 // testPool is a non-zero pool the test requests sign against; the gate rejects a
 // zero pool.
 var testPool = billing.Address(common.HexToAddress("0x00000000000000000000000000000000000000bb"))
 
-var errTestAuthzFail = errors.New("test: authorizer transport failure")
+var (
+	errTestAuthzFail       = errors.New("test: authorizer transport failure")
+	errHubDown             = errors.New("hub down")
+	errNoHeight            = errors.New("no height")
+	errRecorderUnreachable = errors.New("accounting service unreachable")
+)
 
 // A non-graphql path bypasses the gate entirely. The registry knows the view
 // and the authorizer would deny, so passing through proves only the path check
@@ -99,7 +106,7 @@ func TestMiddleware_FundedSignedQueryAllowed(t *testing.T) {
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
-	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	r := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil)
 	w := httptest.NewRecorder()
 	mw.Wrap(next).ServeHTTP(w, r)
 
@@ -116,7 +123,7 @@ func TestMiddleware_UnderfundedDenied(t *testing.T) {
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
-	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	r := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil)
 	w := httptest.NewRecorder()
 	mw.Wrap(next).ServeHTTP(w, r)
 
@@ -134,7 +141,7 @@ func TestMiddleware_AuthorizerErrorIs503(t *testing.T) {
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
 	next := &recordingNext{}
-	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	r := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil)
 	w := httptest.NewRecorder()
 	mw.Wrap(next).ServeHTTP(w, r)
 
@@ -150,7 +157,7 @@ func TestMiddleware_TamperedQueryRejected(t *testing.T) {
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
-	ext, err := billing.SignRequest(testChainID, priv, "{ FilteredLogs { hash } }", nil, testPool, 1, 1735689600)
+	ext, err := billing.SignRequest(testChainID, priv, testQueryFilteredLogs, nil, testPool, 1, 1735689600)
 	require.NoError(t, err)
 	// Serve a different field selection than was signed; both resolve to the
 	// same view so the request reaches verification.
@@ -248,7 +255,7 @@ func TestMiddleware_BodyForwardedToNextUnchanged(t *testing.T) {
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
 
-	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	r := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil)
 	sent, err := io.ReadAll(r.Body)
 	require.NoError(t, err)
 	r.Body = io.NopCloser(bytes.NewReader(sent))
@@ -267,8 +274,8 @@ func TestMiddleware_StaleRequestIs403(t *testing.T) {
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil, nil)
 
-	query := "{ FilteredLogs { hash } }"
-	stale := uint64(time.Now().Add(-time.Hour).Unix())
+	query := testQueryFilteredLogs
+	stale := uint64(time.Now().Add(-time.Hour).Unix()) //nolint:gosec // test timestamp is always positive
 	ext, err := billing.SignRequest(testChainID, priv, query, nil, testPool, 1, stale)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
@@ -291,8 +298,8 @@ func TestMiddleware_FreshRequestPasses(t *testing.T) {
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	mw := NewMiddleware(authz, reg, testChainID, time.Minute, nil, nil)
 
-	query := "{ FilteredLogs { hash } }"
-	fresh := uint64(time.Now().Unix())
+	query := testQueryFilteredLogs
+	fresh := uint64(time.Now().Unix()) //nolint:gosec // test timestamp is always positive
 	ext, err := billing.SignRequest(testChainID, priv, query, nil, testPool, 1, fresh)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
@@ -320,7 +327,7 @@ func TestMiddleware_AllowForwardsResponseBody(t *testing.T) {
 		_, _ = w.Write([]byte(served))
 	})
 
-	r := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	r := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil)
 	w := httptest.NewRecorder()
 	mw.Wrap(next).ServeHTTP(w, r)
 
@@ -366,7 +373,7 @@ func TestMiddleware_RecordsServedQuery(t *testing.T) {
 		Attesters: func() []string { return []string{"idx1", "idx2"} },
 	}, nil)
 
-	query := "{ FilteredLogs { hash } }"
+	query := testQueryFilteredLogs
 	ext, err := billing.SignRequest(testChainID, priv, query, nil, testPool, 1, 1735689600)
 	require.NoError(t, err)
 	body, err := json.Marshal(requestBody{Query: query, Extensions: ext})
@@ -400,7 +407,7 @@ func TestMiddleware_FailedQueryNotRecorded(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":null,"errors":[{"message":"boom"}]}`))
 	})
 	w := httptest.NewRecorder()
-	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, testQueryFilteredLogs, nil))
 
 	require.Equal(t, http.StatusOK, w.Code, "the query is served; only recording is skipped")
 	require.Empty(t, rec.inputs, "a failed query must not be recorded")
@@ -421,7 +428,7 @@ func TestMiddleware_ErrorStatusServedNotRecorded(t *testing.T) {
 		_, _ = w.Write([]byte(served))
 	})
 	w := httptest.NewRecorder()
-	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, testQueryFilteredLogs, nil))
 	mw.Drain(context.Background())
 
 	require.Equal(t, http.StatusBadGateway, w.Code, "the error status reaches the client")
@@ -435,7 +442,7 @@ func TestMiddleware_RecordFailureStillServes(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
-	rec := &fakeRecorder{err: errors.New("accounting service unreachable")}
+	rec := &fakeRecorder{err: errRecorderUnreachable}
 	core, logs := observer.New(zap.InfoLevel)
 	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{Recorder: rec}, zap.New(core).Sugar())
 
@@ -444,7 +451,7 @@ func TestMiddleware_RecordFailureStillServes(t *testing.T) {
 		_, _ = w.Write([]byte(served))
 	})
 	w := httptest.NewRecorder()
-	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, testQueryFilteredLogs, nil))
 	mw.Drain(context.Background())
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -470,7 +477,7 @@ func TestMiddleware_RecordUsesDetachedContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	req := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil).WithContext(ctx)
+	req := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil).WithContext(ctx)
 	mw.Wrap(next).ServeHTTP(httptest.NewRecorder(), req)
 	mw.Drain(context.Background())
 
@@ -491,7 +498,7 @@ func TestMiddleware_RecordRunsAsyncThenDrains(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":{"FilteredLogs":[{"hash":"a"}]}}`))
 	})
-	req := signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil)
+	req := signedGraphQLPost(t, priv, testQueryFilteredLogs, nil)
 
 	served := make(chan struct{})
 	go func() {
@@ -526,7 +533,7 @@ func TestMiddleware_RecordPanicRecovered(t *testing.T) {
 		_, _ = w.Write([]byte(served))
 	})
 	w := httptest.NewRecorder()
-	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, "{ FilteredLogs { hash } }", nil))
+	mw.Wrap(next).ServeHTTP(w, signedGraphQLPost(t, priv, testQueryFilteredLogs, nil))
 	mw.Drain(context.Background())
 
 	require.Equal(t, http.StatusOK, w.Code, "a panicking record must not affect the served response")

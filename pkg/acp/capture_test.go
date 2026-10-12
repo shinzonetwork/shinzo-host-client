@@ -58,17 +58,17 @@ func TestViewRows(t *testing.T) {
 		wantRows   uint64
 		wantServed bool
 	}{
-		{"single view array", `{"data":{"FilteredLogs":[{"x":1},{"x":2},{"x":3}]}}`, []string{"FilteredLogs"}, 3, true},
+		{"single view array", `{"data":{"FilteredLogs":[{"x":1},{"x":2},{"x":3}]}}`, []string{testViewFilteredLogs}, 3, true},
 		{"aliased view key", `{"data":{"myLogs":[{"x":1}]}}`, []string{"myLogs"}, 1, true},
-		{"view plus base collection counts only the view", `{"data":{"FilteredLogs":[{"x":1},{"x":2}],"Block":[{"x":1},{"x":2},{"x":3}]}}`, []string{"FilteredLogs"}, 2, true},
+		{"view plus base collection counts only the view", `{"data":{"FilteredLogs":[{"x":1},{"x":2}],"Block":[{"x":1},{"x":2},{"x":3}]}}`, []string{testViewFilteredLogs}, 2, true},
 		{"view selected twice sums both", `{"data":{"a":[{"x":1}],"b":[{"x":1},{"x":2}]}}`, []string{"a", "b"}, 3, true},
-		{"served zero rows is still served", `{"data":{"FilteredLogs":[]}}`, []string{"FilteredLogs"}, 0, true},
-		{"sibling field error does not zero the view", `{"data":{"FilteredLogs":[{"x":1}]},"errors":[{"message":"on Block"}]}`, []string{"FilteredLogs"}, 1, true},
-		{"query-level error nulls data", `{"data":null,"errors":[{"message":"boom"}]}`, []string{"FilteredLogs"}, 0, false},
-		{"view value is null", `{"data":{"FilteredLogs":null}}`, []string{"FilteredLogs"}, 0, false},
-		{"view key absent", `{"data":{"Block":[{"x":1}]}}`, []string{"FilteredLogs"}, 0, false},
-		{"non-array value", `{"data":{"FilteredLogs":{"count":5}}}`, []string{"FilteredLogs"}, 0, false},
-		{"malformed json", `{"data":`, []string{"FilteredLogs"}, 0, false},
+		{"served zero rows is still served", `{"data":{"FilteredLogs":[]}}`, []string{testViewFilteredLogs}, 0, true},
+		{"sibling field error does not zero the view", `{"data":{"FilteredLogs":[{"x":1}]},"errors":[{"message":"on Block"}]}`, []string{testViewFilteredLogs}, 1, true},
+		{"query-level error nulls data", `{"data":null,"errors":[{"message":"boom"}]}`, []string{testViewFilteredLogs}, 0, false},
+		{"view value is null", `{"data":{"FilteredLogs":null}}`, []string{testViewFilteredLogs}, 0, false},
+		{"view key absent", `{"data":{"Block":[{"x":1}]}}`, []string{testViewFilteredLogs}, 0, false},
+		{"non-array value", `{"data":{"FilteredLogs":{"count":5}}}`, []string{testViewFilteredLogs}, 0, false},
+		{"malformed json", `{"data":`, []string{testViewFilteredLogs}, 0, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -30,7 +30,7 @@ func TestExtractCollections_PostJSONMultipleFields(t *testing.T) {
 
 	got, err := ExtractCollections(r)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{testViewFilteredLogs, "Block"}, got)
+	require.ElementsMatch(t, []string{testViewFilteredLogs, testViewBlock}, got)
 }
 
 // Aliases must not mask the underlying field name: gating decisions are made
@@ -58,9 +58,9 @@ func TestExtractCollections_DeduplicatesRepeatedSelections(t *testing.T) {
 func TestTopLevelFields_KeysAndNames(t *testing.T) {
 	fields, err := topLevelFields("{ a: FilteredLogs { hash } b: FilteredLogs { hash } Block { number } }", "")
 	require.NoError(t, err)
-	require.Equal(t, []string{testViewFilteredLogs, "Block"}, collectionNames(fields))
+	require.Equal(t, []string{testViewFilteredLogs, testViewBlock}, collectionNames(fields))
 	require.Equal(t, []string{"a", "b"}, responseKeys(fields, testViewFilteredLogs))
-	require.Equal(t, []string{"Block"}, responseKeys(fields, "Block"))
+	require.Equal(t, []string{testViewBlock}, responseKeys(fields, testViewBlock))
 }
 
 // When operationName is set, only that operation's selections are returned.
@@ -266,7 +266,7 @@ func TestExtractCollections_MixedFieldAndInlineFragmentAtTopLevel(t *testing.T) 
 
 	got, err := ExtractCollections(r)
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"Block", testViewFilteredLogs}, got)
+	require.ElementsMatch(t, []string{testViewBlock, testViewFilteredLogs}, got)
 }
 
 // Fragments INSIDE a Field's own selection set describe that field's
