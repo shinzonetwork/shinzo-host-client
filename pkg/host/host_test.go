@@ -200,26 +200,6 @@ func TestHost_ChainStatuses_NoMetrics(t *testing.T) {
 	require.Nil(t, host.ChainStatuses())
 }
 
-func TestHost_GetLastProcessedTime(t *testing.T) {
-	metrics := server.NewHostMetrics()
-	expectedTime := time.Now()
-	metrics.LastDocumentTime = expectedTime
-
-	host := &Host{
-		metrics: metrics,
-	}
-
-	require.Equal(t, expectedTime, host.GetLastProcessedTime())
-}
-
-func TestHost_GetLastProcessedTime_NoMetrics(t *testing.T) {
-	host := &Host{
-		metrics: nil,
-	}
-
-	require.True(t, host.GetLastProcessedTime().IsZero())
-}
-
 func TestHost_GetActiveViewNames(t *testing.T) {
 	ctx := context.Background()
 
@@ -1493,9 +1473,6 @@ func TestStartHostingWithTestConfig(t *testing.T) {
 	require.NotNil(t, host.DefraNode)
 	require.NotNil(t, host.metrics)
 	require.True(t, host.IsHealthy())
-
-	// Verify GetLastProcessedTime returns a value
-	_ = host.GetLastProcessedTime()
 
 	// Close the host
 	closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
