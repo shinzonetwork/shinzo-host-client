@@ -172,63 +172,31 @@ func TestHealthHandler_NilHost(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	// With nil host, status should remain "healthy" (no IsHealthy call)
 	require.Equal(t, "healthy", resp.Status)
-	require.Equal(t, int64(0), resp.CurrentBlock)
 }
 
-// Each endpoint lists every chain, and reports the top-level height only on a host configured with
-// one chain. /health and /registration omit a 0 height; /stats reports it.
+// Each endpoint lists every chain.
 func TestHandlers_ReportChains(t *testing.T) {
-	oneChain := []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true, CurrentBlock: 100, Cutoff: 90}}
-	oneChainNoBlock := []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true}}
-	twoChains := []ChainStatus{
-		{Chain: "Ethereum__Mainnet", Enabled: true, CurrentBlock: 100, Cutoff: 90},
-		{Chain: "BSC__Mainnet", Enabled: false, Cutoff: 70},
-	}
-	tests := []struct {
-		name   string
-		path   string
-		chains []ChainStatus
-		// want is each top-level height field the body carries, as raw JSON; any other is absent.
-		want map[string]string
-	}{
-		{name: "health, one chain", path: "/health", chains: oneChain, want: map[string]string{"current_block": "100"}},
-		{name: "health, one chain before its first block", path: "/health", chains: oneChainNoBlock, want: map[string]string{}},
-		{name: "health, several chains", path: "/health", chains: twoChains, want: map[string]string{}},
-		{name: "registration, one chain", path: "/registration", chains: oneChain, want: map[string]string{"current_block": "100"}},
-		{name: "registration, several chains", path: "/registration", chains: twoChains, want: map[string]string{}},
-		{name: "stats, one chain", path: "/stats", chains: oneChain, want: map[string]string{"current_block": "100", "blocks_processed": "100"}},
-		{name: "stats, one chain before its first block", path: "/stats", chains: oneChainNoBlock, want: map[string]string{"current_block": "0", "blocks_processed": "0"}},
-		{name: "stats, several chains", path: "/stats", chains: twoChains, want: map[string]string{}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			hs := newHS(&mockHealthChecker{
-				healthy:       true,
-				chains:        tt.chains,
-				lastProcessed: time.Now(),
-				peerInfo:      &P2PInfo{Enabled: true},
-			}, "")
-			handlers := map[string]http.HandlerFunc{"/health": hs.healthHandler, "/registration": hs.registrationHandler, "/stats": hs.metricsHandler}
-
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+	chains := []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true, CurrentBlock: 100, Cutoff: 90}}
+	hs := newHS(&mockHealthChecker{
+		healthy:       true,
+		chains:        chains,
+		lastProcessed: time.Now(),
+		peerInfo:      &P2PInfo{Enabled: true},
+	}, "")
+	handlers := map[string]http.HandlerFunc{"/health": hs.healthHandler, "/registration": hs.registrationHandler, "/stats": hs.metricsHandler}
+	for path, handler := range handlers {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set("Accept", "application/json")
 			w := httptest.NewRecorder()
-			handlers[tt.path](w, req)
+			handler(w, req)
 			require.Equal(t, http.StatusOK, w.Code)
 
 			var body map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-			var chains []ChainStatus
-			require.NoError(t, json.Unmarshal(body["chains"], &chains))
-			require.Equal(t, tt.chains, chains)
-			for _, key := range []string{"current_block", "blocks_processed"} {
-				raw, ok := body[key]
-				want, wantOK := tt.want[key]
-				require.Equal(t, wantOK, ok, key)
-				if ok {
-					require.JSONEq(t, want, string(raw), key)
-				}
-			}
+			var got []ChainStatus
+			require.NoError(t, json.Unmarshal(body["chains"], &got))
+			require.Equal(t, chains, got)
 		})
 	}
 }
@@ -397,7 +365,6 @@ func TestMetricsHandler_GET_WithoutHost(t *testing.T) {
 
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Nil(t, resp.CurrentBlock)
 }
 
 func TestMetricsHandler_POST_MethodNotAllowed(t *testing.T) {

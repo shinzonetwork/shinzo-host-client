@@ -276,8 +276,7 @@ func TestGetSnapshot(t *testing.T) {
 // ServeHTTP
 // ---------------------------------------------------------------------------
 
-// /metrics lists every chain, and reports current_block and metrics.most_recent_block only on a host
-// configured with one chain.
+// /metrics lists every chain and reports heights only per chain.
 func TestServeHTTP_JSON(t *testing.T) {
 	ethCutoff, bscCutoff := &pruner.Cutoff{}, &pruner.Cutoff{}
 	ethCutoff.Raise(30)
@@ -288,23 +287,7 @@ func TestServeHTTP_JSON(t *testing.T) {
 		blocks []int64 // each chain's current block, 0 for none
 		// wantChains is the chains list as raw JSON, so an omitted field and a 0 differ.
 		wantChains string
-		// wantBlock is current_block and metrics.most_recent_block as raw JSON, "" when both are absent.
-		wantBlock string
 	}{
-		{
-			name:       "one chain",
-			chains:     []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true, Cutoff: ethCutoff}},
-			blocks:     []int64{42},
-			wantChains: `[{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30}]`,
-			wantBlock:  "42",
-		},
-		{
-			name:       "one chain before its first block",
-			chains:     []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true}},
-			blocks:     []int64{0},
-			wantChains: `[{"chain":"Ethereum__Mainnet","enabled":true}]`,
-			wantBlock:  "0",
-		},
 		{
 			name: "several chains",
 			chains: []*ChainMetrics{
@@ -328,7 +311,6 @@ func TestServeHTTP_JSON(t *testing.T) {
 				{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30},
 				{"chain":"BSC__Mainnet","enabled":false,"reason":"removed"}
 			]`,
-			wantBlock: "42",
 		},
 	}
 	for _, tt := range tests {
@@ -355,58 +337,13 @@ func TestServeHTTP_JSON(t *testing.T) {
 			require.Contains(t, resp, "uptime_seconds")
 			require.JSONEq(t, tt.wantChains, string(resp["chains"]))
 
+			require.NotContains(t, resp, "current_block")
+
 			var metrics map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(resp["metrics"], &metrics))
 			// The snapshot's counters sit directly under metrics.
 			require.Contains(t, metrics, "blocks_processed")
-			for name, fields := range map[string]map[string]json.RawMessage{"current_block": resp, "most_recent_block": metrics} {
-				raw, ok := fields[name]
-				require.Equal(t, tt.wantBlock != "", ok, name)
-				if ok {
-					require.JSONEq(t, tt.wantBlock, string(raw), name)
-				}
-			}
 		})
-	}
-}
-
-// On a host configured with one chain, /metrics reports the same block at the top level and in the
-// chain's entry while attestations raise it.
-func TestServeHTTP_HeightsAgree(t *testing.T) {
-	c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: true}
-	m := NewHostMetrics(c)
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		for n := int64(1); ; n++ {
-			select {
-			case <-stop:
-				return
-			default:
-				c.UpdateCurrentBlock(n)
-			}
-		}
-	})
-	defer wg.Wait()
-	defer close(stop)
-
-	for range 200 {
-		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-		req.Header.Set("Accept", "application/json")
-		w := httptest.NewRecorder()
-		m.ServeHTTP(w, req)
-
-		var resp struct {
-			CurrentBlock int64         `json:"current_block"`
-			Chains       []ChainStatus `json:"chains"`
-			Metrics      struct {
-				MostRecentBlock int64 `json:"most_recent_block"`
-			} `json:"metrics"`
-		}
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		require.Len(t, resp.Chains, 1)
-		require.Equal(t, resp.Chains[0].CurrentBlock, resp.CurrentBlock)
-		require.Equal(t, resp.CurrentBlock, resp.Metrics.MostRecentBlock)
 	}
 }
 
