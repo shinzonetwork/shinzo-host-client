@@ -143,8 +143,8 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 	}
 	requireFloors(h)
 	require.Equal(t, []server.ChainStatus{
-		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
-		{Chain: other, Enabled: true, Cutoff: 15},
+		{Chain: chain.EthereumMainnet, Enabled: true, Ready: true, Cutoff: 8},
+		{Chain: other, Enabled: true, Ready: true, Cutoff: 15},
 	}, h.ChainStatuses())
 
 	// The other chain's stored tables now differ from what its generator serves.
@@ -164,7 +164,7 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 	require.NoError(t, err)
 	requireFloors(h)
 	require.Equal(t, []server.ChainStatus{
-		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
+		{Chain: chain.EthereumMainnet, Enabled: true, Ready: true, Cutoff: 8},
 		{Chain: other, Enabled: false, Reason: server.ReasonSchemaDrift, Cutoff: 15},
 	}, h.ChainStatuses())
 
