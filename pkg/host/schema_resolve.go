@@ -34,26 +34,11 @@ type chainsApplier struct {
 // left out of enabled. A chain is also disabled when the store holds none of its tables and no
 // generator answered (errNoGeneratorAnswered); it is tried again at the next start. When every
 // chain is disabled, it returns errNoChainEnabled with each chain's error. Any other failure is
-// returned. Before creating any table, it returns errUnlistedChain when the store holds a chain
-// that chains does not list.
+// returned. A chain the store holds but chains does not list is removed: it is unsubscribed before
+// any table is created, and its tables and data stay until the store is wiped.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
-	cols, err := n.DB.GetCollections(ctx)
-	if err != nil {
-		return fmt.Errorf("read stored collections: %w", err)
-	}
-	configured := make(map[string]bool, len(a.chains))
-	for _, c := range a.chains {
-		configured[c.Prefix] = true
-	}
-	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
-	// list means the store holds another chain. A view's name is whatever its SDL declares, so views
-	// are skipped.
-	signatureSuffix := chain.EVM("").BlockSignature.Name
-	for _, col := range cols {
-		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
-		if ok && !col.Version().Query.HasValue() && !configured[prefix] {
-			return fmt.Errorf("%s: %w", prefix, errUnlistedChain)
-		}
+	if err := a.removeUnlistedChains(ctx, n); err != nil {
+		return err
 	}
 
 	var enabled []chain.Config
@@ -70,7 +55,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			},
 			Collections: collections,
 		}
-		err = applier.ApplySchema(ctx, n)
+		err := applier.ApplySchema(ctx, n)
 		if errors.Is(err, schema.ErrSchemaDrift) {
 			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
 			// made by an earlier start is removed.
@@ -102,6 +87,33 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	}
 	a.enabled = enabled
 	a.unanswered = unanswered
+	return nil
+}
+
+// removeUnlistedChains unsubscribes each chain the store holds but chains does not list.
+func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) error {
+	cols, err := n.DB.GetCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored collections: %w", err)
+	}
+	configured := make(map[string]bool, len(a.chains))
+	for _, c := range a.chains {
+		configured[c.Prefix] = true
+	}
+	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
+	// list belongs to a removed chain. A view's name is whatever its SDL declares, so views are
+	// skipped.
+	signatureSuffix := chain.EVM("").BlockSignature.Name
+	for _, col := range cols {
+		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
+		if !ok || col.Version().Query.HasValue() || configured[prefix] {
+			continue
+		}
+		if err := n.DB.DeleteP2PCollections(ctx, chain.EVM(prefix).Subscribed()); err != nil {
+			return fmt.Errorf("unsubscribe removed chain %s: %w", prefix, err)
+		}
+		logger.Sugar.Warnf("Chain %s removed: the config does not list it, so it is unsubscribed; its tables and data stay until the store is wiped", prefix)
+	}
 	return nil
 }
 
