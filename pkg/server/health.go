@@ -57,7 +57,6 @@ type PeerInfo struct {
 type HealthResponse struct {
 	Status           string               `json:"status"`
 	Timestamp        time.Time            `json:"timestamp"`
-	CurrentBlock     int64                `json:"current_block,omitempty"`
 	Chains           []ChainStatus        `json:"chains,omitempty"`
 	LastProcessed    time.Time            `json:"last_processed,omitzero"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
@@ -69,8 +68,6 @@ type HealthResponse struct {
 
 // MetricsResponse represents basic metrics.
 type MetricsResponse struct {
-	BlocksProcessed   *int64        `json:"blocks_processed,omitempty"`
-	CurrentBlock      *int64        `json:"current_block,omitempty"`
 	Chains            []ChainStatus `json:"chains,omitempty"`
 	LastProcessedTime time.Time     `json:"last_processed_time"`
 	Uptime            string        `json:"uptime"`
@@ -167,7 +164,6 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 
 	if hs.host != nil {
 		response.Chains = hs.host.ChainStatuses()
-		response.CurrentBlock, _ = soleCurrentBlock(response.Chains)
 		response.LastProcessed = hs.host.GetLastProcessedTime()
 		p2p, _ := hs.host.GetPeerInfo()
 		response.P2P = p2p
@@ -216,7 +212,6 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 
 	if hs.host != nil {
 		response.Chains = hs.host.ChainStatuses()
-		response.CurrentBlock, _ = soleCurrentBlock(response.Chains)
 		response.LastProcessed = hs.host.GetLastProcessedTime()
 		p2p, err := hs.host.GetPeerInfo()
 		response.P2P = p2p
@@ -252,11 +247,6 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 
 	if hs.host != nil {
 		metrics.Chains = hs.host.ChainStatuses()
-		if block, ok := soleCurrentBlock(metrics.Chains); ok {
-			metrics.CurrentBlock = &block
-			// blocks_processed carries the height, not a count; kept for existing readers.
-			metrics.BlocksProcessed = &block
-		}
 		metrics.LastProcessedTime = hs.host.GetLastProcessedTime()
 	}
 
