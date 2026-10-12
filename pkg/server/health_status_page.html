@@ -424,7 +424,7 @@
                 label.textContent = chain.chain;
                 const value = document.createElement('span');
                 value.className = 'info-value';
-                value.textContent = chain.enabled ? formatNumber(chain.current_block) : 'Disabled';
+                value.textContent = chain.enabled ? formatNumber(chain.current_block) : `Disabled (${chain.reason})`;
                 row.append(label, value);
                 return row;
             }));
