@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -55,16 +56,23 @@ type HostMetrics struct {
 	BuildTags  string `json:"build_tags"`
 	SchemaType string `json:"schema_type"`
 
-	// chains holds each configured chain's counters, in config order.
+	// chains holds each configured chain's counters, in config order, then the removed chains.
 	chains []*ChainMetrics
 }
 
-// ChainMetrics is one configured chain's counters: its relayed documents, its attestation queue and
-// the newest block it attested. Prefix, Enabled and Cutoff are set when it is built and only read
-// after.
+// Reasons a chain in the endpoints' chains list is not enabled.
+const (
+	ReasonSchemaDrift         = "schema_drift"          // Its stored tables match no answering generator's schema
+	ReasonNoGeneratorAnswered = "no_generator_answered" // The store holds none of its tables and no generator answered
+	ReasonRemoved             = "removed"               // The store holds its tables but the config does not list it
+)
+
+// ChainMetrics is one chain's counters: its relayed documents, its attestation queue and the newest
+// block it attested. Prefix, Enabled, Reason and Cutoff are set when it is built and only read after.
 type ChainMetrics struct {
 	Prefix            string
 	Enabled           bool           // Whether the chain is served at this start
+	Reason            string         // Why the chain is not enabled, empty when it is
 	Cutoff            *pruner.Cutoff // The chain's pruner cutoff, nil when the host does not prune
 	DocumentsReceived atomic.Int64
 	QueueDrops        atomic.Int64 // Block signatures dropped because the chain's attestation queue was full
@@ -72,11 +80,13 @@ type ChainMetrics struct {
 	currentBlock      atomic.Int64
 }
 
-// ChainStatus is one configured chain as the health and metrics endpoints report it. CurrentBlock is
-// omitted until the chain attests a block, and Cutoff until its pruner sets one.
+// ChainStatus is one chain as the health and metrics endpoints report it. CurrentBlock is omitted
+// until the chain attests a block, Cutoff until its pruner sets one, and Reason while the chain is
+// enabled.
 type ChainStatus struct {
 	Chain        string `json:"chain"`
 	Enabled      bool   `json:"enabled"`
+	Reason       string `json:"reason,omitempty"`
 	CurrentBlock int64  `json:"current_block,omitempty"`
 	Cutoff       int64  `json:"cutoff,omitempty"`
 }
@@ -104,16 +114,18 @@ func (m *HostMetrics) Chain(prefix string) *ChainMetrics {
 	return nil
 }
 
-// Chains returns every chain's counters, in config order.
+// Chains returns each configured chain's counters, in config order.
 func (m *HostMetrics) Chains() []*ChainMetrics {
-	return m.chains
+	return slices.DeleteFunc(slices.Clone(m.chains), func(c *ChainMetrics) bool {
+		return c.Reason == ReasonRemoved
+	})
 }
 
-// ChainStatuses returns every chain's status, in config order.
+// ChainStatuses returns each configured chain's status, in config order, then each removed chain's.
 func (m *HostMetrics) ChainStatuses() []ChainStatus {
 	statuses := make([]ChainStatus, len(m.chains))
 	for i, c := range m.chains {
-		statuses[i] = ChainStatus{Chain: c.Prefix, Enabled: c.Enabled, CurrentBlock: c.CurrentBlock()}
+		statuses[i] = ChainStatus{Chain: c.Prefix, Enabled: c.Enabled, Reason: c.Reason, CurrentBlock: c.CurrentBlock()}
 		if c.Cutoff != nil {
 			statuses[i].Cutoff = c.Cutoff.Load()
 		}
@@ -122,13 +134,16 @@ func (m *HostMetrics) ChainStatuses() []ChainStatus {
 }
 
 // soleCurrentBlock returns the block the endpoints' top-level height fields report: the chain's
-// current block on a host configured with one chain. With several chains there is none, and ok is
-// false.
+// current block on a host configured with one chain; removed chains do not count. With several
+// configured chains there is none, and ok is false.
 func soleCurrentBlock(chains []ChainStatus) (block int64, ok bool) {
-	if len(chains) != 1 {
+	configured := slices.DeleteFunc(slices.Clone(chains), func(c ChainStatus) bool {
+		return c.Reason == ReasonRemoved
+	})
+	if len(configured) != 1 {
 		return 0, false
 	}
-	return chains[0].CurrentBlock, true
+	return configured[0].CurrentBlock, true
 }
 
 // UpdateCurrentBlock records blockNumber as the chain's current block if it is newer than the one

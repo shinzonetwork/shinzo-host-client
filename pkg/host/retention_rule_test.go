@@ -165,6 +165,17 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 	requireFloors(h)
 	require.Equal(t, []server.ChainStatus{
 		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
-		{Chain: other, Enabled: false, Cutoff: 15},
+		{Chain: other, Enabled: false, Reason: server.ReasonSchemaDrift, Cutoff: 15},
 	}, h.ChainStatuses())
+
+	// Once the config no longer lists the other chain, it is reported as removed.
+	restartCtx, cancelRestart := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelRestart()
+	require.NoError(t, h.Close(restartCtx))
+	cfg.Chains = cfg.Chains[:1]
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	statuses := h.ChainStatuses()
+	require.Len(t, statuses, 2)
+	require.Equal(t, server.ChainStatus{Chain: other, Reason: server.ReasonRemoved}, statuses[1])
 }
