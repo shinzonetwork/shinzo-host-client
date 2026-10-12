@@ -15,6 +15,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
 // chainsApplier creates the chains' tables and subscribes to the enabled chains; ApplySchema says which
@@ -24,9 +25,12 @@ type chainsApplier struct {
 	chains    []chain.Config
 	// enabled is set by ApplySchema to the chains it subscribed to, in config order.
 	enabled []chain.Config
-	// unanswered is set by ApplySchema to the prefixes of the chains it left out because no generator
-	// answered. The store holds none of their tables.
-	unanswered []string
+	// reasons is set by ApplySchema to the reason each chain it disabled is not served, keyed by prefix.
+	// The store holds none of the tables of a chain disabled for server.ReasonNoGeneratorAnswered.
+	reasons map[string]string
+	// removed is set by ApplySchema to the prefixes of the chains the store holds but chains does not
+	// list.
+	removed []string
 }
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
@@ -37,12 +41,13 @@ type chainsApplier struct {
 // returned. A chain the store holds but chains does not list is removed: it is unsubscribed before
 // any table is created, and its tables and data stay until the store is wiped.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
-	if err := a.removeUnlistedChains(ctx, n); err != nil {
+	removed, err := a.removeUnlistedChains(ctx, n)
+	if err != nil {
 		return err
 	}
 
 	var enabled []chain.Config
-	var unanswered []string
+	reasons := make(map[string]string)
 	var disabled []error
 	for _, c := range a.chains {
 		collections := chain.EVM(c.Prefix)
@@ -55,7 +60,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			},
 			Collections: collections,
 		}
-		err := applier.ApplySchema(ctx, n)
+		err = applier.ApplySchema(ctx, n)
 		if errors.Is(err, schema.ErrSchemaDrift) {
 			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
 			// made by an earlier start is removed.
@@ -64,6 +69,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			}
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
 			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
+			reasons[c.Prefix] = server.ReasonSchemaDrift
 			continue
 		}
 		// Generators are asked for a chain's tables only when the store holds none of them, so a
@@ -71,7 +77,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		if errors.Is(err, errNoGeneratorAnswered) {
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
 			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
-			unanswered = append(unanswered, c.Prefix)
+			reasons[c.Prefix] = server.ReasonNoGeneratorAnswered
 			continue
 		}
 		if err != nil {
@@ -86,15 +92,17 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		return fmt.Errorf("%w: %w", errNoChainEnabled, errors.Join(disabled...))
 	}
 	a.enabled = enabled
-	a.unanswered = unanswered
+	a.reasons = reasons
+	a.removed = removed
 	return nil
 }
 
-// removeUnlistedChains unsubscribes each chain the store holds but chains does not list.
-func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) error {
+// removeUnlistedChains unsubscribes each chain the store holds but chains does not list, and returns
+// their prefixes.
+func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) ([]string, error) {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
-		return fmt.Errorf("read stored collections: %w", err)
+		return nil, fmt.Errorf("read stored collections: %w", err)
 	}
 	configured := make(map[string]bool, len(a.chains))
 	for _, c := range a.chains {
@@ -104,17 +112,19 @@ func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) 
 	// list belongs to a removed chain. A view's name is whatever its SDL declares, so views are
 	// skipped.
 	signatureSuffix := chain.EVM("").BlockSignature.Name
+	var removed []string
 	for _, col := range cols {
 		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
 		if !ok || col.Version().Query.HasValue() || configured[prefix] {
 			continue
 		}
 		if err := n.DB.DeleteP2PCollections(ctx, chain.EVM(prefix).Subscribed()); err != nil {
-			return fmt.Errorf("unsubscribe removed chain %s: %w", prefix, err)
+			return nil, fmt.Errorf("unsubscribe removed chain %s: %w", prefix, err)
 		}
 		logger.Sugar.Warnf("Chain %s removed: the config does not list it, so it is unsubscribed; its tables and data stay until the store is wiped", prefix)
+		removed = append(removed, prefix)
 	}
-	return nil
+	return removed, nil
 }
 
 // resolveSchema returns the schema of one of the host's chains. With generators configured, it is

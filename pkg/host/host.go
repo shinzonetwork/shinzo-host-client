@@ -303,13 +303,17 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	// The endpoints report every configured chain, enabled or not, in config order.
+	// The endpoints report every configured chain, enabled or not, in config order, then the removed
+	// chains.
 	chainMetrics := make([]*server.ChainMetrics, len(cfg.Chains))
 	for i, c := range cfg.Chains {
-		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix)}
+		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix), Reason: applier.reasons[c.Prefix]}
 		if pruned != nil {
 			chainMetrics[i].Cutoff = pruned[i].cutoff
 		}
+	}
+	for _, prefix := range applier.removed {
+		chainMetrics = append(chainMetrics, &server.ChainMetrics{Prefix: prefix, Reason: server.ReasonRemoved})
 	}
 	newHost := &Host{
 		DefraNode:              defraNode,
@@ -552,7 +556,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 		for i, c := range cfg.Chains {
 			// A chain no generator answered for has no tables to prune.
-			if slices.Contains(applier.unanswered, c.Prefix) {
+			if applier.reasons[c.Prefix] == server.ReasonNoGeneratorAnswered {
 				continue
 			}
 			chainCfg := cfg.Pruner
@@ -599,7 +603,8 @@ func (h *Host) IsHealthy() bool {
 	return h.DefraNode != nil
 }
 
-// ChainStatuses returns each configured chain's status, in config order, or nil without host metrics.
+// ChainStatuses returns each configured chain's status, in config order, then each removed chain's,
+// or nil without host metrics.
 func (h *Host) ChainStatuses() []server.ChainStatus {
 	if h.metrics == nil {
 		return nil

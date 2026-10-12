@@ -19,6 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
 // generatorSchema returns a schema as a generator serves it for Ethereum mainnet.
@@ -272,7 +273,7 @@ func TestChainsApplier(t *testing.T) {
 	withUnanswered := &chainsApplier{schemaCfg: schemaCfg, chains: append(slices.Clone(chains), unanswered)}
 	require.NoError(t, withUnanswered.ApplySchema(ctx, node))
 	require.Equal(t, chains, withUnanswered.enabled)
-	require.Equal(t, []string{third}, withUnanswered.unanswered)
+	require.Equal(t, map[string]string{third: server.ReasonNoGeneratorAnswered}, withUnanswered.reasons)
 	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
 	require.Error(t, err)
 	got, err = node.DB.ListP2PCollections(ctx)
