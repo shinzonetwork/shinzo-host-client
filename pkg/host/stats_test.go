@@ -2,11 +2,17 @@ package host
 
 import (
 	"context"
+	"regexp"
 	"runtime/metrics"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
@@ -41,7 +47,7 @@ func TestReportStatsStopsWithContext(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		h.reportStats(ctx)
+		h.reportStats(ctx, statsInterval, zap.NewNop().Sugar())
 		close(done)
 	}()
 	cancel()
@@ -51,6 +57,86 @@ func TestReportStatsStopsWithContext(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("reportStats did not return after its context was cancelled")
 	}
+}
+
+// Each chain line reports the documents received since the previous line, in total and per table, so
+// the lines add up to what peers sent after the reporter started.
+func TestReportStatsChainLineReportsChanges(t *testing.T) {
+	c := &server.ChainMetrics{Prefix: "Testchain__Devnet"}
+	h := &Host{metrics: server.NewHostMetrics(c)}
+	// Sent before the reporter starts, so every line reports no change for it.
+	c.RecordDocument("Block")
+
+	core, logs := observer.New(zap.InfoLevel)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		h.reportStats(ctx, 5*time.Millisecond, zap.New(core).Sugar())
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	// sums adds up the docs and docsByTable fields of every chain line logged so far, and returns
+	// the number of lines. It runs inside Eventually's goroutine, so a malformed line is reported
+	// with assert rather than require.
+	line := regexp.MustCompile(`docs=(\d+) docsByTable=(\S+)`)
+	sums := func() (lines int, docs int64, byTable map[string]int64) {
+		byTable = make(map[string]int64)
+		for _, entry := range logs.FilterMessageSnippet("chain stats:").All() {
+			lines++
+			m := line.FindStringSubmatch(entry.Message)
+			if !assert.NotNil(t, m, entry.Message) {
+				continue
+			}
+			n, err := strconv.ParseInt(m[1], 10, 64)
+			assert.NoError(t, err, entry.Message)
+			docs += n
+			for pair := range strings.SplitSeq(m[2], ",") {
+				table, count, _ := strings.Cut(pair, ":")
+				n, err := strconv.ParseInt(count, 10, 64)
+				assert.NoError(t, err, entry.Message)
+				byTable[table] += n
+			}
+		}
+		return lines, docs, byTable
+	}
+
+	// The reporter reads its baseline when it starts, so documents count only after its first line.
+	require.Eventually(t, func() bool {
+		lines, _, _ := sums()
+		return lines > 0
+	}, 5*time.Second, time.Millisecond)
+	for range 3 {
+		c.RecordDocument("Log")
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		_, docs, byTable := sums()
+		assert.Equal(ct, int64(3), docs)
+		assert.Equal(ct, map[string]int64{"Block": 0, "Log": 3}, byTable)
+	}, 5*time.Second, time.Millisecond)
+
+	for range 2 {
+		c.RecordDocument("Transaction")
+	}
+	var seen int
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		lines, docs, byTable := sums()
+		assert.Equal(ct, int64(5), docs)
+		assert.Equal(ct, map[string]int64{"Block": 0, "Log": 3, "Transaction": 2}, byTable)
+		seen = lines
+	}, 5*time.Second, time.Millisecond)
+
+	// Lines logged after the last document report no change.
+	require.Eventually(t, func() bool {
+		lines, _, _ := sums()
+		return lines >= seen+2
+	}, 5*time.Second, time.Millisecond)
+	_, docs, byTable := sums()
+	require.Equal(t, int64(5), docs)
+	require.Equal(t, map[string]int64{"Block": 0, "Log": 3, "Transaction": 2}, byTable)
 }
 
 // An unrecognised name would panic Value.Uint64, and reportStats runs on its own
