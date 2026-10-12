@@ -279,16 +279,20 @@ func TestChainsApplier(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, subscribed, got)
 
-	// The store holds a chain the config does not list, and the config lists a chain the store does
-	// not hold yet, whose generator serves its tables. The unlisted chain is refused before any table
-	// is created.
-	thirdGenerator := httptest.NewServer(schemaHandler(t, third))
-	t.Cleanup(thirdGenerator.Close)
-	thirdChain := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: thirdGenerator.URL}}}
-	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], thirdChain}}).ApplySchema(ctx, node)
-	require.ErrorIs(t, err, errUnlistedChain)
-	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
-	require.Error(t, err)
+	// A stored chain the config no longer lists is unsubscribed and keeps its tables, and listing it
+	// again serves it again.
+	withoutOther := &chainsApplier{schemaCfg: schemaCfg, chains: chains[:1]}
+	require.NoError(t, withoutOther.ApplySchema(ctx, node))
+	require.Equal(t, chains[:1], withoutOther.enabled)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(other).Block.Name)
+	require.NoError(t, err)
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, subscribed, got)
 
 	// The store holds a table the other chain's generator does not serve, so that chain is disabled
 	// and unsubscribed, and the first chain is still served.
