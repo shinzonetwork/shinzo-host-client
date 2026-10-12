@@ -845,9 +845,6 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
 	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
 	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.BlocksProcessed))
-
-	// MostRecentBlock should have been updated
-	require.GreaterOrEqual(t, atomic.LoadUint64(&metrics.MostRecentBlock), uint64(300))
 }
 
 // ---------------------------------------------------------------------------
@@ -1006,7 +1003,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	ctx := context.Background()
 	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, "Testchain__Devnet")
 
-	metrics := server.NewHostMetrics(chain.EthereumMainnet, "Testchain__Devnet")
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet}, &server.ChainMetrics{Prefix: "Testchain__Devnet"})
 	cfg := *DefaultConfig
 	h := &Host{DefraNode: defraNode, chains: chains, config: &cfg, metrics: metrics}
 
@@ -1076,7 +1073,7 @@ func TestStartEventBusListener_CountsQueueDropsPerChain(t *testing.T) {
 	ctx := context.Background()
 	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, flooded)
 
-	metrics := server.NewHostMetrics(chain.EthereumMainnet, flooded)
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet}, &server.ChainMetrics{Prefix: flooded})
 	cfg := *DefaultConfig
 	cfg.Shinzo.DocQueueSize = 1
 	cfg.Shinzo.DocWorkerCount = 1
@@ -1117,7 +1114,8 @@ func TestStartEventBusListener_CountsQueueDropsPerChain(t *testing.T) {
 	require.Zero(t, other.TakeQueuePeak())
 }
 
-// Each chain's relayed block signature is attested in that chain's own AttestationRecord table.
+// Each chain's relayed block signature is attested in that chain's own AttestationRecord table, and
+// raises only that chain's current block.
 func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 	const other = "Testchain__Devnet"
 	ctx := context.Background()
@@ -1125,11 +1123,12 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 
 	cfg := *DefaultConfig
 	attesters := map[string]*observedAttesters{chain.EthereumMainnet: newObservedAttesters(time.Minute), other: newObservedAttesters(time.Minute)}
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet, Enabled: true}, &server.ChainMetrics{Prefix: other, Enabled: true})
 	h := &Host{
 		DefraNode:              defraNode,
 		chains:                 chains,
 		config:                 &cfg,
-		metrics:                server.NewHostMetrics(),
+		metrics:                metrics,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		attesters:              attesters,
 	}
@@ -1140,13 +1139,14 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 	defer cancel()
 	go h.startEventBusListener(listenerCtx, updates)
 
-	// The chains sign different CIDs with different keys, so a record written to the other chain's
-	// table, or a signer observed on the other chain, shows.
+	// Each chain signs a different block and CIDs with its own key, so anything credited to the other
+	// chain shows.
+	blocks := map[string]int{chains[0].Prefix: 42, chains[1].Prefix: 7}
 	cids := make(map[string][]string, len(chains))
 	signers := make(map[string]string, len(chains))
 	for _, c := range chains {
 		cids[c.Prefix] = []string{makeTestCID(c.Prefix)}
-		docID, signer := addSignedBlockSignature(ctx, t, defraNode, c.BlockSignature.Name, 42, cids[c.Prefix])
+		docID, signer := addSignedBlockSignature(ctx, t, defraNode, c.BlockSignature.Name, blocks[c.Prefix], cids[c.Prefix])
 		signers[c.Prefix] = signer
 		col, err := defraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
 		require.NoError(t, err)
@@ -1159,6 +1159,8 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 			if assert.NoError(ct, err) && assert.Len(ct, records, 1, c.Prefix) {
 				assert.Equal(ct, cids[c.Prefix], records[0].CIDs, c.Prefix)
 			}
+			// The worker raises the chain's current block after it writes the record.
+			assert.Equal(ct, int64(blocks[c.Prefix]), metrics.Chain(c.Prefix).CurrentBlock(), c.Prefix)
 		}
 	}, 5*time.Second, 20*time.Millisecond)
 	for _, c := range chains {

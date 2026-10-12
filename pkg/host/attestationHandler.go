@@ -457,7 +457,9 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
 		}
 		if h.metrics != nil {
-			h.metrics.UpdateMostRecentBlock(uint64(blockNumber)) //nolint:gosec // block numbers are always positive
+			if cm := h.metrics.Chain(c.Prefix); cm != nil {
+				cm.UpdateCurrentBlock(blockNumber)
+			}
 		}
 		return
 	}
