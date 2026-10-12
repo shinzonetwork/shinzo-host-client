@@ -192,23 +192,12 @@ func TestHost_IsHealthy_NoDefraNode(t *testing.T) {
 	require.False(t, host.IsHealthy())
 }
 
-func TestHost_GetCurrentBlock(t *testing.T) {
-	metrics := server.NewHostMetrics()
-	metrics.MostRecentBlock = 12345
-
-	host := &Host{
-		metrics: metrics,
-	}
-
-	require.Equal(t, int64(12345), host.GetCurrentBlock())
-}
-
-func TestHost_GetCurrentBlock_NoMetrics(t *testing.T) {
+func TestHost_ChainStatuses_NoMetrics(t *testing.T) {
 	host := &Host{
 		metrics: nil,
 	}
 
-	require.Equal(t, int64(0), host.GetCurrentBlock())
+	require.Nil(t, host.ChainStatuses())
 }
 
 func TestHost_GetLastProcessedTime(t *testing.T) {
@@ -1504,9 +1493,6 @@ func TestStartHostingWithTestConfig(t *testing.T) {
 	require.NotNil(t, host.DefraNode)
 	require.NotNil(t, host.metrics)
 	require.True(t, host.IsHealthy())
-
-	// Verify GetCurrentBlock returns a value
-	_ = host.GetCurrentBlock()
 
 	// Verify GetLastProcessedTime returns a value
 	_ = host.GetLastProcessedTime()

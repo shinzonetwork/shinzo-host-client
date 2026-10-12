@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -296,9 +295,13 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	prefixes := make([]string, len(cfg.Chains))
+	// The endpoints report every configured chain, enabled or not, in config order.
+	chainMetrics := make([]*server.ChainMetrics, len(cfg.Chains))
 	for i, c := range cfg.Chains {
-		prefixes[i] = c.Prefix
+		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix)}
+		if pruned != nil {
+			chainMetrics[i].Cutoff = pruned[i].cutoff
+		}
 	}
 	newHost := &Host{
 		DefraNode:              defraNode,
@@ -309,7 +312,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		config:                 cfg,
-		metrics:                server.NewHostMetrics(prefixes...),
+		metrics:                server.NewHostMetrics(chainMetrics...),
 		attesters:              attesters,
 	}
 	logger.Sugar.Info("🔐 Block signature verifier initialized")
@@ -585,12 +588,12 @@ func (h *Host) IsHealthy() bool {
 	return h.DefraNode != nil
 }
 
-// GetCurrentBlock returns the most recent block height that the host has processed, based on the host's metrics. This is used for monitoring the progress of block processing and data freshness.
-func (h *Host) GetCurrentBlock() int64 {
-	if h.metrics != nil {
-		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock)) //nolint:gosec // block numbers won't exceed int64 max
+// ChainStatuses returns each configured chain's status, in config order, or nil without host metrics.
+func (h *Host) ChainStatuses() []server.ChainStatus {
+	if h.metrics == nil {
+		return nil
 	}
-	return 0
+	return h.metrics.ChainStatuses()
 }
 
 // ProcessViewRegistrationEvent processes a view registration event.

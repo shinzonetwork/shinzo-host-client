@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 )
 
 // ---------------------------------------------------------------------------
@@ -35,7 +37,6 @@ func TestNewHostMetrics(t *testing.T) {
 	require.Equal(t, int64(0), m.BlockSignaturesProcessed)
 	require.Equal(t, int64(0), m.ViewsRegistered)
 	require.Equal(t, int64(0), m.ViewsActive)
-	require.Equal(t, uint64(0), m.MostRecentBlock)
 	// Without branchable build tag, defaults should be "standard" / "non-branchable"
 	require.Equal(t, "standard", m.BuildTags)
 	require.Equal(t, "non-branchable", m.SchemaType)
@@ -43,7 +44,7 @@ func TestNewHostMetrics(t *testing.T) {
 
 // A host's chain counters are found by prefix and listed in config order.
 func TestHostMetricsChains(t *testing.T) {
-	m := NewHostMetrics("Ethereum__Mainnet", "BSC__Mainnet")
+	m := NewHostMetrics(&ChainMetrics{Prefix: "Ethereum__Mainnet"}, &ChainMetrics{Prefix: "BSC__Mainnet"})
 	chains := m.Chains()
 	require.Len(t, chains, 2)
 	require.Equal(t, "Ethereum__Mainnet", chains[0].Prefix)
@@ -54,7 +55,7 @@ func TestHostMetricsChains(t *testing.T) {
 
 // TakeQueuePeak returns the deepest depth observed since the previous call.
 func TestChainMetricsQueuePeak(t *testing.T) {
-	c := NewHostMetrics("Ethereum__Mainnet").Chain("Ethereum__Mainnet")
+	c := &ChainMetrics{Prefix: "Ethereum__Mainnet"}
 	for _, depth := range []int{3, 5, 2} {
 		c.ObserveQueueDepth(depth)
 	}
@@ -177,50 +178,50 @@ func TestUpdateLastProcessingTime(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// UpdateMostRecentBlock
+// ChainMetrics.UpdateCurrentBlock
 // ---------------------------------------------------------------------------
 
-func TestUpdateMostRecentBlock_HigherValue(t *testing.T) {
-	m := NewHostMetrics()
+func TestUpdateCurrentBlock_HigherValue(t *testing.T) {
+	c := &ChainMetrics{}
 
-	m.UpdateMostRecentBlock(100)
-	require.Equal(t, uint64(100), atomic.LoadUint64(&m.MostRecentBlock))
+	c.UpdateCurrentBlock(100)
+	require.Equal(t, int64(100), c.CurrentBlock())
 
-	m.UpdateMostRecentBlock(200)
-	require.Equal(t, uint64(200), atomic.LoadUint64(&m.MostRecentBlock))
+	c.UpdateCurrentBlock(200)
+	require.Equal(t, int64(200), c.CurrentBlock())
 }
 
-func TestUpdateMostRecentBlock_LowerValue_NoOp(t *testing.T) {
-	m := NewHostMetrics()
+func TestUpdateCurrentBlock_LowerValue_NoOp(t *testing.T) {
+	c := &ChainMetrics{}
 
-	m.UpdateMostRecentBlock(200)
-	m.UpdateMostRecentBlock(100) // lower => no-op
-	require.Equal(t, uint64(200), atomic.LoadUint64(&m.MostRecentBlock))
+	c.UpdateCurrentBlock(200)
+	c.UpdateCurrentBlock(100) // lower => no-op
+	require.Equal(t, int64(200), c.CurrentBlock())
 }
 
-func TestUpdateMostRecentBlock_EqualValue_NoOp(t *testing.T) {
-	m := NewHostMetrics()
+func TestUpdateCurrentBlock_EqualValue_NoOp(t *testing.T) {
+	c := &ChainMetrics{}
 
-	m.UpdateMostRecentBlock(200)
-	m.UpdateMostRecentBlock(200) // equal => no-op
-	require.Equal(t, uint64(200), atomic.LoadUint64(&m.MostRecentBlock))
+	c.UpdateCurrentBlock(200)
+	c.UpdateCurrentBlock(200) // equal => no-op
+	require.Equal(t, int64(200), c.CurrentBlock())
 }
 
-func TestUpdateMostRecentBlock_CASRetry(t *testing.T) {
-	m := NewHostMetrics()
+func TestUpdateCurrentBlock_CASRetry(t *testing.T) {
+	c := &ChainMetrics{}
 	const goroutines = 100
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 	for i := range goroutines {
-		go func(n uint64) {
+		go func(n int64) {
 			defer wg.Done()
-			m.UpdateMostRecentBlock(n)
-		}(uint64(i + 1))
+			c.UpdateCurrentBlock(n)
+		}(int64(i + 1))
 	}
 	wg.Wait()
 
-	require.Equal(t, uint64(goroutines), atomic.LoadUint64(&m.MostRecentBlock))
+	require.Equal(t, int64(goroutines), c.CurrentBlock())
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +247,6 @@ func TestGetSnapshot(t *testing.T) {
 	m.IncrementViewsRegistered()
 	m.SetViewsActive(7)
 	m.UpdateLastProcessingTime(1.5)
-	m.UpdateMostRecentBlock(999)
 
 	snap := m.GetSnapshot()
 	require.NotNil(t, snap)
@@ -265,7 +265,6 @@ func TestGetSnapshot(t *testing.T) {
 	require.Equal(t, int64(1), snap.ViewsRegistered)
 	require.Equal(t, int64(7), snap.ViewsActive)
 	require.InDelta(t, 1.5, snap.LastProcessingTime, 1e-9)
-	require.Equal(t, uint64(999), snap.MostRecentBlock)
 	require.Equal(t, m.StartTime, snap.StartTime)
 	require.Equal(t, m.LastDocumentTime, snap.LastDocumentTime)
 	require.Equal(t, m.BuildTags, snap.BuildTags)
@@ -276,29 +275,125 @@ func TestGetSnapshot(t *testing.T) {
 // ServeHTTP
 // ---------------------------------------------------------------------------
 
+// /metrics lists every chain, and reports current_block and metrics.most_recent_block only on a host
+// configured with one chain.
 func TestServeHTTP_JSON(t *testing.T) {
-	m := NewHostMetrics()
-	m.UpdateMostRecentBlock(42)
+	ethCutoff, bscCutoff := &pruner.Cutoff{}, &pruner.Cutoff{}
+	ethCutoff.Raise(30)
+	bscCutoff.Raise(70)
+	tests := []struct {
+		name   string
+		chains []*ChainMetrics
+		blocks []int64 // each chain's current block, 0 for none
+		// wantChains is the chains list as raw JSON, so an omitted field and a 0 differ.
+		wantChains string
+		// wantBlock is current_block and metrics.most_recent_block as raw JSON, "" when both are absent.
+		wantBlock string
+	}{
+		{
+			name:       "one chain",
+			chains:     []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true, Cutoff: ethCutoff}},
+			blocks:     []int64{42},
+			wantChains: `[{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30}]`,
+			wantBlock:  "42",
+		},
+		{
+			name:       "one chain before its first block",
+			chains:     []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true}},
+			blocks:     []int64{0},
+			wantChains: `[{"chain":"Ethereum__Mainnet","enabled":true}]`,
+			wantBlock:  "0",
+		},
+		{
+			name: "several chains",
+			chains: []*ChainMetrics{
+				{Prefix: "Ethereum__Mainnet", Enabled: true, Cutoff: ethCutoff},
+				{Prefix: "BSC__Mainnet", Cutoff: bscCutoff},
+			},
+			blocks: []int64{42, 0},
+			wantChains: `[
+				{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30},
+				{"chain":"BSC__Mainnet","enabled":false,"cutoff":70}
+			]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewHostMetrics(tt.chains...)
+			for i, c := range tt.chains {
+				c.UpdateCurrentBlock(tt.blocks[i])
+			}
 
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	req.Header.Set("Accept", "application/json")
-	w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			req.Header.Set("Accept", "application/json")
+			w := httptest.NewRecorder()
+			m.ServeHTTP(w, req)
 
-	m.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Contains(t, w.Header().Get("Content-Type"), "application/json")
 
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Header().Get("Content-Type"), "application/json")
+			var resp map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Contains(t, resp, "metrics")
+			require.Contains(t, resp, "chains")
+			require.Contains(t, resp, "timestamp")
+			require.Contains(t, resp, "uptime_human")
+			require.Contains(t, resp, "uptime_seconds")
+			require.JSONEq(t, tt.wantChains, string(resp["chains"]))
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			var metrics map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(resp["metrics"], &metrics))
+			// The snapshot's counters sit directly under metrics.
+			require.Contains(t, metrics, "blocks_processed")
+			for name, fields := range map[string]map[string]json.RawMessage{"current_block": resp, "most_recent_block": metrics} {
+				raw, ok := fields[name]
+				require.Equal(t, tt.wantBlock != "", ok, name)
+				if ok {
+					require.JSONEq(t, tt.wantBlock, string(raw), name)
+				}
+			}
+		})
+	}
+}
 
-	require.Contains(t, resp, "metrics")
-	require.Contains(t, resp, "current_block")
-	require.Contains(t, resp, "timestamp")
-	require.Contains(t, resp, "uptime_human")
-	require.Contains(t, resp, "uptime_seconds")
+// On a host configured with one chain, /metrics reports the same block at the top level and in the
+// chain's entry while attestations raise it.
+func TestServeHTTP_HeightsAgree(t *testing.T) {
+	c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: true}
+	m := NewHostMetrics(c)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for n := int64(1); ; n++ {
+			select {
+			case <-stop:
+				return
+			default:
+				c.UpdateCurrentBlock(n)
+			}
+		}
+	})
+	defer wg.Wait()
+	defer close(stop)
 
-	require.Equal(t, float64(42), resp["current_block"])
+	for range 200 {
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		req.Header.Set("Accept", "application/json")
+		w := httptest.NewRecorder()
+		m.ServeHTTP(w, req)
+
+		var resp struct {
+			CurrentBlock int64         `json:"current_block"`
+			Chains       []ChainStatus `json:"chains"`
+			Metrics      struct {
+				MostRecentBlock int64 `json:"most_recent_block"`
+			} `json:"metrics"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.Len(t, resp.Chains, 1)
+		require.Equal(t, resp.Chains[0].CurrentBlock, resp.CurrentBlock)
+		require.Equal(t, resp.CurrentBlock, resp.Metrics.MostRecentBlock)
+	}
 }
 
 func TestServeHTTP_HTML(t *testing.T) {

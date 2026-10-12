@@ -29,7 +29,7 @@ func init() {
 
 type mockHealthChecker struct {
 	healthy       bool
-	currentBlock  int64
+	chains        []ChainStatus
 	lastProcessed time.Time
 	peerInfo      *P2PInfo
 	peerInfoErr   error
@@ -39,7 +39,7 @@ type mockHealthChecker struct {
 }
 
 func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
-func (m *mockHealthChecker) GetCurrentBlock() int64          { return m.currentBlock }
+func (m *mockHealthChecker) ChainStatuses() []ChainStatus    { return m.chains }
 func (m *mockHealthChecker) GetLastProcessedTime() time.Time { return m.lastProcessed }
 func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.peerInfo, m.peerInfoErr }
 func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
@@ -64,7 +64,6 @@ func newHS(host HealthChecker, defraURL string) *HealthServer {
 func TestHealthHandler_GET_Healthy(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  100,
 		lastProcessed: time.Now(),
 		peerInfo:      &P2PInfo{Enabled: true},
 	}
@@ -82,14 +81,12 @@ func TestHealthHandler_GET_Healthy(t *testing.T) {
 	var resp HealthResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "healthy", resp.Status)
-	require.Equal(t, int64(100), resp.CurrentBlock)
 	require.True(t, resp.DefraDBConnected)
 }
 
 func TestHealthHandler_GET_Unhealthy(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       false,
-		currentBlock:  50,
 		lastProcessed: time.Now(),
 	}
 	hs := newHS(mock, "")
@@ -178,6 +175,64 @@ func TestHealthHandler_NilHost(t *testing.T) {
 	require.Equal(t, int64(0), resp.CurrentBlock)
 }
 
+// Each endpoint lists every chain, and reports the top-level height only on a host configured with
+// one chain. /health and /registration omit a 0 height; /stats reports it.
+func TestHandlers_ReportChains(t *testing.T) {
+	oneChain := []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true, CurrentBlock: 100, Cutoff: 90}}
+	oneChainNoBlock := []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true}}
+	twoChains := []ChainStatus{
+		{Chain: "Ethereum__Mainnet", Enabled: true, CurrentBlock: 100, Cutoff: 90},
+		{Chain: "BSC__Mainnet", Enabled: false, Cutoff: 70},
+	}
+	tests := []struct {
+		name   string
+		path   string
+		chains []ChainStatus
+		// want is each top-level height field the body carries, as raw JSON; any other is absent.
+		want map[string]string
+	}{
+		{name: "health, one chain", path: "/health", chains: oneChain, want: map[string]string{"current_block": "100"}},
+		{name: "health, one chain before its first block", path: "/health", chains: oneChainNoBlock, want: map[string]string{}},
+		{name: "health, several chains", path: "/health", chains: twoChains, want: map[string]string{}},
+		{name: "registration, one chain", path: "/registration", chains: oneChain, want: map[string]string{"current_block": "100"}},
+		{name: "registration, several chains", path: "/registration", chains: twoChains, want: map[string]string{}},
+		{name: "stats, one chain", path: "/stats", chains: oneChain, want: map[string]string{"current_block": "100", "blocks_processed": "100"}},
+		{name: "stats, one chain before its first block", path: "/stats", chains: oneChainNoBlock, want: map[string]string{"current_block": "0", "blocks_processed": "0"}},
+		{name: "stats, several chains", path: "/stats", chains: twoChains, want: map[string]string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hs := newHS(&mockHealthChecker{
+				healthy:       true,
+				chains:        tt.chains,
+				lastProcessed: time.Now(),
+				peerInfo:      &P2PInfo{Enabled: true},
+			}, "")
+			handlers := map[string]http.HandlerFunc{"/health": hs.healthHandler, "/registration": hs.registrationHandler, "/stats": hs.metricsHandler}
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("Accept", "application/json")
+			w := httptest.NewRecorder()
+			handlers[tt.path](w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+
+			var body map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			var chains []ChainStatus
+			require.NoError(t, json.Unmarshal(body["chains"], &chains))
+			require.Equal(t, tt.chains, chains)
+			for _, key := range []string{"current_block", "blocks_processed"} {
+				raw, ok := body[key]
+				want, wantOK := tt.want[key]
+				require.Equal(t, wantOK, ok, key)
+				if ok {
+					require.JSONEq(t, want, string(raw), key)
+				}
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // registrationHandler
 // ---------------------------------------------------------------------------
@@ -185,7 +240,6 @@ func TestHealthHandler_NilHost(t *testing.T) {
 func TestRegistrationHandler_GET_Ready(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  200,
 		lastProcessed: time.Now(), // recent => ready
 		peerInfo:      &P2PInfo{Enabled: true},
 		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
@@ -210,7 +264,6 @@ func TestRegistrationHandler_GET_Ready(t *testing.T) {
 func TestRegistrationHandler_GET_NotReady_StaleTime(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  200,
 		lastProcessed: time.Now().Add(-10 * time.Minute), // stale
 		peerInfo:      &P2PInfo{Enabled: true},
 		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
@@ -244,7 +297,6 @@ func TestRegistrationHandler_POST_MethodNotAllowed(t *testing.T) {
 func TestRegistrationHandler_PeerInfoError(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  200,
 		lastProcessed: time.Now(),
 		peerInfo:      nil,
 		peerInfoErr:   errPeerInfo,
@@ -333,27 +385,6 @@ func TestRegistrationAppHandler_SignError(t *testing.T) {
 // metricsHandler (the /stats endpoint)
 // ---------------------------------------------------------------------------
 
-func TestMetricsHandler_GET_WithHost(t *testing.T) {
-	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  300,
-		lastProcessed: time.Now(),
-	}
-	hs := newHS(mock, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
-	w := httptest.NewRecorder()
-
-	hs.metricsHandler(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Header().Get("Content-Type"), "application/json")
-
-	var resp MetricsResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, int64(300), resp.CurrentBlock)
-}
-
 func TestMetricsHandler_GET_WithoutHost(t *testing.T) {
 	hs := newHS(nil, "")
 
@@ -366,7 +397,7 @@ func TestMetricsHandler_GET_WithoutHost(t *testing.T) {
 
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, int64(0), resp.CurrentBlock)
+	require.Nil(t, resp.CurrentBlock)
 }
 
 func TestMetricsHandler_POST_MethodNotAllowed(t *testing.T) {
@@ -628,7 +659,6 @@ func TestRegistrationHandler_NilHost(t *testing.T) {
 func TestRegistrationHandler_ZeroLastProcessed(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  1,
 		lastProcessed: time.Time{}, // zero value
 		peerInfo:      &P2PInfo{Enabled: true},
 		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
@@ -653,7 +683,6 @@ func TestRegistrationHandler_ZeroLastProcessed(t *testing.T) {
 func TestRegistrationHandler_DefraDBNotConnected(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  100,
 		lastProcessed: time.Now(),
 		peerInfo:      &P2PInfo{Enabled: true},
 		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
@@ -758,7 +787,6 @@ func TestHealthServer_StartStop(t *testing.T) {
 func TestRegistrationHandler_SignError_PeerInfoOK(t *testing.T) {
 	mock := &mockHealthChecker{
 		healthy:       true,
-		currentBlock:  100,
 		lastProcessed: time.Now(),
 		peerInfo:      &P2PInfo{Enabled: true},
 		peerInfoErr:   nil,

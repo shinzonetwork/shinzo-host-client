@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"runtime/metrics"
 	"time"
@@ -29,17 +30,19 @@ func blockAdvance(prevBlock, block int64) int64 {
 // chain. Counters are reported as the change since the previous line rather than as running totals,
 // so each line carries a rate. block, viewsActive, procMs, heapMiB, nextGCMiB and goroutines are
 // current values instead, and a chain's queuePeak is the deepest its attestation queue got since the
-// previous line. /metrics exposes the host counters, but only as a snapshot.
+// previous line. A chain's block is the newest block it attested; the host line repeats it only on a
+// host configured with one chain. /metrics exposes the host counters, but only as a snapshot.
 func (h *Host) reportStats(ctx context.Context) {
 	ticker := time.NewTicker(statsInterval)
 	defer ticker.Stop()
 
 	prev := h.metrics.GetSnapshot()
-	prevBlock := h.GetCurrentBlock()
 	chains := h.metrics.Chains()
+	prevBlocks := make([]int64, len(chains))
 	prevDocs := make([]int64, len(chains))
 	prevDrops := make([]int64, len(chains))
 	for i, c := range chains {
+		prevBlocks[i] = c.CurrentBlock()
 		prevDocs[i], prevDrops[i] = c.DocumentsReceived.Load(), c.QueueDrops.Load()
 	}
 
@@ -61,7 +64,14 @@ func (h *Host) reportStats(ctx context.Context) {
 			return
 		case <-ticker.C:
 			cur := h.metrics.GetSnapshot()
-			block := h.GetCurrentBlock()
+			blocks := make([]int64, len(chains))
+			for i, c := range chains {
+				blocks[i] = c.CurrentBlock()
+			}
+			blockFields := ""
+			if len(chains) == 1 {
+				blockFields = fmt.Sprintf("block=%d advance=%d ", blocks[0], blockAdvance(prevBlocks[0], blocks[0]))
+			}
 
 			metrics.Read(samples)
 			heapInUse := metricUint64(samples[0]) + metricUint64(samples[1])
@@ -69,11 +79,11 @@ func (h *Host) reportStats(ctx context.Context) {
 			gcCycles := metricUint64(samples[3])
 
 			logger.Sugar.Infof(
-				"host stats: block=%d advance=%d docs=%d txs=%d logs=%d blockSigs=%d "+
+				"host stats: %sdocs=%d txs=%d logs=%d blockSigs=%d "+
 					"attested=%d attestErrors=%d sigVerified=%d sigFailed=%d "+
 					"viewsActive=%d procMs=%.1f "+
 					"heapMiB=%d nextGCMiB=%d gc=%d goroutines=%d",
-				block, blockAdvance(prevBlock, block),
+				blockFields,
 				cur.DocumentsReceived-prev.DocumentsReceived,
 				cur.TransactionsProcessed-prev.TransactionsProcessed,
 				cur.LogsProcessed-prev.LogsProcessed,
@@ -92,12 +102,12 @@ func (h *Host) reportStats(ctx context.Context) {
 
 			for i, c := range chains {
 				docs, drops := c.DocumentsReceived.Load(), c.QueueDrops.Load()
-				logger.Sugar.Infof("chain stats: chain=%s docs=%d queueDrops=%d queuePeak=%d",
-					c.Prefix, docs-prevDocs[i], drops-prevDrops[i], c.TakeQueuePeak())
+				logger.Sugar.Infof("chain stats: chain=%s block=%d advance=%d docs=%d queueDrops=%d queuePeak=%d",
+					c.Prefix, blocks[i], blockAdvance(prevBlocks[i], blocks[i]), docs-prevDocs[i], drops-prevDrops[i], c.TakeQueuePeak())
 				prevDocs[i], prevDrops[i] = docs, drops
 			}
 
-			prev, prevBlock, prevGC = cur, block, gcCycles
+			prev, prevBlocks, prevGC = cur, blocks, gcCycles
 		}
 	}
 }
