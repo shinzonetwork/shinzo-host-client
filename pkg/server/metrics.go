@@ -29,7 +29,6 @@ type HostMetrics struct {
 	SignatureVerifications int64 `json:"signature_verifications"`
 	SignatureFailures      int64 `json:"signature_failures"`
 
-	BlockSigEventsReceived int64 `json:"block_sig_events_received"`
 	// Document processing metrics
 	DocumentsReceived        int64 `json:"documents_received"`
 	BlocksProcessed          int64 `json:"blocks_processed"`
@@ -227,11 +226,6 @@ func (m *HostMetrics) IncrementSignatureFailures() {
 	atomic.AddInt64(&m.SignatureFailures, 1)
 }
 
-// IncrementBlockSigEventsReceived atomically increments the block sig events received counter.
-func (m *HostMetrics) IncrementBlockSigEventsReceived() {
-	atomic.AddInt64(&m.BlockSigEventsReceived, 1)
-}
-
 // IncrementDocumentsReceived atomically increments the documents received counter.
 func (m *HostMetrics) IncrementDocumentsReceived() {
 	atomic.AddInt64(&m.DocumentsReceived, 1)
@@ -290,7 +284,6 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		AttestationErrors:        atomic.LoadInt64(&m.AttestationErrors),
 		SignatureVerifications:   atomic.LoadInt64(&m.SignatureVerifications),
 		SignatureFailures:        atomic.LoadInt64(&m.SignatureFailures),
-		BlockSigEventsReceived:   atomic.LoadInt64(&m.BlockSigEventsReceived),
 		DocumentsReceived:        atomic.LoadInt64(&m.DocumentsReceived),
 		BlocksProcessed:          atomic.LoadInt64(&m.BlocksProcessed),
 		TransactionsProcessed:    atomic.LoadInt64(&m.TransactionsProcessed),
