@@ -1669,7 +1669,7 @@ func TestHost_Close_Full(t *testing.T) {
 }
 
 // Every enabled chain's generators are dialed, the chain is handed to the attestation listener and its
-// views register; a disabled chain gets none of these.
+// views register; a disabled chain gets none of these, and its stored views are unsubscribed and refused.
 func TestStartHosting_ServesEnabledChains(t *testing.T) {
 	const (
 		other     = "Testchain__Devnet"
@@ -1705,11 +1705,17 @@ func TestStartHosting_ServesEnabledChains(t *testing.T) {
 
 	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	ethLog := view.View{Name: "EthLog", Data: viewbundle.View{Query: chain.EthereumMainnet + "__Log { address }", Sdl: "type EthLog { address: String }"}}
 	otherLog := view.View{Name: "OtherLog", Data: viewbundle.View{Query: other + "__Log { address }", Sdl: "type OtherLog { address: String }"}}
+	require.NoError(t, h.RegisterViewWithManager(context.Background(), ethLog))
 	require.NoError(t, h.RegisterViewWithManager(context.Background(), otherLog))
+	subscribed, err := h.DefraNode.DB.ListP2PCollections(context.Background())
+	require.NoError(t, err)
+	require.Subset(t, subscribed, []string{"EthLog", "OtherLog"})
 
 	// After a restart, the other chain's stored tables differ from what its generator serves, so the
-	// chain is disabled: its generator is not dialed and registering a view on it is refused.
+	// chain is disabled: its generator is not dialed, its stored view is unsubscribed and refused, and
+	// registering a view on it is refused.
 	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1720,7 +1726,16 @@ func TestStartHosting_ServesEnabledChains(t *testing.T) {
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
 	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	subscribed, err = h.DefraNode.DB.ListP2PCollections(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, subscribed, "EthLog")
+	require.NotContains(t, subscribed, "OtherLog")
+	require.False(t, h.viewManager.IsRefused("EthLog"))
+	require.True(t, h.viewManager.IsRefused("OtherLog"))
 	require.ErrorIs(t, h.RegisterViewWithManager(context.Background(), otherLog), view.ErrViewChainNotServed)
+	// The refused view's name stays refused even for a query on a served chain.
+	sameName := view.View{Name: "OtherLog", Data: viewbundle.View{Query: chain.EthereumMainnet + "__Log { address }", Sdl: "type OtherLog { address: String }"}}
+	require.ErrorIs(t, h.RegisterViewWithManager(context.Background(), sameName), view.ErrViewChainNotServed)
 }
 
 // A restart compares the stored tables with the schema the chain's generator serves, and refuses to

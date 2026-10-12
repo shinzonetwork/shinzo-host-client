@@ -62,6 +62,7 @@ type Recording struct {
 //
 // Decision tree for a request to GraphQLPath:
 //   - Body parse fails            -> 400 Bad Request
+//   - View on an unserved chain   -> 404 Not Found
 //   - No view collections         -> pass through (nothing to bill)
 //   - More than one view          -> 400 Bad Request (a record attributes one pool)
 //   - Missing/invalid signature   -> 403 Forbidden
@@ -276,11 +277,17 @@ func (m *Middleware) record(payer common.Address, ext billing.Extensions, view v
 
 // collectViewLookups resolves each top-level collection name through the
 // registry. Returns (lookups, true) when every view in the request has an
-// on-chain address. Returns (nil, false) after writing a 503 response when a
-// registered view is missing its address (fail-closed).
+// on-chain address. Returns (nil, false) after writing a 404 response when a
+// collection is a view on a chain the host does not serve, or a 503 response
+// when a registered view is missing its address (fail-closed).
 func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []string) ([]viewLookup, bool) {
 	var lookups []viewLookup
 	for _, name := range collections {
+		if m.registry.IsRefused(name) {
+			m.log.Infow("billing.deny", "reason", "view_not_served", "view", name)
+			http.Error(w, "view not served by this host", http.StatusNotFound)
+			return nil, false
+		}
 		if !m.registry.IsView(name) {
 			continue
 		}
