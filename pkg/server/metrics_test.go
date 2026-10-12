@@ -30,7 +30,6 @@ func TestNewHostMetrics(t *testing.T) {
 	require.Equal(t, int64(0), m.AttestationErrors)
 	require.Equal(t, int64(0), m.SignatureVerifications)
 	require.Equal(t, int64(0), m.SignatureFailures)
-	require.Equal(t, int64(0), m.BlockSigEventsReceived)
 	require.Equal(t, int64(0), m.DocumentsReceived)
 	require.Equal(t, int64(0), m.BlocksProcessed)
 	require.Equal(t, int64(0), m.TransactionsProcessed)
@@ -142,12 +141,6 @@ func TestIncrementSignatureFailures(t *testing.T) {
 	require.Equal(t, int64(1), atomic.LoadInt64(&m.SignatureFailures))
 }
 
-func TestIncrementBlockSigEventsReceived(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementBlockSigEventsReceived()
-	require.Equal(t, int64(1), atomic.LoadInt64(&m.BlockSigEventsReceived))
-}
-
 func TestIncrementDocumentsReceived(t *testing.T) {
 	m := NewHostMetrics()
 	m.IncrementDocumentsReceived()
@@ -175,7 +168,6 @@ func TestIncrementConcurrent(t *testing.T) {
 			m.IncrementAttestationErrors()
 			m.IncrementSignatureVerifications()
 			m.IncrementSignatureFailures()
-			m.IncrementBlockSigEventsReceived()
 			m.IncrementDocumentsReceived()
 			m.IncrementViewsRegistered()
 		}()
@@ -186,7 +178,6 @@ func TestIncrementConcurrent(t *testing.T) {
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.AttestationErrors))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.SignatureVerifications))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.SignatureFailures))
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.BlockSigEventsReceived))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.DocumentsReceived))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.ViewsRegistered))
 }
@@ -284,7 +275,6 @@ func TestGetSnapshot(t *testing.T) {
 	m.IncrementAttestationErrors()
 	m.IncrementSignatureVerifications()
 	m.IncrementSignatureFailures()
-	m.IncrementBlockSigEventsReceived()
 	m.IncrementDocumentsReceived()
 	m.IncrementBlocksProcessed()
 	m.IncrementTransactionsProcessed()
@@ -302,7 +292,6 @@ func TestGetSnapshot(t *testing.T) {
 	require.Equal(t, int64(1), snap.AttestationErrors)
 	require.Equal(t, int64(1), snap.SignatureVerifications)
 	require.Equal(t, int64(1), snap.SignatureFailures)
-	require.Equal(t, int64(1), snap.BlockSigEventsReceived)
 	require.Equal(t, int64(1), snap.DocumentsReceived)
 	require.Equal(t, int64(1), snap.BlocksProcessed)
 	require.Equal(t, int64(1), snap.TransactionsProcessed)
