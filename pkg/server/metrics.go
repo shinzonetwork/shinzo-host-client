@@ -49,8 +49,7 @@ type HostMetrics struct {
 	LastProcessingTime float64 `json:"last_processing_time_ms"`
 
 	// System metrics
-	StartTime        time.Time `json:"start_time"`
-	LastDocumentTime time.Time `json:"last_document_time"`
+	StartTime time.Time `json:"start_time"`
 
 	// Build configuration metrics
 	BuildTags  string `json:"build_tags"`
@@ -67,8 +66,9 @@ const (
 	ReasonRemoved             = "removed"               // The store holds its tables but the config does not list it
 )
 
-// ChainMetrics is one chain's counters: its relayed documents, its attestation queue and the newest
-// block it attested. Prefix, Enabled, Reason and Cutoff are set when it is built and only read after.
+// ChainMetrics is one chain's counters: its relayed documents and when the last one arrived, its
+// attestation queue and the newest block it attested. Prefix, Enabled, Reason and Cutoff are set
+// when it is built and only read after.
 type ChainMetrics struct {
 	Prefix            string
 	Enabled           bool           // Whether the chain is served at this start
@@ -78,17 +78,25 @@ type ChainMetrics struct {
 	QueueDrops        atomic.Int64 // Block signatures dropped because the chain's attestation queue was full
 	queuePeak         atomic.Int64
 	currentBlock      atomic.Int64
+	lastDocument      atomic.Int64 // Unix nanoseconds of the last document a peer sent, 0 before the first
 }
 
-// ChainStatus is one chain as the health and metrics endpoints report it. CurrentBlock is omitted
-// until the chain attests a block, Cutoff until its pruner sets one, and Reason while the chain is
-// enabled.
+// chainReadyWindow is how long an enabled chain stays ready after its last document, or after the
+// host's start before its first.
+const chainReadyWindow = 5 * time.Minute
+
+// ChainStatus is one chain as the health and metrics endpoints report it. A chain is Ready while it
+// is enabled and its last document, or the host's start before its first, is within
+// chainReadyWindow. CurrentBlock is omitted until the chain attests a block, LastDocumentTime until
+// its first document, Cutoff until its pruner sets one, and Reason while the chain is enabled.
 type ChainStatus struct {
-	Chain        string `json:"chain"`
-	Enabled      bool   `json:"enabled"`
-	Reason       string `json:"reason,omitempty"`
-	CurrentBlock int64  `json:"current_block,omitempty"`
-	Cutoff       int64  `json:"cutoff,omitempty"`
+	Chain            string    `json:"chain"`
+	Enabled          bool      `json:"enabled"`
+	Ready            bool      `json:"ready"`
+	Reason           string    `json:"reason,omitempty"`
+	CurrentBlock     int64     `json:"current_block,omitempty"`
+	LastDocumentTime time.Time `json:"last_document_time,omitzero"`
+	Cutoff           int64     `json:"cutoff,omitempty"`
 }
 
 // NewHostMetrics creates a new metrics instance reporting chains, in the order given.
@@ -123,9 +131,22 @@ func (m *HostMetrics) Chains() []*ChainMetrics {
 
 // ChainStatuses returns each configured chain's status, in config order, then each removed chain's.
 func (m *HostMetrics) ChainStatuses() []ChainStatus {
+	now := time.Now()
 	statuses := make([]ChainStatus, len(m.chains))
 	for i, c := range m.chains {
-		statuses[i] = ChainStatus{Chain: c.Prefix, Enabled: c.Enabled, Reason: c.Reason, CurrentBlock: c.CurrentBlock()}
+		last := c.LastDocumentTime()
+		since := last
+		if since.IsZero() {
+			since = m.StartTime
+		}
+		statuses[i] = ChainStatus{
+			Chain:            c.Prefix,
+			Enabled:          c.Enabled,
+			Ready:            c.Enabled && now.Sub(since) <= chainReadyWindow,
+			Reason:           c.Reason,
+			CurrentBlock:     c.CurrentBlock(),
+			LastDocumentTime: last,
+		}
 		if c.Cutoff != nil {
 			statuses[i].Cutoff = c.Cutoff.Load()
 		}
@@ -148,6 +169,22 @@ func (c *ChainMetrics) UpdateCurrentBlock(blockNumber int64) {
 // first.
 func (c *ChainMetrics) CurrentBlock() int64 {
 	return c.currentBlock.Load()
+}
+
+// RecordDocument counts a document a peer sent for the chain and records when it arrived.
+func (c *ChainMetrics) RecordDocument() {
+	c.DocumentsReceived.Add(1)
+	c.lastDocument.Store(time.Now().UnixNano())
+}
+
+// LastDocumentTime returns when a peer last sent the chain a document, or the zero time before the
+// first.
+func (c *ChainMetrics) LastDocumentTime() time.Time {
+	ns := c.lastDocument.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 // ObserveQueueDepth records depth if it is the deepest the chain's queue has been since the last
@@ -195,7 +232,6 @@ func (m *HostMetrics) IncrementBlockSigEventsReceived() {
 // IncrementDocumentsReceived atomically increments the documents received counter.
 func (m *HostMetrics) IncrementDocumentsReceived() {
 	atomic.AddInt64(&m.DocumentsReceived, 1)
-	m.LastDocumentTime = time.Now()
 }
 
 // IncrementBlocksProcessed atomically increments the blocks processed counter.
@@ -263,7 +299,6 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		// Performance metrics
 		LastProcessingTime: lastProcessingTime,
 		StartTime:          m.StartTime,
-		LastDocumentTime:   m.LastDocumentTime,
 		BuildTags:          m.BuildTags,
 		SchemaType:         m.SchemaType,
 	}
