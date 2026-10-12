@@ -133,19 +133,6 @@ func (m *HostMetrics) ChainStatuses() []ChainStatus {
 	return statuses
 }
 
-// soleCurrentBlock returns the block the endpoints' top-level height fields report: the chain's
-// current block on a host configured with one chain; removed chains do not count. With several
-// configured chains there is none, and ok is false.
-func soleCurrentBlock(chains []ChainStatus) (block int64, ok bool) {
-	configured := slices.DeleteFunc(slices.Clone(chains), func(c ChainStatus) bool {
-		return c.Reason == ReasonRemoved
-	})
-	if len(configured) != 1 {
-		return 0, false
-	}
-	return configured[0].CurrentBlock, true
-}
-
 // UpdateCurrentBlock records blockNumber as the chain's current block if it is newer than the one
 // recorded.
 func (c *ChainMetrics) UpdateCurrentBlock(blockNumber int64) {
@@ -307,23 +294,12 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Add computed metrics
 	uptime := time.Since(snapshot.StartTime)
 
-	// Read once so the top-level heights match the chains list.
-	chains := m.ChainStatuses()
-	metrics := struct {
-		*HostMetrics
-
-		MostRecentBlock *int64 `json:"most_recent_block,omitempty"`
-	}{HostMetrics: snapshot}
 	response := map[string]any{
-		"metrics":        &metrics,
-		"chains":         chains,
+		"metrics":        snapshot,
+		"chains":         m.ChainStatuses(),
 		"timestamp":      time.Now().Unix(),
 		"uptime_human":   uptime.String(),
 		"uptime_seconds": uptime.Seconds(),
-	}
-	if block, ok := soleCurrentBlock(chains); ok {
-		metrics.MostRecentBlock = &block
-		response["current_block"] = block
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
