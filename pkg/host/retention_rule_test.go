@@ -13,6 +13,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
 // namedCollection carries only what ResolveCollections reads: its identity and its fields.
@@ -80,9 +81,10 @@ func TestRetentionRuleFloor(t *testing.T) {
 	}
 }
 
-// Each configured chain's pruner publishes its own cutoff to the retention rule, a drift-disabled
-// chain's included, and Close stops every pruner. Ethereum keeps pruner.max_blocks 2, so blocks 1-10
-// give a cutoff of 8; the other chain keeps its own max_blocks 5, so blocks 1-20 give 15.
+// Each configured chain's pruner publishes its own cutoff to the retention rule and to the chain's
+// status, a drift-disabled chain's included, and Close stops every pruner. Ethereum keeps
+// pruner.max_blocks 2, so blocks 1-10 give a cutoff of 8; the other chain keeps its own max_blocks 5,
+// so blocks 1-20 give 15.
 func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 	const other = "Testchain__Devnet"
 	ctx := context.Background()
@@ -140,6 +142,10 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 		}, 10*time.Second, 50*time.Millisecond)
 	}
 	requireFloors(h)
+	require.Equal(t, []server.ChainStatus{
+		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
+		{Chain: other, Enabled: true, Cutoff: 15},
+	}, h.ChainStatuses())
 
 	// The other chain's stored tables now differ from what its generator serves.
 	_, err = h.DefraNode.DB.AddCollection(ctx, "type "+other+"__Extra { a: Int }")
@@ -157,4 +163,8 @@ func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
 	h, err = StartHosting(&cfg)
 	require.NoError(t, err)
 	requireFloors(h)
+	require.Equal(t, []server.ChainStatus{
+		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
+		{Chain: other, Enabled: false, Cutoff: 15},
+	}, h.ChainStatuses())
 }
