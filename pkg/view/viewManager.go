@@ -51,6 +51,8 @@ type Manager struct {
 	// chainPrefixes are the prefixes of the chains the host serves. Views reading another chain are
 	// refused.
 	chainPrefixes []string
+	// refused holds the names of the views stored in DefraDB that read a chain the host does not serve.
+	refused map[string]bool
 }
 
 // NewManager creates a new Manager for the chains with chainPrefixes, with the given DefraDB node and
@@ -64,6 +66,7 @@ func NewManager(defraNode *node.Node, registryPath string, chainPrefixes ...stri
 		wasmRegistry:  wasmRegistry,
 		registryPath:  registryPath,
 		chainPrefixes: chainPrefixes,
+		refused:       make(map[string]bool),
 	}
 }
 
@@ -221,6 +224,51 @@ func (m *Manager) Chain(viewName string) (string, bool) {
 	return av.Chain, true
 }
 
+// IsRefused reports whether viewName is a view stored in DefraDB that reads a chain the host does not
+// serve.
+func (m *Manager) IsRefused(viewName string) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return m.refused[viewName]
+}
+
+// RefuseUnservedViews unsubscribes every view stored in DefraDB whose data comes from none of the
+// chains the host serves, and records it for IsRefused. A view built on another view takes the chain
+// of the table the views read in the end. DefraDB keeps a view's subscription across restarts and
+// restores it when the node starts, whether or not the host still serves the view's chain. A refused
+// view is subscribed again only when a later start registers it.
+func (m *Manager) RefuseUnservedViews(ctx context.Context) error {
+	cols, err := m.defraNode.DB.GetCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored collections: %w", err)
+	}
+	views := storedViewSources(cols)
+	var names []string
+	for _, col := range cols {
+		source, isView := views[col.Name()]
+		if !isView {
+			continue
+		}
+		if _, _, served := tableChain(source, views, m.chainPrefixes); !served {
+			names = append(names, col.Name())
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	if err := m.defraNode.DB.DeleteP2PCollections(ctx, names); err != nil {
+		return fmt.Errorf("unsubscribe views %v: %w", names, err)
+	}
+	logger.Sugar.Infof("Refused views on chains the host does not serve: %v", names)
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	for _, name := range names {
+		m.refused[name] = true
+	}
+	return nil
+}
+
 // RegisterView implements the full view registration flow with validation.
 // RegisterView registers a view with DefraDB and sets up all required infrastructure.
 func (m *Manager) RegisterView(ctx context.Context, v *View) error {
@@ -234,7 +282,11 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 
 	fixQueryInputData(v)
 
-	table, chainPrefix, err := qualifySourceCollection(v, m.chainPrefixes)
+	cols, err := m.defraNode.DB.GetCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored collections: %w", err)
+	}
+	table, chainPrefix, err := qualifySourceCollection(v, storedViewSources(cols), m.chainPrefixes)
 	if err != nil {
 		return err
 	}
@@ -244,6 +296,11 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 
 	if _, exists := m.activeViews[v.Name]; exists {
 		return fmt.Errorf("view %s: %w", v.Name, ErrViewAlreadyRegistered)
+	}
+	// DefraDB keeps a stored view's definition when it is added again under the same name, so a refused
+	// view would still read its unserved chain.
+	if m.refused[v.Name] {
+		return fmt.Errorf("view %s is refused: %w", v.Name, ErrViewChainNotServed)
 	}
 
 	if err := m.prepareWasm(v); err != nil {
@@ -304,31 +361,80 @@ func (m *Manager) setupLens(ctx context.Context, v *View) (string, error) {
 	return lensCID, nil
 }
 
-// qualifySourceCollection writes the chain into the view's source table and returns the table and
-// the prefix of its chain. It returns ErrViewQueryInvalid when the query does not read one table,
-// and ErrViewChainNotServed when the table belongs to none of chainPrefixes. A table named without
+// qualifySourceCollection writes the chain into the view's source and returns the source with its
+// chain prefix and the prefix of the chain its data comes from: for a stored view, the chain of the
+// table it reads (see tableChain). It returns ErrViewQueryInvalid when the query does not read one
+// table, and ErrViewChainNotServed when that chain is none of chainPrefixes. A table named without
 // a chain, such as Log, is read as Ethereum mainnet's, so such views run only on a host that serves
-// Ethereum mainnet.
-func qualifySourceCollection(v *View, chainPrefixes []string) (string, string, error) {
+// Ethereum mainnet. views maps each stored view to its source, as storedViewSources returns it.
+func qualifySourceCollection(v *View, views map[string]string, chainPrefixes []string) (string, string, error) {
 	source, at, err := sourceTable(v.Data.Query)
 	if err != nil {
 		return "", "", fmt.Errorf("view %s: %w", v.Name, err)
 	}
-	table := source
-	if !strings.Contains(source, "__") {
-		table = chain.EthereumMainnet + "__" + source
-	}
-	match := slices.IndexFunc(chainPrefixes, func(prefix string) bool {
-		return strings.HasPrefix(table, prefix+"__")
-	})
-	if match < 0 {
+	table, prefix, served := tableChain(source, views, chainPrefixes)
+	if !served {
 		return "", "", fmt.Errorf("view %s reads %s: %w", v.Name, table, ErrViewChainNotServed)
 	}
 	if table != source {
 		v.Data.Query = v.Data.Query[:at] + table + v.Data.Query[at+len(source):]
 		logger.Sugar.Debugf("Fixed collection name: %s → %s", source, table)
 	}
-	return table, chainPrefixes[match], nil
+	return table, prefix, nil
+}
+
+// tableChain returns the table named source with its chain prefix, and the prefix in chainPrefixes
+// of the chain the table's data comes from. served is false when it is none of them. A table named
+// without a chain is Ethereum mainnet's. views maps each stored view to its source: when source is a
+// view, the chain is that of the table the view reads, through any views it is built on, whatever
+// the views' names say.
+func tableChain(source string, views map[string]string, chainPrefixes []string) (table, prefix string, served bool) {
+	table = withChain(source)
+	// Stored views are looked up by the names they are stored under, which may carry no chain: source
+	// as written when a view is stored under it, then each source a view's query names. Only the name
+	// the walk ends at, which is no stored view's, is read as Ethereum mainnet's when it names no
+	// chain.
+	read := table
+	if _, isView := views[source]; isView {
+		read = source
+	}
+	// The walk takes at most one step per stored view, so it ends even if stored views read each
+	// other in a loop.
+	for range len(views) {
+		next, isView := views[read]
+		if !isView {
+			break
+		}
+		read = next
+	}
+	read = withChain(read)
+	i := slices.IndexFunc(chainPrefixes, func(p string) bool {
+		return strings.HasPrefix(read, p+"__")
+	})
+	if i < 0 {
+		return table, "", false
+	}
+	return table, chainPrefixes[i], true
+}
+
+// withChain returns name, with Ethereum mainnet's prefix when name carries no chain.
+func withChain(name string) string {
+	if strings.Contains(name, "__") {
+		return name
+	}
+	return chain.EthereumMainnet + "__" + name
+}
+
+// storedViewSources returns the table or view each view stored in cols reads, keyed by the view's
+// name.
+func storedViewSources(cols []client.Collection) map[string]string {
+	sources := make(map[string]string)
+	for _, col := range cols {
+		if query := col.Version().Query; query.HasValue() {
+			sources[col.Name()] = query.Value().Query.Name
+		}
+	}
+	return sources
 }
 
 // sourceTable returns the table a view's query reads and the byte offset of the table's name in the

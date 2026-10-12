@@ -356,6 +356,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// View manager has to be built before the ACP middleware because the
 	// middleware's view registry adapts the manager's accessors.
 	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, enabledPrefixes...)
+	if err := viewManager.RefuseUnservedViews(ctx); err != nil {
+		return nil, fmt.Errorf("refuse views on unserved chains: %w", err)
+	}
 
 	apiHandler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
 	if err != nil {
