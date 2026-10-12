@@ -26,16 +26,6 @@ func TestNewHostMetrics(t *testing.T) {
 	m := NewHostMetrics()
 	require.NotNil(t, m)
 	require.False(t, m.StartTime.IsZero(), "StartTime must be set")
-	require.Equal(t, int64(0), m.AttestationsCreated)
-	require.Equal(t, int64(0), m.AttestationErrors)
-	require.Equal(t, int64(0), m.SignatureVerifications)
-	require.Equal(t, int64(0), m.SignatureFailures)
-	require.Equal(t, int64(0), m.DocumentsReceived)
-	require.Equal(t, int64(0), m.BlocksProcessed)
-	require.Equal(t, int64(0), m.TransactionsProcessed)
-	require.Equal(t, int64(0), m.LogsProcessed)
-	require.Equal(t, int64(0), m.AccessListsProcessed)
-	require.Equal(t, int64(0), m.BlockSignaturesProcessed)
 	require.Equal(t, int64(0), m.ViewsRegistered)
 	require.Equal(t, int64(0), m.ViewsActive)
 	// Without branchable build tag, defaults should be "standard" / "non-branchable"
@@ -96,7 +86,7 @@ func TestRecordDocument(t *testing.T) {
 	m.StartTime = stale
 	require.False(t, m.ChainStatuses()[0].Ready)
 
-	c.RecordDocument()
+	c.RecordDocument("Block")
 	require.True(t, m.ChainStatuses()[0].Ready)
 }
 
@@ -113,39 +103,6 @@ func TestChainMetricsQueuePeak(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Increment* methods – single and concurrent
 // ---------------------------------------------------------------------------
-
-func TestIncrementAttestationsCreated(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementAttestationsCreated()
-	m.IncrementAttestationsCreated()
-	require.Equal(t, int64(2), atomic.LoadInt64(&m.AttestationsCreated))
-}
-
-func TestIncrementAttestationErrors(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementAttestationErrors()
-	require.Equal(t, int64(1), atomic.LoadInt64(&m.AttestationErrors))
-}
-
-func TestIncrementSignatureVerifications(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementSignatureVerifications()
-	m.IncrementSignatureVerifications()
-	m.IncrementSignatureVerifications()
-	require.Equal(t, int64(3), atomic.LoadInt64(&m.SignatureVerifications))
-}
-
-func TestIncrementSignatureFailures(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementSignatureFailures()
-	require.Equal(t, int64(1), atomic.LoadInt64(&m.SignatureFailures))
-}
-
-func TestIncrementDocumentsReceived(t *testing.T) {
-	m := NewHostMetrics()
-	m.IncrementDocumentsReceived()
-	require.Equal(t, int64(1), atomic.LoadInt64(&m.DocumentsReceived))
-}
 
 func TestIncrementViewsRegistered(t *testing.T) {
 	m := NewHostMetrics()
@@ -164,21 +121,11 @@ func TestIncrementConcurrent(t *testing.T) {
 	for range goroutines {
 		go func() {
 			defer wg.Done()
-			m.IncrementAttestationsCreated()
-			m.IncrementAttestationErrors()
-			m.IncrementSignatureVerifications()
-			m.IncrementSignatureFailures()
-			m.IncrementDocumentsReceived()
 			m.IncrementViewsRegistered()
 		}()
 	}
 	wg.Wait()
 
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.AttestationsCreated))
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.AttestationErrors))
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.SignatureVerifications))
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.SignatureFailures))
-	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.DocumentsReceived))
 	require.Equal(t, int64(goroutines), atomic.LoadInt64(&m.ViewsRegistered))
 }
 
@@ -270,17 +217,6 @@ func TestGetSnapshot(t *testing.T) {
 	m := NewHostMetrics()
 
 	// Set a variety of fields
-	m.IncrementAttestationsCreated()
-	m.IncrementAttestationsCreated()
-	m.IncrementAttestationErrors()
-	m.IncrementSignatureVerifications()
-	m.IncrementSignatureFailures()
-	m.IncrementDocumentsReceived()
-	m.IncrementBlocksProcessed()
-	m.IncrementTransactionsProcessed()
-	m.IncrementLogsProcessed()
-	m.IncrementAccessListsProcessed()
-	m.IncrementBlockSignaturesProcessed()
 	m.IncrementViewsRegistered()
 	m.SetViewsActive(7)
 	m.UpdateLastProcessingTime(1.5)
@@ -288,16 +224,6 @@ func TestGetSnapshot(t *testing.T) {
 	snap := m.GetSnapshot()
 	require.NotNil(t, snap)
 
-	require.Equal(t, int64(2), snap.AttestationsCreated)
-	require.Equal(t, int64(1), snap.AttestationErrors)
-	require.Equal(t, int64(1), snap.SignatureVerifications)
-	require.Equal(t, int64(1), snap.SignatureFailures)
-	require.Equal(t, int64(1), snap.DocumentsReceived)
-	require.Equal(t, int64(1), snap.BlocksProcessed)
-	require.Equal(t, int64(1), snap.TransactionsProcessed)
-	require.Equal(t, int64(1), snap.LogsProcessed)
-	require.Equal(t, int64(1), snap.AccessListsProcessed)
-	require.Equal(t, int64(1), snap.BlockSignaturesProcessed)
 	require.Equal(t, int64(1), snap.ViewsRegistered)
 	require.Equal(t, int64(7), snap.ViewsActive)
 	require.InDelta(t, 1.5, snap.LastProcessingTime, 1e-9)
@@ -309,6 +235,11 @@ func TestGetSnapshot(t *testing.T) {
 // ---------------------------------------------------------------------------
 // ServeHTTP
 // ---------------------------------------------------------------------------
+
+// noCounts is a chain's counters in /metrics before it counts anything.
+const noCounts = `"documents_received":0,"documents_by_table":{},` +
+	`"block_signatures_processed":0,"signature_verifications":0,"signature_failures":0,"attestations_created":0,` +
+	`"attestation_errors":0`
 
 // /metrics lists every chain and reports heights only per chain.
 func TestServeHTTP_JSON(t *testing.T) {
@@ -329,7 +260,7 @@ func TestServeHTTP_JSON(t *testing.T) {
 			chains:       []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true}},
 			blocks:       []int64{0},
 			lastDocument: lastDocument,
-			wantChains:   fmt.Sprintf(`[{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"last_document_time":%q}]`, lastDocument.Format(time.RFC3339Nano)),
+			wantChains:   fmt.Sprintf(`[{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"last_document_time":%q,%s}]`, lastDocument.Format(time.RFC3339Nano), noCounts),
 		},
 		{
 			name: "several chains",
@@ -339,8 +270,8 @@ func TestServeHTTP_JSON(t *testing.T) {
 			},
 			blocks: []int64{42, 0},
 			wantChains: `[
-				{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"current_block":42,"cutoff":30},
-				{"chain":"BSC__Mainnet","enabled":false,"ready":false,"reason":"schema_drift","cutoff":70}
+				{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"current_block":42,"cutoff":30,` + noCounts + `},
+				{"chain":"BSC__Mainnet","enabled":false,"ready":false,"reason":"schema_drift","cutoff":70,` + noCounts + `}
 			]`,
 		},
 		{
@@ -351,8 +282,8 @@ func TestServeHTTP_JSON(t *testing.T) {
 			},
 			blocks: []int64{42, 0},
 			wantChains: `[
-				{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"current_block":42,"cutoff":30},
-				{"chain":"BSC__Mainnet","enabled":false,"ready":false,"reason":"removed"}
+				{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"current_block":42,"cutoff":30,` + noCounts + `},
+				{"chain":"BSC__Mainnet","enabled":false,"ready":false,"reason":"removed",` + noCounts + `}
 			]`,
 		},
 	}
@@ -388,9 +319,43 @@ func TestServeHTTP_JSON(t *testing.T) {
 			var metrics map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(resp["metrics"], &metrics))
 			// The snapshot's counters sit directly under metrics.
-			require.Contains(t, metrics, "blocks_processed")
+			require.Contains(t, metrics, "views_registered")
 		})
 	}
+}
+
+// /metrics reports each chain's counters in that chain's entry.
+func TestServeHTTP_ChainCounters(t *testing.T) {
+	eth := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: true}
+	bsc := &ChainMetrics{Prefix: "BSC__Mainnet", Enabled: true}
+	// Every counter gets a different value, so a counter reported under another's key fails.
+	bsc.RecordDocument("Transaction")
+	bsc.RecordDocument("Log")
+	bsc.RecordDocument("Log")
+	for i, counter := range []*atomic.Int64{
+		&bsc.BlockSignaturesProcessed, &bsc.SignatureVerifications, &bsc.SignatureFailures,
+		&bsc.AttestationsCreated, &bsc.AttestationErrors,
+	} {
+		counter.Add(int64(i + 4))
+	}
+	m := NewHostMetrics(eth, bsc)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	m.ServeHTTP(w, req)
+
+	var resp struct {
+		Chains []json.RawMessage `json:"chains"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Chains, 2)
+	require.JSONEq(t, `{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,`+noCounts+`}`, string(resp.Chains[0]))
+	lastDocument := bsc.LastDocumentTime().Format(time.RFC3339Nano)
+	require.JSONEq(t, `{"chain":"BSC__Mainnet","enabled":true,"ready":true,"last_document_time":"`+lastDocument+`",`+
+		`"documents_received":3,"documents_by_table":{"Log":2,"Transaction":1},`+
+		`"block_signatures_processed":4,"signature_verifications":5,"signature_failures":6,`+
+		`"attestations_created":7,"attestation_errors":8}`, string(resp.Chains[1]))
 }
 
 func TestServeHTTP_HTML(t *testing.T) {

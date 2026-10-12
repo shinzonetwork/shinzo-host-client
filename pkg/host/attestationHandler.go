@@ -125,9 +125,10 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 	workerCount, queueSize := h.docQueueSettings()
 	chains := make([]*attestedChain, len(h.chains))
 	for i, c := range h.chains {
-		chains[i] = &attestedChain{collections: c, signatures: make(chan string, queueSize)}
-		if h.metrics != nil {
-			chains[i].metrics = h.metrics.Chain(c.Prefix)
+		chains[i] = &attestedChain{
+			collections: c,
+			signatures:  make(chan string, queueSize),
+			metrics:     h.chainMetrics(c.Prefix),
 		}
 		for range workerCount {
 			workers.Go(func() { h.signatureWorker(workerCtx, chains[i]) })
@@ -179,19 +180,10 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 				c := table.chain.collections
 				m := table.chain.metrics
 				if m != nil {
-					m.RecordDocument()
-				}
-				if h.metrics != nil {
-					h.metrics.IncrementDocumentsReceived()
-					switch table.name {
-					case c.Transaction.Name:
-						h.metrics.IncrementTransactionsProcessed()
-					case c.Log.Name:
-						h.metrics.IncrementLogsProcessed()
-					case c.AccessListEntry.Name:
-						h.metrics.IncrementAccessListsProcessed()
-					case c.BlockSignature.Name:
-						h.metrics.IncrementBlockSignaturesProcessed()
+					// Keyed without the chain prefix, so every chain reports its tables under the same names.
+					m.RecordDocument(strings.TrimPrefix(table.name, c.Prefix+"__"))
+					if table.name == c.BlockSignature.Name {
+						m.BlockSignaturesProcessed.Add(1)
 					}
 				}
 				if table.name == c.BlockSignature.Name {
@@ -344,8 +336,8 @@ func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationServi
 func (h *Host) verifyBlockSignature(prefix string, blockSig *attestationService.BlockSignature) bool {
 	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig); err != nil {
 		logger.Sugar.Warnf("Invalid block signature for block %d: %v (chain: %s)", blockSig.BlockNumber, err, prefix)
-		if h.metrics != nil {
-			h.metrics.IncrementSignatureFailures()
+		if m := h.chainMetrics(prefix); m != nil {
+			m.SignatureFailures.Add(1)
 		}
 		return false
 	}
@@ -356,8 +348,8 @@ func (h *Host) verifyBlockSignature(prefix string, blockSig *attestationService.
 			logger.Sugar.Warnf("Block %d: CID list verification error: %v (chain: %s)", blockSig.BlockNumber, cidErr, prefix)
 		} else if !cidMatch {
 			logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root (chain: %s)", blockSig.BlockNumber, prefix)
-			if h.metrics != nil {
-				h.metrics.IncrementSignatureFailures()
+			if m := h.chainMetrics(prefix); m != nil {
+				m.SignatureFailures.Add(1)
 			}
 			return false
 		}
@@ -390,8 +382,8 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collec
 			set.Observe(blockSig.SignatureIdentity)
 		}
 
-		if h.metrics != nil {
-			h.metrics.IncrementSignatureVerifications()
+		if m := h.chainMetrics(c.Prefix); m != nil {
+			m.SignatureVerifications.Add(1)
 		}
 
 		h.blockSignatureVerifier.AddBlockSignature(blockSig)
@@ -427,6 +419,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 		BlockNumber:   &blockNumber,
 	}
 
+	m := h.chainMetrics(c.Prefix)
 	var lastErr error
 	for attempt := range maxAttestationRetries {
 		created, err := attestationService.PostAttestationRecord(ctx, h.DefraNode, c.AttestationRecord.Name, record)
@@ -442,32 +435,38 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 			}
 			// Non-retryable error
 			logger.Sugar.Warnf("Failed to post attestation for block %d: %v (chain: %s)", blockNumber, err, c.Prefix)
-			if h.metrics != nil {
-				h.metrics.IncrementAttestationErrors()
+			if m != nil {
+				m.AttestationErrors.Add(1)
 			}
 			return
 		}
 		if created {
-			if h.metrics != nil {
-				h.metrics.IncrementAttestationsCreated()
-				h.metrics.IncrementBlocksProcessed()
+			if m != nil {
+				m.AttestationsCreated.Add(1)
 			}
 			logger.Sugar.Infof("Created attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
 		} else {
 			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
 		}
-		if h.metrics != nil {
-			if cm := h.metrics.Chain(c.Prefix); cm != nil {
-				cm.UpdateCurrentBlock(blockNumber)
-			}
+		if m != nil {
+			m.UpdateCurrentBlock(blockNumber)
 		}
 		return
 	}
 
 	logger.Sugar.Warnf("Failed to post attestation for block %d after retries: %v (chain: %s)", blockNumber, lastErr, c.Prefix)
-	if h.metrics != nil {
-		h.metrics.IncrementAttestationErrors()
+	if m != nil {
+		m.AttestationErrors.Add(1)
 	}
+}
+
+// chainMetrics returns the counters of the chain with prefix, or nil when the host keeps no
+// metrics or none for that chain.
+func (h *Host) chainMetrics(prefix string) *server.ChainMetrics {
+	if h.metrics == nil {
+		return nil
+	}
+	return h.metrics.Chain(prefix)
 }
 
 func truncateString(s string, maxLen int) string {

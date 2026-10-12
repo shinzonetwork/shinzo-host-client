@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -532,14 +531,14 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	h := &Host{
 		DefraNode:              defraNode,
 		blockSignatureVerifier: bsv,
-		metrics:                server.NewHostMetrics(),
+		metrics:                server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix}),
 	}
 
 	// This exercises the verifier path - will fail verification but should not panic
 	h.processBlockSignatureDocument(ctx, testCollections, doc)
 
 	// Signature failures should have been incremented
-	require.True(t, h.metrics.SignatureFailures > 0, "signature failures should be incremented")
+	require.Equal(t, int64(1), h.metrics.Chain(testCollections.Prefix).SignatureFailures.Load(), "signature failures should be incremented")
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +552,7 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	metrics := server.NewHostMetrics()
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix})
 
 	h := &Host{
 		DefraNode: defraNode,
@@ -571,7 +570,8 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
 
 	// Verify metrics were updated
-	require.True(t, metrics.AttestationsCreated > 0 || metrics.AttestationErrors > 0,
+	counters := metrics.Chain(testCollections.Prefix).Counters()
+	require.True(t, counters.AttestationsCreated > 0 || counters.AttestationErrors > 0,
 		"either attestations created or errors should be incremented")
 
 	// Second call with the same block updates the record
@@ -758,7 +758,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
-	metrics := server.NewHostMetrics()
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix})
 	h := &Host{
 		DefraNode:              defraNode,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
@@ -767,8 +767,9 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 
 	h.processBlockSignatureDocument(ctx, testCollections, doc)
 
-	require.Greater(t, atomic.LoadInt64(&metrics.SignatureVerifications), int64(0))
-	require.Equal(t, int64(0), atomic.LoadInt64(&metrics.SignatureFailures))
+	counters := metrics.Chain(testCollections.Prefix).Counters()
+	require.Equal(t, int64(1), counters.SignatureVerifications)
+	require.Zero(t, counters.SignatureFailures)
 }
 
 // ---------------------------------------------------------------------------
@@ -824,7 +825,7 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	metrics := server.NewHostMetrics()
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix})
 	h := &Host{
 		DefraNode: defraNode,
 		metrics:   metrics,
@@ -837,14 +838,37 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 		CIDs:              []string{testCIDName1, testCIDName2},
 	}
 
+	created := &metrics.Chain(testCollections.Prefix).AttestationsCreated
+
 	// First call creates attestation
 	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
-	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
+	require.Equal(t, int64(1), created.Load())
 
 	// Second call updates the record, so nothing more is counted as created
 	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
-	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
-	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.BlocksProcessed))
+	require.Equal(t, int64(1), created.Load())
+}
+
+// A failed attestation write counts as an error on its chain.
+func TestProcessAttestationsFromBlockSignature_CountsErrors(t *testing.T) {
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	// The store holds no tables for this chain, so writing its record fails.
+	unstored := chain.EVM("Unstored__Chain")
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: unstored.Prefix})
+	h := &Host{DefraNode: defraNode, metrics: metrics}
+
+	h.processAttestationsFromBlockSignature(ctx, unstored, &attestationService.BlockSignature{
+		BlockNumber:       300,
+		MerkleRoot:        "abcdef",
+		SignatureIdentity: testSignerAddr,
+		CIDs:              []string{testCIDName1},
+	})
+	require.Equal(t, int64(1), metrics.Chain(unstored.Prefix).AttestationErrors.Load())
 }
 
 // ---------------------------------------------------------------------------
@@ -956,7 +980,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
-	metrics := server.NewHostMetrics()
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix})
 	h := &Host{
 		DefraNode:              defraNode,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
@@ -966,7 +990,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	h.processBlockSignatureDocument(ctx, testCollections, doc)
 
 	// Signature itself is valid, but CID mismatch should trigger failure
-	require.Greater(t, atomic.LoadInt64(&metrics.SignatureFailures), int64(0),
+	require.Equal(t, int64(1), metrics.Chain(testCollections.Prefix).SignatureFailures.Load(),
 		"CID mismatch should increment signature failures")
 }
 
@@ -997,8 +1021,8 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 // startEventBusListener - relay event with metrics and collection routing
 // ---------------------------------------------------------------------------
 
-// The listener counts each document a peer sends under its chain's collection, records the chain's
-// last document time, and ignores updates for collections outside the chains.
+// The listener counts each document a peer sends under its chain and table, records the chain's last
+// document time, and ignores updates for collections outside the chains.
 func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	ctx := context.Background()
 	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, "Testchain__Devnet")
@@ -1022,8 +1046,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 
 	// Each collection of each chain gets a different number of updates, so a counter wired to the
 	// wrong collection, or a chain the listener does not know, ends with the wrong count.
-	var total, transactions, logs, accessListEntries, blockSignatures int
-	perChain := make(map[string]int, len(chains))
+	want := make(map[string]server.ChainCounters, len(chains))
 	for i, c := range chains {
 		relays := map[string]int{
 			c.Block.Name:           1 + 5*i,
@@ -1032,6 +1055,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 			c.AccessListEntry.Name: 4 + 5*i,
 			c.BlockSignature.Name:  5 + 5*i,
 		}
+		var total int
 		for name, n := range relays {
 			col, err := defraNode.DB.GetCollectionByName(ctx, name)
 			require.NoError(t, err)
@@ -1039,24 +1063,23 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 				relay(col.CollectionID())
 			}
 			total += n
-			perChain[c.Prefix] += n
 		}
-		transactions += relays[c.Transaction.Name]
-		logs += relays[c.Log.Name]
-		accessListEntries += relays[c.AccessListEntry.Name]
-		blockSignatures += relays[c.BlockSignature.Name]
+		want[c.Prefix] = server.ChainCounters{
+			DocumentsReceived: int64(total),
+			DocumentsByTable: map[string]int64{
+				"Block":           int64(relays[c.Block.Name]),
+				"Transaction":     int64(relays[c.Transaction.Name]),
+				"Log":             int64(relays[c.Log.Name]),
+				"AccessListEntry": int64(relays[c.AccessListEntry.Name]),
+				"BlockSignature":  int64(relays[c.BlockSignature.Name]),
+			},
+			BlockSignaturesProcessed: int64(relays[c.BlockSignature.Name]),
+		}
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		assert.Equal(ct, int64(total), atomic.LoadInt64(&metrics.DocumentsReceived))
-		assert.Equal(ct, int64(transactions), atomic.LoadInt64(&metrics.TransactionsProcessed))
-		assert.Equal(ct, int64(logs), atomic.LoadInt64(&metrics.LogsProcessed))
-		assert.Equal(ct, int64(accessListEntries), atomic.LoadInt64(&metrics.AccessListsProcessed))
-		assert.Equal(ct, int64(blockSignatures), atomic.LoadInt64(&metrics.BlockSignaturesProcessed))
-		// A relayed Block counts only as received.
-		assert.Zero(ct, atomic.LoadInt64(&metrics.BlocksProcessed))
-		for prefix, n := range perChain {
-			assert.Equal(ct, int64(n), metrics.Chain(prefix).DocumentsReceived.Load(), prefix)
+		for prefix, counters := range want {
+			assert.Equal(ct, counters, metrics.Chain(prefix).Counters(), prefix)
 			assert.False(ct, metrics.Chain(prefix).LastDocumentTime().Before(sent), prefix)
 		}
 	}, 5*time.Second, 10*time.Millisecond)
