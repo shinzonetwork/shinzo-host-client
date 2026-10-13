@@ -36,8 +36,8 @@ make start-playground
 
 Or manually:
 ```bash
-go build -tags hostplayground -o bin/host cmd/main.go
-go run -tags hostplayground cmd/main.go
+go build -tags hostplayground -o bin/host ./cmd/
+go run -tags hostplayground ./cmd/
 ```
 
 ## Using the Playground

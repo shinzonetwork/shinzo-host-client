@@ -20,11 +20,13 @@ import (
 )
 
 // attestedChain is an enabled chain as the attestation listener serves it: its tables, the queue of
-// its block signatures waiting for one of its workers, and its counters (nil without host metrics).
+// its block signatures waiting for one of its workers, its counters (nil without host metrics) and
+// its OpenTelemetry attributes (nil without instruments).
 type attestedChain struct {
 	collections chain.Collections
 	signatures  chan string
 	metrics     *server.ChainMetrics
+	instruments *chainInstruments
 }
 
 // chainTable is one of an enabled chain's tables.
@@ -129,6 +131,10 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 			collections: c,
 			signatures:  make(chan string, queueSize),
 			metrics:     h.chainMetrics(c.Prefix),
+			instruments: h.instruments.chain(c.Prefix),
+		}
+		if o := chains[i].instruments; o != nil {
+			o.queue.Store(&chains[i].signatures)
 		}
 		for range workerCount {
 			workers.Go(func() { h.signatureWorker(workerCtx, chains[i]) })
@@ -179,6 +185,10 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 
 				c := table.chain.collections
 				m := table.chain.metrics
+				o := table.chain.instruments
+				if o != nil {
+					h.instruments.documents.Add(ctx, 1, o.tables[table.name])
+				}
 				if m != nil {
 					// Keyed without the chain prefix, so every chain reports its tables under the same names.
 					m.RecordDocument(strings.TrimPrefix(table.name, c.Prefix+"__"))
@@ -191,6 +201,9 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 					if m != nil {
 						m.QueueDrops.Add(int64(dropped))
 						m.ObserveQueueDepth(len(table.chain.signatures))
+					}
+					if o != nil && dropped > 0 {
+						h.instruments.blockSigsDropped.Add(ctx, int64(dropped), o.chain)
 					}
 				}
 			}
@@ -333,11 +346,14 @@ func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationServi
 // verifyBlockSignature verifies the signature and CID list, updating metrics on failure; prefix
 // names the block's chain in its log lines. Returns false if verification fails and processing
 // should stop.
-func (h *Host) verifyBlockSignature(prefix string, blockSig *attestationService.BlockSignature) bool {
+func (h *Host) verifyBlockSignature(ctx context.Context, prefix string, blockSig *attestationService.BlockSignature) bool {
 	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig); err != nil {
 		logger.Sugar.Warnf("Invalid block signature for block %d: %v (chain: %s)", blockSig.BlockNumber, err, prefix)
 		if m := h.chainMetrics(prefix); m != nil {
 			m.SignatureFailures.Add(1)
+		}
+		if o := h.instruments.chain(prefix); o != nil {
+			h.instruments.blockSignatures.Add(ctx, 1, o.failure)
 		}
 		return false
 	}
@@ -350,6 +366,9 @@ func (h *Host) verifyBlockSignature(prefix string, blockSig *attestationService.
 			logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root (chain: %s)", blockSig.BlockNumber, prefix)
 			if m := h.chainMetrics(prefix); m != nil {
 				m.SignatureFailures.Add(1)
+			}
+			if o := h.instruments.chain(prefix); o != nil {
+				h.instruments.blockSignatures.Add(ctx, 1, o.failure)
 			}
 			return false
 		}
@@ -373,8 +392,18 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collec
 	populateBlockSignatureCIDs(doc, blockSig)
 
 	if h.blockSignatureVerifier != nil {
-		if !h.verifyBlockSignature(c.Prefix, blockSig) {
+		if !h.verifyBlockSignature(ctx, c.Prefix, blockSig) {
 			return
+		}
+
+		o := h.instruments.chain(c.Prefix)
+		if o != nil {
+			// Atomic max: CAS retries until the stored value is at least blockNumber.
+			for cur := o.received.Load(); blockNumber > cur; cur = o.received.Load() {
+				if o.received.CompareAndSwap(cur, blockNumber) {
+					break
+				}
+			}
 		}
 
 		// A verified peer signature is the host observing that indexer attesting on chain c.
@@ -384,6 +413,9 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collec
 
 		if m := h.chainMetrics(c.Prefix); m != nil {
 			m.SignatureVerifications.Add(1)
+		}
+		if o != nil {
+			h.instruments.blockSignatures.Add(ctx, 1, o.success)
 		}
 
 		h.blockSignatureVerifier.AddBlockSignature(blockSig)
@@ -420,9 +452,12 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 	}
 
 	m := h.chainMetrics(c.Prefix)
+	o := h.instruments.chain(c.Prefix)
 	var lastErr error
 	for attempt := range maxAttestationRetries {
+		start := time.Now()
 		created, err := attestationService.PostAttestationRecord(ctx, h.DefraNode, c.AttestationRecord.Name, record)
+		h.recordAttestation(ctx, o, start, err)
 		if err != nil {
 			if errors.Is(err, attestationService.ErrDocumentNotFound) {
 				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff (chain: %s)", blockNumber, c.Prefix)
@@ -438,7 +473,13 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 			if m != nil {
 				m.AttestationErrors.Add(1)
 			}
+			if o != nil && !errors.Is(err, context.Canceled) {
+				h.instruments.attestations.Add(ctx, 1, o.failure)
+			}
 			return
+		}
+		if o != nil {
+			h.instruments.attestations.Add(ctx, 1, o.success)
 		}
 		if created {
 			if m != nil {
@@ -458,6 +499,22 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 	if m != nil {
 		m.AttestationErrors.Add(1)
 	}
+	if o != nil {
+		h.instruments.attestations.Add(ctx, 1, o.failure)
+	}
+}
+
+// recordAttestation records an attestation write duration on the chain with instruments o,
+// skipping pruned records and cancellations.
+func (h *Host) recordAttestation(ctx context.Context, o *chainInstruments, start time.Time, err error) {
+	if o == nil || errors.Is(err, attestationService.ErrDocumentNotFound) || errors.Is(err, context.Canceled) {
+		return
+	}
+	outcome := o.success
+	if err != nil {
+		outcome = o.failure
+	}
+	h.instruments.attestationTime.Record(ctx, float64(time.Since(start))/float64(time.Millisecond), outcome)
 }
 
 // chainMetrics returns the counters of the chain with prefix, or nil when the host keeps no
