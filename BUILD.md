@@ -25,7 +25,7 @@ The binary lands at `./bin/host`.
 | `make build-playground` | Download playground assets and build with the embedded GraphQL Playground UI. |
 | `make start` | Run the compiled `./bin/host` binary. |
 | `make deps-playground` | Download playground static assets (required before `build-playground`). |
-| `go run cmd/main.go` | Run without building. |
+| `go run ./cmd/` | Run without building. |
 | `go test -v ./pkg/...` | Run the test suite. |
 
 ## Build tags
