@@ -107,12 +107,12 @@ shinzo:
             topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
-  max_blocks: 2000         # Newest block heights kept; documents at older heights are deleted
+  max_blocks: 1000         # Newest block heights kept; documents at older heights are deleted
   interval_seconds: 30      # How often to check and prune
-  prune_history: false      # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
+  prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
 logger:
   development: false
-  level: "error"
+  level: "info"
 host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080
@@ -153,7 +153,7 @@ services:
     environment:
       - DEFRA_URL=0.0.0.0:9181
       - GOMEMLIMIT=14GiB
-      - LOG_LEVEL=error
+      - LOG_LEVEL=info
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
       - ALLOWED_ORIGINS=https://*.shinzo.network
