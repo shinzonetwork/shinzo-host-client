@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +12,9 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
 
@@ -42,18 +46,38 @@ type Manager struct {
 	wasmRegistry    *WASMRegistry
 	registryPath    string
 	metricsCallback func() *server.HostMetrics
+	metrics         managerMetrics
+}
+
+type managerMetrics struct {
+	registrations    metric.Int64Counter
+	success, failure metric.MeasurementOption
 }
 
 // NewManager creates a new Manager with the given DefraDB node and registry path
 // It initializes all required services and sets up the processing queue for async operations.
 func NewManager(defraNode *node.Node, registryPath string) *Manager {
 	wasmRegistry, _ := NewWASMRegistry(registryPath, zap.L().Sugar())
+
+	registrations, err := otel.Meter("github.com/shinzonetwork/shinzo-host-client/pkg/view").Int64Counter("shinzo.host.view.registrations",
+		metric.WithDescription("View registrations, by result."),
+		metric.WithUnit("{view}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
 	return &Manager{
 		activeViews:   make(map[string]*ActiveView),
 		defraNode:     defraNode,
 		schemaService: NewSchemaService(),
 		wasmRegistry:  wasmRegistry,
 		registryPath:  registryPath,
+		metrics: managerMetrics{
+			registrations: registrations,
+			success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
+			failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
+		},
 	}
 }
 
@@ -201,7 +225,18 @@ func (m *Manager) ContractAddress(viewName string) (string, bool) {
 
 // RegisterView implements the full view registration flow with validation.
 // RegisterView registers a view with DefraDB and sets up all required infrastructure.
-func (m *Manager) RegisterView(ctx context.Context, v *View) error {
+func (m *Manager) RegisterView(ctx context.Context, v *View) (err error) {
+	defer func() {
+		if errors.Is(err, ErrViewAlreadyRegistered) || errors.Is(err, context.Canceled) {
+			return
+		}
+		outcome := m.metrics.success
+		if err != nil {
+			outcome = m.metrics.failure
+		}
+		m.metrics.registrations.Add(ctx, 1, outcome)
+	}()
+
 	logger.Sugar.Debugf("🔍 Registering view: %s", v.Name)
 	logger.Sugar.Debugf("📄 SDL for %s:\n%s", v.Name, v.Data.Sdl)
 	logger.Sugar.Debugf("🎯 Query for %s:\n%s", v.Name, v.Data.Query)

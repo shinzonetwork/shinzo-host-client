@@ -2,14 +2,14 @@
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
-	go build -o bin/host cmd/main.go
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/host ./cmd/
 
 build-staging:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/staging/host ./cmd/host/
 
 build-playground: deps-playground
 	go generate -tags hostplayground ./playground
-	go build -tags hostplayground -o ./bin/host cmd/main.go
+	go build -tags hostplayground -ldflags "-X main.version=$(VERSION)" -o ./bin/host ./cmd/
 
 start:
 	./bin/host

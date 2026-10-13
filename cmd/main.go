@@ -28,6 +28,7 @@ const (
 	// debugReadHeaderTimeout bounds how long a client may take to send its request
 	// headers, so an idle connection cannot hold the listener open.
 	debugReadHeaderTimeout = 5 * time.Second
+	otelShutdownTimeout    = 10 * time.Second
 )
 
 // newDebugMux returns the profiling endpoints on a mux of their own, so this listener is
@@ -107,6 +108,19 @@ func main() {
 	// The buffer holds it until the shutdown below.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	otelShutdown, err := setupOTel(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "OpenTelemetry setup: %v\n", err)
+	} else {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+			defer cancel()
+			if err := otelShutdown(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+			}
+		}()
+	}
 
 	configPath := findConfigFile()
 	cfg, err := config.LoadConfig(configPath)

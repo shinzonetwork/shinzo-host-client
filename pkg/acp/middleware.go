@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
@@ -82,6 +85,83 @@ type Middleware struct {
 
 	recordSem chan struct{}  // bounds concurrent record submissions
 	recordWG  sync.WaitGroup // tracks in-flight records for Drain
+
+	metrics middlewareMetrics
+}
+
+type middlewareMetrics struct {
+	requests         metric.Int64Counter
+	records          metric.Int64Counter
+	queryDuration    metric.Float64Histogram
+	success, failure metric.MeasurementOption
+	decisions        map[string]metric.MeasurementOption
+}
+
+// Gate outcomes counted by shinzo.host.billing.requests.
+const (
+	decisionAllow               = "allow"
+	reasonParseFailed           = "parse_failed"
+	reasonMultiView             = "multi_view"
+	reasonNoSignature           = "no_signature"
+	reasonStaleRequest          = "stale_request"
+	reasonVerifyFailed          = "verify_failed"
+	reasonZeroPool              = "zero_pool"
+	reasonInsufficientBalance   = "insufficient_balance"
+	reasonViewWithoutAddress    = "view_without_address"
+	reasonAuthorizerUnavailable = "authorizer_unavailable"
+)
+
+func newMiddlewareMetrics() middlewareMetrics {
+	meter := otel.Meter("github.com/shinzonetwork/shinzo-host-client/pkg/acp")
+	requests, err := meter.Int64Counter("shinzo.host.billing.requests",
+		metric.WithDescription("Billed GraphQL requests, by result and reason."),
+		metric.WithUnit("{request}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	records, err := meter.Int64Counter("shinzo.host.billing.records",
+		metric.WithDescription("Service records submitted to the accounting service, by result."),
+		metric.WithUnit("{record}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	queryDuration, err := meter.Float64Histogram("shinzo.host.query.duration",
+		metric.WithDescription("Duration of serving a GraphQL request that passed the billing gate."),
+		metric.WithUnit("ms"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
+	decision := func(result, reason string) metric.MeasurementOption {
+		attrs := []attribute.KeyValue{attribute.String("result", result)}
+		if reason != "" {
+			attrs = append(attrs, attribute.String("reason", reason))
+		}
+		return metric.WithAttributeSet(attribute.NewSet(attrs...))
+	}
+	decisions := map[string]metric.MeasurementOption{
+		decisionAllow:               decision("allow", ""),
+		reasonViewWithoutAddress:    decision("error", reasonViewWithoutAddress),
+		reasonAuthorizerUnavailable: decision("error", reasonAuthorizerUnavailable),
+	}
+	for _, reason := range []string{
+		reasonParseFailed, reasonMultiView, reasonNoSignature, reasonStaleRequest,
+		reasonVerifyFailed, reasonZeroPool, reasonInsufficientBalance,
+	} {
+		decisions[reason] = decision("deny", reason)
+	}
+
+	return middlewareMetrics{
+		requests:      requests,
+		records:       records,
+		queryDuration: queryDuration,
+		success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
+		failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
+		decisions:     decisions,
+	}
 }
 
 // NewMiddleware returns a Middleware that authorizes via authz, resolves
@@ -102,6 +182,7 @@ func NewMiddleware(authz Authorizer, registry ViewRegistry, chainID uint64, maxR
 		recording:     recording,
 		log:           log,
 		recordSem:     make(chan struct{}, defaultRecordConcurrency),
+		metrics:       newMiddlewareMetrics(),
 	}
 }
 
@@ -126,6 +207,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	req, err := parseGraphQLRequest(r)
 	if err != nil {
 		m.log.Warnw("billing.parse_failed", "err", err, "path", r.URL.Path)
+		m.countDecision(r.Context(), reasonParseFailed)
 		http.Error(w, "bad graphql request", http.StatusBadRequest)
 		return
 	}
@@ -133,23 +215,25 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	fields, err := topLevelFields(req.Query, req.OperationName)
 	if err != nil {
 		m.log.Warnw("billing.parse_failed", "err", err, "path", r.URL.Path)
+		m.countDecision(r.Context(), reasonParseFailed)
 		http.Error(w, "bad graphql request", http.StatusBadRequest)
 		return
 	}
 
-	lookups, ok := m.collectViewLookups(w, collectionNames(fields))
+	lookups, ok := m.collectViewLookups(r.Context(), w, collectionNames(fields))
 	if !ok {
 		return
 	}
 	if len(lookups) == 0 {
 		// No view collections in this request: nothing to bill, pass through.
-		next.ServeHTTP(w, r)
+		m.serve(w, r, next)
 		return
 	}
 	if len(lookups) > 1 {
 		// A single service record attributes one pool, so a billed query may
 		// touch only one view.
 		m.log.Infow("billing.deny", "reason", "multi_view", "views", len(lookups))
+		m.countDecision(r.Context(), reasonMultiView)
 		http.Error(w, "a billed query may touch only one view", http.StatusBadRequest)
 		return
 	}
@@ -157,12 +241,14 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	ext, err := parseExtensions(req.Extensions)
 	if err != nil {
 		m.log.Infow("billing.deny", "reason", "no_signature", "err", err.Error())
+		m.countDecision(r.Context(), reasonNoSignature)
 		http.Error(w, "forbidden: missing request signature", http.StatusForbidden)
 		return
 	}
 
 	if err := billing.CheckFreshness(ext.RequestTimestamp, time.Now(), m.maxRequestAge); err != nil {
 		m.log.Infow("billing.deny", "reason", "stale_request", "err", err.Error())
+		m.countDecision(r.Context(), reasonStaleRequest)
 		http.Error(w, "forbidden: stale or future request", http.StatusForbidden)
 		return
 	}
@@ -170,6 +256,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	payer, err := billing.VerifyRequest(m.chainID, req.Query, req.Variables, ext)
 	if err != nil {
 		m.log.Infow("billing.deny", "reason", "verify_failed", "err", err.Error())
+		m.countDecision(r.Context(), reasonVerifyFailed)
 		http.Error(w, "forbidden: request verification failed", http.StatusForbidden)
 		return
 	}
@@ -177,6 +264,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	// Reject the zero pool address; a billed query must bill to a real pool.
 	if common.HexToAddress(ext.PoolAddress) == (common.Address{}) {
 		m.log.Infow("billing.deny", "reason", "zero_pool", "payer", payer.Hex(), "view", lookups[0].Name)
+		m.countDecision(r.Context(), reasonZeroPool)
 		http.Error(w, "forbidden: query names no pool", http.StatusForbidden)
 		return
 	}
@@ -184,19 +272,22 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	allowed, err := m.authz.Authorize(r.Context(), common.Address(payer))
 	if err != nil {
 		m.log.Errorw("billing.error", "payer", payer.Hex(), "view", lookups[0].Name, "err", err)
+		m.countDecision(r.Context(), reasonAuthorizerUnavailable)
 		http.Error(w, "authorization backend unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if !allowed {
 		m.log.Infow("billing.deny", "reason", "insufficient_balance", "payer", payer.Hex(), "view", lookups[0].Name)
+		m.countDecision(r.Context(), reasonInsufficientBalance)
 		http.Error(w, "payment required: insufficient query balance", http.StatusPaymentRequired)
 		return
 	}
 
 	// Capture the response to count the rows the view served (its response key(s);
 	// other top-level fields are ignored).
+	m.countDecision(r.Context(), decisionAllow)
 	cw := newCaptureWriter(w)
-	next.ServeHTTP(cw, r)
+	m.serve(cw, r, next)
 	rows, served := viewRows(cw.body.Bytes(), responseKeys(fields, lookups[0].Name))
 	m.log.Infow("billing.allow",
 		"payer", payer.Hex(),
@@ -269,15 +360,28 @@ func (m *Middleware) record(payer common.Address, ext billing.Extensions, view v
 		AttestedIndexers: attested,
 	})
 	if err != nil {
+		m.metrics.records.Add(ctx, 1, m.metrics.failure)
 		m.log.Errorw("billing.record_failed", "payer", payer.Hex(), "view", view.Name, "pool", ext.PoolAddress, "err", err)
+		return
 	}
+	m.metrics.records.Add(ctx, 1, m.metrics.success)
+}
+
+func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	start := time.Now()
+	next.ServeHTTP(w, r)
+	m.metrics.queryDuration.Record(r.Context(), float64(time.Since(start))/float64(time.Millisecond))
+}
+
+func (m *Middleware) countDecision(ctx context.Context, decision string) {
+	m.metrics.requests.Add(ctx, 1, m.metrics.decisions[decision])
 }
 
 // collectViewLookups resolves each top-level collection name through the
 // registry. Returns (lookups, true) when every view in the request has an
 // on-chain address. Returns (nil, false) after writing a 503 response when a
 // registered view is missing its address (fail-closed).
-func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []string) ([]viewLookup, bool) {
+func (m *Middleware) collectViewLookups(ctx context.Context, w http.ResponseWriter, collections []string) ([]viewLookup, bool) {
 	var lookups []viewLookup
 	for _, name := range collections {
 		if !m.registry.IsView(name) {
@@ -285,6 +389,7 @@ func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []str
 		}
 		if _, ok := m.registry.ContractAddress(name); !ok {
 			m.log.Errorw("billing.view_without_address", "view", name, "action", "fail_closed")
+			m.countDecision(ctx, reasonViewWithoutAddress)
 			http.Error(w, "view metadata unavailable", http.StatusServiceUnavailable)
 			return nil, false
 		}

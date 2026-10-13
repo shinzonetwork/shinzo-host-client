@@ -3,6 +3,7 @@ FROM golang:1.27 AS builder
 
 # Build arguments
 ARG TAGS
+ARG VERSION=dev
 
 # Install build dependencies including WASM runtimes
 RUN apt-get update && apt-get install -y \
@@ -76,8 +77,9 @@ RUN set -ex && \
     cd .. && \
     go build \
     -tags="hostplayground" \
+    -ldflags="-X main.version=${VERSION}" \
     -o bin/host \
-    cmd/main.go && \
+    ./cmd/ && \
     echo "Build completed successfully"
 
 # Runtime stage
