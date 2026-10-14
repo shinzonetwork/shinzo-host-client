@@ -292,7 +292,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if eventFilter != nil {
 		cols, err := defraNode.DB.GetCollections(ctx)
 		if err != nil {
-			logger.Sugar.Errorf("Event filter applies only its block range until restart, could not read collection IDs: %v", err)
+			logger.Sugar.Errorf("Event filter allows every document until restart, could not read collection IDs: %v", err)
 		} else {
 			eventFilter.ResolveCollections(cols)
 		}
