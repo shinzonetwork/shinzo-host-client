@@ -284,13 +284,13 @@ func TestAllowReplication_BeforeCollectionsResolved(t *testing.T) {
 	}, testCollections)
 	require.NotNil(t, f)
 	_, ids := testCollectionIDs(t)
-	txID := ids[testCollections.Transaction.Name]
 
-	// Only the block range applies until the filter knows which collection an ID belongs to.
-	require.True(t, f.AllowReplication(context.Background(), txID, "docID",
-		map[string]any{gqlFieldTo: "0xDEF", gqlFieldBlockNumber: uint64(150)}))
-	require.False(t, f.AllowReplication(context.Background(), txID, "docID",
-		map[string]any{gqlFieldTo: "0xABC", gqlFieldBlockNumber: uint64(50)}))
+	// Each of these documents is outside the block range, and the transaction also misses the
+	// allowlist, yet nothing is refused before the filter knows which collection an ID belongs to.
+	fields := map[string]any{gqlFieldTo: "0xDEF", gqlFieldBlockNumber: uint64(50), gqlFieldNumber: uint64(50)}
+	for _, name := range []string{testCollections.Block.Name, testCollections.BlockSignature.Name, testCollections.Transaction.Name} {
+		require.True(t, f.AllowReplication(context.Background(), ids[name], "docID", fields), name)
+	}
 }
 
 // A host with the event filter enabled installs it on its node with the collection IDs resolved, so
