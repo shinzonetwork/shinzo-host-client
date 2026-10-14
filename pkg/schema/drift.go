@@ -22,7 +22,8 @@ var ErrSchemaDrift = fmt.Errorf("stored tables differ from the served schema")
 // many side of a relation, which does not change a table's collection ID, are left out. The
 // secondary side of a one-to-one relation is compared, although it does not change the collection
 // ID either, so a change to that side alone refuses a restart. It returns ErrSchemaDrift listing
-// every difference.
+// every difference and naming the store wipe as the recovery: the host creates a chain's tables only
+// in a store that holds none of them and never changes stored ones.
 func checkStored(sdl string, stored []client.Collection, c chain.Collections) error {
 	served, err := servedTables(sdl)
 	if err != nil {
@@ -44,7 +45,7 @@ func checkStored(sdl string, stored []client.Collection, c chain.Collections) er
 		}
 	}
 	if len(diffs) > 0 {
-		return fmt.Errorf("%s: %w", strings.Join(diffs, "; "), ErrSchemaDrift)
+		return fmt.Errorf("%s: %w; wipe the store for the host to take the served schema", strings.Join(diffs, "; "), ErrSchemaDrift)
 	}
 	return nil
 }
