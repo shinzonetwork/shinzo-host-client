@@ -293,6 +293,41 @@ func TestAllowReplication_BeforeCollectionsResolved(t *testing.T) {
 	}
 }
 
+// patchedCollection is a collection whose version ID differs from its collection ID, as it does
+// once the collection is patched.
+type patchedCollection struct {
+	client.Collection
+
+	versionID string
+}
+
+func (c patchedCollection) VersionID() string { return c.versionID }
+
+func TestAllowReplication_ByVersionID(t *testing.T) {
+	f := NewEventReplicationFilter(config.EventFilterConfig{
+		Enabled: true,
+		Mode:    filterModeAllowlist,
+		Groups: []config.FilterGroup{{
+			Enabled:   true,
+			Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+		}},
+	}, testCollections)
+	require.NotNil(t, f)
+	cols, _ := testCollectionIDs(t)
+	var resolved []client.Collection
+	for _, col := range cols {
+		if col.Name() == testCollections.Transaction.Name {
+			col = patchedCollection{Collection: col, versionID: "patched-version"}
+		}
+		resolved = append(resolved, col)
+	}
+	f.ResolveCollections(resolved)
+
+	// A retry names the transaction's collection by its version ID, and the allowlist still applies.
+	require.True(t, f.AllowReplication(context.Background(), "patched-version", "docID", map[string]any{gqlFieldTo: "0xABC"}))
+	require.False(t, f.AllowReplication(context.Background(), "patched-version", "docID", map[string]any{gqlFieldTo: "0xDEF"}))
+}
+
 // A host with the event filter enabled installs it on its node with the collection IDs resolved, so
 // the filter applies its per-collection rules.
 func TestStartHostingResolvesTheFilterCollections(t *testing.T) {
