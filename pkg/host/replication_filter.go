@@ -33,9 +33,10 @@ func NewEventReplicationFilter(cfg config.EventFilterConfig, collections chain.C
 }
 
 // ResolveCollections maps the IDs of cols to their names. DefraDB names a document's collection by
-// ID, which exists only once the schema is applied; until then only the block range applies. A
-// replicator retry passes the version ID instead, which equals the collection ID until the
-// collection is patched.
+// ID, which exists only once the schema is applied, so until this runs the filter cannot tell which
+// rules apply and allows every document: DefraDB treats a refusal as final, so refusing then could
+// drop a document the rules would keep. A replicator retry passes the version ID instead, which
+// equals the collection ID until the collection is patched.
 func (f *EventReplicationFilter) ResolveCollections(cols []client.Collection) {
 	names := make(map[string]string, len(cols))
 	for _, col := range cols {
@@ -46,17 +47,19 @@ func (f *EventReplicationFilter) ResolveCollections(cols []client.Collection) {
 
 // AllowReplication implements client.ReplicationFilter. DefraDB can ask before a document's field
 // values have arrived and treats a refusal as final, so a rule that needs a missing field allows
-// the document; DefraDB asks again once it has fetched the values.
+// the document; DefraDB asks again once it has fetched the values. Every document is allowed until
+// ResolveCollections has run.
 func (f *EventReplicationFilter) AllowReplication(
 	_ context.Context,
 	collectionID string,
 	_ string,
 	fields map[string]any,
 ) bool {
-	var name string
-	if names := f.names.Load(); names != nil {
-		name = (*names)[collectionID]
+	names := f.names.Load()
+	if names == nil {
+		return true
 	}
+	name := (*names)[collectionID]
 
 	// A block is checked against the block range by its number; signatures always pass.
 	switch name {
