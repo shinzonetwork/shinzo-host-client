@@ -18,7 +18,7 @@ import (
 type EventReplicationFilter struct {
 	cfg         config.EventFilterConfig
 	collections chain.Collections
-	// names maps a collection ID to the collection's name.
+	// names maps a collection ID or version ID to the collection's name.
 	names atomic.Pointer[map[string]string]
 }
 
@@ -32,15 +32,17 @@ func NewEventReplicationFilter(cfg config.EventFilterConfig, collections chain.C
 	return &EventReplicationFilter{cfg: cfg, collections: collections}
 }
 
-// ResolveCollections maps the IDs of cols to their names. DefraDB names a document's collection by
-// ID, which exists only once the schema is applied, so until this runs the filter cannot tell which
-// rules apply and allows every document: DefraDB treats a refusal as final, so refusing then could
-// drop a document the rules would keep. A replicator retry passes the version ID instead, which
-// equals the collection ID until the collection is patched.
+// ResolveCollections maps the collection ID and the version ID of each of cols to its name.
+// DefraDB names a document's collection by collection ID, and a replicator retry by version ID,
+// which differs from the collection ID once the collection is patched. The IDs exist only once the
+// schema is applied, so until this runs the filter cannot tell which rules apply and allows every
+// document: DefraDB treats a refusal as final, so refusing then could drop a document the rules
+// would keep.
 func (f *EventReplicationFilter) ResolveCollections(cols []client.Collection) {
 	names := make(map[string]string, len(cols))
 	for _, col := range cols {
 		names[col.CollectionID()] = col.Name()
+		names[col.VersionID()] = col.Name()
 	}
 	f.names.Store(&names)
 }
