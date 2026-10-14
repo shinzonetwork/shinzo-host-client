@@ -32,6 +32,18 @@ func TestValidate(t *testing.T) {
 		{"generator without scheme", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "10.0.0.5:8080"}}}}, ErrInvalidGeneratorURL},
 		{"generator without host", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://"}}}}, ErrInvalidGeneratorURL},
 		{"generator with another scheme", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "ws://10.0.0.5:8080"}}}}, ErrInvalidGeneratorURL},
+		{
+			"generator peers in each accepted form",
+			[]Config{{Prefix: EthereumMainnet, Generators: []Generator{
+				{URL: "http://10.0.0.5:8080", Peer: "/ip4/10.0.0.5/tcp/9171"},
+				{URL: "http://10.0.0.6:8080", Peer: "10.0.0.6:9171"},
+				{URL: "http://10.0.0.7:8080", Peer: "10.0.0.7"},
+				{URL: "http://10.0.0.8:8080", Peer: "  "},
+			}}},
+			nil,
+		},
+		{"generator peer with a host name", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://10.0.0.5:8080", Peer: "gen.example.com:9171"}}}}, ErrInvalidGeneratorPeer},
+		{"generator peer with a bad multiaddr", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://10.0.0.5:8080", Peer: "/ip4/10.0.0.5/tcpp/9171"}}}}, ErrInvalidGeneratorPeer},
 	}
 
 	for _, c := range cases {
