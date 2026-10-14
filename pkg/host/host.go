@@ -243,6 +243,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	tables := func(ctx context.Context) (string, error) {
 		return resolveSchema(ctx, cfg.Schema, served, collections)
 	}
+	// Called only when the store holds the chain's tables, so a restart makes one best-effort call
+	// to the generators to compare the stored tables with the schema they serve.
 	servedSDL := func(ctx context.Context) (string, bool) {
 		return servedSchema(ctx, cfg.Schema, served)
 	}

@@ -148,3 +148,23 @@ func TestServedSchema(t *testing.T) {
 		})
 	}
 }
+
+func TestServedSchemaSharesOneDeadline(t *testing.T) {
+	// The first generator holds the request until the host gives up on it.
+	hanging := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	t.Cleanup(hanging.Close)
+	var secondCalled atomic.Bool
+	valid := schemaHandler(t, chain.EthereumMainnet)
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secondCalled.Store(true)
+		valid(w, r)
+	}))
+	t.Cleanup(second.Close)
+
+	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: hanging.URL}, {URL: second.URL}}}
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+
+	_, ok := servedSchema(context.Background(), schemaCfg, served)
+	require.False(t, ok)
+	require.False(t, secondCalled.Load(), "a generator was asked after the first used up the deadline")
+}
