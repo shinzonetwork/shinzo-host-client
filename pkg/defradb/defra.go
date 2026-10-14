@@ -52,6 +52,7 @@ var DefaultConfig = &Config{ //nolint:gochecknoglobals
 
 //nolint:gochecknoglobals
 var requiredPeers = []string{} // default bootstrap peers used to initialize the P2P network configuration
+
 const (
 	// defaultListenAddress is the default multiaddr on which the P2P node listens for incoming connections.
 	defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"

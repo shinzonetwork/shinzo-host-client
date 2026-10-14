@@ -307,9 +307,7 @@ func (v *View) BuildLensConfig() (client.LensConfig, error) {
 	return client.LensConfig{
 		SourceCollectionVersionID:      v.Data.Query,
 		DestinationCollectionVersionID: v.Data.Sdl,
-		Lens: model.Lens{
-			Lenses: lensModules,
-		},
+		Lenses:                         lensModules,
 	}, nil
 }
 
