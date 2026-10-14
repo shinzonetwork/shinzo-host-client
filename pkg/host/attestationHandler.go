@@ -552,7 +552,7 @@ func (h *Host) recordAttestation(ctx context.Context, start time.Time, err error
 	if err != nil {
 		outcome = h.instruments.failure
 	}
-	h.instruments.attestationTime.Record(ctx, float64(time.Since(start))/float64(time.Millisecond), outcome)
+	h.instruments.attestationTime.Record(ctx, time.Since(start).Seconds(), outcome)
 }
 
 func truncateString(s string, maxLen int) string {

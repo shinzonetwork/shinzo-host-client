@@ -129,7 +129,8 @@ func newMiddlewareMetrics() middlewareMetrics {
 	}
 	queryDuration, err := meter.Float64Histogram("shinzo.host.query.duration",
 		metric.WithDescription("Duration of serving a GraphQL request that passed the billing gate."),
-		metric.WithUnit("ms"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10), //nolint:mnd // OTel semconv HTTP duration buckets
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -370,7 +371,7 @@ func (m *Middleware) record(payer common.Address, ext billing.Extensions, view v
 func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	start := time.Now()
 	next.ServeHTTP(w, r)
-	m.metrics.queryDuration.Record(r.Context(), float64(time.Since(start))/float64(time.Millisecond))
+	m.metrics.queryDuration.Record(r.Context(), time.Since(start).Seconds())
 }
 
 func (m *Middleware) countDecision(ctx context.Context, decision string) {
