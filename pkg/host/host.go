@@ -540,7 +540,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// Start health server in background
 	go func() {
-		if err := newHost.healthServer.Start(); err != nil {
+		if err := newHost.healthServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Sugar.Errorf("Health server failed: %v", err)
 		}
 	}()
@@ -774,8 +774,8 @@ func incrementPort(apiURL string) (string, error) {
 }
 
 // Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruners,
-// shuts down the playground and API servers, drains the in-flight billing service records, and
-// closes the DefraDB node.
+// shuts down the playground, health and API servers, drains the in-flight billing service records,
+// and closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()
@@ -805,6 +805,13 @@ func (h *Host) Close(ctx context.Context) error {
 	if h.playgroundServer != nil {
 		if err := h.playgroundServer.Shutdown(ctx); err != nil {
 			fmt.Printf("Error shutting down playground server: %v\n", err)
+		}
+	}
+
+	// The health server's handlers read the host and query DefraDB, so it stops before DefraDB closes.
+	if h.healthServer != nil {
+		if err := h.healthServer.Stop(ctx); err != nil {
+			fmt.Printf("Error shutting down health server: %v\n", err)
 		}
 	}
 
