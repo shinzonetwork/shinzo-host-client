@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -17,7 +18,12 @@ import (
 // version is set at build time via -ldflags, see the build Makefile target.
 var version = "dev" //nolint:gochecknoglobals // set by the linker
 
+// setupOTel configures metrics export when OTEL_METRICS_EXPORTER is set.
 func setupOTel(ctx context.Context) (func(context.Context) error, error) {
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		logger.Sugar.Errorf("OpenTelemetry: %v", err)
+	}))
+
 	if os.Getenv("OTEL_METRICS_EXPORTER") == "" {
 		return func(context.Context) error { return nil }, nil
 	}

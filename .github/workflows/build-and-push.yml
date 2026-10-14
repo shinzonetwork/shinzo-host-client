@@ -52,6 +52,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
           build-args: |
             TAGS=hostplayground
+            VERSION=sha-${{ steps.short_sha.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           no-cache-filters: build
