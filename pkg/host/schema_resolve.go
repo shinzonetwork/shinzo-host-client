@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -47,7 +48,16 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 // servedSchema returns the schema served by the first of the chain's generators to answer, tried in
 // order, or false when none answers. A generator answers when it returns a schema for the served
 // chain. The schema is returned unchecked, so that every difference from the stored tables counts.
+// The requests share one deadline, the timeout schemaCfg gives a single request, which bounds this
+// chain's check: generators that do not answer delay it by that timeout once, not once each, and a
+// generator that hangs leaves less of it, or none, for the ones after it.
 func servedSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) (string, bool) {
+	// A zero timeout leaves the requests unbounded, as it does in the HTTP client.
+	if schemaCfg.HTTPClientTimeoutSecs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(schemaCfg.HTTPClientTimeoutSecs)*time.Second)
+		defer cancel()
+	}
 	client := schema.NewSchemaHTTPClient(schemaCfg)
 	for _, g := range served.Generators {
 		var resp schema.Response
