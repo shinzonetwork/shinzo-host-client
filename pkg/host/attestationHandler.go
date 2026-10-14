@@ -514,7 +514,7 @@ func (h *Host) recordAttestation(ctx context.Context, o *chainInstruments, start
 	if err != nil {
 		outcome = o.failure
 	}
-	h.instruments.attestationTime.Record(ctx, float64(time.Since(start))/float64(time.Millisecond), outcome)
+	h.instruments.attestationTime.Record(ctx, time.Since(start).Seconds(), outcome)
 }
 
 // chainMetrics returns the counters of the chain with prefix, or nil when the host keeps no

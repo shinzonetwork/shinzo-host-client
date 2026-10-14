@@ -187,7 +187,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		cfg = DefaultConfig
 	}
 
-	logger.Init(cfg.Logger.Development, "./logs")
+	// main initializes the logger; this fallback covers library and test callers.
+	if logger.Sugar == nil {
+		logger.Init(cfg.Logger.Development, "./logs")
+	}
 
 	// Load ACP middleware configuration from the environment before any
 	// defradb work so a misconfigured host fails fast instead of starting

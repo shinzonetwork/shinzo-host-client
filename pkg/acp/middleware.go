@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,7 +97,9 @@ type middlewareMetrics struct {
 	records          metric.Int64Counter
 	queryDuration    metric.Float64Histogram
 	success, failure metric.MeasurementOption
+	billed, unbilled metric.MeasurementOption
 	decisions        map[string]metric.MeasurementOption
+	unknownDecision  metric.MeasurementOption
 }
 
 // Gate outcomes counted by shinzo.host.billing.requests.
@@ -131,8 +134,9 @@ func newMiddlewareMetrics() middlewareMetrics {
 		otel.Handle(err)
 	}
 	queryDuration, err := meter.Float64Histogram("shinzo.host.query.duration",
-		metric.WithDescription("Duration of serving a GraphQL request that passed the billing gate."),
-		metric.WithUnit("ms"),
+		metric.WithDescription("Duration of serving a GraphQL request the billing gate let through, by whether it was billed. Subscription streams are not recorded."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10), //nolint:mnd // OTel semconv HTTP duration buckets
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -158,12 +162,15 @@ func newMiddlewareMetrics() middlewareMetrics {
 	}
 
 	return middlewareMetrics{
-		requests:      requests,
-		records:       records,
-		queryDuration: queryDuration,
-		success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
-		failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
-		decisions:     decisions,
+		requests:        requests,
+		records:         records,
+		queryDuration:   queryDuration,
+		success:         metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
+		failure:         metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
+		billed:          metric.WithAttributeSet(attribute.NewSet(attribute.Bool("billed", true))),
+		unbilled:        metric.WithAttributeSet(attribute.NewSet(attribute.Bool("billed", false))),
+		decisions:       decisions,
+		unknownDecision: decision("error", "unknown"),
 	}
 }
 
@@ -229,7 +236,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	}
 	if len(lookups) == 0 {
 		// No view collections in this request: nothing to bill, pass through.
-		m.serve(w, r, next)
+		m.serve(w, r, next, m.metrics.unbilled)
 		return
 	}
 	if len(lookups) > 1 {
@@ -290,7 +297,7 @@ func (m *Middleware) handleGraphQL(w http.ResponseWriter, r *http.Request, next 
 	// other top-level fields are ignored).
 	m.countDecision(r.Context(), decisionAllow)
 	cw := newCaptureWriter(w)
-	m.serve(cw, r, next)
+	m.serve(cw, r, next, m.metrics.billed)
 	rows, served := viewRows(cw.body.Bytes(), responseKeys(fields, lookups[0].Name))
 	m.log.Infow("billing.allow",
 		"payer", payer.Hex(),
@@ -370,14 +377,23 @@ func (m *Middleware) record(payer common.Address, ext billing.Extensions, view v
 	m.metrics.records.Add(ctx, 1, m.metrics.success)
 }
 
-func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Handler) {
+func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Handler, billed metric.MeasurementOption) {
 	start := time.Now()
 	next.ServeHTTP(w, r)
-	m.metrics.queryDuration.Record(r.Context(), float64(time.Since(start))/float64(time.Millisecond))
+	// A subscription (SSE) stays open for its whole lifetime, which would swamp the histogram.
+	if strings.HasPrefix(w.Header().Get("Content-Type"), "text/event-stream") {
+		return
+	}
+	m.metrics.queryDuration.Record(r.Context(), time.Since(start).Seconds(), billed)
 }
 
 func (m *Middleware) countDecision(ctx context.Context, decision string) {
-	m.metrics.requests.Add(ctx, 1, m.metrics.decisions[decision])
+	opt, ok := m.metrics.decisions[decision]
+	if !ok {
+		// A decision missing from newMiddlewareMetrics is a bug; count it instead of panicking.
+		opt = m.metrics.unknownDecision
+	}
+	m.metrics.requests.Add(ctx, 1, opt)
 }
 
 // collectViewLookups resolves each top-level collection name through the

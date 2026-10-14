@@ -109,24 +109,28 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	otelShutdown, err := setupOTel(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "OpenTelemetry setup: %v\n", err)
-	} else {
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
-			defer cancel()
-			if err := otelShutdown(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
-			}
-		}()
-	}
-
 	configPath := findConfigFile()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		panic(fmt.Errorf("unable to load config: %w", err))
 	}
+
+	// Initialize logging first, so telemetry and hosting errors go to the same logs.
+	logger.Init(cfg.Logger.Development, "./logs")
+
+	// Telemetry is set up before hosting starts, so a node with telemetry enabled
+	// but misconfigured exits before it opens DefraDB or joins the network.
+	otelShutdown, err := setupOTel(context.Background())
+	if err != nil {
+		panic(fmt.Errorf("telemetry setup: %w", err))
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+		}
+	}()
 
 	myHost, err := host.StartHosting(cfg)
 	if err != nil {
