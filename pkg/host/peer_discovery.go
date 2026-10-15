@@ -210,12 +210,11 @@ func discoverPeerID(ctx context.Context, targetAddr ma.Multiaddr, timeout time.D
 // It unwraps the error chain looking for sec.ErrPeerIDMismatch.
 func extractPeerIDFromError(err error) (peer.ID, error) {
 	// Walk the error chain looking for ErrPeerIDMismatch
-	var mismatchErr sec.ErrPeerIDMismatch
-	if errors.As(err, &mismatchErr) {
+	if mismatchErr, ok := errors.AsType[sec.ErrPeerIDMismatch](err); ok {
 		return mismatchErr.Actual, nil
 	}
 
-	// errors.As may not unwrap through all libp2p error wrappers (e.g., swarm dial errors).
+	// errors.AsType may not unwrap through all libp2p error wrappers (e.g., swarm dial errors).
 	// Fall back to string matching as a last resort.
 	return extractPeerIDFromMismatchString(err.Error())
 }
