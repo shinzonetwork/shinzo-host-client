@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/logger"
 )
 
 func startCmd() *cobra.Command {
@@ -33,7 +35,7 @@ save, before the first start.`,
 	return cmd
 }
 
-func runStart(cmd *cobra.Command, _ []string) error {
+func runStart(cmd *cobra.Command, _ []string) (err error) {
 	home, err := cmd.Flags().GetString("home")
 	if err != nil {
 		return err
@@ -63,5 +65,25 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	return printConfig(cmd.OutOrStdout(), cfg)
+	log, sync, err := logger.New(logger.Config{
+		Level:       cfg.Logger.Level,
+		Development: cfg.Logger.Development,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Only surfaced if nothing else already failed: a flush error
+		// shouldn't mask whatever real error the command hit first.
+		if syncErr := sync(); syncErr != nil && err == nil {
+			err = syncErr
+		}
+	}()
+
+	nodeKeys, err := keys.EnsureKeys(cfg.KeyDir, "", log.Sugar())
+	if err != nil {
+		return err
+	}
+
+	return printConfig(cmd.OutOrStdout(), cfg, nodeKeys)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,4 +175,49 @@ func TestStartHelpMentionsInitIsOptional(t *testing.T) {
 	out, err := execute("start", "--help")
 	require.NoError(t, err)
 	require.Contains(t, out, "optional")
+}
+
+func TestRunStartGeneratesKeysOnFirstRun(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := startCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runStart(cmd, nil))
+	require.FileExists(t, filepath.Join(home, "keys", "operator.key"))
+	require.Contains(t, out.String(), "Operator address: shinzo1")
+}
+
+// init and start must agree on the same keys for the same home: whichever
+// one creates them first, the other loads the exact same ones back.
+func TestRunInitAndRunStartAgreeOnKeys(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	init := initCmd()
+	require.NoError(t, init.Flags().Set("home", home))
+	var initOut bytes.Buffer
+	init.SetOut(&initOut)
+	require.NoError(t, runInit(init, nil))
+
+	start := startCmd()
+	require.NoError(t, start.Flags().Set("home", home))
+	var startOut bytes.Buffer
+	start.SetOut(&startOut)
+	require.NoError(t, runStart(start, nil))
+
+	initAddr := extractOperatorAddress(t, initOut.String())
+	startAddr := extractOperatorAddress(t, startOut.String())
+	require.Equal(t, initAddr, startAddr)
+}
+
+func extractOperatorAddress(t *testing.T, out string) string {
+	t.Helper()
+	const prefix = "Operator address: "
+	i := strings.Index(out, prefix)
+	require.GreaterOrEqual(t, i, 0, "no operator address line in output:\n%s", out)
+	line := out[i+len(prefix):]
+	return strings.SplitN(line, "\n", 2)[0]
 }
