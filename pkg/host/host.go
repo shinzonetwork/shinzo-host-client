@@ -682,12 +682,12 @@ func (h *Host) SignMessages(message string) (server.DefraPKRegistration, server.
 	}
 
 	return server.DefraPKRegistration{
-			PublicKey:   nodePubKey,
-			SignedPKMsg: signedMsg,
-		}, server.PeerIDRegistration{
-			PeerID:        peerPubKey,
-			SignedPeerMsg: peerSignedMsg,
-		}, nil
+		PublicKey:   nodePubKey,
+		SignedPKMsg: signedMsg,
+	}, server.PeerIDRegistration{
+		PeerID:        peerPubKey,
+		SignedPeerMsg: peerSignedMsg,
+	}, nil
 }
 
 // GetNodePublicKey retrieves the public key of the DefraDB node using the signer package. This is used for attestation registration and verification.
