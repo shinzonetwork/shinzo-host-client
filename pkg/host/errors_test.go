@@ -8,8 +8,5 @@ var (
 			"peer id mismatch: expected 12D3KooWCS9HHoiqfu1YRBiLM5spAbDGiHb2NtXEGUoHYTcCtEfy, " +
 			"but remote key matches 12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF",
 	)
-	errConnectionRefused    = errors.New("connection refused")
-	errTransactionConflict  = errors.New("transaction conflict: cannot write")
-	errOperationFailedRetry = errors.New("operation failed: Please retry")
-	errEmptyMessage         = errors.New("")
+	errConnectionRefused = errors.New("connection refused")
 )

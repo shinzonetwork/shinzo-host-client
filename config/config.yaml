@@ -47,8 +47,6 @@ shinzo:
   # P2P Control Settings
   wait_for_gaps: true         # Wait for gap processing before starting P2P
   max_gap_size: 1000          # Skip P2P if gap is larger than this
-  # Queue Settings
-  cache_queue_size: 50000        # Job queue size for document processing
   # View Management Settings
   view_inactivity_timeout: "24h"  # Stop updating views after 24h of no access
   view_cleanup_interval: "1h"     # Check for inactive views every hour
@@ -58,10 +56,6 @@ shinzo:
   batch_max_views_per_job: 50         # Split large batches to prevent memory issues
   batch_query_cache_size: 1000        # Cache query templates for reuse
   # Attestation Processing Settings
-  batch_writer_count: 8             # Number of batch writers
-  batch_size: 500                  # Max attestations per batch
-  batch_flush_interval: 100          # Flush interval in milliseconds
-  use_block_signatures: true
   doc_worker_count: 32
   doc_queue_size: 50000
   # Event Replication Filter
