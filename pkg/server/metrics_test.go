@@ -42,9 +42,10 @@ func TestNewHostMetrics(t *testing.T) {
 	require.Equal(t, "non-branchable", m.SchemaType)
 }
 
-// A host's chain counters are found by prefix and listed in config order.
+// A host's chain counters are found by prefix and listed in config order; a removed chain is not
+// configured and is left out.
 func TestHostMetricsChains(t *testing.T) {
-	m := NewHostMetrics(&ChainMetrics{Prefix: "Ethereum__Mainnet"}, &ChainMetrics{Prefix: "BSC__Mainnet"})
+	m := NewHostMetrics(&ChainMetrics{Prefix: "Ethereum__Mainnet"}, &ChainMetrics{Prefix: "BSC__Mainnet"}, &ChainMetrics{Prefix: "Old__Chain", Reason: ReasonRemoved})
 	chains := m.Chains()
 	require.Len(t, chains, 2)
 	require.Equal(t, "Ethereum__Mainnet", chains[0].Prefix)
@@ -308,13 +309,26 @@ func TestServeHTTP_JSON(t *testing.T) {
 			name: "several chains",
 			chains: []*ChainMetrics{
 				{Prefix: "Ethereum__Mainnet", Enabled: true, Cutoff: ethCutoff},
-				{Prefix: "BSC__Mainnet", Cutoff: bscCutoff},
+				{Prefix: "BSC__Mainnet", Reason: ReasonSchemaDrift, Cutoff: bscCutoff},
 			},
 			blocks: []int64{42, 0},
 			wantChains: `[
 				{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30},
-				{"chain":"BSC__Mainnet","enabled":false,"cutoff":70}
+				{"chain":"BSC__Mainnet","enabled":false,"reason":"schema_drift","cutoff":70}
 			]`,
+		},
+		{
+			name: "one chain and a removed one",
+			chains: []*ChainMetrics{
+				{Prefix: "Ethereum__Mainnet", Enabled: true, Cutoff: ethCutoff},
+				{Prefix: "BSC__Mainnet", Reason: ReasonRemoved},
+			},
+			blocks: []int64{42, 0},
+			wantChains: `[
+				{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30},
+				{"chain":"BSC__Mainnet","enabled":false,"reason":"removed"}
+			]`,
+			wantBlock: "42",
 		},
 	}
 	for _, tt := range tests {

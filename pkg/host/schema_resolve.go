@@ -6,15 +6,18 @@ import (
 	"fmt"
 	"iter"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
 // chainsApplier creates the chains' tables and subscribes to the enabled chains; ApplySchema says which
@@ -24,40 +27,29 @@ type chainsApplier struct {
 	chains    []chain.Config
 	// enabled is set by ApplySchema to the chains it subscribed to, in config order.
 	enabled []chain.Config
-	// unanswered is set by ApplySchema to the prefixes of the chains it left out because no generator
-	// answered. The store holds none of their tables.
-	unanswered []string
+	// reasons is set by ApplySchema to the reason each chain it disabled is not served, keyed by prefix.
+	// A chain disabled for server.ReasonSchemaDrift has all its tables stored, one disabled for
+	// server.ReasonTablesPartiallyStored some, and one disabled for any other reason none.
+	reasons map[string]string
+	// removed is set by ApplySchema to the prefixes of the chains the store holds but chains does not
+	// list.
+	removed []string
 }
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
-// to them. A chain whose tables drift (schema.ErrSchemaDrift) is disabled: it is unsubscribed and
-// left out of enabled. A chain is also disabled when the store holds none of its tables and no
-// generator answered (errNoGeneratorAnswered); it is tried again at the next start. When every
-// chain is disabled, it returns errNoChainEnabled with each chain's error. Any other failure is
-// returned. Before creating any table, it returns errUnlistedChain when the store holds a chain
-// that chains does not list.
+// to them. A chain whose tables cannot be set up (see disabledReason) is disabled: its stored tables
+// are unsubscribed and it is left out of enabled. When every chain is disabled, it returns
+// errNoChainEnabled with each chain's error. Any other failure is returned. A chain the store holds
+// but chains does not list is removed: it is unsubscribed before any table is created, and its
+// tables and data stay until the store is wiped.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
-	cols, err := n.DB.GetCollections(ctx)
+	removed, err := a.removeUnlistedChains(ctx, n)
 	if err != nil {
-		return fmt.Errorf("read stored collections: %w", err)
-	}
-	configured := make(map[string]bool, len(a.chains))
-	for _, c := range a.chains {
-		configured[c.Prefix] = true
-	}
-	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
-	// list means the store holds another chain. A view's name is whatever its SDL declares, so views
-	// are skipped.
-	signatureSuffix := chain.EVM("").BlockSignature.Name
-	for _, col := range cols {
-		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
-		if ok && !col.Version().Query.HasValue() && !configured[prefix] {
-			return fmt.Errorf("%s: %w", prefix, errUnlistedChain)
-		}
+		return err
 	}
 
 	var enabled []chain.Config
-	var unanswered []string
+	reasons := make(map[string]string)
 	var disabled []error
 	for _, c := range a.chains {
 		collections := chain.EVM(c.Prefix)
@@ -71,22 +63,18 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			Collections: collections,
 		}
 		err = applier.ApplySchema(ctx, n)
-		if errors.Is(err, schema.ErrSchemaDrift) {
-			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
-			// made by an earlier start is removed.
-			if err := n.DB.DeleteP2PCollections(ctx, collections.Subscribed()); err != nil {
+		if reason := disabledReason(err); reason != "" {
+			// DefraDB keeps subscriptions across restarts, so any from an earlier start are removed.
+			stored, listErr := n.DB.GetCollections(ctx)
+			if listErr != nil {
+				return fmt.Errorf("read stored collections: %w", listErr)
+			}
+			if err := n.DB.DeleteP2PCollections(ctx, storedNames(stored, collections.Subscribed())); err != nil {
 				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
 			}
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
 			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
-			continue
-		}
-		// Generators are asked for a chain's tables only when the store holds none of them, so a
-		// chain left out here has no tables and no subscription.
-		if errors.Is(err, errNoGeneratorAnswered) {
-			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
-			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
-			unanswered = append(unanswered, c.Prefix)
+			reasons[c.Prefix] = reason
 			continue
 		}
 		if err != nil {
@@ -101,8 +89,69 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		return fmt.Errorf("%w: %w", errNoChainEnabled, errors.Join(disabled...))
 	}
 	a.enabled = enabled
-	a.unanswered = unanswered
+	a.reasons = reasons
+	a.removed = removed
 	return nil
+}
+
+// disabledReason returns the reason a chain is disabled when setting up its tables fails with err, or
+// "" when err does not disable a chain.
+func disabledReason(err error) string {
+	switch {
+	case errors.Is(err, schema.ErrSchemaDrift):
+		return server.ReasonSchemaDrift
+	case errors.Is(err, errNoGeneratorAnswered):
+		return server.ReasonNoGeneratorAnswered
+	case errors.Is(err, errNoGeneratorSchema):
+		return server.ReasonSchemaRefused
+	case errors.Is(err, errNoChainSchema):
+		return server.ReasonNoGeneratorConfigured
+	case errors.Is(err, schema.ErrSchemaPartiallyStored):
+		return server.ReasonTablesPartiallyStored
+	}
+	return ""
+}
+
+// removeUnlistedChains unsubscribes each chain the store holds but chains does not list, and returns
+// their prefixes.
+func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) ([]string, error) {
+	cols, err := n.DB.GetCollections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read stored collections: %w", err)
+	}
+	configured := make(map[string]bool, len(a.chains))
+	for _, c := range a.chains {
+		configured[c.Prefix] = true
+	}
+	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
+	// list belongs to a removed chain. A view's name is whatever its SDL declares, so views are
+	// skipped.
+	signatureSuffix := chain.EVM("").BlockSignature.Name
+	var removed []string
+	for _, col := range cols {
+		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
+		if !ok || col.Version().Query.HasValue() || configured[prefix] {
+			continue
+		}
+		if err := n.DB.DeleteP2PCollections(ctx, storedNames(cols, chain.EVM(prefix).Subscribed())); err != nil {
+			return nil, fmt.Errorf("unsubscribe removed chain %s: %w", prefix, err)
+		}
+		logger.Sugar.Warnf("Chain %s removed: the config does not list it, so it is unsubscribed; its tables and data stay until the store is wiped", prefix)
+		removed = append(removed, prefix)
+	}
+	return removed, nil
+}
+
+// storedNames returns the names in names that a collection in cols is stored under. DefraDB's
+// DeleteP2PCollections errors on a name the store does not hold, so it is given only these.
+func storedNames(cols []client.Collection, names []string) []string {
+	var stored []string
+	for _, col := range cols {
+		if slices.Contains(names, col.Name()) {
+			stored = append(stored, col.Name())
+		}
+	}
+	return stored
 }
 
 // resolveSchema returns the schema of one of the host's chains. With generators configured, it is

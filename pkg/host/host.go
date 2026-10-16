@@ -171,7 +171,7 @@ type Host struct {
 
 	// mostRecentBlockReceived uint64
 
-	pruners []*pruner.Pruner // One document pruner per configured chain that has tables
+	pruners []*pruner.Pruner // One document pruner per chain with all its tables stored
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -206,13 +206,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		return nil, ErrNoChains
 	}
 	// The event filter and snapshots use only the first chain. Config allows them only on a host
-	// serving one chain, and that host does not start when its chain drifts.
+	// serving one chain, and that host does not start when its chain is disabled.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
 	// Every configured chain gets a cutoff and a retention-rule entry in pruned, in cfg.Chains order.
-	// Each chain with tables, enabled or not (all but the ones no generator answered for), gets a
-	// pruner below.
+	// Only chains with all their tables stored get a pruner below.
 	var pruned []prunedChain
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
@@ -295,13 +294,17 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	// The endpoints report every configured chain, enabled or not, in config order.
+	// The endpoints report every configured chain, enabled or not, in config order, then the removed
+	// chains.
 	chainMetrics := make([]*server.ChainMetrics, len(cfg.Chains))
 	for i, c := range cfg.Chains {
-		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix)}
+		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix), Reason: applier.reasons[c.Prefix]}
 		if pruned != nil {
 			chainMetrics[i].Cutoff = pruned[i].cutoff
 		}
+	}
+	for _, prefix := range applier.removed {
+		chainMetrics = append(chainMetrics, &server.ChainMetrics{Prefix: prefix, Reason: server.ReasonRemoved})
 	}
 	newHost := &Host{
 		DefraNode:              defraNode,
@@ -348,6 +351,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// View manager has to be built before the ACP middleware because the
 	// middleware's view registry adapts the manager's accessors.
 	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, enabledPrefixes...)
+	if err := viewManager.RefuseUnservedViews(ctx); err != nil {
+		return nil, fmt.Errorf("refuse views on unserved chains: %w", err)
+	}
 
 	apiHandler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
 	if err != nil {
@@ -540,8 +546,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		cfg.Pruner.SetDefaults()
 
 		for i, c := range cfg.Chains {
-			// A chain no generator answered for has no tables to prune.
-			if slices.Contains(applier.unanswered, c.Prefix) {
+			// Only enabled chains and chains disabled for drift have all their tables stored.
+			if reason := applier.reasons[c.Prefix]; reason != "" && reason != server.ReasonSchemaDrift {
 				continue
 			}
 			chainCfg := cfg.Pruner
@@ -588,7 +594,8 @@ func (h *Host) IsHealthy() bool {
 	return h.DefraNode != nil
 }
 
-// ChainStatuses returns each configured chain's status, in config order, or nil without host metrics.
+// ChainStatuses returns each configured chain's status, in config order, then each removed chain's,
+// or nil without host metrics.
 func (h *Host) ChainStatuses() []server.ChainStatus {
 	if h.metrics == nil {
 		return nil

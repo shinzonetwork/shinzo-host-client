@@ -552,6 +552,11 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 	otherLogAddr := other + "__Log { address }"
 	ethereum := []string{chain.EthereumMainnet}
 	both := []string{chain.EthereumMainnet, other}
+	// Stored views, each named with one chain's prefix and reading the other chain's table, and one
+	// named without a chain.
+	ethNamedOnOther := chain.EthereumMainnet + "__OnOther"
+	otherNamedOnEth := other + "__OnEthereum"
+	plainOnEth := "PlainOnEthereum"
 
 	cases := []struct {
 		desc      string
@@ -571,6 +576,9 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 		{desc: "table without a chain when Ethereum is not the first chain", served: []string{other, chain.EthereumMainnet}, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
 		{desc: "the second chain's table", served: both, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
 		{desc: "a chain the host does not serve", served: both, query: third + "__Log { address }", wantErr: ErrViewChainNotServed},
+		{desc: "a view on another chain's table, named with the served chain's prefix", served: ethereum, query: ethNamedOnOther + " { address }", wantErr: ErrViewChainNotServed},
+		{desc: "a view on the served chain's table, named with another chain's prefix", served: ethereum, query: otherNamedOnEth + " { address }", wantQuery: otherNamedOnEth + " { address }", wantChain: chain.EthereumMainnet},
+		{desc: "a view on the served chain's table, named without a chain", served: ethereum, query: plainOnEth + " { address }", wantQuery: plainOnEth + " { address }", wantChain: chain.EthereumMainnet},
 	}
 
 	for _, c := range cases {
@@ -585,6 +593,12 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 				_, err = defraNode.DB.AddCollection(ctx, "type "+prefix+"__Log { address: String }")
 				require.NoError(t, err)
 			}
+			_, err = defraNode.DB.AddView(ctx, otherLogAddr, "type "+ethNamedOnOther+" { address: String }")
+			require.NoError(t, err)
+			_, err = defraNode.DB.AddView(ctx, queryEthLogAddr, "type "+otherNamedOnEth+" { address: String }")
+			require.NoError(t, err)
+			_, err = defraNode.DB.AddView(ctx, queryEthLogAddr, "type "+plainOnEth+" { address: String }")
+			require.NoError(t, err)
 
 			vm := NewManager(defraNode, t.TempDir(), c.served...)
 			v := &View{
@@ -605,6 +619,49 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, c.wantChain, gotChain)
 		})
+	}
+}
+
+// TestViewManager_RefuseUnservedViews tests that a stored view is refused by the chain of the table it
+// reads, through the views it is built on, whatever the views' names say.
+func TestViewManager_RefuseUnservedViews(t *testing.T) {
+	const other = "Testchain__Devnet"
+	ctx := context.Background()
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	for _, prefix := range []string{chain.EthereumMainnet, other} {
+		_, err = defraNode.DB.AddCollection(ctx, "type "+prefix+"__Log { address: String }")
+		require.NoError(t, err)
+	}
+	// Each inner view is named with one chain's prefix, or with none, which reads as Ethereum
+	// mainnet's, and reads the other chain's table. Each outer view reads an inner view. The host
+	// serves only Ethereum mainnet.
+	views := []struct {
+		name, query string
+		refused     bool
+	}{
+		{name: chain.EthereumMainnet + "__OnOther", query: other + "__Log { address }", refused: true},
+		{name: "OuterOnOther", query: chain.EthereumMainnet + "__OnOther { address }", refused: true},
+		{name: other + "__OnEthereum", query: queryEthLogAddr, refused: false},
+		{name: "OuterOnEthereum", query: other + "__OnEthereum { address }", refused: false},
+		{name: "PlainOnOther", query: other + "__Log { address }", refused: true},
+		{name: "OuterOnPlain", query: "PlainOnOther { address }", refused: true},
+	}
+	var names []string
+	for _, v := range views {
+		_, err = defraNode.DB.AddView(ctx, v.query, "type "+v.name+" { address: String }")
+		require.NoError(t, err)
+		names = append(names, v.name)
+	}
+	require.NoError(t, defraNode.DB.AddP2PCollections(ctx, names))
+
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
+	require.NoError(t, vm.RefuseUnservedViews(ctx))
+
+	for _, v := range views {
+		require.Equal(t, v.refused, vm.IsRefused(v.name), v.name)
 	}
 }
 

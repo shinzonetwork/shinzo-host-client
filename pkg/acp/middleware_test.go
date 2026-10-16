@@ -226,6 +226,23 @@ func TestMiddleware_ViewWithoutAddressFailsClosed(t *testing.T) {
 	require.Empty(t, authz.calls)
 }
 
+// A stored view on a chain the host does not serve is refused before any billing
+// step, even alongside a base collection.
+func TestMiddleware_ViewOnUnservedChainIs404(t *testing.T) {
+	authz := &fakeAuthorizer{allow: true}
+	reg := fakeRegistry{refused: map[string]bool{testViewFilteredLogs: true}}
+	mw := NewMiddleware(authz, reg, testChainID, 0, nil, nil)
+
+	next := &recordingNext{}
+	r := newGraphQLPost([]byte(`{"query":"{ Ethereum__Mainnet__Block { number } FilteredLogs { hash } }"}`))
+	w := httptest.NewRecorder()
+	mw.Wrap(next).ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.False(t, next.called)
+	require.Empty(t, authz.calls)
+}
+
 func TestMiddleware_MalformedBodyIs400(t *testing.T) {
 	authz := &fakeAuthorizer{}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
@@ -584,8 +601,10 @@ func (f *fakeAuthorizer) Authorize(_ context.Context, payer common.Address) (boo
 
 // fakeRegistry treats every key in views as a registered view; an empty-string
 // value models "registered but no contract address" for fail-closed tests.
+// refused holds stored views on chains the host does not serve.
 type fakeRegistry struct {
-	views map[string]string
+	views   map[string]string
+	refused map[string]bool
 }
 
 func (f fakeRegistry) IsView(name string) bool {
@@ -599,6 +618,10 @@ func (f fakeRegistry) ContractAddress(name string) (string, bool) {
 		return "", false
 	}
 	return addr, true
+}
+
+func (f fakeRegistry) IsRefused(name string) bool {
+	return f.refused[name]
 }
 
 // recordingNext is the wrapped handler; tests inspect whether it was reached and
