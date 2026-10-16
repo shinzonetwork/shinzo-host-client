@@ -5,16 +5,25 @@ import (
 	"io"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
 )
 
-func printConfig(w io.Writer, cfg hostconfig.Config) error {
-	_, err := fmt.Fprintf(w, `Data dir:    %s
-Config path: %s
-Key dir:     %s
-Filter dir:  %s
-Logger:      development=%t level=%s
-HTTP:        addr=%s
-`, cfg.DataDir, cfg.ConfigPath, cfg.KeyDir, cfg.FilterDir, cfg.Logger.Development, cfg.Logger.Level, cfg.HTTP.Addr)
+func printConfig(w io.Writer, cfg hostconfig.Config, nodeKeys keys.NodeKeys) error {
+	if _, err := fmt.Fprintf(w, `Data dir:         %s
+Config path:      %s
+Key dir:          %s
+Filter dir:       %s
+Logger:           development=%t level=%s
+HTTP:             addr=%s
+`, cfg.DataDir, cfg.ConfigPath, cfg.KeyDir, cfg.FilterDir, cfg.Logger.Development, cfg.Logger.Level, cfg.HTTP.Addr); err != nil {
+		return err
+	}
 
+	shinzoAddr, err := nodeKeys.ShinzoAddress()
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(w, "Operator address: %s\n", shinzoAddr)
 	return err
 }

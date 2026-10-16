@@ -5,10 +5,22 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cosmos/go-bip39"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
 )
+
+func testMnemonic(t *testing.T) string {
+	t.Helper()
+	entropy, err := bip39.NewEntropy(128) //nolint:mnd // 128 bits -> 12 words
+	require.NoError(t, err)
+	mnemonic, err := bip39.NewMnemonic(entropy)
+	require.NoError(t, err)
+	return mnemonic
+}
 
 func TestRunInitCreatesInstance(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
@@ -144,4 +156,57 @@ func TestRunInitDoesNotWarnWhenDataDirUnset(t *testing.T) {
 
 	require.NoError(t, runInit(cmd, nil))
 	require.NotContains(t, out.String(), "not saved")
+}
+
+func TestRunInitGeneratesKeys(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runInit(cmd, nil))
+	require.FileExists(t, filepath.Join(home, "keys", "operator.key"))
+	require.Contains(t, out.String(), "Operator address: shinzo1")
+}
+
+func TestRunInitRecoverUsesGivenMnemonic(t *testing.T) {
+	mnemonic := testMnemonic(t)
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover", mnemonic))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runInit(cmd, nil))
+
+	// Derive independently from the same mnemonic, in a separate dir, and
+	// confirm it's the same operator address init just reported.
+	want, err := keys.EnsureKeys(filepath.Join(t.TempDir(), "keys"), mnemonic, zap.NewNop().Sugar())
+	require.NoError(t, err)
+	wantAddr, err := want.ShinzoAddress()
+	require.NoError(t, err)
+
+	require.Contains(t, out.String(), wantAddr)
+}
+
+// A bad --recover value is checked before anything else, so a failed
+// init leaves nothing behind: no config.toml, no directories. Without
+// that check up front, Setup would have already created all of it by
+// the time EnsureKeys got around to rejecting the mnemonic.
+func TestRunInitRejectsInvalidRecoverMnemonic(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover", "not a real mnemonic at all"))
+	cmd.SetOut(&bytes.Buffer{})
+
+	require.Error(t, runInit(cmd, nil))
+	require.NoDirExists(t, home)
 }
