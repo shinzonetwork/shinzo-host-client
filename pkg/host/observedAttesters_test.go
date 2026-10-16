@@ -1,12 +1,17 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/viewbundle-go"
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 // Snapshot returns every attester seen within the window, sorted for a stable
@@ -85,4 +90,24 @@ func TestObservedAttesters_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 	require.Len(t, o.Snapshot(), 50, "every distinct attester observed within the window is live")
+}
+
+// A view's service records carry the attesters observed on the chain the view reads.
+func TestViewAttesters(t *testing.T) {
+	const other = "Testchain__Devnet"
+	defraNode, _ := startChainsNode(t, chain.EthereumMainnet, other)
+	vm := view.NewManager(defraNode, t.TempDir(), chain.EthereumMainnet, other)
+	for name, table := range map[string]string{"EthereumLogs": chain.EVM(chain.EthereumMainnet).Log.Name, "OtherLogs": chain.EVM(other).Log.Name} {
+		v := view.View{Name: name, Data: viewbundle.View{Query: table + " { address }", Sdl: "type " + name + " { address: String }"}}
+		require.NoError(t, vm.RegisterView(context.Background(), &v))
+	}
+	sets := map[string]*observedAttesters{chain.EthereumMainnet: newObservedAttesters(time.Minute), other: newObservedAttesters(time.Minute)}
+	sets[chain.EthereumMainnet].Observe("0xeth")
+	sets[other].Observe("0xother")
+
+	attesters := viewAttesters(vm, sets)
+	require.Equal(t, []string{"0xeth"}, attesters("EthereumLogs"))
+	require.Equal(t, []string{"0xother"}, attesters("OtherLogs"))
+	require.Nil(t, attesters("NotAView"))
+	require.Nil(t, viewAttesters(vm, nil)("OtherLogs"), "recording off")
 }

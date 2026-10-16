@@ -14,6 +14,9 @@ var prefixPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*__[A-Za-z][A-Za-z0-
 // Config is a chain the host serves.
 type Config struct {
 	Prefix string `yaml:"prefix"`
+	// MaxBlocks is the number of newest block heights the pruner keeps for this chain. Zero keeps
+	// pruner.max_blocks.
+	MaxBlocks int64 `yaml:"max_blocks"`
 	// Generators serve the chain's schema. They are tried in order.
 	Generators []Generator `yaml:"generators"`
 }
@@ -27,10 +30,10 @@ type Generator struct {
 	Peer string `yaml:"peer"`
 }
 
-// Validate checks every chain's prefix and each generator's URL and peer. Two prefixes that differ
-// only in case are rejected: DefraDB keeps them as separate collections, so such a pair is one
-// chain mistyped. A peer is parsed as the host parses it before dialling, so one the host would
-// skip is refused here instead.
+// Validate checks every chain's prefix and max_blocks, and each generator's URL and peer. Two
+// prefixes that differ only in case are rejected: DefraDB keeps them as separate collections, so
+// such a pair is one chain mistyped. A peer is parsed as the host parses it before dialling, so one
+// the host would skip is refused here instead.
 func Validate(chains []Config) error {
 	seen := make(map[string]string, len(chains))
 	for _, c := range chains {
@@ -42,6 +45,10 @@ func Validate(chains []Config) error {
 			return fmt.Errorf("chains %q and %q: %w", other, c.Prefix, ErrDuplicatePrefix)
 		}
 		seen[folded] = c.Prefix
+
+		if c.MaxBlocks < 0 {
+			return fmt.Errorf("chain %q max_blocks %d: %w", c.Prefix, c.MaxBlocks, ErrInvalidMaxBlocks)
+		}
 
 		for _, g := range c.Generators {
 			u, err := url.Parse(g.URL)

@@ -20,6 +20,7 @@ type Config struct {
 // across all of them, and at one height it deletes the dependents before the block. It orders on
 // each collection's height field, so that field has to be indexed.
 type CollectionConfig struct {
+	Prefix     string // The chain's prefix, which the pruner names in its log lines
 	Block      chain.Collection
 	Dependents []chain.Collection
 }
@@ -28,7 +29,8 @@ type CollectionConfig struct {
 // collection of the chain as a dependent.
 func CollectionConfigFor(c chain.Collections) CollectionConfig {
 	return CollectionConfig{
-		Block: c.Block,
+		Prefix: c.Prefix,
+		Block:  c.Block,
 		Dependents: []chain.Collection{
 			c.AccessListEntry,
 			c.Log,

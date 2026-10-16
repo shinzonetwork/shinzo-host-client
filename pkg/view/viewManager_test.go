@@ -543,24 +543,34 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 }
 
 // TestViewManager_RegisterView_SourceCollection tests how a view's source table is matched to the
-// chain the host serves.
+// chains the host serves.
 func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
-	const other = "Testchain__Devnet"
+	const (
+		other = "Testchain__Devnet"
+		third = "Third__Chain"
+	)
 	otherLogAddr := other + "__Log { address }"
+	ethereum := []string{chain.EthereumMainnet}
+	both := []string{chain.EthereumMainnet, other}
 
 	cases := []struct {
 		desc      string
-		served    string
+		served    []string
 		query     string
 		wantQuery string
+		wantChain string
 		wantErr   error
 	}{
-		{desc: "table without a chain on an Ethereum host", served: chain.EthereumMainnet, query: queryLogAddr, wantQuery: queryEthLogAddr},
-		{desc: "table without a chain on another chain's host", served: other, query: queryLogAddr, wantErr: ErrViewChainNotServed},
-		{desc: "the served chain's table", served: other, query: otherLogAddr, wantQuery: otherLogAddr},
-		{desc: "another chain's table", served: chain.EthereumMainnet, query: otherLogAddr, wantErr: ErrViewChainNotServed},
-		{desc: "aliased table without a chain on an Ethereum host", served: chain.EthereumMainnet, query: "Logs: Log { address }", wantQuery: "Logs: Ethereum__Mainnet__Log { address }"},
-		{desc: "two tables", served: chain.EthereumMainnet, query: queryEthLogAddr + " " + queryEthLogAddr, wantErr: ErrViewQueryInvalid},
+		{desc: "table without a chain on an Ethereum host", served: ethereum, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "table without a chain on another chain's host", served: []string{other}, query: queryLogAddr, wantErr: ErrViewChainNotServed},
+		{desc: "the served chain's table", served: []string{other}, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
+		{desc: "another chain's table", served: ethereum, query: otherLogAddr, wantErr: ErrViewChainNotServed},
+		{desc: "aliased table without a chain on an Ethereum host", served: ethereum, query: "Logs: Log { address }", wantQuery: "Logs: Ethereum__Mainnet__Log { address }", wantChain: chain.EthereumMainnet},
+		{desc: "two tables", served: ethereum, query: queryEthLogAddr + " " + queryEthLogAddr, wantErr: ErrViewQueryInvalid},
+		{desc: "table without a chain on a host serving Ethereum and another chain", served: both, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "table without a chain when Ethereum is not the first chain", served: []string{other, chain.EthereumMainnet}, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "the second chain's table", served: both, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
+		{desc: "a chain the host does not serve", served: both, query: third + "__Log { address }", wantErr: ErrViewChainNotServed},
 	}
 
 	for _, c := range cases {
@@ -570,13 +580,13 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { _ = defraNode.Close(ctx) }()
 
-			// Both chains' tables exist, so a refusal comes from the chain check, not a missing table.
-			for _, prefix := range []string{chain.EthereumMainnet, other} {
+			// Every chain's table exists, so a refusal comes from the chain check, not a missing table.
+			for _, prefix := range []string{chain.EthereumMainnet, other, third} {
 				_, err = defraNode.DB.AddCollection(ctx, "type "+prefix+"__Log { address: String }")
 				require.NoError(t, err)
 			}
 
-			vm := NewManager(defraNode, t.TempDir(), c.served)
+			vm := NewManager(defraNode, t.TempDir(), c.served...)
 			v := &View{
 				Name: "CollectionTestView",
 				Data: viewbundle.View{Query: c.query, Sdl: "type CollectionTestView { address: String }"},
@@ -591,6 +601,9 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, c.wantQuery, v.Data.Query)
+			gotChain, ok := vm.Chain(v.Name)
+			require.True(t, ok)
+			require.Equal(t, c.wantChain, gotChain)
 		})
 	}
 }

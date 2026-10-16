@@ -354,16 +354,20 @@ func TestMiddleware_MixedViewAndBaseCollectionAllowed(t *testing.T) {
 }
 
 // On allow with a served view response the gate submits one service record
-// carrying the signed extensions, the counted rows, and the observed attesting
-// set.
+// carrying the signed extensions, the counted rows, and the attesting set
+// observed for the served view.
 func TestMiddleware_RecordsServedQuery(t *testing.T) {
 	priv, _ := newKey(t)
 	authz := &fakeAuthorizer{allow: true}
 	reg := fakeRegistry{views: map[string]string{testViewFilteredLogs: testContractA}}
 	rec := &fakeRecorder{}
+	var attestersView string
 	mw := NewMiddleware(authz, reg, testChainID, 0, &Recording{
-		Recorder:  rec,
-		Attesters: func() []string { return []string{"idx1", "idx2"} },
+		Recorder: rec,
+		Attesters: func(view string) []string {
+			attestersView = view
+			return []string{"idx1", "idx2"}
+		},
 	}, nil)
 
 	query := "{ FilteredLogs { hash } }"
@@ -384,6 +388,7 @@ func TestMiddleware_RecordsServedQuery(t *testing.T) {
 	require.Equal(t, ext, in.Extensions)
 	require.Equal(t, uint64(2), in.RowsQueried)
 	require.Equal(t, []string{"idx1", "idx2"}, in.AttestedIndexers)
+	require.Equal(t, testViewFilteredLogs, attestersView)
 }
 
 // A query the gate allows but whose response carries no view rows (a failed

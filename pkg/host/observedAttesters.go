@@ -4,6 +4,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
 // DefaultAttesterWindow is how far back Snapshot looks for live attesters when no
@@ -62,4 +64,22 @@ func (o *observedAttesters) Snapshot() []string {
 	}
 	sort.Strings(live)
 	return live
+}
+
+// viewAttesters returns a function that gives the attesters observed on the chain an active view
+// reads, by the view's name. It gives nil when the view is not active or its chain has no set, as
+// when recording is off. attesters is read but not changed, so the function is safe to call from
+// any goroutine.
+func viewAttesters(views *view.Manager, attesters map[string]*observedAttesters) func(string) []string {
+	return func(viewName string) []string {
+		prefix, ok := views.Chain(viewName)
+		if !ok {
+			return nil
+		}
+		set := attesters[prefix]
+		if set == nil {
+			return nil
+		}
+		return set.Snapshot()
+	}
 }

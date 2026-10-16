@@ -287,7 +287,7 @@
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 2rem 0;">
                     <div class="metric-card" style="background: #fafafa;">
                         <p class="metric-label">Most Recent Block</p>
-                        <p class="metric-value" id="most-recent-block">-</p>
+                        <div id="most-recent-blocks"></div>
                     </div>
                     <div class="metric-card" style="background: #fafafa;">
                         <p class="metric-label">Uptime</p>
@@ -403,6 +403,18 @@
 
         const missMatchIcon = `<span class="alert-triangle" aria-label="mismatch"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2.25" stroke-linejoin="round"/><rect x="11" y="8" width="2.2" height="6.5" rx="1.1" fill="currentColor"/><circle cx="12.1" cy="17.2" r="1.35" fill="currentColor"/></svg></span>`;
 
+        function renderMostRecentBlocks(chains) {
+            document.getElementById('most-recent-blocks').replaceChildren(...(chains || []).flatMap(chain => {
+                const name = document.createElement('p');
+                name.className = 'metric-description';
+                name.textContent = chain.chain;
+                const block = document.createElement('p');
+                block.className = 'metric-value';
+                block.textContent = chain.enabled ? formatNumber(chain.current_block) : 'Disabled';
+                return [name, block];
+            }));
+        }
+
         //load metrics data
         async function loadMetricsData() {
             const response = await fetch('/metrics', {
@@ -485,7 +497,7 @@
             }
 
             //update system overview data
-            document.getElementById('most-recent-block').textContent = formatNumber(data.metrics.most_recent_block);
+            renderMostRecentBlocks(data.chains);
             document.getElementById('uptimeValue').textContent = formatDurationHHMMSS(data.uptime_seconds);
             document.getElementById('last-document-time').textContent = formatTime(data.metrics.last_document_time);
 

@@ -2,9 +2,14 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"iter"
 	"net/url"
+	"strings"
 	"time"
+
+	"github.com/sourcenetwork/defradb/node"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -12,8 +17,100 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// resolveSchema returns the schema of the chain the host serves. With generators configured, it is
-// the first usable schema they serve, tried in order, or errNoGeneratorSchema when none serves one.
+// chainsApplier creates the chains' tables and subscribes to the enabled chains; ApplySchema says which
+// chains it disables. It implements defradb.SchemaApplier.
+type chainsApplier struct {
+	schemaCfg config.SchemaConfig
+	chains    []chain.Config
+	// enabled is set by ApplySchema to the chains it subscribed to, in config order.
+	enabled []chain.Config
+	// unanswered is set by ApplySchema to the prefixes of the chains it left out because no generator
+	// answered. The store holds none of their tables.
+	unanswered []string
+}
+
+// ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
+// to them. A chain whose tables drift (schema.ErrSchemaDrift) is disabled: it is unsubscribed and
+// left out of enabled. A chain is also disabled when the store holds none of its tables and no
+// generator answered (errNoGeneratorAnswered); it is tried again at the next start. When every
+// chain is disabled, it returns errNoChainEnabled with each chain's error. Any other failure is
+// returned. Before creating any table, it returns errUnlistedChain when the store holds a chain
+// that chains does not list.
+func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
+	cols, err := n.DB.GetCollections(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored collections: %w", err)
+	}
+	configured := make(map[string]bool, len(a.chains))
+	for _, c := range a.chains {
+		configured[c.Prefix] = true
+	}
+	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
+	// list means the store holds another chain. A view's name is whatever its SDL declares, so views
+	// are skipped.
+	signatureSuffix := chain.EVM("").BlockSignature.Name
+	for _, col := range cols {
+		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
+		if ok && !col.Version().Query.HasValue() && !configured[prefix] {
+			return fmt.Errorf("%s: %w", prefix, errUnlistedChain)
+		}
+	}
+
+	var enabled []chain.Config
+	var unanswered []string
+	var disabled []error
+	for _, c := range a.chains {
+		collections := chain.EVM(c.Prefix)
+		applier := schema.ChainApplier{
+			Tables: func(ctx context.Context) (string, error) {
+				return resolveSchema(ctx, a.schemaCfg, c, collections)
+			},
+			Served: func(ctx context.Context) iter.Seq2[string, schema.Response] {
+				return servedSchemas(ctx, a.schemaCfg, c)
+			},
+			Collections: collections,
+		}
+		err = applier.ApplySchema(ctx, n)
+		if errors.Is(err, schema.ErrSchemaDrift) {
+			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
+			// made by an earlier start is removed.
+			if err := n.DB.DeleteP2PCollections(ctx, collections.Subscribed()); err != nil {
+				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
+			}
+			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
+			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
+			continue
+		}
+		// Generators are asked for a chain's tables only when the store holds none of them, so a
+		// chain left out here has no tables and no subscription.
+		if errors.Is(err, errNoGeneratorAnswered) {
+			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
+			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
+			unanswered = append(unanswered, c.Prefix)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := n.DB.AddP2PCollections(ctx, collections.Subscribed()); err != nil {
+			return fmt.Errorf("subscribe %s: %w", c.Prefix, err)
+		}
+		enabled = append(enabled, c)
+	}
+	if len(enabled) == 0 {
+		return fmt.Errorf("%w: %w", errNoChainEnabled, errors.Join(disabled...))
+	}
+	a.enabled = enabled
+	a.unanswered = unanswered
+	return nil
+}
+
+// resolveSchema returns the schema of one of the host's chains. With generators configured, it is
+// the first schema they serve that passes FetchSchema's checks, tried in order. A generator answers
+// when FetchResponse accepts its response; a response whose network names another chain is an
+// answer whose schema the checks refuse. When no schema passes, it returns errNoGeneratorSchema if a
+// generator answered, and errNoGeneratorAnswered if none did (each failed with
+// schema.ErrSchemaNoResponse).
 // With none configured, Ethereum mainnet uses the built-in schema and any other chain gets
 // errNoChainSchema. The built-in schema is never a fallback: generators may serve tables that
 // differ from it, and a host whose tables differ receives none of the chain's data. Each request
@@ -28,11 +125,15 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 	}
 
 	client := schema.NewSchemaHTTPClient(schemaCfg)
+	refused := false
 	for _, g := range served.Generators {
 		var sdl string
 		schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
 		if err == nil {
 			sdl, err = schema.FetchSchema(ctx, client, schemaURL, collections)
+			if err != nil && !errors.Is(err, schema.ErrSchemaNoResponse) {
+				refused = true
+			}
 		}
 		if err != nil {
 			logger.Sugar.Warnf("Schema from generator %s not used: %v", g.URL, err)
@@ -42,38 +143,52 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 		return sdl, nil
 	}
 
-	return "", errNoGeneratorSchema
+	if refused {
+		return "", errNoGeneratorSchema
+	}
+	return "", errNoGeneratorAnswered
 }
 
-// servedSchema returns the schema served by the first of the chain's generators to answer, tried in
-// order, or false when none answers. A generator answers when it returns a schema for the served
-// chain. The schema is returned unchecked, so that every difference from the stored tables counts.
-// The requests share one deadline, the timeout schemaCfg gives a single request, which bounds this
-// chain's check: generators that do not answer delay it by that timeout once, not once each, and a
-// generator that hangs leaves less of it, or none, for the ones after it.
-func servedSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) (string, bool) {
-	// A zero timeout leaves the requests unbounded, as it does in the HTTP client.
-	if schemaCfg.HTTPClientTimeoutSecs > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(schemaCfg.HTTPClientTimeoutSecs)*time.Second)
-		defer cancel()
+// servedSchemas yields the URL of each of the chain's generators and its schema response, in order,
+// skipping those that do not answer. A generator answers when FetchResponse accepts its response; a
+// response whose network names another chain is an answer whose schema is refused.
+// Generators are asked one at a time as the caller ranges, so none is asked after the caller stops.
+// The responses are yielded without FetchSchema's checks: schema.ChainApplier refuses a response for
+// another chain and compares any other with the stored tables, so a schema the other checks refuse
+// is compared instead of being skipped. The requests share one deadline, the timeout schemaCfg
+// gives a single request, counted from when the caller starts ranging, which bounds this chain's
+// check, so a restart can wait that timeout once per chain: the chain's generators that do not
+// answer delay its check by that timeout once, not once each, and a generator that hangs leaves
+// less of it, or none, for the ones after it.
+func servedSchemas(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) iter.Seq2[string, schema.Response] {
+	return func(yield func(string, schema.Response) bool) {
+		// Each range gets its own deadline. A zero timeout leaves the requests unbounded, as it does
+		// in the HTTP client.
+		ctx := ctx
+		if schemaCfg.HTTPClientTimeoutSecs > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(schemaCfg.HTTPClientTimeoutSecs)*time.Second)
+			defer cancel()
+		}
+		client := schema.NewSchemaHTTPClient(schemaCfg)
+		answered := false
+		for _, g := range served.Generators {
+			var resp schema.Response
+			schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
+			if err == nil {
+				resp, err = schema.FetchResponse(ctx, client, schemaURL)
+			}
+			if err != nil {
+				logger.Sugar.Warnf("Generator %s did not answer for %s: %v", g.URL, served.Prefix, err)
+				continue
+			}
+			answered = true
+			if !yield(g.URL, resp) {
+				return
+			}
+		}
+		if !answered {
+			logger.Sugar.Warnf("No generator answered for %s, so the stored tables are not compared with a served schema", served.Prefix)
+		}
 	}
-	client := schema.NewSchemaHTTPClient(schemaCfg)
-	for _, g := range served.Generators {
-		var resp schema.Response
-		schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
-		if err == nil {
-			resp, err = schema.FetchResponse(ctx, client, schemaURL)
-		}
-		if err == nil && resp.Network != served.Prefix {
-			err = fmt.Errorf("network %q: %w", resp.Network, schema.ErrSchemaWrongNetwork)
-		}
-		if err != nil {
-			logger.Sugar.Warnf("Generator %s did not answer for %s: %v", g.URL, served.Prefix, err)
-			continue
-		}
-		return resp.Schema, true
-	}
-	logger.Sugar.Warnf("No generator answered for %s, so the stored tables are not compared with a served schema", served.Prefix)
-	return "", false
 }
