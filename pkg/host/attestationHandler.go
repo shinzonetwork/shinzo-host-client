@@ -155,18 +155,22 @@ func (h *Host) initDocQueue() (workerCount, queueSize int) {
 		workerCount = 16
 	}
 	docQueue = make(chan docEvent, queueSize)
+	q := docQueue
+	h.observedDocQueue.Store(&q)
 	return workerCount, queueSize
 }
 
-// enqueueDoc adds a document to the processing queue with drop-oldest backpressure.
-func enqueueDoc(evt docEvent) {
+// enqueueDoc adds a document to the processing queue with drop-oldest backpressure,
+// returning how many queued documents were dropped.
+func enqueueDoc(evt docEvent) (dropped int64) {
 	for {
 		select {
 		case docQueue <- evt:
-			return
+			return dropped
 		default:
 			select {
 			case <-docQueue:
+				dropped++
 			default:
 			}
 		}
@@ -249,8 +253,13 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 				if collectionsWithMetrics[collectionName] && h.metrics != nil {
 					h.metrics.IncrementDocumentByType(collectionName)
 				}
+				if opt, ok := h.instruments.collections[collectionName]; ok {
+					h.instruments.documents.Add(ctx, 1, opt)
+				}
 				if collectionName == constants.CollectionBlockSignature {
-					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
+					if dropped := enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName}); dropped > 0 {
+						h.instruments.blockSigsDropped.Add(ctx, dropped)
+					}
 				}
 			}
 		}
@@ -391,12 +400,13 @@ func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationServi
 
 // verifyBlockSignature verifies the signature and CID list, updating metrics on failure.
 // Returns false if verification fails and processing should stop.
-func (h *Host) verifyBlockSignature(blockSig *attestationService.BlockSignature) bool {
+func (h *Host) verifyBlockSignature(ctx context.Context, blockSig *attestationService.BlockSignature) bool {
 	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig); err != nil {
 		logger.Sugar.Warnf("Invalid block signature for block %d: %v", blockSig.BlockNumber, err)
 		if h.metrics != nil {
 			h.metrics.IncrementSignatureFailures()
 		}
+		h.instruments.blockSignatures.Add(ctx, 1, h.instruments.failure)
 		return false
 	}
 
@@ -409,6 +419,7 @@ func (h *Host) verifyBlockSignature(blockSig *attestationService.BlockSignature)
 			if h.metrics != nil {
 				h.metrics.IncrementSignatureFailures()
 			}
+			h.instruments.blockSignatures.Add(ctx, 1, h.instruments.failure)
 			return false
 		}
 	}
@@ -430,8 +441,15 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 	populateBlockSignatureCIDs(doc, blockSig)
 
 	if h.blockSignatureVerifier != nil {
-		if !h.verifyBlockSignature(blockSig) {
+		if !h.verifyBlockSignature(ctx, blockSig) {
 			return
+		}
+
+		// Atomic max: CAS retries until the stored value is at least blockNumber.
+		for cur := h.highestReceivedBlock.Load(); blockNumber > cur; cur = h.highestReceivedBlock.Load() {
+			if h.highestReceivedBlock.CompareAndSwap(cur, blockNumber) {
+				break
+			}
 		}
 
 		// A verified peer signature is the host observing that indexer attesting.
@@ -442,6 +460,7 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 		if h.metrics != nil {
 			h.metrics.IncrementSignatureVerifications()
 		}
+		h.instruments.blockSignatures.Add(ctx, 1, h.instruments.success)
 
 		h.blockSignatureVerifier.AddBlockSignature(blockSig)
 		h.processAttestationsFromBlockSignature(ctx, blockSig)
@@ -477,7 +496,10 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 
 	var lastErr error
 	for attempt := range maxAttestationRetries {
-		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+		start := time.Now()
+		err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record)
+		h.recordAttestation(ctx, start, err)
+		if err != nil {
 			if errors.Is(err, attestationService.ErrDocumentNotFound) {
 				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff", blockNumber)
 				return
@@ -492,9 +514,13 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 			if h.metrics != nil {
 				h.metrics.IncrementAttestationErrors()
 			}
+			if !errors.Is(err, context.Canceled) {
+				h.instruments.attestations.Add(ctx, 1, h.instruments.failure)
+			}
 			return
 		}
 		// Success
+		h.instruments.attestations.Add(ctx, 1, h.instruments.success)
 		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
 			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
 		} else {
@@ -514,6 +540,19 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 	if h.metrics != nil {
 		h.metrics.IncrementAttestationErrors()
 	}
+	h.instruments.attestations.Add(ctx, 1, h.instruments.failure)
+}
+
+// recordAttestation records an attestation write duration, skipping pruned records and cancellations.
+func (h *Host) recordAttestation(ctx context.Context, start time.Time, err error) {
+	if errors.Is(err, attestationService.ErrDocumentNotFound) || errors.Is(err, context.Canceled) {
+		return
+	}
+	outcome := h.instruments.success
+	if err != nil {
+		outcome = h.instruments.failure
+	}
+	h.instruments.attestationTime.Record(ctx, time.Since(start).Seconds(), outcome)
 }
 
 func truncateString(s string, maxLen int) string {

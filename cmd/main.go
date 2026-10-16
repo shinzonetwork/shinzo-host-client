@@ -28,6 +28,7 @@ const (
 	// debugReadHeaderTimeout bounds how long a client may take to send its request
 	// headers, so an idle connection cannot hold the listener open.
 	debugReadHeaderTimeout = 5 * time.Second
+	otelShutdownTimeout    = 10 * time.Second
 )
 
 // newDebugMux returns the profiling endpoints on a mux of their own, so this listener is
@@ -113,6 +114,23 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("unable to load config: %w", err))
 	}
+
+	// Initialize logging first, so telemetry and hosting errors go to the same logs.
+	logger.Init(cfg.Logger.Development, "./logs")
+
+	// Telemetry is set up before hosting starts, so a node with telemetry enabled
+	// but misconfigured exits before it opens DefraDB or joins the network.
+	otelShutdown, err := setupOTel(context.Background())
+	if err != nil {
+		panic(fmt.Errorf("telemetry setup: %w", err))
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+		}
+	}()
 
 	myHost, err := host.StartHosting(cfg)
 	if err != nil {

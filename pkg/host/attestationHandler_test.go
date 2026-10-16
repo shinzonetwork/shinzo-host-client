@@ -344,6 +344,7 @@ func TestStartEventBusListener_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
+	h.instruments = newHostMetrics()
 	// Should return immediately since DefraNode is nil
 	done := make(chan struct{})
 	go func() {
@@ -397,6 +398,7 @@ func TestProcessAttestationsFromBlockSignature_NilDefraNode(_ *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
+	h.instruments = newHostMetrics()
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber: 100,
 		MerkleRoot:  testAbc,
@@ -411,6 +413,7 @@ func TestProcessAttestationsFromBlockSignature_NoCIDs(_ *testing.T) {
 		DefraNode: nil,
 		metrics:   server.NewHostMetrics(),
 	}
+	h.instruments = newHostMetrics()
 	// Even with DefraNode nil, the CIDs check happens first
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber: 100,
@@ -608,6 +611,7 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 		config:    &cfg,
 		metrics:   metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	// Start the listener
 	listenerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -657,6 +661,7 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 		DefraNode: defraNode,
 		config:    &cfg,
 	}
+	h.instruments = newHostMetrics()
 
 	// Use a short-lived context so the listener stops after a brief run
 	listenerCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -809,6 +814,7 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 		blockSignatureVerifier: bsv,
 		metrics:                server.NewHostMetrics(),
 	}
+	h.instruments = newHostMetrics()
 
 	// This exercises the verifier path - will fail verification but should not panic
 	h.processBlockSignatureDocument(ctx, doc)
@@ -940,6 +946,7 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 		DefraNode: defraNode,
 		metrics:   metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	// Clean up global attestedBlocks state for this block number
 	attestedBlocks.Delete(int64(200))
@@ -976,6 +983,7 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing
 		DefraNode: defraNode,
 		metrics:   server.NewHostMetrics(),
 	}
+	h.instruments = newHostMetrics()
 
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       201,
@@ -1038,6 +1046,7 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 		blockSignatureVerifier: bsv,
 		metrics:                metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	// This will fail verification (invalid signature) but exercises the CID extraction paths
 	h.processBlockSignatureDocument(ctx, doc)
@@ -1077,6 +1086,7 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 		DefraNode: defraNode,
 		metrics:   server.NewHostMetrics(),
 	}
+	h.instruments = newHostMetrics()
 
 	// Exercises blockNumber=0 case and nil verifier path
 	h.processBlockSignatureDocument(ctx, doc)
@@ -1112,6 +1122,7 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics()}
+	h.instruments = newHostMetrics()
 
 	// Should return early at the empty merkleRoot check
 	h.processBlockSignatureDocument(ctx, doc)
@@ -1194,6 +1205,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	h.processBlockSignatureDocument(ctx, doc)
 
@@ -1238,6 +1250,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                server.NewHostMetrics(),
 	}
+	h.instruments = newHostMetrics()
 
 	// This exercises the full path: get collection, parse docID, fetch document, process it
 	h.processBlockSignatureFromEventBus(ctx, docIDStr)
@@ -1259,6 +1272,7 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 		DefraNode: defraNode,
 		metrics:   metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	// Clean up global attestedBlocks state
 	attestedBlocks.Delete(int64(300))
@@ -1298,6 +1312,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 		DefraNode: defraNode,
 		metrics:   metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	// Clean up global attestedBlocks state
 	attestedBlocks.Delete(int64(400))
@@ -1405,6 +1420,7 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	h.processBlockSignatureDocument(ctx, doc)
 
@@ -1454,6 +1470,7 @@ func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 		config:    &cfg,
 		metrics:   metrics,
 	}
+	h.instruments = newHostMetrics()
 
 	// Start the listener with a timeout
 	listenerCtx, cancel := context.WithTimeout(ctx, 1*time.Second)

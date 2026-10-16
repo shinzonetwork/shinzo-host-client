@@ -166,6 +166,10 @@ type Host struct {
 
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
+	instruments  hostMetrics
+
+	highestReceivedBlock atomic.Int64
+	observedDocQueue     atomic.Pointer[chan docEvent] // docQueue, read by the queue gauge
 
 	// mostRecentBlockReceived uint64
 
@@ -184,7 +188,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		cfg = DefaultConfig
 	}
 
-	logger.Init(cfg.Logger.Development, "./logs")
+	// main initializes the logger; this fallback covers library and test callers.
+	if logger.Sugar == nil {
+		logger.Init(cfg.Logger.Development, "./logs")
+	}
 
 	// Load ACP middleware configuration from the environment before any
 	// defradb work so a misconfigured host fails fast instead of starting
@@ -366,6 +373,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		viewManager:            viewManager,
 		attesters:              attesters,
 	}
+
+	newHost.instruments = newHostMetrics()
+	newHost.instruments.gaugesRegistration = registerHostGauges(newHost)
 
 	// Hook up metrics callback for view tracking
 	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
@@ -727,6 +737,7 @@ func incrementPort(apiURL string) (string, error) {
 
 // Close gracefully shuts down the host, including the DefraDB node, processing pipeline, health server, playground server, and pruner. It ensures all resources are cleaned up properly.
 func (h *Host) Close(ctx context.Context) error {
+	h.instruments.unregister()
 	h.webhookCleanupFunction()
 	h.processingCancel() // Stop the block processing goroutine (now includes block monitoring)
 
