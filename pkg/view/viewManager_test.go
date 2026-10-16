@@ -552,9 +552,11 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 	otherLogAddr := other + "__Log { address }"
 	ethereum := []string{chain.EthereumMainnet}
 	both := []string{chain.EthereumMainnet, other}
-	// Stored views, each named with one chain's prefix and reading the other chain's table.
+	// Stored views, each named with one chain's prefix and reading the other chain's table, and one
+	// named without a chain.
 	ethNamedOnOther := chain.EthereumMainnet + "__OnOther"
 	otherNamedOnEth := other + "__OnEthereum"
+	plainOnEth := "PlainOnEthereum"
 
 	cases := []struct {
 		desc      string
@@ -576,6 +578,7 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 		{desc: "a chain the host does not serve", served: both, query: third + "__Log { address }", wantErr: ErrViewChainNotServed},
 		{desc: "a view on another chain's table, named with the served chain's prefix", served: ethereum, query: ethNamedOnOther + " { address }", wantErr: ErrViewChainNotServed},
 		{desc: "a view on the served chain's table, named with another chain's prefix", served: ethereum, query: otherNamedOnEth + " { address }", wantQuery: otherNamedOnEth + " { address }", wantChain: chain.EthereumMainnet},
+		{desc: "a view on the served chain's table, named without a chain", served: ethereum, query: plainOnEth + " { address }", wantQuery: plainOnEth + " { address }", wantChain: chain.EthereumMainnet},
 	}
 
 	for _, c := range cases {
@@ -593,6 +596,8 @@ func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
 			_, err = defraNode.DB.AddView(ctx, otherLogAddr, "type "+ethNamedOnOther+" { address: String }")
 			require.NoError(t, err)
 			_, err = defraNode.DB.AddView(ctx, queryEthLogAddr, "type "+otherNamedOnEth+" { address: String }")
+			require.NoError(t, err)
+			_, err = defraNode.DB.AddView(ctx, queryEthLogAddr, "type "+plainOnEth+" { address: String }")
 			require.NoError(t, err)
 
 			vm := NewManager(defraNode, t.TempDir(), c.served...)

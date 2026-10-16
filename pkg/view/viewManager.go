@@ -361,12 +361,12 @@ func (m *Manager) setupLens(ctx context.Context, v *View) (string, error) {
 	return lensCID, nil
 }
 
-// qualifySourceCollection writes the chain into the view's source and returns the source with its
-// chain prefix and the prefix of the chain its data comes from: for a stored view, the chain of the
-// table it reads (see tableChain). It returns ErrViewQueryInvalid when the query does not read one
-// table, and ErrViewChainNotServed when that chain is none of chainPrefixes. A table named without
-// a chain, such as Log, is read as Ethereum mainnet's, so such views run only on a host that serves
-// Ethereum mainnet. views maps each stored view to its source, as storedViewSources returns it.
+// qualifySourceCollection rewrites the view's source to the name tableChain gives it, and returns
+// that name and the prefix of the chain its data comes from: for a stored view, the chain of the
+// table it reads. It returns ErrViewQueryInvalid when the query does not read one table, and
+// ErrViewChainNotServed when that chain is none of chainPrefixes. A table named without a chain,
+// such as Log, is read as Ethereum mainnet's, so such views run only on a host that serves Ethereum
+// mainnet. views maps each stored view to its source, as storedViewSources returns it.
 func qualifySourceCollection(v *View, views map[string]string, chainPrefixes []string) (string, string, error) {
 	source, at, err := sourceTable(v.Data.Query)
 	if err != nil {
@@ -383,21 +383,21 @@ func qualifySourceCollection(v *View, views map[string]string, chainPrefixes []s
 	return table, prefix, nil
 }
 
-// tableChain returns the table named source with its chain prefix, and the prefix in chainPrefixes
-// of the chain the table's data comes from. served is false when it is none of them. A table named
-// without a chain is Ethereum mainnet's. views maps each stored view to its source: when source is a
-// view, the chain is that of the table the view reads, through any views it is built on, whatever
-// the views' names say.
+// tableChain returns the table named source, and the prefix in chainPrefixes of the chain the
+// table's data comes from. served is false when it is none of them. A stored view keeps the name it
+// is stored under; any other table named without a chain is Ethereum mainnet's. views maps each
+// stored view to its source: when source is a view, the chain is that of the table the view reads,
+// through any views it is built on, whatever the views' names say.
 func tableChain(source string, views map[string]string, chainPrefixes []string) (table, prefix string, served bool) {
-	table = withChain(source)
 	// Stored views are looked up by the names they are stored under, which may carry no chain: source
 	// as written when a view is stored under it, then each source a view's query names. Only the name
 	// the walk ends at, which is no stored view's, is read as Ethereum mainnet's when it names no
 	// chain.
-	read := table
-	if _, isView := views[source]; isView {
-		read = source
+	table = source
+	if _, isView := views[source]; !isView {
+		table = withChain(source)
 	}
+	read := table
 	// The walk takes at most one step per stored view, so it ends even if stored views read each
 	// other in a loop.
 	for range len(views) {
