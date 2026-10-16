@@ -449,6 +449,11 @@ func TestLoadConfig_Chains(t *testing.T) {
 			want: ethereum,
 		},
 		{
+			desc: "event filter on another chain alone",
+			yaml: "chains:\n  - prefix: Testchain__Devnet\nshinzo:\n  event_filter:\n    enabled: true\n",
+			want: []chain.Config{{Prefix: "Testchain__Devnet"}},
+		},
+		{
 			desc:    "event filter on two chains",
 			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\nshinzo:\n  event_filter:\n    enabled: true\n",
 			wantErr: ErrEventFilterChains,
