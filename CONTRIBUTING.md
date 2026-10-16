@@ -16,7 +16,6 @@ Open an issue to discuss your change before submitting a PR. PRs without an atta
 | `pkg/shinzohub/` | WebSocket event subscription and RPC client for the ShinzoHub chain node. |
 | `pkg/schema/` | Embedded GraphQL schema files (standard and branchable variants). |
 | `pkg/constants/` | Collection name constants and version info. |
-| `pkg/graphql/` | Query builder utilities. |
 | `pkg/server/` | Health and metrics HTTP server. |
 | `pkg/snapshot/` | Historical snapshot download and import. |
 | `pkg/playground/` | GraphQL Playground HTTP server (real and no-op implementations). |

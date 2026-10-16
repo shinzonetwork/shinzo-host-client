@@ -15,8 +15,6 @@ const (
 	openBrowserDelaySecs = 2
 	// healthServerShutdownTimeoutSecs is a const for shutdown timeout in s.
 	healthServerShutdownTimeoutSecs = 5
-	// defaultMaxProcessingDepth is a const for max processing depth.
-	defaultMaxProcessingDepth = 5
 	// knownCollectionIDs is a const for known collection ids is a const for the number of known collection ids.
 	knownCollectionIDs = 6
 	// maxAttestationRetries is a const for the number of max attestation retries.
@@ -33,15 +31,11 @@ const (
 	defaultTimeout = 5 * time.Second
 )
 
-// Short document-type aliases. The provenance + processing pipelines
-// recognise both the fully-qualified Ethereum__Mainnet__* form and the
-// short suffix; both map to the same required-field list and replication
-// behaviour.
+// Short document-type names, as stored in an attestation record's doc_type.
 const (
-	docTypeTransaction     = "Transaction"
-	docTypeBlock           = "Block"
-	docTypeLog             = "Log"
-	docTypeAccessListEntry = "AccessListEntry"
+	docTypeTransaction = "Transaction"
+	docTypeBlock       = "Block"
+	docTypeLog         = "Log"
 
 	// Lowercase forms used by replication filter as collection-type tags.
 	colTypeTransaction     = "transaction"
@@ -55,35 +49,5 @@ const (
 	filterModeBlocklist = "blocklist"
 )
 
-// Provenance-tracking metadata field names stored on processed documents.
-const (
-	provenanceFieldProcessingDepth = "processing_depth"
-	provenanceFieldIsViewOutput    = "is_view_output"
-	provenanceFieldSourceColl      = "source_collection"
-	provenanceFieldViewID          = "view_id"
-	provenanceFieldProcessingChain = "processing_chain"
-	provenanceFieldChainLength     = "chain_length"
-	provenanceFieldOriginalDocID   = "original_doc_id"
-)
-
-// DefraDB JSON metadata field names referenced from the host's GraphQL
-// query builders and tests.
-const (
-	defraFieldDocID   = "_docID"
-	defraFieldVersion = "_version"
-)
-
 // defaultDefraURL is the DefraDB endpoint baked into DefaultConfig.
 const defaultDefraURL = "localhost:9181"
-
-// Common GraphQL field names referenced by the query builder and tests.
-const (
-	gqlFieldAddress     = "address"
-	gqlFieldFrom        = "from"
-	gqlFieldTo          = "to"
-	gqlFieldHash        = "hash"
-	gqlFieldBlockNumber = "blockNumber"
-	gqlFieldNumber      = "number"
-	gqlFieldTopics      = "topics"
-	gqlFieldStorageKeys = "storageKeys"
-)
