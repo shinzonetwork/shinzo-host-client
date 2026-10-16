@@ -218,7 +218,7 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Chains, err = loadChains(data); err != nil {
 		return nil, err
 	}
-	if err := checkChainSettings(&cfg); err != nil {
+	if err := CheckChainSettings(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -284,12 +284,12 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// checkChainSettings refuses settings the configured chains cannot use. Snapshots need a host serving
+// CheckChainSettings refuses settings the configured chains cannot use. Snapshots need a host serving
 // Ethereum mainnet alone: a snapshot does not name its chain, so another chain's host would import an
 // Ethereum mainnet snapshot, and with snapshots enabled no chain is pruned, including chains the
 // snapshot does not cover. The event filter's rules name one chain's collections and EVM fields, so
-// it needs a host serving one chain.
-func checkChainSettings(cfg *Config) error {
+// it needs a host serving one chain. cfg must list at least one chain.
+func CheckChainSettings(cfg *Config) error {
 	if cfg.HostConfig.Snapshot.Enabled {
 		if len(cfg.Chains) > 1 {
 			return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrSnapshotChain)
