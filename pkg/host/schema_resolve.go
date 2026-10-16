@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
@@ -63,20 +64,12 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		}
 		err = applier.ApplySchema(ctx, n)
 		if reason := disabledReason(err); reason != "" {
-			// DefraDB keeps subscriptions across restarts, so any from an earlier start are removed. It
-			// errors on a table the store does not hold, so only stored tables are passed.
+			// DefraDB keeps subscriptions across restarts, so any from an earlier start are removed.
 			stored, listErr := n.DB.GetCollections(ctx)
 			if listErr != nil {
 				return fmt.Errorf("read stored collections: %w", listErr)
 			}
-			subscribed := collections.Subscribed()
-			var held []string
-			for _, col := range stored {
-				if slices.Contains(subscribed, col.Name()) {
-					held = append(held, col.Name())
-				}
-			}
-			if err := n.DB.DeleteP2PCollections(ctx, held); err != nil {
+			if err := n.DB.DeleteP2PCollections(ctx, storedNames(stored, collections.Subscribed())); err != nil {
 				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
 			}
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
@@ -140,13 +133,25 @@ func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) 
 		if !ok || col.Version().Query.HasValue() || configured[prefix] {
 			continue
 		}
-		if err := n.DB.DeleteP2PCollections(ctx, chain.EVM(prefix).Subscribed()); err != nil {
+		if err := n.DB.DeleteP2PCollections(ctx, storedNames(cols, chain.EVM(prefix).Subscribed())); err != nil {
 			return nil, fmt.Errorf("unsubscribe removed chain %s: %w", prefix, err)
 		}
 		logger.Sugar.Warnf("Chain %s removed: the config does not list it, so it is unsubscribed; its tables and data stay until the store is wiped", prefix)
 		removed = append(removed, prefix)
 	}
 	return removed, nil
+}
+
+// storedNames returns the names in names that a collection in cols is stored under. DefraDB's
+// DeleteP2PCollections errors on a name the store does not hold, so it is given only these.
+func storedNames(cols []client.Collection, names []string) []string {
+	var stored []string
+	for _, col := range cols {
+		if slices.Contains(names, col.Name()) {
+			stored = append(stored, col.Name())
+		}
+	}
+	return stored
 }
 
 // resolveSchema returns the schema of one of the host's chains. With generators configured, it is
