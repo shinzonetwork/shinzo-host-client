@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -124,44 +123,6 @@ func TestIncrementConcurrent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// IncrementDocumentByType
-// ---------------------------------------------------------------------------
-
-func TestIncrementDocumentByType(t *testing.T) {
-	tests := []struct {
-		name    string
-		docType string
-		field   func(m *HostMetrics) int64
-	}{
-		{"Block", constants.CollectionBlock, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.BlocksProcessed) }},
-		{"Transaction", constants.CollectionTransaction, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.TransactionsProcessed) }},
-		{"Log", constants.CollectionLog, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.LogsProcessed) }},
-		{"AccessListEntry", constants.CollectionAccessListEntry, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.AccessListsProcessed) }},
-		{"BlockSignature", constants.CollectionBlockSignature, func(m *HostMetrics) int64 { return atomic.LoadInt64(&m.BlockSignaturesProcessed) }},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := NewHostMetrics()
-			m.IncrementDocumentByType(tc.docType)
-			m.IncrementDocumentByType(tc.docType)
-			require.Equal(t, int64(2), tc.field(m))
-		})
-	}
-
-	// Unknown type should be a no-op
-	t.Run("Unknown", func(t *testing.T) {
-		m := NewHostMetrics()
-		m.IncrementDocumentByType("SomeUnknownCollection")
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.BlocksProcessed))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.TransactionsProcessed))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.LogsProcessed))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.AccessListsProcessed))
-		require.Equal(t, int64(0), atomic.LoadInt64(&m.BlockSignaturesProcessed))
-	})
-}
-
-// ---------------------------------------------------------------------------
 // SetViewsActive
 // ---------------------------------------------------------------------------
 
@@ -256,11 +217,11 @@ func TestGetSnapshot(t *testing.T) {
 	m.IncrementSignatureFailures()
 	m.IncrementBlockSigEventsReceived()
 	m.IncrementDocumentsReceived()
-	m.IncrementDocumentByType(constants.CollectionBlock)
-	m.IncrementDocumentByType(constants.CollectionTransaction)
-	m.IncrementDocumentByType(constants.CollectionLog)
-	m.IncrementDocumentByType(constants.CollectionAccessListEntry)
-	m.IncrementDocumentByType(constants.CollectionBlockSignature)
+	m.IncrementBlocksProcessed()
+	m.IncrementTransactionsProcessed()
+	m.IncrementLogsProcessed()
+	m.IncrementAccessListsProcessed()
+	m.IncrementBlockSignaturesProcessed()
 	m.IncrementViewsRegistered()
 	m.SetViewsActive(7)
 	m.UpdateLastProcessingTime(1.5)

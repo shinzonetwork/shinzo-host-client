@@ -1468,7 +1468,7 @@ func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Should succeed quickly since DefraDB is already ready
-	err = waitForDefraDB(ctx, defraNode)
+	err = waitForDefraDB(ctx, defraNode, testCollections.Block.Name)
 	require.NoError(t, err)
 }
 
