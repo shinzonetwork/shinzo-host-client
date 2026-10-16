@@ -201,7 +201,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// LoadConfig accepts exactly one chain. A config built in code may hold none.
+	// LoadConfig requires at least one chain; a config built in code may hold none.
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
