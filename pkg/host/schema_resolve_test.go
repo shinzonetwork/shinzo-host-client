@@ -313,16 +313,37 @@ func TestChainsApplier(t *testing.T) {
 	require.NoError(t, driftedFirst.ApplySchema(ctx, node))
 	require.Equal(t, chains[:1], driftedFirst.enabled)
 
-	// Any other chain that cannot be provisioned stops the host: one with no generators configured, and
-	// one whose generator answered with a schema the checks refuse (Ethereum mainnet's, for another chain).
-	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], {Prefix: third}}}).ApplySchema(ctx, node)
-	require.ErrorIs(t, err, errNoChainSchema)
+	// A chain with no generators, or whose generator serves another chain's schema, is disabled with
+	// nothing stored, and Ethereum is still served.
 	refusing := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
 	t.Cleanup(refusing.Close)
-	refused := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: refusing.URL}}}
-	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], refused}}).ApplySchema(ctx, node)
-	require.ErrorIs(t, err, errNoGeneratorSchema)
-	require.NotErrorIs(t, err, errNoChainEnabled)
+	for _, c := range []struct {
+		config chain.Config
+		reason string
+	}{
+		{config: chain.Config{Prefix: third}, reason: server.ReasonNoGeneratorConfigured},
+		{config: chain.Config{Prefix: third, Generators: []chain.Generator{{URL: refusing.URL}}}, reason: server.ReasonSchemaRefused},
+	} {
+		withThird := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], c.config}}
+		require.NoError(t, withThird.ApplySchema(ctx, node))
+		require.Equal(t, chains[:1], withThird.enabled)
+		require.Equal(t, map[string]string{other: server.ReasonSchemaDrift, third: c.reason}, withThird.reasons)
+		_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
+		require.Error(t, err)
+	}
+
+	// A chain with only some of its tables stored is disabled, and its stored table is unsubscribed.
+	partial := chain.EVM(third).Block.Name
+	_, err = node.DB.AddCollection(ctx, "type "+partial+" { number: Int }")
+	require.NoError(t, err)
+	require.NoError(t, node.DB.AddP2PCollections(ctx, []string{partial}))
+	withPartial := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], {Prefix: third}}}
+	require.NoError(t, withPartial.ApplySchema(ctx, node))
+	require.Equal(t, chains[:1], withPartial.enabled)
+	require.Equal(t, map[string]string{other: server.ReasonSchemaDrift, third: server.ReasonTablesPartiallyStored}, withPartial.reasons)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
 
 	// When drift disables every chain, the host does not start, and the error names each chain.
 	_, err = node.DB.AddCollection(ctx, "type "+chain.EthereumMainnet+"__Extra { a: Int }")

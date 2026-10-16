@@ -1834,6 +1834,61 @@ func TestStartHosting_LeavesOutUnansweredChain(t *testing.T) {
 	require.Len(t, h.pruners, 2)
 }
 
+// A chain whose tables cannot be set up is left out and the host still starts. Enabled chains and
+// chains disabled for drift get a pruner; the others do not.
+func TestStartHosting_LeavesOutChainsItCannotSetUp(t *testing.T) {
+	const (
+		other = "Testchain__Devnet"
+		third = "Third__Chain"
+	)
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
+	otherGenerator := httptest.NewServer(schemaHandler(t, other))
+	t.Cleanup(otherGenerator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Pruner.Enabled = true
+	// The third chain's generator serves Ethereum mainnet's schema, which the checks refuse.
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL}}},
+		{Prefix: other, Generators: []chain.Generator{{URL: otherGenerator.URL}}},
+		{Prefix: third, Generators: []chain.Generator{{URL: generator.URL}}},
+	}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	require.Len(t, h.pruners, 2)
+
+	// After a restart, the other chain's stored tables differ from what its generator serves, and the
+	// store holds only one of the third chain's tables.
+	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+chain.EVM(third).Block.Name+" { number: Int }")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	require.Len(t, h.pruners, 2)
+}
+
 // DefraDB's API answers only once the chain's tables exist.
 func TestStartHosting_ServesAPIAfterTables(t *testing.T) {
 	// Both listeners stay open until both ports are picked, so the two ports differ.

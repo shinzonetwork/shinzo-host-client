@@ -62,9 +62,12 @@ type HostMetrics struct {
 
 // Reasons a chain in the endpoints' chains list is not enabled.
 const (
-	ReasonSchemaDrift         = "schema_drift"          // Its stored tables match no answering generator's schema
-	ReasonNoGeneratorAnswered = "no_generator_answered" // The store holds none of its tables and no generator answered
-	ReasonRemoved             = "removed"               // The store holds its tables but the config does not list it
+	ReasonSchemaDrift           = "schema_drift"            // Its stored tables match no answering generator's schema
+	ReasonNoGeneratorAnswered   = "no_generator_answered"   // The store holds none of its tables and no generator answered
+	ReasonSchemaRefused         = "schema_refused"          // The store holds none of its tables and the schema a generator served failed the checks
+	ReasonNoGeneratorConfigured = "no_generator_configured" // The store holds none of its tables and the config lists no generator for it
+	ReasonTablesPartiallyStored = "tables_partially_stored" // The store holds only some of its tables
+	ReasonRemoved               = "removed"                 // The store holds its tables but the config does not list it
 )
 
 // ChainMetrics is one chain's counters: its relayed documents, its attestation queue and the newest
