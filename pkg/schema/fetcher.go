@@ -46,31 +46,10 @@ type Response struct {
 // it ready to apply: checked against the chain's collections and with the host's indexes. It
 // returns an error on an HTTP error, a malformed response or a failed check.
 func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, collections chain.Collections) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	schemaResp, err := FetchResponse(ctx, httpClient, fullURL)
 	if err != nil {
-		return "", fmt.Errorf("create schema request: %w: %w", ErrSchemaFetchNetwork, err)
+		return "", err
 	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("fetch schema: %w: %w", ErrSchemaFetchNetwork, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetch schema status %d: %w", resp.StatusCode, ErrSchemaFetchStatus)
-	}
-
-	var schemaResp Response
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSchemaBodyBytes)).Decode(&schemaResp); err != nil {
-		return "", fmt.Errorf("decode schema response: %w: %w", ErrSchemaMalformedResponse, err)
-	}
-
-	if strings.TrimSpace(schemaResp.Schema) == "" {
-		return "", ErrSchemaEmptyResponse
-	}
-
 	if err := checkSchema(schemaResp, collections); err != nil {
 		return "", fmt.Errorf("check schema: %w", err)
 	}
@@ -79,6 +58,37 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, c
 		return "", fmt.Errorf("apply host indexes: %w", err)
 	}
 	return withIndexes, nil
+}
+
+// FetchResponse fetches a generator's schema response from fullURL, its schema endpoint, and
+// returns it unchecked. It returns an error on an HTTP error, a malformed response or an empty
+// schema.
+func FetchResponse(ctx context.Context, httpClient *http.Client, fullURL string) (Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return Response{}, fmt.Errorf("create schema request: %w: %w", ErrSchemaFetchNetwork, err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return Response{}, fmt.Errorf("fetch schema: %w: %w", ErrSchemaFetchNetwork, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return Response{}, fmt.Errorf("fetch schema status %d: %w", resp.StatusCode, ErrSchemaFetchStatus)
+	}
+
+	var schemaResp Response
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSchemaBodyBytes)).Decode(&schemaResp); err != nil {
+		return Response{}, fmt.Errorf("decode schema response: %w: %w", ErrSchemaMalformedResponse, err)
+	}
+
+	if strings.TrimSpace(schemaResp.Schema) == "" {
+		return Response{}, ErrSchemaEmptyResponse
+	}
+	return schemaResp, nil
 }
 
 // checkSchema checks a generator's schema response against the chain's collections: it is for

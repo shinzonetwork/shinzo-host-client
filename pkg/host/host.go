@@ -238,7 +238,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	resolvedSchema := resolveSchema(context.Background(), cfg.Schema, served, collections)
+	// Called only when the store has none of the chain's tables, so a restart does not depend on
+	// the chain's generators.
+	tables := func(ctx context.Context) (string, error) {
+		return resolveSchema(ctx, cfg.Schema, served, collections)
+	}
+	// Called only when the store holds the chain's tables, so a restart makes one best-effort call
+	// to the generators to compare the stored tables with the schema they serve.
+	servedSDL := func(ctx context.Context) (string, bool) {
+		return servedSchema(ctx, cfg.Schema, served)
+	}
 
 	// When the ACP middleware is enabled the host owns the GraphQL API port.
 	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
@@ -250,7 +259,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		schema.ChainApplier{Tables: resolvedSchema, Collections: collections},
+		schema.ChainApplier{Tables: tables, Served: servedSDL, Collections: collections},
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
@@ -336,7 +345,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// View manager has to be built before the ACP server because the
 	// middleware's view registry adapts the manager's accessors.
-	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, served.Prefix)
 
 	// When the middleware is enabled the host owns the GraphQL API. The
 	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.

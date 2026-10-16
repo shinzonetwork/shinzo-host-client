@@ -32,8 +32,11 @@ var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must 
 // ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
 var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
 
-// ErrUnsupportedChains is returned when the config names chains other than Ethereum mainnet alone.
-var ErrUnsupportedChains = fmt.Errorf("chains must be %s alone", chain.EthereumMainnet)
+// ErrUnsupportedChains is returned when the config does not list exactly one chain.
+var ErrUnsupportedChains = errors.New("chains must list exactly one chain")
+
+// ErrSnapshotChain is returned when snapshots are enabled for a chain other than Ethereum mainnet.
+var ErrSnapshotChain = fmt.Errorf("snapshots are supported only for %s", chain.EthereumMainnet)
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -104,7 +107,7 @@ type SchemaConfig struct {
 	// SILENTLY IGNORED. The token MUST be provided via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN
 	// environment variable. Setting this field in config.yaml will NOT work —
 	// the host will start with an empty token, causing schema fetches to
-	// receive 401/503 and fall back to the embedded schema (fail-closed).
+	// receive 401/503; a host starting on an empty store then refuses to start.
 	AuthToken string `yaml:"-"`
 }
 
@@ -210,6 +213,11 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Chains, err = loadChains(data); err != nil {
 		return nil, err
 	}
+	// A snapshot does not name its chain, so nothing would stop another chain's host from importing
+	// an Ethereum mainnet snapshot.
+	if cfg.HostConfig.Snapshot.Enabled && cfg.Chains[0].Prefix != chain.EthereumMainnet {
+		return nil, fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotChain)
+	}
 
 	// Apply environment variable overrides
 	if v := os.Getenv("START_HEIGHT"); v != "" {
@@ -274,9 +282,9 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 // loadChains reads and validates the chains key of the config file. A file without the key serves
-// Ethereum mainnet, and no other set of chains is accepted. Keys the config does not define are
-// ignored elsewhere in the file but rejected under chains, where a misspelled key would leave a
-// chain misconfigured without an error.
+// Ethereum mainnet; otherwise the key must list exactly one chain. Keys the config does not
+// define are ignored elsewhere in the file but rejected under chains, where a misspelled key would
+// leave a chain misconfigured without an error.
 func loadChains(data []byte) ([]chain.Config, error) {
 	// The inline map takes every top-level key other than chains, so only chains is checked.
 	var doc struct {
@@ -296,7 +304,7 @@ func loadChains(data []byte) ([]chain.Config, error) {
 	if err := chain.Validate(chains); err != nil {
 		return nil, fmt.Errorf("invalid chains: %w", err)
 	}
-	if len(chains) != 1 || chains[0].Prefix != chain.EthereumMainnet {
+	if len(chains) != 1 {
 		return nil, ErrUnsupportedChains
 	}
 	return chains, nil
