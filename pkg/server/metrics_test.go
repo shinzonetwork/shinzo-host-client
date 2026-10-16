@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -52,6 +54,51 @@ func TestHostMetricsChains(t *testing.T) {
 	require.Equal(t, "BSC__Mainnet", chains[1].Prefix)
 	require.Same(t, chains[1], m.Chain("BSC__Mainnet"))
 	require.Nil(t, m.Chain("Other__Chain"))
+}
+
+// A chain is ready when it is enabled and its last document, or the host's start before its first
+// document, is within chainReadyWindow.
+func TestChainStatusesReady(t *testing.T) {
+	now := time.Now()
+	stale := now.Add(-2 * chainReadyWindow)
+	tests := []struct {
+		name         string
+		enabled      bool
+		start        time.Time
+		lastDocument time.Time // zero for none
+		want         bool
+	}{
+		{name: "recent document", enabled: true, start: stale, lastDocument: now, want: true},
+		{name: "stale document", enabled: true, start: stale, lastDocument: stale, want: false},
+		{name: "no document, host just started", enabled: true, start: now, want: true},
+		{name: "no document, host started long ago", enabled: true, start: stale, want: false},
+		{name: "disabled chain, host just started", enabled: false, start: now, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: tt.enabled}
+			if !tt.lastDocument.IsZero() {
+				c.lastDocument.Store(tt.lastDocument.UnixNano())
+			}
+			m := NewHostMetrics(c)
+			m.StartTime = tt.start
+
+			require.Equal(t, tt.want, m.ChainStatuses()[0].Ready)
+		})
+	}
+}
+
+// A document makes a chain that stopped receiving ready again.
+func TestRecordDocument(t *testing.T) {
+	stale := time.Now().Add(-2 * chainReadyWindow)
+	c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: true}
+	c.lastDocument.Store(stale.UnixNano())
+	m := NewHostMetrics(c)
+	m.StartTime = stale
+	require.False(t, m.ChainStatuses()[0].Ready)
+
+	c.RecordDocument()
+	require.True(t, m.ChainStatuses()[0].Ready)
 }
 
 // TakeQueuePeak returns the deepest depth observed since the previous call.
@@ -105,7 +152,6 @@ func TestIncrementDocumentsReceived(t *testing.T) {
 	m := NewHostMetrics()
 	m.IncrementDocumentsReceived()
 	require.Equal(t, int64(1), atomic.LoadInt64(&m.DocumentsReceived))
-	require.False(t, m.LastDocumentTime.IsZero(), "LastDocumentTime should be updated")
 }
 
 func TestIncrementViewsRegistered(t *testing.T) {
@@ -267,7 +313,6 @@ func TestGetSnapshot(t *testing.T) {
 	require.Equal(t, int64(7), snap.ViewsActive)
 	require.InDelta(t, 1.5, snap.LastProcessingTime, 1e-9)
 	require.Equal(t, m.StartTime, snap.StartTime)
-	require.Equal(t, m.LastDocumentTime, snap.LastDocumentTime)
 	require.Equal(t, m.BuildTags, snap.BuildTags)
 	require.Equal(t, m.SchemaType, snap.SchemaType)
 }
@@ -276,34 +321,26 @@ func TestGetSnapshot(t *testing.T) {
 // ServeHTTP
 // ---------------------------------------------------------------------------
 
-// /metrics lists every chain, and reports current_block and metrics.most_recent_block only on a host
-// configured with one chain.
+// /metrics lists every chain and reports heights only per chain.
 func TestServeHTTP_JSON(t *testing.T) {
 	ethCutoff, bscCutoff := &pruner.Cutoff{}, &pruner.Cutoff{}
 	ethCutoff.Raise(30)
 	bscCutoff.Raise(70)
+	lastDocument := time.Now()
 	tests := []struct {
-		name   string
-		chains []*ChainMetrics
-		blocks []int64 // each chain's current block, 0 for none
+		name         string
+		chains       []*ChainMetrics
+		blocks       []int64   // each chain's current block, 0 for none
+		lastDocument time.Time // the first chain's last document, zero for none
 		// wantChains is the chains list as raw JSON, so an omitted field and a 0 differ.
 		wantChains string
-		// wantBlock is current_block and metrics.most_recent_block as raw JSON, "" when both are absent.
-		wantBlock string
 	}{
 		{
-			name:       "one chain",
-			chains:     []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true, Cutoff: ethCutoff}},
-			blocks:     []int64{42},
-			wantChains: `[{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30}]`,
-			wantBlock:  "42",
-		},
-		{
-			name:       "one chain before its first block",
-			chains:     []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true}},
-			blocks:     []int64{0},
-			wantChains: `[{"chain":"Ethereum__Mainnet","enabled":true}]`,
-			wantBlock:  "0",
+			name:         "one chain with a document",
+			chains:       []*ChainMetrics{{Prefix: "Ethereum__Mainnet", Enabled: true}},
+			blocks:       []int64{0},
+			lastDocument: lastDocument,
+			wantChains:   fmt.Sprintf(`[{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"last_document_time":%q}]`, lastDocument.Format(time.RFC3339Nano)),
 		},
 		{
 			name: "several chains",
@@ -313,8 +350,8 @@ func TestServeHTTP_JSON(t *testing.T) {
 			},
 			blocks: []int64{42, 0},
 			wantChains: `[
-				{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30},
-				{"chain":"BSC__Mainnet","enabled":false,"reason":"schema_drift","cutoff":70}
+				{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"current_block":42,"cutoff":30},
+				{"chain":"BSC__Mainnet","enabled":false,"ready":false,"reason":"schema_drift","cutoff":70}
 			]`,
 		},
 		{
@@ -325,10 +362,9 @@ func TestServeHTTP_JSON(t *testing.T) {
 			},
 			blocks: []int64{42, 0},
 			wantChains: `[
-				{"chain":"Ethereum__Mainnet","enabled":true,"current_block":42,"cutoff":30},
-				{"chain":"BSC__Mainnet","enabled":false,"reason":"removed"}
+				{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,"current_block":42,"cutoff":30},
+				{"chain":"BSC__Mainnet","enabled":false,"ready":false,"reason":"removed"}
 			]`,
-			wantBlock: "42",
 		},
 	}
 	for _, tt := range tests {
@@ -336,6 +372,9 @@ func TestServeHTTP_JSON(t *testing.T) {
 			m := NewHostMetrics(tt.chains...)
 			for i, c := range tt.chains {
 				c.UpdateCurrentBlock(tt.blocks[i])
+			}
+			if !tt.lastDocument.IsZero() {
+				tt.chains[0].lastDocument.Store(tt.lastDocument.UnixNano())
 			}
 
 			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -355,58 +394,13 @@ func TestServeHTTP_JSON(t *testing.T) {
 			require.Contains(t, resp, "uptime_seconds")
 			require.JSONEq(t, tt.wantChains, string(resp["chains"]))
 
+			require.NotContains(t, resp, "current_block")
+
 			var metrics map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(resp["metrics"], &metrics))
 			// The snapshot's counters sit directly under metrics.
 			require.Contains(t, metrics, "blocks_processed")
-			for name, fields := range map[string]map[string]json.RawMessage{"current_block": resp, "most_recent_block": metrics} {
-				raw, ok := fields[name]
-				require.Equal(t, tt.wantBlock != "", ok, name)
-				if ok {
-					require.JSONEq(t, tt.wantBlock, string(raw), name)
-				}
-			}
 		})
-	}
-}
-
-// On a host configured with one chain, /metrics reports the same block at the top level and in the
-// chain's entry while attestations raise it.
-func TestServeHTTP_HeightsAgree(t *testing.T) {
-	c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: true}
-	m := NewHostMetrics(c)
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		for n := int64(1); ; n++ {
-			select {
-			case <-stop:
-				return
-			default:
-				c.UpdateCurrentBlock(n)
-			}
-		}
-	})
-	defer wg.Wait()
-	defer close(stop)
-
-	for range 200 {
-		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-		req.Header.Set("Accept", "application/json")
-		w := httptest.NewRecorder()
-		m.ServeHTTP(w, req)
-
-		var resp struct {
-			CurrentBlock int64         `json:"current_block"`
-			Chains       []ChainStatus `json:"chains"`
-			Metrics      struct {
-				MostRecentBlock int64 `json:"most_recent_block"`
-			} `json:"metrics"`
-		}
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		require.Len(t, resp.Chains, 1)
-		require.Equal(t, resp.Chains[0].CurrentBlock, resp.CurrentBlock)
-		require.Equal(t, resp.CurrentBlock, resp.Metrics.MostRecentBlock)
 	}
 }
 

@@ -637,14 +637,6 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	return nil
 }
 
-// GetLastProcessedTime returns the timestamp of the most recently processed block, based on the host's metrics. This is used for monitoring the freshness of the data being processed by the host.
-func (h *Host) GetLastProcessedTime() time.Time {
-	if h.metrics != nil {
-		return h.metrics.LastDocumentTime
-	}
-	return time.Time{}
-}
-
 // GetPeerInfo returns information about the host's P2P network status, including whether P2P is enabled, the host's own peer ID and addresses, and a list of currently connected peers. This is used for monitoring and debugging the P2P network status of the host.
 func (h *Host) GetPeerInfo() (*server.P2PInfo, error) {
 	p2pInfo := &server.P2PInfo{

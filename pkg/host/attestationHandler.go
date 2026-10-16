@@ -179,7 +179,7 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 				c := table.chain.collections
 				m := table.chain.metrics
 				if m != nil {
-					m.DocumentsReceived.Add(1)
+					m.RecordDocument()
 				}
 				if h.metrics != nil {
 					h.metrics.IncrementDocumentsReceived()

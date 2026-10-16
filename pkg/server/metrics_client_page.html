@@ -295,7 +295,7 @@
                     </div>
                     <div class="metric-card" style="background: #fafafa;">
                         <p class="metric-label">Last document</p>
-                        <p class="metric-description" id="last-document-time">-</p>
+                        <div id="last-documents"></div>
                     </div>
                 </div>
             </div>
@@ -403,16 +403,18 @@
 
         const missMatchIcon = `<span class="alert-triangle" aria-label="mismatch"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2.25" stroke-linejoin="round"/><rect x="11" y="8" width="2.2" height="6.5" rx="1.1" fill="currentColor"/><circle cx="12.1" cy="17.2" r="1.35" fill="currentColor"/></svg></span>`;
 
-        function renderMostRecentBlocks(chains) {
-            document.getElementById('most-recent-blocks').replaceChildren(...(chains || []).flatMap(chain => {
+        function renderChains(chains) {
+            const rows = (valueOf, valueClass) => (chains || []).flatMap(chain => {
                 const name = document.createElement('p');
                 name.className = 'metric-description';
                 name.textContent = chain.chain;
-                const block = document.createElement('p');
-                block.className = 'metric-value';
-                block.textContent = chain.enabled ? formatNumber(chain.current_block) : `Disabled (${chain.reason})`;
-                return [name, block];
-            }));
+                const value = document.createElement('p');
+                value.className = valueClass;
+                value.textContent = valueOf(chain);
+                return [name, value];
+            });
+            document.getElementById('most-recent-blocks').replaceChildren(...rows(chain => chain.enabled ? formatNumber(chain.current_block) : `Disabled (${chain.reason})`, 'metric-value'));
+            document.getElementById('last-documents').replaceChildren(...rows(chain => formatTime(chain.last_document_time), 'metric-description'));
         }
 
         //load metrics data
@@ -497,9 +499,8 @@
             }
 
             //update system overview data
-            renderMostRecentBlocks(data.chains);
+            renderChains(data.chains);
             document.getElementById('uptimeValue').textContent = formatDurationHHMMSS(data.uptime_seconds);
-            document.getElementById('last-document-time').textContent = formatTime(data.metrics.last_document_time);
 
             //update blockchain data processed data
             document.getElementById('transactions').textContent = formatNumber(data.metrics.transactions_processed);

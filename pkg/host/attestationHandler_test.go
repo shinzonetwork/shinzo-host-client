@@ -997,8 +997,8 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 // startEventBusListener - relay event with metrics and collection routing
 // ---------------------------------------------------------------------------
 
-// The listener counts a document a peer sends under its chain's collection, and ignores updates for
-// collections outside the chains.
+// The listener counts each document a peer sends under its chain's collection, records the chain's
+// last document time, and ignores updates for collections outside the chains.
 func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	ctx := context.Background()
 	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, "Testchain__Devnet")
@@ -1018,6 +1018,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	}
 	// An update for an unknown collection is not counted.
 	relay("not-a-collection")
+	sent := time.Now()
 
 	// Each collection of each chain gets a different number of updates, so a counter wired to the
 	// wrong collection, or a chain the listener does not know, ends with the wrong count.
@@ -1056,6 +1057,7 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 		assert.Zero(ct, atomic.LoadInt64(&metrics.BlocksProcessed))
 		for prefix, n := range perChain {
 			assert.Equal(ct, int64(n), metrics.Chain(prefix).DocumentsReceived.Load(), prefix)
+			assert.False(ct, metrics.Chain(prefix).LastDocumentTime().Before(sent), prefix)
 		}
 	}, 5*time.Second, 10*time.Millisecond)
 }
