@@ -8,76 +8,18 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/sec"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeToMultiaddr_FullMultiaddr(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("/ip4/35.239.160.177/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/35.239.160.177/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_MultiaddrWithoutPeerID(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("/ip4/35.239.160.177/tcp/9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/35.239.160.177/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_IPv4WithPort(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("35.239.160.177:9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/35.239.160.177/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_IPv4Only(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("35.239.160.177")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/35.239.160.177/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_IPv6WithPort(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("[::1]:9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/::1/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_IPv6Only(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("::1")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/::1/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_BracketedIPv6(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("[::1]")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/::1/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_IPv6Multiaddr(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("/ip6/::1/tcp/9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/::1/tcp/9171", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_IPv6FullAddress(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("[2001:db8::1]:4001")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/2001:db8::1/tcp/4001", maddr.String())
-}
-
-func TestNormalizeToMultiaddr_InvalidAddress(t *testing.T) {
-	_, err := normalizeToMultiaddr("not-a-valid-address")
-	require.Error(t, err)
-}
-
 func TestHasPeerID_WithPeerID(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("/ip4/35.239.160.177/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r")
+	maddr, err := ma.NewMultiaddr("/ip4/35.239.160.177/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r")
 	require.NoError(t, err)
 	require.True(t, hasPeerID(maddr))
 }
 
 func TestHasPeerID_WithoutPeerID(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("/ip4/35.239.160.177/tcp/9171")
+	maddr, err := ma.NewMultiaddr("/ip4/35.239.160.177/tcp/9171")
 	require.NoError(t, err)
 	require.False(t, hasPeerID(maddr))
 }
@@ -158,23 +100,6 @@ func TestExtractPeerIDFromMismatchString_InvalidPeerID(t *testing.T) {
 	_, err := extractPeerIDFromMismatchString(errMsg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "extracted invalid peer ID")
-}
-
-func TestBuildMultiaddr_IPv4(t *testing.T) {
-	maddr, err := buildMultiaddr("192.168.1.1", "9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/192.168.1.1/tcp/9171", maddr.String())
-}
-
-func TestBuildMultiaddr_IPv6(t *testing.T) {
-	maddr, err := buildMultiaddr("::1", "9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/::1/tcp/9171", maddr.String())
-}
-
-func TestBuildMultiaddr_InvalidIP(t *testing.T) {
-	_, err := buildMultiaddr("not-an-ip", "9171")
-	require.Error(t, err)
 }
 
 func TestResolveBootstrapPeers_FullMultiaddrsPassThrough(t *testing.T) {
@@ -272,7 +197,7 @@ func TestResolveBootstrapPeers_NegativeTimeout(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDiscoverPeerID_UnreachableAddress(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("192.0.2.1:9171")
+	maddr, err := ma.NewMultiaddr("/ip4/192.0.2.1/tcp/9171")
 	require.NoError(t, err)
 
 	// Very short timeout to fail quickly
@@ -281,7 +206,7 @@ func TestDiscoverPeerID_UnreachableAddress(t *testing.T) {
 }
 
 func TestDiscoverPeerID_CancelledContext(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("192.0.2.1:9171")
+	maddr, err := ma.NewMultiaddr("/ip4/192.0.2.1/tcp/9171")
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -325,35 +250,4 @@ func TestExtractPeerIDFromMismatchString_EndOfString(t *testing.T) {
 	require.NoError(t, err)
 	expectedID, _ := peer.Decode("12D3KooWPBbKmsSsFiTW2X4sY4uuCUEazSFZkAdY8Egm4mQsiSEF")
 	require.Equal(t, expectedID, pid)
-}
-
-// ---------------------------------------------------------------------------
-// normalizeToMultiaddr - additional edge cases
-// ---------------------------------------------------------------------------
-
-func TestNormalizeToMultiaddr_InvalidMultiaddr(t *testing.T) {
-	_, err := normalizeToMultiaddr("/invalid/format")
-	require.Error(t, err)
-}
-
-func TestNormalizeToMultiaddr_ValidIPv4Port(t *testing.T) {
-	maddr, err := normalizeToMultiaddr("10.0.0.1:4001")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/10.0.0.1/tcp/4001", maddr.String())
-}
-
-// ---------------------------------------------------------------------------
-// buildMultiaddr - edge cases
-// ---------------------------------------------------------------------------
-
-func TestBuildMultiaddr_LoopbackIPv4(t *testing.T) {
-	maddr, err := buildMultiaddr("127.0.0.1", "9171")
-	require.NoError(t, err)
-	require.Equal(t, "/ip4/127.0.0.1/tcp/9171", maddr.String())
-}
-
-func TestBuildMultiaddr_FullIPv6(t *testing.T) {
-	maddr, err := buildMultiaddr("2001:db8::1", "4001")
-	require.NoError(t, err)
-	require.Equal(t, "/ip6/2001:db8::1/tcp/4001", maddr.String())
 }

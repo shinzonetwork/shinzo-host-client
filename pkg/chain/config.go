@@ -22,10 +22,15 @@ type Config struct {
 type Generator struct {
 	// URL is the base URL of the generator's HTTP API, for example "http://10.0.0.5:8080".
 	URL string `yaml:"url"`
+	// Peer is the generator's P2P address, which the host dials with its bootstrap peers. Like a
+	// bootstrap peer, it is a multiaddr or an IP address with or without a port. It is optional.
+	Peer string `yaml:"peer"`
 }
 
-// Validate checks every chain's prefix and generator URLs. Two prefixes that differ only in case
-// are rejected: DefraDB keeps them as separate collections, so such a pair is one chain mistyped.
+// Validate checks every chain's prefix and each generator's URL and peer. Two prefixes that differ
+// only in case are rejected: DefraDB keeps them as separate collections, so such a pair is one
+// chain mistyped. A peer is parsed as the host parses it before dialling, so one the host would
+// skip is refused here instead.
 func Validate(chains []Config) error {
 	seen := make(map[string]string, len(chains))
 	for _, c := range chains {
@@ -42,6 +47,11 @@ func Validate(chains []Config) error {
 			u, err := url.Parse(g.URL)
 			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 				return fmt.Errorf("chain %q generator %q: %w", c.Prefix, g.URL, ErrInvalidGeneratorURL)
+			}
+			if peer := strings.TrimSpace(g.Peer); peer != "" {
+				if _, err := ParsePeer(peer); err != nil {
+					return fmt.Errorf("chain %q generator %q peer %q: %w: %w", c.Prefix, g.URL, g.Peer, ErrInvalidGeneratorPeer, err)
+				}
 			}
 		}
 	}

@@ -403,10 +403,10 @@ func TestLoadConfig_Chains(t *testing.T) {
 		{desc: "no chains key", yaml: "pruner:\n  max_blocks: 1000\n", want: ethereum},
 		{
 			desc: "Ethereum with generators",
-			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    generators:\n      - url: http://10.0.0.5:8080\n      - url: http://10.0.0.6:8080\n",
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    generators:\n      - url: http://10.0.0.5:8080\n        peer: /ip4/10.0.0.5/tcp/9171\n      - url: http://10.0.0.6:8080\n",
 			want: []chain.Config{{
 				Prefix:     chain.EthereumMainnet,
-				Generators: []chain.Generator{{URL: "http://10.0.0.5:8080"}, {URL: "http://10.0.0.6:8080"}},
+				Generators: []chain.Generator{{URL: "http://10.0.0.5:8080", Peer: "/ip4/10.0.0.5/tcp/9171"}, {URL: "http://10.0.0.6:8080"}},
 			}},
 		},
 		{

@@ -123,6 +123,7 @@ pruner:
 #   - prefix: Ethereum__Mainnet
 #     generators:
 #       - url: http://35.254.135.221:8080
+#         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
 schema:
   indexer_schema_endpoint: /api/v1/schema
   http_client_timeout_secs: 30
