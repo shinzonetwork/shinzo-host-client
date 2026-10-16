@@ -420,7 +420,7 @@ func TestLoadConfig_Chains(t *testing.T) {
 			wantErrMsg: "line 5: field generator not found",
 		},
 		{desc: "invalid prefix", yaml: "chains:\n  - prefix: Ethereum\n", wantErr: chain.ErrInvalidPrefix},
-		{desc: "empty chains list", yaml: "chains: []\n", wantErr: ErrUnsupportedChains},
+		{desc: "empty chains list", yaml: "chains: []\n", wantErr: ErrNoChains},
 		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n", want: []chain.Config{{Prefix: "Testchain__Devnet"}}},
 		{
 			desc: "a chain's own max_blocks",
@@ -428,15 +428,35 @@ func TestLoadConfig_Chains(t *testing.T) {
 			want: []chain.Config{{Prefix: chain.EthereumMainnet, MaxBlocks: 500}},
 		},
 		{
-			desc:    "a second chain",
-			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
-			wantErr: ErrUnsupportedChains,
+			desc: "two chains",
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
+			want: []chain.Config{{Prefix: chain.EthereumMainnet}, {Prefix: "Testchain__Devnet"}},
 		},
 		{desc: "snapshots for Ethereum", yaml: "host:\n  snapshot:\n    enabled: true\n", want: ethereum},
 		{
 			desc:    "snapshots for another chain",
 			yaml:    "chains:\n  - prefix: Testchain__Devnet\nhost:\n  snapshot:\n    enabled: true\n",
 			wantErr: ErrSnapshotChain,
+		},
+		{
+			desc:    "snapshots for Ethereum and another chain",
+			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\nhost:\n  snapshot:\n    enabled: true\n",
+			wantErr: ErrSnapshotChain,
+		},
+		{
+			desc: "event filter on one chain",
+			yaml: "shinzo:\n  event_filter:\n    enabled: true\n",
+			want: ethereum,
+		},
+		{
+			desc: "event filter on another chain alone",
+			yaml: "chains:\n  - prefix: Testchain__Devnet\nshinzo:\n  event_filter:\n    enabled: true\n",
+			want: []chain.Config{{Prefix: "Testchain__Devnet"}},
+		},
+		{
+			desc:    "event filter on two chains",
+			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\nshinzo:\n  event_filter:\n    enabled: true\n",
+			wantErr: ErrEventFilterChains,
 		},
 	}
 

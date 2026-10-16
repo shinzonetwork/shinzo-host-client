@@ -32,11 +32,16 @@ var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must 
 // ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
 var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
 
-// ErrUnsupportedChains is returned when the config does not list exactly one chain.
-var ErrUnsupportedChains = errors.New("chains must list exactly one chain")
+// ErrNoChains is returned when the chains key lists no chain.
+var ErrNoChains = errors.New("chains must list at least one chain")
 
-// ErrSnapshotChain is returned when snapshots are enabled for a chain other than Ethereum mainnet.
-var ErrSnapshotChain = fmt.Errorf("snapshots are supported only for %s", chain.EthereumMainnet)
+// ErrSnapshotChain is returned when host.snapshot is enabled on a host that does not serve Ethereum
+// mainnet alone.
+var ErrSnapshotChain = fmt.Errorf("host.snapshot is supported only on a host serving %s alone", chain.EthereumMainnet)
+
+// ErrEventFilterChains is returned when the event filter is enabled on a host serving more than one
+// chain.
+var ErrEventFilterChains = errors.New("shinzo.event_filter is supported only on a host serving one chain")
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -213,10 +218,8 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.Chains, err = loadChains(data); err != nil {
 		return nil, err
 	}
-	// A snapshot does not name its chain, so nothing would stop another chain's host from importing
-	// an Ethereum mainnet snapshot.
-	if cfg.HostConfig.Snapshot.Enabled && cfg.Chains[0].Prefix != chain.EthereumMainnet {
-		return nil, fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotChain)
+	if err := CheckChainSettings(&cfg); err != nil {
+		return nil, err
 	}
 
 	// Apply environment variable overrides
@@ -281,8 +284,28 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// CheckChainSettings refuses settings the configured chains cannot use. Snapshots need a host serving
+// Ethereum mainnet alone: a snapshot does not name its chain, so another chain's host would import an
+// Ethereum mainnet snapshot, and with snapshots enabled no chain is pruned, including chains the
+// snapshot does not cover. The event filter's rules name one chain's collections and EVM fields, so
+// it needs a host serving one chain. cfg must list at least one chain.
+func CheckChainSettings(cfg *Config) error {
+	if cfg.HostConfig.Snapshot.Enabled {
+		if len(cfg.Chains) > 1 {
+			return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrSnapshotChain)
+		}
+		if cfg.Chains[0].Prefix != chain.EthereumMainnet {
+			return fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotChain)
+		}
+	}
+	if cfg.Shinzo.EventFilter.Enabled && len(cfg.Chains) > 1 {
+		return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrEventFilterChains)
+	}
+	return nil
+}
+
 // loadChains reads and validates the chains key of the config file. A file without the key serves
-// Ethereum mainnet; otherwise the key must list exactly one chain. Keys the config does not
+// Ethereum mainnet; otherwise the key must list at least one chain. Keys the config does not
 // define are ignored elsewhere in the file but rejected under chains, where a misspelled key would
 // leave a chain misconfigured without an error.
 func loadChains(data []byte) ([]chain.Config, error) {
@@ -304,8 +327,8 @@ func loadChains(data []byte) ([]chain.Config, error) {
 	if err := chain.Validate(chains); err != nil {
 		return nil, fmt.Errorf("invalid chains: %w", err)
 	}
-	if len(chains) != 1 {
-		return nil, ErrUnsupportedChains
+	if len(chains) == 0 {
+		return nil, ErrNoChains
 	}
 	return chains, nil
 }
