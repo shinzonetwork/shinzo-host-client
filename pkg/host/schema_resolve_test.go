@@ -290,6 +290,9 @@ func TestChainsApplier(t *testing.T) {
 	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
 	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(other).Block.Name)
 	require.NoError(t, err)
+	// A later start without it succeeds and still reports it removed.
+	require.NoError(t, withoutOther.ApplySchema(ctx, node))
+	require.Equal(t, []string{other}, withoutOther.removed)
 	require.NoError(t, applier.ApplySchema(ctx, node))
 	got, err = node.DB.ListP2PCollections(ctx)
 	require.NoError(t, err)
