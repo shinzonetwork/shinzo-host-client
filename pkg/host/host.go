@@ -565,7 +565,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	go newHost.reportStats(processingCtx)
+	go newHost.reportStats(processingCtx, statsInterval, logger.Sugar)
 
 	if cfg.HostConfig.OpenBrowserOnStart {
 		go func() {
