@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,7 +27,8 @@ type chainsApplier struct {
 	// enabled is set by ApplySchema to the chains it subscribed to, in config order.
 	enabled []chain.Config
 	// reasons is set by ApplySchema to the reason each chain it disabled is not served, keyed by prefix.
-	// The store holds none of the tables of a chain disabled for server.ReasonNoGeneratorAnswered.
+	// A chain disabled for server.ReasonSchemaDrift has all its tables stored, one disabled for
+	// server.ReasonTablesPartiallyStored some, and one disabled for any other reason none.
 	reasons map[string]string
 	// removed is set by ApplySchema to the prefixes of the chains the store holds but chains does not
 	// list.
@@ -34,12 +36,11 @@ type chainsApplier struct {
 }
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
-// to them. A chain whose tables drift (schema.ErrSchemaDrift) is disabled: it is unsubscribed and
-// left out of enabled. A chain is also disabled when the store holds none of its tables and no
-// generator answered (errNoGeneratorAnswered); it is tried again at the next start. When every
-// chain is disabled, it returns errNoChainEnabled with each chain's error. Any other failure is
-// returned. A chain the store holds but chains does not list is removed: it is unsubscribed before
-// any table is created, and its tables and data stay until the store is wiped.
+// to them. A chain whose tables cannot be set up (see disabledReason) is disabled: its stored tables
+// are unsubscribed and it is left out of enabled. When every chain is disabled, it returns
+// errNoChainEnabled with each chain's error. Any other failure is returned. A chain the store holds
+// but chains does not list is removed: it is unsubscribed before any table is created, and its
+// tables and data stay until the store is wiped.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	removed, err := a.removeUnlistedChains(ctx, n)
 	if err != nil {
@@ -61,23 +62,26 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			Collections: collections,
 		}
 		err = applier.ApplySchema(ctx, n)
-		if errors.Is(err, schema.ErrSchemaDrift) {
-			// DefraDB keeps subscriptions across restarts and reloads them when the node starts, so one
-			// made by an earlier start is removed.
-			if err := n.DB.DeleteP2PCollections(ctx, collections.Subscribed()); err != nil {
+		if reason := disabledReason(err); reason != "" {
+			// DefraDB keeps subscriptions across restarts, so any from an earlier start are removed. It
+			// errors on a table the store does not hold, so only stored tables are passed.
+			stored, listErr := n.DB.GetCollections(ctx)
+			if listErr != nil {
+				return fmt.Errorf("read stored collections: %w", listErr)
+			}
+			subscribed := collections.Subscribed()
+			var held []string
+			for _, col := range stored {
+				if slices.Contains(subscribed, col.Name()) {
+					held = append(held, col.Name())
+				}
+			}
+			if err := n.DB.DeleteP2PCollections(ctx, held); err != nil {
 				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
 			}
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
 			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
-			reasons[c.Prefix] = server.ReasonSchemaDrift
-			continue
-		}
-		// Generators are asked for a chain's tables only when the store holds none of them, so a
-		// chain left out here has no tables and no subscription.
-		if errors.Is(err, errNoGeneratorAnswered) {
-			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
-			disabled = append(disabled, fmt.Errorf("chain %s: %w", c.Prefix, err))
-			reasons[c.Prefix] = server.ReasonNoGeneratorAnswered
+			reasons[c.Prefix] = reason
 			continue
 		}
 		if err != nil {
@@ -95,6 +99,24 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	a.reasons = reasons
 	a.removed = removed
 	return nil
+}
+
+// disabledReason returns the reason a chain is disabled when setting up its tables fails with err, or
+// "" when err does not disable a chain.
+func disabledReason(err error) string {
+	switch {
+	case errors.Is(err, schema.ErrSchemaDrift):
+		return server.ReasonSchemaDrift
+	case errors.Is(err, errNoGeneratorAnswered):
+		return server.ReasonNoGeneratorAnswered
+	case errors.Is(err, errNoGeneratorSchema):
+		return server.ReasonSchemaRefused
+	case errors.Is(err, errNoChainSchema):
+		return server.ReasonNoGeneratorConfigured
+	case errors.Is(err, schema.ErrSchemaPartiallyStored):
+		return server.ReasonTablesPartiallyStored
+	}
+	return ""
 }
 
 // removeUnlistedChains unsubscribes each chain the store holds but chains does not list, and returns
