@@ -1490,6 +1490,16 @@ func TestStartHosting_NoChains(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoChains)
 }
 
+// A config built in code is refused for the same chain settings as a loaded one.
+func TestStartHosting_ChainSettings(t *testing.T) {
+	cfg := *DefaultConfig
+	cfg.Chains = []chain.Config{{Prefix: chain.EthereumMainnet}, {Prefix: "Testchain__Devnet"}}
+	cfg.Shinzo.EventFilter.Enabled = true
+
+	_, err := StartHosting(&cfg)
+	require.ErrorIs(t, err, config.ErrEventFilterChains)
+}
+
 // ---------------------------------------------------------------------------
 // StartHosting with nil config uses defaults
 // ---------------------------------------------------------------------------
