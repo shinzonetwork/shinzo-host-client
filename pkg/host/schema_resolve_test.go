@@ -345,6 +345,12 @@ func TestChainsApplier(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
 
+	// A chain with only some of its tables stored can still be removed.
+	_, err = node.DB.AddCollection(ctx, "type "+chain.EVM(third).BlockSignature.Name+" { number: Int }")
+	require.NoError(t, err)
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	require.Equal(t, []string{third}, applier.removed)
+
 	// When drift disables every chain, the host does not start, and the error names each chain.
 	_, err = node.DB.AddCollection(ctx, "type "+chain.EthereumMainnet+"__Extra { a: Int }")
 	require.NoError(t, err)
