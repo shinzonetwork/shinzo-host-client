@@ -94,7 +94,7 @@ func getStorePath(_ *node.Node, cfg *defradb.Config) (string, error) {
 	// Try each path to see if it contains the key file
 	for _, path := range possiblePaths {
 		keyPath := filepath.Join(filepath.Clean(path), keyFileName)
-		if _, err := os.Stat(keyPath); err == nil {
+		if _, err := os.Stat(keyPath); err == nil { //nolint:gosec // fixed candidate paths, not user input
 			return path, nil
 		}
 	}

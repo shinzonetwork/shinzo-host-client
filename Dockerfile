@@ -1,5 +1,5 @@
 # Multi-stage build like indexer
-FROM golang:1.26 AS builder
+FROM golang:1.27 AS builder
 
 # Build arguments
 ARG TAGS
