@@ -8,10 +8,6 @@ const (
 
 	// View / doc / signer test fixtures shared across handler/pipeline/peer tests.
 	testViewName     = "TestView"
-	testWASMViewID   = "WASMView_myview"
-	testViewA        = "view-A"
-	testViewB        = "view-B"
-	testViewAB       = "view-A,view-B"
 	testTestView     = "testview"
 	testContractKey1 = "0xkey1"
 	testCreator1     = "creator1"
@@ -44,37 +40,19 @@ const (
 	// Test JSON map keys reused across pipeline tests.
 	testMapKeyAddr = "addr"
 
-	// GraphQL query-fragment prefixes asserted by query-builder tests.
-	testQueryEthBlock       = "Ethereum__Mainnet__Block {"
-	testQueryEthTransaction = "Ethereum__Mainnet__Transaction {"
-	testQueryEthLog         = "Ethereum__Mainnet__Log {"
-
 	// Multi-peer libp2p multiaddr used by peer_discovery_test.go.
 	testPeerMultiaddr = "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
 
 	// CID fixture observed in snapshot_bootstrap_test.go.
 	testSnapshotCID = "bafyreie7qr6d2gw5mvg7lrliqhk7opnbcpjfqkxvkm5pj5mzhtxhsb3q4"
 
-	// Document docID prefix used in batch-write tests.
-	testBaeOrig = "bae-orig"
-	testBae1    = "bae-1"
-	testBae2    = "bae-2"
-	testBae3    = "bae-3"
-	testBae4    = "bae-4"
-	testBae5    = "bae-5"
-	testBaeSrc1 = "bae-src1"
-
-	// JSON map key for round-trip test fixtures in provenance tests.
-	testJSONFieldResult = "result"
-
 	// Compact CID fixtures used in attestation batch tests.
 	testCID1 = "cid1"
 	testCID2 = "cid2"
 
 	// Misc generic test fixtures.
-	testAbc  = "abc"
-	testDone = "done"
-	testNum  = "num"
+	testAbc = "abc"
+	testNum = "num"
 
 	// Generic view-name placeholder reused across host_test and handler tests.
 	testNameTest = "test"
@@ -94,9 +72,6 @@ const (
 	// Pubkey fixture stored in the signature blob `identity` field.
 	testIdentityPubkey = "testpubkey"
 
-	// GraphQL filter-syntax prefix asserted in query-builder negative checks.
-	testQueryFilterPrefix = "filter:"
-
 	// Snapshot file-name fixtures used in snapshot_bootstrap_test.go.
 	testSnapName200_300 = "snap-200-300.tar"
 	testSnapName300_400 = "snap-300-400.tar"
@@ -112,4 +87,16 @@ const (
 	// Subtest names reused across multiple replication-filter test functions.
 	testNameMatchingAddressAllowed = "matching address allowed"
 	testNameMissingKey             = "missing key"
+
+	// DefraDB document metadata field names.
+	defraFieldDocID   = "_docID"
+	defraFieldVersion = "_version"
+
+	// Document field names used as keys in test documents.
+	gqlFieldAddress     = "address"
+	gqlFieldTo          = "to"
+	gqlFieldHash        = "hash"
+	gqlFieldBlockNumber = "blockNumber"
+	gqlFieldNumber      = "number"
+	gqlFieldTopics      = "topics"
 )
