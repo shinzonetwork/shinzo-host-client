@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -20,6 +21,15 @@ func testMnemonic(t *testing.T) string {
 	mnemonic, err := bip39.NewMnemonic(entropy)
 	require.NoError(t, err)
 	return mnemonic
+}
+
+// writeRecoverFile writes content to a fresh file and returns its path,
+// for tests exercising --recover-file.
+func writeRecoverFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mnemonic.txt")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
 }
 
 func TestRunInitCreatesInstance(t *testing.T) {
@@ -168,7 +178,7 @@ func TestRunInitGeneratesKeys(t *testing.T) {
 	cmd.SetOut(&out)
 
 	require.NoError(t, runInit(cmd, nil))
-	require.FileExists(t, filepath.Join(home, "keys", "operator.key"))
+	require.FileExists(t, filepath.Join(home, "keys", "node.key"))
 	require.Contains(t, out.String(), "Operator address: shinzo1")
 }
 
@@ -178,7 +188,7 @@ func TestRunInitRecoverUsesGivenMnemonic(t *testing.T) {
 
 	cmd := initCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
-	require.NoError(t, cmd.Flags().Set("recover", mnemonic))
+	require.NoError(t, cmd.Flags().Set("recover-file", writeRecoverFile(t, mnemonic)))
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -187,7 +197,7 @@ func TestRunInitRecoverUsesGivenMnemonic(t *testing.T) {
 
 	// Derive independently from the same mnemonic, in a separate dir, and
 	// confirm it's the same operator address init just reported.
-	want, err := keys.EnsureKeys(filepath.Join(t.TempDir(), "keys"), mnemonic, zap.NewNop().Sugar())
+	want, _, err := keys.EnsureKeys(filepath.Join(t.TempDir(), "keys"), mnemonic, true, zap.NewNop().Sugar())
 	require.NoError(t, err)
 	wantAddr, err := want.ShinzoAddress()
 	require.NoError(t, err)
@@ -195,7 +205,37 @@ func TestRunInitRecoverUsesGivenMnemonic(t *testing.T) {
 	require.Contains(t, out.String(), wantAddr)
 }
 
-// A bad --recover value is checked before anything else, so a failed
+// init must not generate and print a mnemonic when one was recovered.
+func TestRunInitDoesNotPrintAGeneratedMnemonicWhenRecovering(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover-file", writeRecoverFile(t, testMnemonic(t))))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runInit(cmd, nil))
+	require.NotContains(t, out.String(), "Generated a new node seed phrase")
+}
+
+// init prints the freshly generated mnemonic exactly once, so the
+// operator has a chance to record it before it's gone for good.
+func TestRunInitPrintsGeneratedMnemonicWhenNotRecovering(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, runInit(cmd, nil))
+	require.Contains(t, out.String(), "Generated a new node seed phrase")
+}
+
+// A bad --recover-file is checked before anything else, so a failed
 // init leaves nothing behind: no config.toml, no directories. Without
 // that check up front, Setup would have already created all of it by
 // the time EnsureKeys got around to rejecting the mnemonic.
@@ -204,7 +244,19 @@ func TestRunInitRejectsInvalidRecoverMnemonic(t *testing.T) {
 
 	cmd := initCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
-	require.NoError(t, cmd.Flags().Set("recover", "not a real mnemonic at all"))
+	require.NoError(t, cmd.Flags().Set("recover-file", writeRecoverFile(t, "not a real mnemonic at all")))
+	cmd.SetOut(&bytes.Buffer{})
+
+	require.Error(t, runInit(cmd, nil))
+	require.NoDirExists(t, home)
+}
+
+func TestRunInitRejectsMissingRecoverFile(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover-file", filepath.Join(t.TempDir(), "does-not-exist.txt")))
 	cmd.SetOut(&bytes.Buffer{})
 
 	require.Error(t, runInit(cmd, nil))

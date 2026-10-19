@@ -3,13 +3,16 @@ package logger
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -63,6 +66,50 @@ func TestNewLevelFiltersBelowConfigured(t *testing.T) {
 func TestNewInvalidOutputPathErrors(t *testing.T) {
 	_, _, err := New(Config{OutputPaths: []string{t.TempDir()}})
 	require.Error(t, err)
+}
+
+// trackingSink is a zap.Sink that records whether Close was called, so
+// a test can tell whether an already-opened output actually got closed.
+type trackingSink struct {
+	closed *bool
+}
+
+func (s *trackingSink) Write(p []byte) (int, error) { return len(p), nil }
+func (s *trackingSink) Sync() error                 { return nil }
+func (s *trackingSink) Close() error {
+	*s.closed = true
+	return nil
+}
+
+var (
+	trackingSchemesOnce sync.Once //nolint:gochecknoglobals // zap.RegisterSink errors on re-registration; must happen exactly once per process.
+	trackingOKClosed    bool      //nolint:gochecknoglobals // written by the registered "ok" sink's Close, read back by the test.
+)
+
+// registerTrackingSchemes wires up two fake schemes once per process:
+// "ok", which opens a trackingSink writing into trackingOKClosed, and
+// "bad", which always fails to open.
+func registerTrackingSchemes(t *testing.T) {
+	t.Helper()
+	trackingSchemesOnce.Do(func() {
+		require.NoError(t, zap.RegisterSink("ok", func(*url.URL) (zap.Sink, error) {
+			return &trackingSink{closed: &trackingOKClosed}, nil
+		}))
+		require.NoError(t, zap.RegisterSink("bad", func(*url.URL) (zap.Sink, error) {
+			return nil, errors.New("fake open failure")
+		}))
+	})
+}
+
+// New must close every output it already opened if a later one fails to
+// open, instead of returning immediately and leaking the earlier ones.
+func TestNewClosesAlreadyOpenedOutputsWhenALaterOneFails(t *testing.T) {
+	registerTrackingSchemes(t)
+	trackingOKClosed = false
+
+	_, _, err := New(Config{OutputPaths: []string{"ok://first", "bad://second"}})
+	require.Error(t, err)
+	require.True(t, trackingOKClosed, "the already-opened \"ok\" output should have been closed")
 }
 
 func TestNewRejectsInvalidLevel(t *testing.T) {

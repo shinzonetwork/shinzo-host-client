@@ -14,7 +14,7 @@ import (
 
 func testNodeKeys(t *testing.T) keys.NodeKeys {
 	t.Helper()
-	nodeKeys, err := keys.EnsureKeys(t.TempDir(), "", zap.NewNop().Sugar())
+	nodeKeys, _, err := keys.EnsureKeys(t.TempDir(), "", true, zap.NewNop().Sugar())
 	require.NoError(t, err)
 	return nodeKeys
 }

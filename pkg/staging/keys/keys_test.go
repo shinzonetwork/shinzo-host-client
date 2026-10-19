@@ -133,6 +133,21 @@ func TestStoreAndLoadRawKeysRoundTrip(t *testing.T) {
 	require.Equal(t, raw, loaded)
 }
 
+// storeRawKeys writes through a temp file, then renames it into place.
+// Confirms no .tmp-* leftover survives a successful write.
+func TestStoreRawKeysLeavesNoTempFileBehind(t *testing.T) {
+	keyDir := t.TempDir()
+	raw, err := deriveRawKeys(testMnemonic(t))
+	require.NoError(t, err)
+
+	require.NoError(t, storeRawKeys(keyDir, raw))
+
+	entries, err := os.ReadDir(keyDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, nodeKeyFile, entries[0].Name())
+}
+
 func TestKeysExistIsFalseForAnEmptyDir(t *testing.T) {
 	require.False(t, keysExist(t.TempDir()))
 }
@@ -146,43 +161,103 @@ func TestKeysExistIsTrueOnceStored(t *testing.T) {
 	require.True(t, keysExist(keyDir))
 }
 
-// A partial write (a crash or a full disk mid-write) must look like
-// keysExist is false, not true: loading an incomplete set would just
-// fail, with no way to ever regenerate since keysExist would keep saying
-// something's already there.
-func TestKeysExistIsFalseForAPartialWrite(t *testing.T) {
+func TestLoadRawKeysRejectsTrailingNewline(t *testing.T) {
 	keyDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(keyDir, operatorKeyFile), []byte("deadbeef"), keyFileMode))
+	raw, err := deriveRawKeys(testMnemonic(t))
+	require.NoError(t, err)
+	require.NoError(t, storeRawKeys(keyDir, raw))
 
-	require.False(t, keysExist(keyDir))
+	path := filepath.Join(keyDir, nodeKeyFile)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, append(data, '\n'), keyFileMode))
+
+	_, err = loadRawKeys(keyDir)
+	require.NoError(t, err, "a trailing newline should be trimmed, not fail decoding")
 }
 
-// The real-world consequence of the above: EnsureKeys must recover from
-// a partial write on its own, by generating a fresh, complete set,
-// rather than failing forever on every subsequent call.
-func TestEnsureKeysRecoversFromAPartialWrite(t *testing.T) {
+func TestLoadRawKeysRejectsWrongLineCount(t *testing.T) {
+	keyDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(keyDir, nodeKeyFile), []byte("deadbeef\nabcd\n"), keyFileMode))
+
+	_, err := loadRawKeys(keyDir)
+	require.ErrorIs(t, err, ErrCorruptKeyFile)
+}
+
+func TestLoadRawKeysRejectsEmptyKeyData(t *testing.T) {
+	keyDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(keyDir, nodeKeyFile), []byte("\n\n\n"), keyFileMode))
+
+	_, err := loadRawKeys(keyDir)
+	require.ErrorIs(t, err, ErrCorruptKeyFile)
+}
+
+// A corrupted but existing key file must never trigger regeneration:
+// doing so would silently replace a real, possibly already-registered
+// identity with a brand new one.
+func TestEnsureKeysDoesNotOverwriteACorruptFile(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "keys")
 	require.NoError(t, os.MkdirAll(keyDir, dirMode))
-	require.NoError(t, os.WriteFile(filepath.Join(keyDir, operatorKeyFile), []byte("deadbeef"), keyFileMode))
+	path := filepath.Join(keyDir, nodeKeyFile)
+	require.NoError(t, os.WriteFile(path, []byte("deadbeef\nabcd\n"), keyFileMode))
 
-	_, err := EnsureKeys(keyDir, "", testLogger(t))
+	_, _, err := EnsureKeys(keyDir, "", true, testLogger(t))
+	require.ErrorIs(t, err, ErrCorruptKeyFile)
+
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.True(t, keysExist(keyDir))
+	require.Equal(t, "deadbeef\nabcd\n", string(data), "the existing file must be left exactly as it was")
 }
 
 func TestEnsureKeysGeneratesFreshWhenNoneSupplied(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "keys")
 
-	nodeKeys, err := EnsureKeys(keyDir, "", testLogger(t))
+	nodeKeys, _, err := EnsureKeys(keyDir, "", true, testLogger(t))
 	require.NoError(t, err)
 	require.NotNil(t, nodeKeys.OperatorKey)
 	require.True(t, keysExist(keyDir))
 }
 
+func TestEnsureKeysReturnsTheGeneratedMnemonicOnlyWhenFresh(t *testing.T) {
+	keyDir := filepath.Join(t.TempDir(), "keys")
+
+	_, mnemonic, err := EnsureKeys(keyDir, "", true, testLogger(t))
+	require.NoError(t, err)
+	require.NoError(t, ValidateMnemonic(mnemonic), "the returned mnemonic should be a real one")
+
+	_, mnemonic, err = EnsureKeys(keyDir, "", true, testLogger(t))
+	require.NoError(t, err)
+	require.Empty(t, mnemonic, "loading existing keys should not return a mnemonic")
+}
+
+func TestEnsureKeysRefusesToGenerateWhenNotAllowed(t *testing.T) {
+	keyDir := filepath.Join(t.TempDir(), "keys")
+
+	_, _, err := EnsureKeys(keyDir, "", false, testLogger(t))
+	require.ErrorIs(t, err, ErrNoKeys)
+	require.False(t, keysExist(keyDir))
+}
+
+// allowGenerate only gates generating a fresh mnemonic. Recovering from
+// a given one must still work even when generation itself is refused,
+// since recovering isn't generating, the secret already exists.
+func TestEnsureKeysAllowsRecoverEvenWhenGenerateIsRefused(t *testing.T) {
+	keyDir := filepath.Join(t.TempDir(), "keys")
+	mnemonic := testMnemonic(t)
+
+	nodeKeys, returnedMnemonic, err := EnsureKeys(keyDir, mnemonic, false, testLogger(t))
+	require.NoError(t, err)
+	require.Empty(t, returnedMnemonic, "recovering shouldn't report a freshly generated mnemonic")
+
+	want, err := deriveNodeKeys(mnemonic)
+	require.NoError(t, err)
+	require.Equal(t, want.OperatorAddress(), nodeKeys.OperatorAddress())
+}
+
 func TestEnsureKeysCreatesKeyDirIfMissing(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "does", "not", "exist", "yet")
 
-	_, err := EnsureKeys(keyDir, "", testLogger(t))
+	_, _, err := EnsureKeys(keyDir, "", true, testLogger(t))
 	require.NoError(t, err)
 	require.DirExists(t, keyDir)
 }
@@ -190,10 +265,10 @@ func TestEnsureKeysCreatesKeyDirIfMissing(t *testing.T) {
 func TestEnsureKeysPersistsAndReusesAcrossCalls(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "keys")
 
-	first, err := EnsureKeys(keyDir, "", testLogger(t))
+	first, _, err := EnsureKeys(keyDir, "", true, testLogger(t))
 	require.NoError(t, err)
 
-	second, err := EnsureKeys(keyDir, "", testLogger(t))
+	second, _, err := EnsureKeys(keyDir, "", true, testLogger(t))
 	require.NoError(t, err)
 
 	require.Equal(t, first.OperatorAddress(), second.OperatorAddress())
@@ -203,7 +278,7 @@ func TestEnsureKeysUsesRecoverMnemonicOnFirstRun(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "keys")
 	mnemonic := testMnemonic(t)
 
-	recovered, err := EnsureKeys(keyDir, mnemonic, testLogger(t))
+	recovered, _, err := EnsureKeys(keyDir, mnemonic, true, testLogger(t))
 	require.NoError(t, err)
 
 	want, err := deriveNodeKeys(mnemonic)
@@ -211,27 +286,56 @@ func TestEnsureKeysUsesRecoverMnemonicOnFirstRun(t *testing.T) {
 	require.Equal(t, want.OperatorAddress(), recovered.OperatorAddress())
 }
 
-// Once keys are on disk, EnsureKeys always loads them; a second --recover
-// value is never looked at again, even if it's different from the one
-// that created them.
-func TestEnsureKeysIgnoresRecoverMnemonicOncePersisted(t *testing.T) {
+// Once keys are on disk, a recover value that actually matches them is
+// accepted, not just silently allowed through.
+func TestEnsureKeysAllowsMatchingRecoverMnemonicOncePersisted(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "keys")
+	mnemonic := testMnemonic(t)
 
-	first, err := EnsureKeys(keyDir, testMnemonic(t), testLogger(t))
+	first, _, err := EnsureKeys(keyDir, mnemonic, true, testLogger(t))
 	require.NoError(t, err)
 
-	second, err := EnsureKeys(keyDir, testMnemonic(t), testLogger(t))
+	second, _, err := EnsureKeys(keyDir, mnemonic, true, testLogger(t))
 	require.NoError(t, err)
 
 	require.Equal(t, first.OperatorAddress(), second.OperatorAddress())
 }
 
+// A recover value that doesn't match what's already stored must error,
+// not silently load the existing keys as if the mnemonic was never
+// given. Otherwise a recovery attempt against the wrong instance looks
+// like it worked when it never actually checked anything.
+func TestEnsureKeysErrorsOnMismatchedRecoverMnemonic(t *testing.T) {
+	keyDir := filepath.Join(t.TempDir(), "keys")
+
+	_, _, err := EnsureKeys(keyDir, testMnemonic(t), true, testLogger(t))
+	require.NoError(t, err)
+
+	_, _, err = EnsureKeys(keyDir, testMnemonic(t), true, testLogger(t))
+	require.ErrorIs(t, err, ErrRecoverMismatch)
+}
+
 func TestEnsureKeysRejectsInvalidRecoverMnemonic(t *testing.T) {
 	keyDir := filepath.Join(t.TempDir(), "keys")
 
-	_, err := EnsureKeys(keyDir, "not a real mnemonic at all", testLogger(t))
+	_, _, err := EnsureKeys(keyDir, "not a real mnemonic at all", true, testLogger(t))
 	require.ErrorIs(t, err, ErrInvalidMnemonic)
 	require.False(t, keysExist(keyDir))
+}
+
+// A malformed recover value must be reported the same way whether keys
+// already exist or not. Without validating up front, this would instead
+// surface as ErrRecoverMismatch once keys exist: deriveRawKeys doesn't
+// check mnemonic validity, so a typo just derives the wrong seed and
+// looks like a mismatch rather than a bad input.
+func TestEnsureKeysRejectsInvalidRecoverMnemonicWhenKeysAlreadyExist(t *testing.T) {
+	keyDir := filepath.Join(t.TempDir(), "keys")
+
+	_, _, err := EnsureKeys(keyDir, "", true, testLogger(t))
+	require.NoError(t, err)
+
+	_, _, err = EnsureKeys(keyDir, "not a real mnemonic at all", true, testLogger(t))
+	require.ErrorIs(t, err, ErrInvalidMnemonic)
 }
 
 func TestValidateMnemonicAcceptsAValidOne(t *testing.T) {

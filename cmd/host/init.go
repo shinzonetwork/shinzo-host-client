@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -24,12 +25,12 @@ default location instead, a different, empty directory.`,
   host init --data-dir mnt/folder
   host init --home /data/shinzo-host --data-dir mnt/folder
   host init --logger.level warn --http.addr :9090
-  host init --recover "twelve word mnemonic seed phrase goes right here"`,
+  host init --recover-file /path/to/mnemonic.txt`,
 		RunE: runInit,
 	}
 
 	registerCommonFlags(cmd)
-	cmd.Flags().String("recover", "", "recover an existing node from its mnemonic seed phrase instead of generating a new one")
+	cmd.Flags().String("recover-file", "", "recover an existing node from a file containing its mnemonic seed phrase, instead of generating a new one")
 
 	return cmd
 }
@@ -45,15 +46,9 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	recoverMnemonic, err := cmd.Flags().GetString("recover")
+	recoverMnemonic, err := recoverMnemonicFromFlag(cmd)
 	if err != nil {
 		return err
-	}
-
-	if recoverMnemonic != "" {
-		if err := keys.ValidateMnemonic(recoverMnemonic); err != nil {
-			return err
-		}
 	}
 
 	overrides, err := getOverrides(cmd)
@@ -85,8 +80,15 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		}
 	}()
 
-	nodeKeys, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, log.Sugar())
+	nodeKeys, mnemonic, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, true, log.Sugar())
 	if err != nil {
+		if recoverMnemonic != "" && errors.Is(err, keys.ErrRecoverMismatch) {
+			return fmt.Errorf("--%s: %w", recoverFileFlag, err)
+		}
+		return err
+	}
+
+	if err := printGeneratedMnemonic(cmd.OutOrStdout(), mnemonic); err != nil {
 		return err
 	}
 

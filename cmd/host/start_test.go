@@ -8,12 +8,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
 )
+
+// seedKeys pre-creates keys at home's default key dir. start deliberately
+// refuses to generate keys on its own (see TestRunStartRefusesToGenerateWithoutRecoverFile),
+// so tests that are really about something else (overrides, data dirs,
+// config loading) call this first to get past that check.
+func seedKeys(t *testing.T, home string) {
+	t.Helper()
+	_, _, err := keys.EnsureKeys(filepath.Join(home, "keys"), "", true, zap.NewNop().Sugar())
+	require.NoError(t, err)
+}
 
 func TestRunStartBootstrapsIfMissing(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
+	seedKeys(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
@@ -42,6 +55,7 @@ func TestRunStartOverridesAreNeverPersisted(t *testing.T) {
 
 	_, err := hostconfig.Setup(home, "", nil) // plain defaults on disk
 	require.NoError(t, err)
+	seedKeys(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
@@ -59,6 +73,7 @@ func TestRunStartOverridesAreNeverPersisted(t *testing.T) {
 // string override above does.
 func TestRunStartAppliesBoolOverride(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
+	seedKeys(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
@@ -78,6 +93,7 @@ func TestRunStartSucceedsWithExplicitExistingConfig(t *testing.T) {
 
 	_, err := hostconfig.Setup(home, "", nil)
 	require.NoError(t, err)
+	seedKeys(t, home)
 
 	// Move the saved config somewhere unrelated to home, to prove --config
 	// can point anywhere, not just at home's own default location.
@@ -95,6 +111,7 @@ func TestRunStartSucceedsWithExplicitExistingConfig(t *testing.T) {
 func TestRunStartUsesCustomDataDir(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 	dataDir := filepath.Join(t.TempDir(), "bigdisk")
+	seedKeys(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
@@ -127,6 +144,7 @@ func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 
 	_, err := hostconfig.Setup(home, "", map[string]any{"http.addr": ":9191"})
 	require.NoError(t, err)
+	seedKeys(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
@@ -177,18 +195,44 @@ func TestStartHelpMentionsInitIsOptional(t *testing.T) {
 	require.Contains(t, out, "optional")
 }
 
-func TestRunStartGeneratesKeysOnFirstRun(t *testing.T) {
+// start must never generate an unattended, unrecoverable secret: with
+// nothing on disk and no --recover-file, it has to fail clearly instead
+// of silently creating a brand new identity nobody asked for.
+func TestRunStartRefusesToGenerateWithoutRecoverFile(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
+	cmd.SetOut(&bytes.Buffer{})
+
+	err := runStart(cmd, nil)
+	require.Error(t, err)
+	require.NoFileExists(t, filepath.Join(home, "keys", "node.key"))
+}
+
+// start can still recover from a mnemonic on a fresh home, even though
+// it refuses to generate one on its own.
+func TestRunStartRecoversFromRecoverFileOnFirstRun(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	mnemonic := testMnemonic(t)
+	recoverFile := filepath.Join(t.TempDir(), "mnemonic.txt")
+	require.NoError(t, os.WriteFile(recoverFile, []byte(mnemonic), 0o600))
+
+	cmd := startCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover-file", recoverFile))
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
 	require.NoError(t, runStart(cmd, nil))
-	require.FileExists(t, filepath.Join(home, "keys", "operator.key"))
-	require.Contains(t, out.String(), "Operator address: shinzo1")
+	require.NotContains(t, out.String(), "Generated a new node seed phrase")
+
+	want, _, err := keys.EnsureKeys(filepath.Join(t.TempDir(), "keys"), mnemonic, true, zap.NewNop().Sugar())
+	require.NoError(t, err)
+	wantAddr, err := want.ShinzoAddress()
+	require.NoError(t, err)
+	require.Contains(t, out.String(), wantAddr)
 }
 
 // init and start must agree on the same keys for the same home: whichever

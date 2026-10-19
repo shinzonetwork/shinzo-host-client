@@ -47,6 +47,10 @@ func (e *consoleEncoder) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field
 	line.AppendString(" ")
 	line.AppendString(levelText(entry.Level, e.noColor))
 	line.AppendString(" ")
+	if entry.Caller.Defined {
+		line.AppendString(entry.Caller.TrimmedPath())
+		line.AppendString(" ")
+	}
 	line.AppendString(entry.Message)
 
 	merged := zapcore.NewMapObjectEncoder()
@@ -66,6 +70,11 @@ func (e *consoleEncoder) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field
 		line.AppendString(k)
 		line.AppendString("=")
 		line.AppendString(formatValue(merged.Fields[k]))
+	}
+
+	if entry.Stack != "" {
+		line.AppendString("\n")
+		line.AppendString(entry.Stack)
 	}
 
 	line.AppendString("\n")

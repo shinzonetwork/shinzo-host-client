@@ -35,6 +35,58 @@ func TestConsoleEncoderRendersLogfmtStyle(t *testing.T) {
 	require.NotContains(t, strings.ToLower(line), "caller")
 }
 
+func TestConsoleEncoderIncludesCallerWhenDefined(t *testing.T) {
+	enc := newConsoleEncoder()
+
+	entry := zapcore.Entry{
+		Level:   zapcore.InfoLevel,
+		Message: "hello",
+		Caller: zapcore.EntryCaller{
+			Defined: true,
+			File:    "/src/pkg/staging/logger/logger.go",
+			Line:    42,
+		},
+	}
+
+	buf, err := enc.EncodeEntry(entry, nil)
+	require.NoError(t, err)
+	require.Contains(t, buf.String(), "logger.go:42")
+}
+
+func TestConsoleEncoderOmitsCallerWhenUndefined(t *testing.T) {
+	enc := newConsoleEncoder()
+
+	entry := zapcore.Entry{Level: zapcore.InfoLevel, Message: "hello"}
+
+	buf, err := enc.EncodeEntry(entry, nil)
+	require.NoError(t, err)
+	require.NotContains(t, strings.ToLower(buf.String()), ".go:")
+}
+
+func TestConsoleEncoderIncludesStackWhenPresent(t *testing.T) {
+	enc := newConsoleEncoder()
+
+	entry := zapcore.Entry{
+		Level:   zapcore.ErrorLevel,
+		Message: "something broke",
+		Stack:   "goroutine 1 [running]:\nmain.main()",
+	}
+
+	buf, err := enc.EncodeEntry(entry, nil)
+	require.NoError(t, err)
+	require.Contains(t, buf.String(), "goroutine 1 [running]:")
+}
+
+func TestConsoleEncoderOmitsStackWhenEmpty(t *testing.T) {
+	enc := newConsoleEncoder()
+
+	entry := zapcore.Entry{Level: zapcore.InfoLevel, Message: "hello"}
+
+	buf, err := enc.EncodeEntry(entry, nil)
+	require.NoError(t, err)
+	require.NotContains(t, buf.String(), "goroutine")
+}
+
 func TestConsoleEncoderQuotesValuesWithSpaces(t *testing.T) {
 	enc := newConsoleEncoder()
 

@@ -50,17 +50,17 @@ func New(cfg Config) (*zap.Logger, func() error, error) {
 	}
 
 	var cores []zapcore.Core
-	var closers []func() error
+	var closers []func()
 
 	for _, path := range outputs {
 		writer, closeWriter, err := zap.Open(path)
 		if err != nil {
+			for _, closeFn := range closers {
+				closeFn()
+			}
 			return nil, nil, fmt.Errorf("opening log output %q: %w", path, err)
 		}
-		closers = append(closers, func() error {
-			closeWriter()
-			return nil
-		})
+		closers = append(closers, closeWriter)
 
 		cores = append(cores, zapcore.NewCore(encoderFor(path), writer, level))
 	}
@@ -81,9 +81,7 @@ func New(cfg Config) (*zap.Logger, func() error, error) {
 			errs = append(errs, fmt.Errorf("syncing logger: %w", err))
 		}
 		for _, closeFn := range closers {
-			if err := closeFn(); err != nil {
-				errs = append(errs, err)
-			}
+			closeFn()
 		}
 		return errors.Join(errs...)
 	}
