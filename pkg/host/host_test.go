@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -1067,10 +1068,9 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 		},
 	}
 
-	// PostWasmToFile will fail for nonexistent WASM, exercises the lenses path
+	// A lens path that is not base64 or a URL is refused.
 	err = h.ProcessViewRegistrationEvent(ctx, event)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "WASM")
+	require.ErrorIs(t, err, view.ErrLensInvalidBase64)
 }
 
 func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
@@ -1360,7 +1360,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 
 	query := testQueryBlocks
 	sdl := "type TestView { hash: String }"
-	// View with lenses that have invalid WASM (will fail PostWasmToFile but exercises the path)
+	// View with a lens path that is not base64
 	ch <- &shinzohub.ViewRegisteredEvent{
 		ContractAddress: testContractKey1,
 		Creator:         testCreator1,
@@ -1577,6 +1577,42 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("handleIncomingEvents did not return")
 	}
+}
+
+// A view on a chain the host does not serve is refused before its WASM files are written.
+func TestHandleIncomingEvents_ViewRegisteredEvent_UnservedChainWritesNoWASM(t *testing.T) {
+	// PostWasmToFile writes under the working directory.
+	t.Chdir(t.TempDir())
+	ctx := context.Background()
+
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	const registryPath = "lens"
+	h := &Host{
+		viewManager:      view.NewManager(defraNode, registryPath, testCollections.Prefix),
+		LensRegistryPath: registryPath,
+	}
+	ch := make(chan shinzohub.ShinzoEvent, 1)
+	ch <- &shinzohub.ViewRegisteredEvent{
+		View: view.View{
+			Name: "OtherLog",
+			Data: viewbundle.View{
+				Query: "Other__Chain__Log { address }",
+				Sdl:   "type OtherLog { address: String }",
+				// A valid WASM header, so only the chain check keeps the file from being written.
+				Transform: viewbundle.Transform{Lenses: []viewbundle.Lens{{Path: "AGFzbQEAAAA="}}},
+			},
+		},
+	}
+	// The loop handles the buffered event and returns once the channel is closed.
+	close(ch)
+	h.handleIncomingEvents(ctx, ch)
+
+	written, err := filepath.Glob(filepath.Join(registryPath, "*.wasm"))
+	require.NoError(t, err)
+	require.Empty(t, written)
 }
 
 // ---------------------------------------------------------------------------

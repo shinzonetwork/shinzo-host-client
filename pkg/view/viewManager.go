@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -113,7 +114,13 @@ func (m *Manager) LoadAndRegisterViews(ctx context.Context, externalViews []View
 	}
 
 	for i := range allViews {
-		if err := m.RegisterView(ctx, &allViews[i]); err != nil {
+		err := m.RegisterView(ctx, &allViews[i])
+		if errors.Is(err, ErrViewChainNotServed) {
+			// The host receives every registered view, so one on a chain it does not serve is expected.
+			logger.Sugar.Debugf("View %s not registered: %v", allViews[i].Name, err)
+			continue
+		}
+		if err != nil {
 			logger.Sugar.Warnf("⚠️ Failed to register view %s: %v", allViews[i].Name, err)
 			continue
 		}
