@@ -21,9 +21,10 @@ func TestValidate(t *testing.T) {
 		{"single underscore", []Config{{Prefix: "Ethereum_Mainnet"}}, ErrInvalidPrefix},
 		{"three parts", []Config{{Prefix: "Ethereum__Mainnet__Block"}}, ErrInvalidPrefix},
 		{"part starts with a digit", []Config{{Prefix: "Ethereum__1Mainnet"}}, ErrInvalidPrefix},
+		{"part starts with a lower-case letter", []Config{{Prefix: "Ethereum__mainnet"}}, ErrInvalidPrefix},
 		{"underscore inside a part", []Config{{Prefix: "Arbitrum_One__Mainnet"}}, ErrInvalidPrefix},
 		{"same prefix twice", []Config{{Prefix: EthereumMainnet}, {Prefix: EthereumMainnet}}, ErrDuplicatePrefix},
-		{"prefixes differ only in case", []Config{{Prefix: EthereumMainnet}, {Prefix: "Ethereum__mainnet"}}, ErrDuplicatePrefix},
+		{"prefixes differ only in case", []Config{{Prefix: EthereumMainnet}, {Prefix: "ETHEREUM__Mainnet"}}, ErrDuplicatePrefix},
 		{
 			"http and https generators",
 			[]Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://10.0.0.5:8080"}, {URL: "https://gen.example.com"}}}},

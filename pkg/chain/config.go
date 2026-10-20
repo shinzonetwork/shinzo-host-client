@@ -7,9 +7,11 @@ import (
 	"strings"
 )
 
-// prefixPattern is "<Name>__<Network>", each part a letter followed by letters or digits, so the
-// prefix and every collection name built from it are valid GraphQL type names.
-var prefixPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*__[A-Za-z][A-Za-z0-9]*$`)
+// prefixPattern is "<Name>__<Network>", each part an upper-case letter followed by letters or
+// digits, so the prefix and every collection name built from it are valid GraphQL type names. The
+// upper-case first letter refuses a typo like Ethereum__mainnet, which would name a separate set of
+// collections.
+var prefixPattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*__[A-Z][A-Za-z0-9]*$`)
 
 // Config is a chain the host serves.
 type Config struct {
