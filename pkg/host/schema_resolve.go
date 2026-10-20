@@ -202,9 +202,8 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 // skipping those that do not answer. A generator answers when FetchResponse accepts its response; a
 // response whose network names another chain is an answer whose schema is refused.
 // Generators are asked one at a time as the caller ranges, so none is asked after the caller stops.
-// The responses are yielded without FetchSchema's checks: schema.ChainApplier refuses a response for
-// another chain and compares any other with the stored tables, so a schema the other checks refuse
-// is compared instead of being skipped. The requests share one deadline, the timeout schemaCfg
+// The responses are yielded without FetchSchema's checks, which schema.ChainApplier runs before it
+// compares a schema with the stored tables. The requests share one deadline, the timeout schemaCfg
 // gives a single request, counted from when the caller starts ranging, which bounds this chain's
 // check, so a restart can wait that timeout once per chain: the chain's generators that do not
 // answer delay its check by that timeout once, not once each, and a generator that hangs leaves
