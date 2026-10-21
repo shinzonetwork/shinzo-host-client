@@ -172,8 +172,7 @@ func TestHost_IsHealthy(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		DefraNode:          defraNode,
-		processingPipeline: &ProcessingPipeline{}, // Mock pipeline
+		DefraNode: defraNode,
 	}
 
 	require.True(t, host.IsHealthy())
@@ -181,23 +180,7 @@ func TestHost_IsHealthy(t *testing.T) {
 
 func TestHost_IsHealthy_NoDefraNode(t *testing.T) {
 	host := &Host{
-		DefraNode:          nil,
-		processingPipeline: &ProcessingPipeline{},
-	}
-
-	require.False(t, host.IsHealthy())
-}
-
-func TestHost_IsHealthy_NoPipeline(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	host := &Host{
-		DefraNode:          defraNode,
-		processingPipeline: nil,
+		DefraNode: nil,
 	}
 
 	require.False(t, host.IsHealthy())
@@ -348,7 +331,6 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 	require.Equal(t, 0, host.viewManager.GetViewCount())
 
 	// Test health check
-	host.processingPipeline = &ProcessingPipeline{}
 	require.True(t, host.IsHealthy())
 }
 
@@ -499,7 +481,7 @@ func TestIncrementPort_HTTPS(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Close - with healthServer, processingPipeline, and playground server
+// Close - with healthServer and playground server
 // ---------------------------------------------------------------------------
 
 func TestHost_Close_WithHealthServer(t *testing.T) {
@@ -525,23 +507,6 @@ func TestHost_Close_WithHealthServer(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Close left the health server running")
 	}
-}
-
-func TestHost_Close_WithProcessingPipeline(t *testing.T) {
-	ctx := context.Background()
-
-	pp := NewProcessingPipeline(context.Background(), &Host{}, 10, 1, 10, 50, false)
-	pp.Start()
-
-	host := &Host{
-		DefraNode:              nil,
-		processingPipeline:     pp,
-		webhookCleanupFunction: func() {},
-		processingCancel:       func() {},
-	}
-
-	err := host.Close(ctx)
-	require.NoError(t, err)
 }
 
 func TestHost_Close_WithPlaygroundServer(t *testing.T) {
@@ -1152,9 +1117,6 @@ func TestHost_Close_WithViewManager(t *testing.T) {
 
 	vm := view.NewManager(defraNode, t.TempDir())
 
-	pp := NewProcessingPipeline(context.Background(), &Host{}, 10, 1, 10, 50, false)
-	pp.Start()
-
 	playgroundServer := &http.Server{
 		Addr:              ":0",
 		Handler:           http.NewServeMux(),
@@ -1164,7 +1126,6 @@ func TestHost_Close_WithViewManager(t *testing.T) {
 	h := &Host{
 		DefraNode:              defraNode,
 		viewManager:            vm,
-		processingPipeline:     pp,
 		playgroundServer:       playgroundServer,
 		webhookCleanupFunction: func() {},
 		processingCancel:       func() {},
@@ -1552,7 +1513,6 @@ func TestStartHostingWithTestConfig(t *testing.T) {
 	// Verify host is functional
 	require.NotNil(t, host.DefraNode)
 	require.NotNil(t, host.metrics)
-	require.NotNil(t, host.processingPipeline)
 	require.True(t, host.IsHealthy())
 
 	// Verify GetCurrentBlock returns a value
@@ -1584,10 +1544,6 @@ func TestStartHosting_NilConfig(t *testing.T) {
 	err = host.Close(closeCtx)
 	require.NoError(t, err)
 }
-
-// ---------------------------------------------------------------------------
-// Close - with processingPipeline and healthServer
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // handleIncomingEvents - ViewRegistered with valid base64 WASM lens
@@ -1717,11 +1673,9 @@ func TestHost_Close_Full(t *testing.T) {
 		webhookCleanupFunction: func() {},
 		processingCancel:       func() {},
 		metrics:                metrics,
-		processingPipeline:     NewProcessingPipeline(ctx, &Host{config: DefaultConfig, metrics: metrics}, 10, 1, 5, 50, false),
 		healthServer:           server.NewHealthServer(0, nil, "", metrics, ""),
 	}
 
-	h.processingPipeline.Start()
 	go func() { _ = h.healthServer.Start() }()
 	time.Sleep(50 * time.Millisecond)
 
