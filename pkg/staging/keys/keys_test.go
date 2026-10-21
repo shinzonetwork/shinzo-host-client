@@ -228,17 +228,24 @@ func TestEnsureKeysConcurrentGenerateNeverCorrupts(t *testing.T) {
 	}
 	wg.Wait()
 
+	// err == nil alone isn't enough to count as "won the race": a call
+	// scheduled late enough can correctly load what the winner already
+	// wrote, which is also a nil-error result, just with no mnemonic to
+	// report. Only a non-empty mnemonic means this call actually
+	// generated the keys, rather than loading them back.
 	var winner string
-	successes := 0
+	generated := 0
 	for i, err := range errs {
-		if err == nil {
-			successes++
-			winner = mnemonics[i]
+		if err != nil {
+			require.ErrorIs(t, err, ErrKeysAlreadyExist)
 			continue
 		}
-		require.ErrorIs(t, err, ErrKeysAlreadyExist)
+		if mnemonics[i] != "" {
+			generated++
+			winner = mnemonics[i]
+		}
 	}
-	require.Equal(t, 1, successes, "exactly one concurrent generate should win")
+	require.Equal(t, 1, generated, "exactly one concurrent call should freshly generate")
 
 	want, err := deriveNodeKeys(winner)
 	require.NoError(t, err)
