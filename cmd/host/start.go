@@ -9,7 +9,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/logger"
 )
 
 func startCmd() *cobra.Command {
@@ -18,10 +17,10 @@ func startCmd() *cobra.Command {
 		Short: "Run the Shinzo Host",
 		Long: `Run the Shinzo Host.
 
-If no config exists yet at the resolved location, start creates one from
-defaults automatically. Running init first is optional, not required.
-Use init instead when you want to set things up, e.g. pass overrides to
-save, before the first start.`,
+Requires an already-initialized instance: run init first. start never
+creates config.toml and never generates keys on its own. Use
+--recover-file to recover keys specifically, if config.toml already
+exists but keys don't.`,
 		Example: `  host start
   host start --config /data/shinzo-host/config.toml
   host start --home /data/shinzo-host
@@ -45,7 +44,38 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	cfg, err := loadStartConfig(cmd)
+	home, err := cmd.Flags().GetString("home")
+	if err != nil {
+		return err
+	}
+	dataDir, err := cmd.Flags().GetString("data-dir")
+	if err != nil {
+		return err
+	}
+	configPath, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return err
+	}
+	overrides, err := getOverrides(cmd)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := hostconfig.Load(home, dataDir, configPath, overrides)
+	if err != nil {
+		if errors.Is(err, hostconfig.ErrConfigNotFound) {
+			return fmt.Errorf("%w: run \"host init\" first", err)
+		}
+		return err
+	}
+
+	log, flush, err := newHostLogger(cfg)
+	if err != nil {
+		return err
+	}
+	defer flush(&err)
+
+	nodeKeys, err := resolveStartKeys(cfg, recoverMnemonic, log)
 	if err != nil {
 		return err
 	}
@@ -54,58 +84,12 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	log, sync, err := logger.New(logger.Config{
-		Level:       cfg.Logger.Level,
-		Development: cfg.Logger.Development,
-	})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Only surfaced if nothing else already failed: a flush error
-		// shouldn't mask whatever real error the command hit first.
-		if syncErr := sync(); syncErr != nil && err == nil {
-			err = syncErr
-		}
-	}()
-
-	nodeKeys, err := resolveStartKeys(cmd, cfg, recoverMnemonic, log)
-	if err != nil {
-		return err
-	}
-
 	return printConfig(cmd.OutOrStdout(), cfg, nodeKeys)
 }
 
-func loadStartConfig(cmd *cobra.Command) (hostconfig.Config, error) {
-	home, err := cmd.Flags().GetString("home")
-	if err != nil {
-		return hostconfig.Config{}, err
-	}
-
-	dataDir, err := cmd.Flags().GetString("data-dir")
-	if err != nil {
-		return hostconfig.Config{}, err
-	}
-
-	configPath, err := cmd.Flags().GetString("config")
-	if err != nil {
-		return hostconfig.Config{}, err
-	}
-
-	overrides, err := getOverrides(cmd)
-	if err != nil {
-		return hostconfig.Config{}, err
-	}
-
-	return hostconfig.Load(home, dataDir, configPath, overrides)
-}
-
-// resolveStartKeys loads the node's keys, never generating one on its
-// own (start requires init or --recover-file for that), and prints any
-// freshly generated mnemonic EnsureKeys reports.
-func resolveStartKeys(cmd *cobra.Command, cfg hostconfig.Config, recoverMnemonic string, log *zap.Logger) (keys.NodeKeys, error) {
-	nodeKeys, mnemonic, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, false, log.Sugar())
+// resolveStartKeys loads the node's keys, it never generates one.
+func resolveStartKeys(cfg hostconfig.Config, recoverMnemonic string, log *zap.Logger) (keys.NodeKeys, error) {
+	nodeKeys, _, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, false, log.Sugar())
 	if err != nil {
 		switch {
 		case errors.Is(err, keys.ErrNoKeys):
@@ -115,10 +99,6 @@ func resolveStartKeys(cmd *cobra.Command, cfg hostconfig.Config, recoverMnemonic
 		default:
 			return keys.NodeKeys{}, err
 		}
-	}
-
-	if err := printGeneratedMnemonic(cmd.OutOrStdout(), mnemonic); err != nil {
-		return keys.NodeKeys{}, err
 	}
 
 	return nodeKeys, nil

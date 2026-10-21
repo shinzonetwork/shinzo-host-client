@@ -92,7 +92,7 @@ func TestResolveBuildsCompleteConfig(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 
-	cfg, err := resolve("", "", "")
+	cfg, err := Resolve("", "", "")
 	require.NoError(t, err)
 
 	wantHome := filepath.Join(fakeHome, ".shinzo", "host")
@@ -104,7 +104,7 @@ func TestResolveBuildsCompleteConfig(t *testing.T) {
 }
 
 func TestResolveDoesNotSetPersistedFields(t *testing.T) {
-	cfg, err := resolve(filepath.Join(t.TempDir(), "myhost"), "", "")
+	cfg, err := Resolve(filepath.Join(t.TempDir(), "myhost"), "", "")
 	require.NoError(t, err)
 
 	require.Equal(t, LoggerConfig{}, cfg.Logger, "resolve should leave persisted fields untouched, that's applyDefaults'/load's job")
@@ -113,7 +113,7 @@ func TestResolveDoesNotSetPersistedFields(t *testing.T) {
 
 func TestCreatePathCreatesEveryDir(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
-	cfg, err := resolve(home, "", "")
+	cfg, err := Resolve(home, "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, createPath(cfg))
@@ -127,7 +127,7 @@ func TestCreatePathCreatesEveryDir(t *testing.T) {
 
 func TestCreatePathIsIdempotent(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
-	cfg, err := resolve(home, "", "")
+	cfg, err := Resolve(home, "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, createPath(cfg))
@@ -138,7 +138,7 @@ func TestCreatePathHandlesCustomDataDirOutsideHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 	dataDir := filepath.Join(t.TempDir(), "bigdisk")
 
-	cfg, err := resolve(home, dataDir, "")
+	cfg, err := Resolve(home, dataDir, "")
 	require.NoError(t, err)
 
 	require.NoError(t, createPath(cfg))

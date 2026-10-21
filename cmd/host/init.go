@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/logger"
 )
 
 func initCmd() *cobra.Command {
@@ -56,7 +56,23 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	cfg, err := hostconfig.Setup(home, dataDir, overrides)
+	cfg, err := hostconfig.Prepare(home, dataDir, overrides)
+	if err != nil {
+		return err
+	}
+
+	log, flush, err := newHostLogger(cfg)
+	if err != nil {
+		return err
+	}
+	defer flush(&err)
+
+	nodeKeys, mnemonic, err := resolveInitKeys(cfg, recoverMnemonic, log)
+	if err != nil {
+		return err
+	}
+
+	cfg, err = hostconfig.Commit(cfg)
 	if err != nil {
 		return err
 	}
@@ -65,35 +81,12 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	log, sync, err := logger.New(logger.Config{
-		Level:       cfg.Logger.Level,
-		Development: cfg.Logger.Development,
-	})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		// Only surfaced if nothing else already failed: a flush error
-		// shouldn't mask whatever real error the command hit first.
-		if syncErr := sync(); syncErr != nil && err == nil {
-			err = syncErr
-		}
-	}()
-
-	nodeKeys, mnemonic, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, true, log.Sugar())
-	if err != nil {
-		if recoverMnemonic != "" && errors.Is(err, keys.ErrRecoverMismatch) {
-			return fmt.Errorf("--%s: %w", recoverFileFlag, err)
-		}
-		return err
-	}
-
 	if err := printGeneratedMnemonic(cmd.OutOrStdout(), mnemonic); err != nil {
 		return err
 	}
 
 	// --data-dir isn't saved to config.toml, so remind the operator here,
-	// at the one moment they're most likely to miss it: right after
+	// at the one moment they're most likely to miss it, right after
 	// setting it, before they ever run start without repeating it.
 	if cmd.Flags().Changed("data-dir") {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(),
@@ -104,4 +97,17 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 	}
 
 	return printConfig(cmd.OutOrStdout(), cfg, nodeKeys)
+}
+
+// resolveInitKeys loads, generates, or recovers this instance's keys.
+func resolveInitKeys(cfg hostconfig.Config, recoverMnemonic string, log *zap.Logger) (keys.NodeKeys, string, error) {
+	nodeKeys, mnemonic, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, true, log.Sugar())
+	if err != nil {
+		if recoverMnemonic != "" && errors.Is(err, keys.ErrRecoverMismatch) {
+			return keys.NodeKeys{}, "", fmt.Errorf("--%s: %w", recoverFileFlag, err)
+		}
+		return keys.NodeKeys{}, "", err
+	}
+
+	return nodeKeys, mnemonic, nil
 }

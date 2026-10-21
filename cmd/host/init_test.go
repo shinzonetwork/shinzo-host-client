@@ -75,7 +75,7 @@ func TestRunInitBakesOverridesIntoSavedFile(t *testing.T) {
 	require.Equal(t, "warn", cfg.Logger.Level)
 }
 
-// String overrides are covered above; a bool override goes through a
+// String overrides are covered above. A bool override goes through a
 // different branch of getOverrides (GetBool, not GetString), so it needs
 // its own check that it actually reaches the saved file too.
 func TestRunInitBakesBoolOverrideIntoSavedFile(t *testing.T) {
@@ -106,8 +106,8 @@ func TestRunInitUsesCustomDataDir(t *testing.T) {
 	require.DirExists(t, dataDir)
 }
 
-// Setup's own validate call should still reject a bad override reaching it
-// through the CLI, same as it would for a bad value written by hand.
+// Prepare's own validate call should still reject a bad override reaching
+// it through the CLI, same as it would for a bad value written by hand.
 func TestRunInitRejectsInvalidOverride(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 
@@ -120,7 +120,7 @@ func TestRunInitRejectsInvalidOverride(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(home, "config.toml"))
 }
 
-// The output isn't just the one "Initialized at" line; printConfig's
+// The output isn't just the one "Initialized at" line. printConfig's
 // output should show up too, with the actual resolved/overridden values.
 func TestRunInitPrintsFullResolvedConfig(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
@@ -137,7 +137,7 @@ func TestRunInitPrintsFullResolvedConfig(t *testing.T) {
 	require.Contains(t, out.String(), "addr=:9090")
 }
 
-// --data-dir is never saved to config.toml; init should remind the
+// --data-dir is never saved to config.toml. init should remind the
 // operator of that right when they set it, so they don't discover it the
 // hard way on a later start.
 func TestRunInitWarnsWhenDataDirSet(t *testing.T) {
@@ -236,9 +236,10 @@ func TestRunInitPrintsGeneratedMnemonicWhenNotRecovering(t *testing.T) {
 }
 
 // A bad --recover-file is checked before anything else, so a failed
-// init leaves nothing behind: no config.toml, no directories. Without
-// that check up front, Setup would have already created all of it by
-// the time EnsureKeys got around to rejecting the mnemonic.
+// init leaves nothing behind, no config.toml, no directories. Without
+// that check up front, Prepare would have already created the
+// directories by the time EnsureKeys got around to rejecting the
+// mnemonic.
 func TestRunInitRejectsInvalidRecoverMnemonic(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 
@@ -261,4 +262,28 @@ func TestRunInitRejectsMissingRecoverFile(t *testing.T) {
 
 	require.Error(t, runInit(cmd, nil))
 	require.NoDirExists(t, home)
+}
+
+// Commit (the step that writes config.toml) only ever runs after
+// EnsureKeys succeeds, so a mismatched recover value never reaches it.
+// Without that ordering, a config.toml written before the mismatch was
+// caught would block every retry, even a correct plain init, with
+// "config already exists", without ever reaching the key check again.
+func TestRunInitLeavesNoConfigBehindOnRecoverMismatch(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	seedKeys(t, home) // pre-existing keys, as if config.toml alone was reset by hand
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover-file", writeRecoverFile(t, testMnemonic(t))))
+	cmd.SetOut(&bytes.Buffer{})
+
+	require.Error(t, runInit(cmd, nil))
+	require.NoFileExists(t, filepath.Join(home, "config.toml"))
+
+	// A plain, correct retry must now succeed.
+	retry := initCmd()
+	require.NoError(t, retry.Flags().Set("home", home))
+	retry.SetOut(&bytes.Buffer{})
+	require.NoError(t, runInit(retry, nil))
 }

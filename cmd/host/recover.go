@@ -13,10 +13,8 @@ import (
 
 const recoverFileFlag = "recover-file"
 
-// recoverMnemonicFromFlag reads and validates the mnemonic named by
-// --recover-file, if the flag was given. Validating here, before the
-// caller touches disk for anything else, means a bad file leaves
-// nothing behind to clean up.
+// recoverMnemonicFromFlag reads and validates --recover-file, if given,
+// before the caller touches disk for anything else.
 func recoverMnemonicFromFlag(cmd *cobra.Command) (string, error) {
 	path, err := cmd.Flags().GetString(recoverFileFlag)
 	if err != nil {
@@ -39,9 +37,8 @@ func recoverMnemonicFromFlag(cmd *cobra.Command) (string, error) {
 	return mnemonic, nil
 }
 
-// printGeneratedMnemonic writes mnemonic to w, if EnsureKeys just
-// generated a fresh one. It's shown exactly this once and never saved
-// anywhere, so the operator needs the chance to write it down now.
+// printGeneratedMnemonic writes mnemonic to w if EnsureKeys just
+// generated a fresh one, it's never shown again after this.
 func printGeneratedMnemonic(w io.Writer, mnemonic string) error {
 	if mnemonic == "" {
 		return nil

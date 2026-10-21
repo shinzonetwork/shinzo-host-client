@@ -14,29 +14,35 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
 )
 
-// seedKeys pre-creates keys at home's default key dir. start deliberately
-// refuses to generate keys on its own (see TestRunStartRefusesToGenerateWithoutRecoverFile),
-// so tests that are really about something else (overrides, data dirs,
-// config loading) call this first to get past that check.
+// seedConfig pre-creates config.toml, since start no longer bootstraps
+// one itself.
+func seedConfig(t *testing.T, home string) {
+	t.Helper()
+	prepared, err := hostconfig.Prepare(home, "", nil)
+	require.NoError(t, err)
+	_, err = hostconfig.Commit(prepared)
+	require.NoError(t, err)
+}
+
+// seedKeys pre-creates keys, since start no longer generates them itself.
 func seedKeys(t *testing.T, home string) {
 	t.Helper()
 	_, _, err := keys.EnsureKeys(filepath.Join(home, "keys"), "", true, zap.NewNop().Sugar())
 	require.NoError(t, err)
 }
 
-func TestRunStartBootstrapsIfMissing(t *testing.T) {
+// start requires init to have run first. It never creates config.toml
+// itself, not even at the default location.
+func TestRunStartFailsIfConfigMissing(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
-	seedKeys(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
+	cmd.SetOut(&bytes.Buffer{})
 
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-
-	require.NoError(t, runStart(cmd, nil))
-	require.FileExists(t, filepath.Join(home, "config.toml"))
-	require.Contains(t, out.String(), home)
+	err := runStart(cmd, nil)
+	require.ErrorIs(t, err, hostconfig.ErrConfigNotFound)
+	require.NoFileExists(t, filepath.Join(home, "config.toml"))
 }
 
 func TestRunStartFailsIfExplicitConfigMissing(t *testing.T) {
@@ -52,9 +58,7 @@ func TestRunStartFailsIfExplicitConfigMissing(t *testing.T) {
 
 func TestRunStartOverridesAreNeverPersisted(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
-
-	_, err := hostconfig.Setup(home, "", nil) // plain defaults on disk
-	require.NoError(t, err)
+	seedConfig(t, home)
 	seedKeys(t, home)
 
 	cmd := startCmd()
@@ -69,10 +73,11 @@ func TestRunStartOverridesAreNeverPersisted(t *testing.T) {
 }
 
 // Bool overrides go through a different branch of getOverrides (GetBool,
-// not GetString); check one reaches the in-memory Config the same way the
+// not GetString). Check one reaches the in-memory Config the same way the
 // string override above does.
 func TestRunStartAppliesBoolOverride(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
+	seedConfig(t, home)
 	seedKeys(t, home)
 
 	cmd := startCmd()
@@ -91,8 +96,7 @@ func TestRunStartSucceedsWithExplicitExistingConfig(t *testing.T) {
 	configDir := filepath.Join(t.TempDir(), "elsewhere")
 	configPath := filepath.Join(configDir, "config.toml")
 
-	_, err := hostconfig.Setup(home, "", nil)
-	require.NoError(t, err)
+	seedConfig(t, home)
 	seedKeys(t, home)
 
 	// Move the saved config somewhere unrelated to home, to prove --config
@@ -111,6 +115,7 @@ func TestRunStartSucceedsWithExplicitExistingConfig(t *testing.T) {
 func TestRunStartUsesCustomDataDir(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 	dataDir := filepath.Join(t.TempDir(), "bigdisk")
+	seedConfig(t, home)
 	seedKeys(t, home)
 
 	cmd := startCmd()
@@ -142,7 +147,9 @@ level = "bogus"
 func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 
-	_, err := hostconfig.Setup(home, "", map[string]any{"http.addr": ":9191"})
+	prepared, err := hostconfig.Prepare(home, "", map[string]any{"http.addr": ":9191"})
+	require.NoError(t, err)
+	_, err = hostconfig.Commit(prepared)
 	require.NoError(t, err)
 	seedKeys(t, home)
 
@@ -157,10 +164,10 @@ func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 }
 
 // Demonstrates the documented data-dir tradeoff, at the CLI level rather
-// than hostconfig's own: --data-dir isn't persisted, so init --data-dir X
-// followed by a bare start doesn't remember X — start falls back to the
+// than hostconfig's own. --data-dir isn't persisted, so init --data-dir X
+// followed by a bare start doesn't remember X, start falls back to the
 // default location instead, a different, still-empty directory. Not a
-// bug; this is what happens if you forget to repeat the flag.
+// bug. This is what happens if you forget to repeat the flag.
 func TestRunStartWithoutDataDirDoesNotReuseInitsCustomDataDir(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 	customDataDir := filepath.Join(t.TempDir(), "bigdisk")
@@ -183,37 +190,33 @@ func TestRunStartWithoutDataDirDoesNotReuseInitsCustomDataDir(t *testing.T) {
 	require.NotContains(t, out.String(), customDataDir)
 }
 
-// start bootstraps a config when none exists, which makes init optional
-// for the default case. The help text needs to say so, so operators
-// aren't surprised either way: that it works without init, or that init
-// does something start alone doesn't (saving overrides to disk). Checking
-// for just the keyword rather than the exact phrase, so a rewording of
-// the Long description doesn't break this test over nothing.
-func TestStartHelpMentionsInitIsOptional(t *testing.T) {
+func TestStartHelpMentionsInitIsRequiredFirst(t *testing.T) {
 	out, err := execute("start", "--help")
 	require.NoError(t, err)
-	require.Contains(t, out, "optional")
+	require.Contains(t, out, "run init first")
 }
 
-// start must never generate an unattended, unrecoverable secret: with
-// nothing on disk and no --recover-file, it has to fail clearly instead
-// of silently creating a brand new identity nobody asked for.
+// An existing instance with no keys and no --recover-file must refuse
+// to generate one unattended, and must not touch keys at all.
 func TestRunStartRefusesToGenerateWithoutRecoverFile(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
+	seedConfig(t, home)
 
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
 	cmd.SetOut(&bytes.Buffer{})
 
 	err := runStart(cmd, nil)
-	require.Error(t, err)
+	require.ErrorIs(t, err, keys.ErrNoKeys)
 	require.NoFileExists(t, filepath.Join(home, "keys", "node.key"))
 }
 
-// start can still recover from a mnemonic on a fresh home, even though
-// it refuses to generate one on its own.
-func TestRunStartRecoversFromRecoverFileOnFirstRun(t *testing.T) {
+// start can recover keys from a mnemonic on an existing instance that
+// doesn't have them yet, without ever generating one on its own.
+func TestRunStartRecoversKeysFromRecoverFileWhenMissing(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
+	seedConfig(t, home)
+
 	mnemonic := testMnemonic(t)
 	recoverFile := filepath.Join(t.TempDir(), "mnemonic.txt")
 	require.NoError(t, os.WriteFile(recoverFile, []byte(mnemonic), 0o600))
@@ -235,8 +238,24 @@ func TestRunStartRecoversFromRecoverFileOnFirstRun(t *testing.T) {
 	require.Contains(t, out.String(), wantAddr)
 }
 
-// init and start must agree on the same keys for the same home: whichever
-// one creates them first, the other loads the exact same ones back.
+func TestRunStartFailsOnRecoverMismatch(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	seedConfig(t, home)
+	seedKeys(t, home)
+
+	wrongFile := filepath.Join(t.TempDir(), "wrong.txt")
+	require.NoError(t, os.WriteFile(wrongFile, []byte(testMnemonic(t)), 0o600))
+
+	cmd := startCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("recover-file", wrongFile))
+	cmd.SetOut(&bytes.Buffer{})
+
+	require.ErrorIs(t, runStart(cmd, nil), keys.ErrRecoverMismatch)
+}
+
+// init and start must agree on the same keys for the same home.
+// Whichever one creates them first, the other loads the exact same ones back.
 func TestRunInitAndRunStartAgreeOnKeys(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 

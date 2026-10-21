@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,42 +41,43 @@ const (
 const keyLineCount = 3
 
 var (
-	// ErrInvalidMnemonic is returned by ValidateMnemonic, and by
-	// EnsureKeys for the same reason, when a recover value isn't a
-	// valid BIP39 mnemonic. Deliberately generic, not tied to any CLI
-	// flag name, since more than one caller can reach this. Callers
-	// that want to name their own flag should wrap this error.
+	// ErrInvalidMnemonic means mnemonic isn't a valid BIP39 phrase.
 	ErrInvalidMnemonic = errors.New("invalid BIP39 mnemonic")
 
-	// ErrNoKeys is returned by EnsureKeys when allowGenerate is false,
-	// nothing exists yet at keyDir, and no recover value was given.
+	// ErrNoKeys means no keys exist yet and allowGenerate is false.
 	ErrNoKeys = errors.New("no keys found")
 
-	// ErrRecoverMismatch is returned by EnsureKeys when a recover value
-	// is given but keys already exist, and the given mnemonic derives a
-	// different operator key than the one already stored.
+	// ErrRecoverMismatch means recoverMnemonic doesn't match the stored keys.
 	ErrRecoverMismatch = errors.New("recover value does not match the stored keys")
 
-	// ErrCorruptKeyFile is returned by loadRawKeys when the stored key
-	// file doesn't have the expected shape, e.g. a crash or manual edit
-	// left it with too few lines or empty key data.
+	// ErrCorruptKeyFile means the stored key file isn't the expected shape.
 	ErrCorruptKeyFile = errors.New("corrupt key file")
+
+	// ErrKeysAlreadyExist means a key file appeared at keyDir between
+	// the exist check and the write, almost always two EnsureKeys calls
+	// racing to generate fresh keys for the same empty keyDir at once.
+	ErrKeysAlreadyExist = errors.New("keys already exist")
 )
 
 // ValidateMnemonic reports whether mnemonic is a valid BIP39 mnemonic.
-// Meant to be called before any other work happens, e.g. before
-// hostconfig.Setup, so a bad recover value is caught before anything is
-// written to disk, rather than after.
 func ValidateMnemonic(mnemonic string) error {
-	if !bip39.IsMnemonicValid(mnemonic) {
+	if !bip39.IsMnemonicValid(normalizeMnemonic(mnemonic)) {
 		return ErrInvalidMnemonic
 	}
 	return nil
 }
 
-// NodeKeys holds the three keys derived from a node's seed: an operator
-// key for on-chain registration, an identity key for DefraDB's ACP, and a
-// peer key seed for its libp2p PeerID.
+// normalizeMnemonic runs before both validating and deriving. go-bip39
+// validates with loose whitespace rules but hashes the raw string.
+// Without this, a mnemonic saved one word per line would validate fine
+// but derive the wrong keys.
+func normalizeMnemonic(mnemonic string) string {
+	return strings.Join(strings.Fields(strings.ToLower(mnemonic)), " ")
+}
+
+// NodeKeys holds the three keys derived from a node's seed. An
+// operator key for on-chain registration, an identity key for
+// DefraDB's ACP, and a peer key seed for its libp2p PeerID.
 type NodeKeys struct {
 	OperatorKey *ecdsa.PrivateKey
 	IdentityKey identity.FullIdentity
@@ -121,7 +123,7 @@ type rawKeys struct {
 }
 
 func deriveRawKeys(mnemonic string) (rawKeys, error) {
-	seed := bip39.NewSeed(mnemonic, "")
+	seed := bip39.NewSeed(normalizeMnemonic(mnemonic), "")
 	masterKey, chainCode := hd.ComputeMastersFromSeed(seed)
 
 	operator, err := hd.DerivePrivateKeyForPath(masterKey, chainCode, operatorKeyPath)
@@ -164,16 +166,8 @@ func (r rawKeys) toNodeKeys() (NodeKeys, error) {
 	}, nil
 }
 
-// TODO: this file is plain, not encrypted at rest. A real keyring needs
-// a password, and there's no good source for one yet that isn't either
-// hardcoded (same password on every default-configured node) or
-// required on every start (which defeats persisting the keys at all).
-// Revisit once a real per-instance secret exists.
-//
-// All three keys go in one file, one line each, written atomically
-// (temp file, fsync, rename). That makes a partial write impossible: a
-// crash or a full disk mid-write either leaves the old file untouched or
-// produces nothing, never a half-written file in its place.
+// TODO this file is plain, not encrypted at rest. Revisit once a real
+// per-instance secret exists to encrypt it with.
 func storeRawKeys(keyDir string, raw rawKeys) error {
 	content := hex.EncodeToString(raw.operator) + "\n" +
 		hex.EncodeToString(raw.identity) + "\n" +
@@ -182,13 +176,20 @@ func storeRawKeys(keyDir string, raw rawKeys) error {
 	return writeFileAtomic(filepath.Join(keyDir, nodeKeyFile), []byte(content))
 }
 
+// writeFileAtomic writes data to path, failing instead of overwriting
+// if something is already there. A plain rename would silently replace
+// an existing file, which matters here, two processes racing to
+// generate fresh keys for the same empty keyDir must not have one
+// silently clobber the other's. os.Link gives the same atomicity as a
+// rename (it either lands fully or not at all), but fails with EEXIST
+// if path already exists, instead of overwriting it.
 func writeFileAtomic(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }() // no-op once the rename below succeeds
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if err := tmp.Chmod(keyFileMode); err != nil {
 		_ = tmp.Close()
@@ -206,8 +207,11 @@ func writeFileAtomic(path string, data []byte) error {
 		return fmt.Errorf("closing temp file: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("renaming into place: %w", err)
+	if err := os.Link(tmpPath, path); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%w: another process may have just created it", ErrKeysAlreadyExist)
+		}
+		return fmt.Errorf("linking into place: %w", err)
 	}
 	return nil
 }
@@ -243,40 +247,22 @@ func loadRawKeys(keyDir string) (rawKeys, error) {
 	return rawKeys{operator: operator, identity: identityBytes, peerSeed: peerSeed}, nil
 }
 
+// keysExist reports whether a node.key file is already stored at keyDir.
 func keysExist(keyDir string) bool {
 	_, err := os.Stat(filepath.Join(keyDir, nodeKeyFile))
 	return err == nil
 }
 
-// EnsureKeys loads the node's keys from keyDir if they already exist, or
-// generates (or recovers from recoverMnemonic, if given) and stores a
-// new set otherwise. Safe to call on every start: it's a no-op past the
-// first run.
-//
-// If keys already exist and recoverMnemonic is also given, it must
-// match what's stored (ErrRecoverMismatch otherwise), rather than being
-// silently ignored: a recovery that looks like it worked but was never
-// actually checked is worse than one that errors.
-//
-// If keys don't exist yet, mnemonic is empty, and allowGenerate is
-// false, EnsureKeys returns ErrNoKeys instead of generating one. init
-// passes true; start passes false, since start can run unattended and
-// a freshly generated, unrecoverable seed needs someone to actually see
-// it.
-//
-// The second return value is the mnemonic, but only when one was just
-// generated. The caller is expected to show it to the operator directly
-// (e.g. on cmd.OutOrStdout()), not through a logger: a logger's level
-// filtering, or a non-terminal destination turning it into a structured
-// log field, both risk the one unrecoverable copy never actually
-// reaching anyone.
+// EnsureKeys loads existing keys from keyDir, or generates or recovers
+// and stores a new set. Safe to call every time, it only does real
+// work on the first run. allowGenerate only gates fresh generation, not
+// recovery. start passes false, init passes true. A given
+// recoverMnemonic must match the stored keys, or this returns
+// ErrRecoverMismatch. The returned mnemonic is only set when one was
+// just generated. Print it directly, never through a logger.
 func EnsureKeys(keyDir, recoverMnemonic string, allowGenerate bool, log *zap.SugaredLogger) (NodeKeys, string, error) {
-	// Validated once, up front, so a malformed recover value is always
-	// reported as ErrInvalidMnemonic. Without this, a typo caught here
-	// when keys don't exist yet would instead surface as the more
-	// confusing ErrRecoverMismatch once keys do exist: deriveRawKeys
-	// doesn't check mnemonic validity, it just derives whatever seed a
-	// bad string happens to produce, which then simply fails to match.
+	// Validated here too so a bad mnemonic is always ErrInvalidMnemonic,
+	// not ErrRecoverMismatch once keys already exist.
 	if recoverMnemonic != "" {
 		if err := ValidateMnemonic(recoverMnemonic); err != nil {
 			return NodeKeys{}, "", err
