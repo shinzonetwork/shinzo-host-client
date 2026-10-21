@@ -220,13 +220,11 @@ func TestEnsureKeysConcurrentGenerateNeverCorrupts(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, mnemonic, err := EnsureKeys(keyDir, "", true, testLogger(t))
 			mnemonics[i] = mnemonic
 			errs[i] = err
-		}()
+		})
 	}
 	wg.Wait()
 
