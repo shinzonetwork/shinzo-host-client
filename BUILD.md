@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- [Go 1.27+](https://go.dev/dl/)
+- [Go 1.27.3+](https://go.dev/dl/)
 - Make
 
 Wasmtime and Wasmer are installed automatically inside the Docker build. If you are building locally (outside Docker), both WASM runtimes need to be on your `LD_LIBRARY_PATH`. The `Dockerfile` has the exact versions and install steps.
