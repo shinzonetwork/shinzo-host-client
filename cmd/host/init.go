@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -87,6 +88,17 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
+	if err := reportInitResult(cmd, out, cfg, configExisted, keysExisted, overrides); err != nil {
+		return err
+	}
+
+	return printConfig(out, cfg, nodeKeys)
+}
+
+// reportInitResult prints which of the three outcomes just happened
+// (already initialized, keys added to an existing config, or a fresh
+// instance), plus any note about a flag that doesn't apply to it.
+func reportInitResult(cmd *cobra.Command, out io.Writer, cfg hostconfig.Config, configExisted, keysExisted bool, overrides map[string]any) error {
 	switch {
 	case configExisted && keysExisted:
 		if _, err := fmt.Fprintf(out, "Already initialized at %s\n", cfg.Home); err != nil {
@@ -124,5 +136,5 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		}
 	}
 
-	return printConfig(out, cfg, nodeKeys)
+	return nil
 }
