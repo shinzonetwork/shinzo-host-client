@@ -67,6 +67,22 @@ type HTTPConfig struct {
 	Addr string `comment:"address the HTTP server listens on, e.g. :8080" toml:"addr"`
 }
 
+// ValidateOverrides reports whether overrides would produce a valid
+// Config, without resolving paths or touching disk at all. Call this
+// before anything else that could still fail (e.g. generating keys),
+// so a bad override is always caught first, the same way Prepare
+// already catches one before Commit tries to write it.
+func ValidateOverrides(overrides map[string]any) error {
+	var cfg Config
+	if err := applyDefaults(&cfg); err != nil {
+		return err
+	}
+	if err := applyOverrides(&cfg, overrides); err != nil {
+		return err
+	}
+	return validate(cfg)
+}
+
 // Prepare resolves a brand-new instance and creates every directory the
 // host needs, but does not write config.toml yet. The config always
 // lands at the fixed path under home. Unlike Load there's no way to
@@ -114,6 +130,58 @@ func Commit(cfg Config) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// Exists reports whether a config.toml already exists at cfg.ConfigPath.
+func Exists(cfg Config) bool {
+	_, err := os.Stat(cfg.ConfigPath)
+	return err == nil
+}
+
+// Ensure loads the config already at the resolved location, or
+// resolves, creates every directory the host needs, and writes a new
+// one. existed reports which happened, so the caller can report that
+// honestly without re-deriving it itself.
+//
+// overrides are baked into a newly written config, same as Prepare,
+// but never applied when one already exists: unlike start, where a
+// flag overriding a saved setting for just that run is expected,
+// init's whole job here is reporting what's actually saved, so
+// showing an override that won't persist would be misleading. The
+// caller can tell overrides were ignored by checking existed and
+// len(overrides) itself.
+func Ensure(home, dataDir string, overrides map[string]any) (cfg Config, existed bool, err error) {
+	resolved, err := Resolve(home, dataDir, "")
+	if err != nil {
+		return Config{}, false, err
+	}
+
+	if Exists(resolved) {
+		cfg, err = Load(home, dataDir, "", nil)
+		return cfg, true, err
+	}
+
+	cfg, err = Prepare(home, dataDir, overrides)
+	if err != nil {
+		return Config{}, false, err
+	}
+
+	cfg, err = Commit(cfg)
+	if err == nil {
+		return cfg, false, nil
+	}
+
+	// Another process can win the race to create config.toml here
+	// first, between our Exists check above and this Commit. Safe to
+	// fall back to loading what it wrote, the same way keys.Ensure
+	// falls back when it loses the equivalent race: nothing here was
+	// recovering a specific value, so whichever instance got created
+	// first is just as good as this one would have been.
+	if errors.Is(err, errAlreadyExists) {
+		cfg, err = Load(home, dataDir, "", nil)
+		return cfg, true, err
+	}
+	return Config{}, false, err
 }
 
 // Load returns the Config for an already-initialized instance. The

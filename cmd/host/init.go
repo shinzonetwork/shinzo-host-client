@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
 
 func initCmd() *cobra.Command {
@@ -56,58 +55,74 @@ func runInit(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	cfg, err := hostconfig.Prepare(home, dataDir, overrides)
+	// a bad override is caught before anything below,
+	// keys included, ever touches disk
+	if err := hostconfig.ValidateOverrides(overrides); err != nil {
+		return err
+	}
+
+	paths, err := hostconfig.Resolve(home, dataDir, "")
 	if err != nil {
 		return err
 	}
 
-	log, flush, err := newHostLogger(cfg)
+	keysExisted := hostkey.Exist(paths.KeyDir)
+
+	nodeKeys, mnemonic, err := hostkey.Ensure(paths.KeyDir, recoverMnemonic)
+	if err != nil {
+		if recoverMnemonic != "" && errors.Is(err, hostkey.ErrAlreadyHaveKeys) {
+			return fmt.Errorf("--%s: %w", recoverFileFlag, err)
+		}
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+
+	if err := printGeneratedMnemonic(out, mnemonic); err != nil {
+		return err
+	}
+
+	cfg, configExisted, err := hostconfig.Ensure(home, dataDir, overrides)
 	if err != nil {
 		return err
 	}
-	defer flush(&err)
 
-	nodeKeys, mnemonic, err := resolveInitKeys(cfg, recoverMnemonic, log)
-	if err != nil {
-		return err
+	switch {
+	case configExisted && keysExisted:
+		if _, err := fmt.Fprintf(out, "Already initialized at %s\n", cfg.Home); err != nil {
+			return err
+		}
+	case configExisted:
+		if _, err := fmt.Fprintf(out, "Config already exists at %s, keys are now set up\n", cfg.ConfigPath); err != nil {
+			return err
+		}
+	default:
+		if _, err := fmt.Fprintf(out, "Initialized Shinzo Host at %s\n", cfg.Home); err != nil {
+			return err
+		}
 	}
 
-	cfg, err = hostconfig.Commit(cfg)
-	if err != nil {
-		return err
-	}
-
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Initialized Shinzo Host at %s\n", cfg.Home); err != nil {
-		return err
-	}
-
-	if err := printGeneratedMnemonic(cmd.OutOrStdout(), mnemonic); err != nil {
-		return err
+	// overrides only ever get baked into a freshly written config, an
+	// existing one is never rewritten, so say so rather than printing
+	// values below that look like they took effect but didn't
+	if configExisted && len(overrides) > 0 {
+		if _, err := fmt.Fprintf(out,
+			"Note: config already exists at %s, override flags were ignored; edit it directly to change a saved instance.\n",
+			cfg.ConfigPath); err != nil {
+			return err
+		}
 	}
 
 	// --data-dir isn't saved to config.toml, so remind the operator here,
 	// at the one moment they're most likely to miss it, right after
-	// setting it, before they ever run start without repeating it.
+	// setting it, before they ever run start without repeating it
 	if cmd.Flags().Changed("data-dir") {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(),
+		if _, err := fmt.Fprintf(out,
 			"Note: --data-dir is not saved; pass --data-dir %s to start too, or it'll use the default location instead.\n",
 			cfg.DataDir); err != nil {
 			return err
 		}
 	}
 
-	return printConfig(cmd.OutOrStdout(), cfg, nodeKeys)
-}
-
-// resolveInitKeys loads, generates, or recovers this instance's keys.
-func resolveInitKeys(cfg hostconfig.Config, recoverMnemonic string, log *zap.Logger) (keys.NodeKeys, string, error) {
-	nodeKeys, mnemonic, err := keys.EnsureKeys(cfg.KeyDir, recoverMnemonic, true, log.Sugar())
-	if err != nil {
-		if recoverMnemonic != "" && errors.Is(err, keys.ErrRecoverMismatch) {
-			return keys.NodeKeys{}, "", fmt.Errorf("--%s: %w", recoverFileFlag, err)
-		}
-		return keys.NodeKeys{}, "", err
-	}
-
-	return nodeKeys, mnemonic, nil
+	return printConfig(out, cfg, nodeKeys)
 }

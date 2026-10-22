@@ -8,10 +8,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
 
 // seedConfig pre-creates config.toml, since start no longer bootstraps
@@ -27,7 +26,7 @@ func seedConfig(t *testing.T, home string) {
 // seedKeys pre-creates keys, since start no longer generates them itself.
 func seedKeys(t *testing.T, home string) {
 	t.Helper()
-	_, _, err := keys.EnsureKeys(filepath.Join(home, "keys"), "", true, zap.NewNop().Sugar())
+	_, _, err := hostkey.Ensure(filepath.Join(home, "keys"), "")
 	require.NoError(t, err)
 }
 
@@ -196,9 +195,10 @@ func TestStartHelpMentionsInitIsRequiredFirst(t *testing.T) {
 	require.Contains(t, out, "run init first")
 }
 
-// An existing instance with no keys and no --recover-file must refuse
-// to generate one unattended, and must not touch keys at all.
-func TestRunStartRefusesToGenerateWithoutRecoverFile(t *testing.T) {
+// An existing instance with no keys must refuse to generate one
+// unattended, and must not touch keys at all. start never recovers
+// or generates keys, only init does.
+func TestRunStartRefusesWithoutKeys(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 	seedConfig(t, home)
 
@@ -207,51 +207,9 @@ func TestRunStartRefusesToGenerateWithoutRecoverFile(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 
 	err := runStart(cmd, nil)
-	require.ErrorIs(t, err, keys.ErrNoKeys)
+	require.ErrorIs(t, err, hostkey.ErrNoKeys)
+	require.ErrorContains(t, err, "recover-file", "the error should point at how to recover an existing identity")
 	require.NoFileExists(t, filepath.Join(home, "keys", "node.key"))
-}
-
-// start can recover keys from a mnemonic on an existing instance that
-// doesn't have them yet, without ever generating one on its own.
-func TestRunStartRecoversKeysFromRecoverFileWhenMissing(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "myhost")
-	seedConfig(t, home)
-
-	mnemonic := testMnemonic(t)
-	recoverFile := filepath.Join(t.TempDir(), "mnemonic.txt")
-	require.NoError(t, os.WriteFile(recoverFile, []byte(mnemonic), 0o600))
-
-	cmd := startCmd()
-	require.NoError(t, cmd.Flags().Set("home", home))
-	require.NoError(t, cmd.Flags().Set("recover-file", recoverFile))
-
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-
-	require.NoError(t, runStart(cmd, nil))
-	require.NotContains(t, out.String(), "Generated a new node seed phrase")
-
-	want, _, err := keys.EnsureKeys(filepath.Join(t.TempDir(), "keys"), mnemonic, true, zap.NewNop().Sugar())
-	require.NoError(t, err)
-	wantAddr, err := want.ShinzoAddress()
-	require.NoError(t, err)
-	require.Contains(t, out.String(), wantAddr)
-}
-
-func TestRunStartFailsOnRecoverMismatch(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "myhost")
-	seedConfig(t, home)
-	seedKeys(t, home)
-
-	wrongFile := filepath.Join(t.TempDir(), "wrong.txt")
-	require.NoError(t, os.WriteFile(wrongFile, []byte(testMnemonic(t)), 0o600))
-
-	cmd := startCmd()
-	require.NoError(t, cmd.Flags().Set("home", home))
-	require.NoError(t, cmd.Flags().Set("recover-file", wrongFile))
-	cmd.SetOut(&bytes.Buffer{})
-
-	require.ErrorIs(t, runStart(cmd, nil), keys.ErrRecoverMismatch)
 }
 
 // init and start must agree on the same keys for the same home.

@@ -6,15 +6,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
 
-func testNodeKeys(t *testing.T) keys.NodeKeys {
+func testNodeKeys(t *testing.T) hostkey.NodeKeys {
 	t.Helper()
-	nodeKeys, _, err := keys.EnsureKeys(t.TempDir(), "", true, zap.NewNop().Sugar())
+	nodeKeys, _, err := hostkey.Ensure(t.TempDir(), "")
 	require.NoError(t, err)
 	return nodeKeys
 }

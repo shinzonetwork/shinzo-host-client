@@ -5,10 +5,10 @@ import (
 	"io"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/keys"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
 
-func printConfig(w io.Writer, cfg hostconfig.Config, nodeKeys keys.NodeKeys) error {
+func printConfig(w io.Writer, cfg hostconfig.Config, nodeKeys hostkey.NodeKeys) error {
 	if _, err := fmt.Fprintf(w, `Data dir:         %s
 Config path:      %s
 Key dir:          %s

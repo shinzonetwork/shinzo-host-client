@@ -3,6 +3,7 @@ package hostconfig
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -374,4 +375,77 @@ func TestLoadDoesNotRememberPreviousCall(t *testing.T) {
 	_, err = Load("", "", "", nil)
 	require.ErrorIs(t, err, ErrConfigNotFound)
 	require.ErrorContains(t, err, filepath.Join(fakeHome, ".shinzo", "host"))
+}
+
+func TestEnsureCreatesFreshInstanceWhenNoneExists(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cfg, existed, err := Ensure(home, "", map[string]any{"logger.level": "warn"})
+	require.NoError(t, err)
+	require.False(t, existed)
+	require.Equal(t, "warn", cfg.Logger.Level)
+	require.FileExists(t, filepath.Join(home, "config.toml"))
+}
+
+func TestEnsureLoadsExistingInstance(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	setupConfig(t, home, "", nil)
+
+	cfg, existed, err := Ensure(home, "", nil)
+	require.NoError(t, err)
+	require.True(t, existed)
+	require.Equal(t, filepath.Join(home, "config.toml"), cfg.ConfigPath)
+}
+
+// Unlike a fresh instance, overrides must never apply to one that
+// already exists: start is where a per-run override is expected,
+// init's job here is reporting what's actually saved.
+func TestEnsureNeverAppliesOverridesWhenAlreadyExists(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	setupConfig(t, home, "", nil) // default logger.level, "info"
+
+	cfg, existed, err := Ensure(home, "", map[string]any{"logger.level": "warn"})
+	require.NoError(t, err)
+	require.True(t, existed)
+	require.Equal(t, "info", cfg.Logger.Level, "an existing config must never be affected by overrides")
+}
+
+// Two Ensure calls racing to create config.toml for the same empty
+// home at once must not have the loser fail: it falls back to
+// loading what the winner wrote, the same way keys.Ensure does.
+func TestEnsureConcurrentCallsNeverFail(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	const n = 8
+	errs := make([]error, n)
+	existedFlags := make([]bool, n)
+
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			_, existedFlags[i], errs[i] = Ensure(home, "", nil)
+		})
+	}
+	wg.Wait()
+
+	created := 0
+	for i, err := range errs {
+		require.NoError(t, err, "losing the race to create must fall back to loading, not error")
+		if !existedFlags[i] {
+			created++
+		}
+	}
+	require.Equal(t, 1, created, "exactly one concurrent call should freshly create")
+}
+
+func TestValidateOverridesAcceptsValidOverrides(t *testing.T) {
+	require.NoError(t, ValidateOverrides(map[string]any{"logger.level": "warn", "http.addr": ":9090"}))
+}
+
+func TestValidateOverridesRejectsBadLevel(t *testing.T) {
+	require.Error(t, ValidateOverrides(map[string]any{"logger.level": "bogus"}))
+}
+
+func TestValidateOverridesAcceptsNil(t *testing.T) {
+	require.NoError(t, ValidateOverrides(nil))
 }

@@ -1,4 +1,4 @@
-package keys
+package hostkey
 
 import (
 	"bytes"
@@ -20,7 +20,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	defracrypto "github.com/sourcenetwork/defradb/crypto"
-	"go.uber.org/zap"
 )
 
 const (
@@ -44,19 +43,21 @@ var (
 	// ErrInvalidMnemonic means mnemonic isn't a valid BIP39 phrase.
 	ErrInvalidMnemonic = errors.New("invalid BIP39 mnemonic")
 
-	// ErrNoKeys means no keys exist yet and allowGenerate is false.
+	// ErrNoKeys means no keys exist yet at the keyDir Load was given.
 	ErrNoKeys = errors.New("no keys found")
-
-	// ErrRecoverMismatch means recoverMnemonic doesn't match the stored keys.
-	ErrRecoverMismatch = errors.New("recover value does not match the stored keys")
 
 	// ErrCorruptKeyFile means the stored key file isn't the expected shape.
 	ErrCorruptKeyFile = errors.New("corrupt key file")
 
 	// ErrKeysAlreadyExist means a key file appeared at keyDir between
-	// the exist check and the write, almost always two EnsureKeys calls
+	// the exist check and the write, almost always two Ensure calls
 	// racing to generate fresh keys for the same empty keyDir at once.
 	ErrKeysAlreadyExist = errors.New("keys already exist")
+
+	// ErrAlreadyHaveKeys means Ensure was given a mnemonic to recover
+	// but keyDir already has keys. Recovering is only for a host that
+	// doesn't have any yet.
+	ErrAlreadyHaveKeys = errors.New("keys already exist, nothing to recover")
 )
 
 // ValidateMnemonic reports whether mnemonic is a valid BIP39 mnemonic.
@@ -247,58 +248,43 @@ func loadRawKeys(keyDir string) (rawKeys, error) {
 	return rawKeys{operator: operator, identity: identityBytes, peerSeed: peerSeed}, nil
 }
 
-// keysExist reports whether a node.key file is already stored at keyDir.
-func keysExist(keyDir string) bool {
+// Exist reports whether a node.key file is already stored at keyDir.
+func Exist(keyDir string) bool {
 	_, err := os.Stat(filepath.Join(keyDir, nodeKeyFile))
 	return err == nil
 }
 
-// EnsureKeys loads existing keys from keyDir, or generates or recovers
-// and stores a new set. Safe to call every time, it only does real
-// work on the first run. allowGenerate only gates fresh generation, not
-// recovery. start passes false, init passes true. A given
-// recoverMnemonic must match the stored keys, or this returns
-// ErrRecoverMismatch. The returned mnemonic is only set when one was
-// just generated. Print it directly, never through a logger.
-func EnsureKeys(keyDir, recoverMnemonic string, allowGenerate bool, log *zap.SugaredLogger) (NodeKeys, string, error) {
-	// Validated here too so a bad mnemonic is always ErrInvalidMnemonic,
-	// not ErrRecoverMismatch once keys already exist.
-	if recoverMnemonic != "" {
-		if err := ValidateMnemonic(recoverMnemonic); err != nil {
-			return NodeKeys{}, "", err
-		}
+// Load reads the keys already stored at keyDir. It never generates or
+// stores anything, that's why start uses it.
+func Load(keyDir string) (NodeKeys, error) {
+	if !Exist(keyDir) {
+		return NodeKeys{}, ErrNoKeys
 	}
 
-	if err := os.MkdirAll(keyDir, dirMode); err != nil {
-		return NodeKeys{}, "", fmt.Errorf("creating key dir: %w", err)
+	raw, err := loadRawKeys(keyDir)
+	if err != nil {
+		return NodeKeys{}, err
 	}
 
-	if keysExist(keyDir) {
-		log.Infow("loading existing keys", "dir", keyDir)
-		raw, err := loadRawKeys(keyDir)
-		if err != nil {
-			return NodeKeys{}, "", err
-		}
+	return raw.toNodeKeys()
+}
 
-		if recoverMnemonic != "" {
-			if err := checkRecoverMatches(recoverMnemonic, raw); err != nil {
-				return NodeKeys{}, "", err
-			}
+// Ensure loads the keys already at keyDir, or generates (or recovers,
+// if mnemonic is given) and stores a new set. Refuses to recover over
+// keys that already exist, recovering is only for a host that doesn't
+// have any yet. The returned mnemonic is empty unless one was freshly
+// generated. Print it directly, immediately, before anything else
+// that could still fail.
+func Ensure(keyDir, mnemonic string) (NodeKeys, string, error) {
+	if Exist(keyDir) {
+		if mnemonic != "" {
+			return NodeKeys{}, "", fmt.Errorf("%w: %s", ErrAlreadyHaveKeys, keyDir)
 		}
-
-		nodeKeys, err := raw.toNodeKeys()
+		nodeKeys, err := Load(keyDir)
 		return nodeKeys, "", err
 	}
 
-	mnemonic := recoverMnemonic
 	fresh := mnemonic == ""
-
-	if fresh && !allowGenerate {
-		return NodeKeys{}, "", ErrNoKeys
-	}
-
-	log.Infow("creating new keys", "dir", keyDir)
-
 	if fresh {
 		entropy, err := bip39.NewEntropy(128) //nolint:mnd // 128 bits -> 12 words
 		if err != nil {
@@ -308,37 +294,40 @@ func EnsureKeys(keyDir, recoverMnemonic string, allowGenerate bool, log *zap.Sug
 		if err != nil {
 			return NodeKeys{}, "", fmt.Errorf("generating mnemonic: %w", err)
 		}
+	} else if err := ValidateMnemonic(mnemonic); err != nil {
+		return NodeKeys{}, "", err
+	}
+
+	if err := os.MkdirAll(keyDir, dirMode); err != nil {
+		return NodeKeys{}, "", fmt.Errorf("creating key dir: %w", err)
 	}
 
 	raw, err := deriveRawKeys(mnemonic)
 	if err != nil {
 		return NodeKeys{}, "", err
 	}
-
-	if err := storeRawKeys(keyDir, raw); err != nil {
-		return NodeKeys{}, "", err
-	}
-
 	nodeKeys, err := raw.toNodeKeys()
 	if err != nil {
 		return NodeKeys{}, "", err
 	}
+	if err := storeRawKeys(keyDir, raw); err != nil {
+		// Another process can win the race to create keys here first,
+		// between our Exist check above and this store. Safe to fall
+		// back to loading what it wrote only when we weren't
+		// recovering a specific mnemonic ourselves, any freshly
+		// generated identity was just as good as ours would've been.
+		// A lost recovery must still fail loudly, silently accepting
+		// whichever identity won would discard what the operator
+		// asked for.
+		if fresh && errors.Is(err, ErrKeysAlreadyExist) {
+			nodeKeys, loadErr := Load(keyDir)
+			return nodeKeys, "", loadErr
+		}
+		return NodeKeys{}, "", err
+	}
 
 	if fresh {
-		log.Warnw("generated a new node seed, it will be shown once and is not saved anywhere, write it down now")
 		return nodeKeys, mnemonic, nil
 	}
-
 	return nodeKeys, "", nil
-}
-
-func checkRecoverMatches(recoverMnemonic string, stored rawKeys) error {
-	candidate, err := deriveRawKeys(recoverMnemonic)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(candidate.operator, stored.operator) {
-		return ErrRecoverMismatch
-	}
-	return nil
 }
