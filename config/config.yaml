@@ -61,6 +61,7 @@ shinzo:
   # Event Replication Filter
   # Controls which P2P documents the host stores. Blocks are checked only
   # against block_range; BlockSignatures and SnapshotSignatures always pass.
+  # Only on a host serving one chain.
   event_filter:
     enabled: false                 # Set to false to accept all documents (no filtering)
     # Mode: "allowlist" (default) - only accept documents matching a group.
@@ -117,9 +118,10 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
   max_docs_per_cycle: 50000 # Documents removed per cycle. Must exceed the arrival rate over one interval.
-# chains lists the chains this host serves. Without it the host serves Ethereum mainnet with the
-# built-in schema. A chain's schema comes from its generators, tried in order. A chain dropped from
-# the list is unsubscribed at the next start; its data stays until the store is wiped.
+# chains lists the chains this host serves, one or more. Without it the host serves Ethereum
+# mainnet with the built-in schema. A chain's schema comes from its generators, tried in order. A
+# chain dropped from the list is unsubscribed at the next start; its data stays until the store is
+# wiped.
 # chains:
 #   - prefix: Ethereum__Mainnet
 #     max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
@@ -139,8 +141,8 @@ host:
   lens_registry_path: "./.defra/lens"
   health_server_port: 8080
   open_browser_on_start: false
-  # Snapshot Bootstrap - download historical data from an indexer on first startup. Ethereum
-  # mainnet only.
+  # Snapshot Bootstrap - download historical data from an indexer on first startup. Only on a
+  # host serving Ethereum mainnet alone.
   # Import runs only with enabled: true and indexer_url set to an indexer that serves snapshots.
   snapshot:
     enabled: false

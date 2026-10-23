@@ -57,10 +57,17 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, c
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrSchemaNoResponse, err)
 	}
-	if err := checkSchema(schemaResp, collections); err != nil {
+	return prepareSchema(schemaResp, collections)
+}
+
+// prepareSchema checks a generator's schema response, as FetchResponse returns it, against the
+// chain's collections and returns its schema with the host's indexes. It returns an error when a
+// check refuses the schema or the schema lacks a field the host indexes.
+func prepareSchema(resp Response, c chain.Collections) (string, error) {
+	if err := checkSchema(resp, c); err != nil {
 		return "", fmt.Errorf("check schema: %w", err)
 	}
-	withIndexes, err := applyHostIndexes(schemaResp.Schema, collections.Prefix, SchemaGraphQL)
+	withIndexes, err := applyHostIndexes(resp.Schema, c.Prefix, SchemaGraphQL)
 	if err != nil {
 		return "", fmt.Errorf("apply host indexes: %w", err)
 	}

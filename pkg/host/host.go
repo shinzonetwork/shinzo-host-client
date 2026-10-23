@@ -201,9 +201,13 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// LoadConfig accepts exactly one chain. A config built in code may hold none.
+	// LoadConfig requires at least one chain; a config built in code may hold none.
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
+	}
+	// A config built in code does not go through LoadConfig's check.
+	if err := config.CheckChainSettings(cfg); err != nil {
+		return nil, err
 	}
 	// The event filter and snapshots use only the first chain. Config allows them only on a host
 	// serving one chain, and that host does not start when its chain is disabled.
@@ -617,13 +621,6 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 		return fmt.Errorf("view %s: %w", event.View.Name, ErrViewMissingSDL)
 	}
 
-	// Write WASM to disk
-	if len(event.View.Data.Transform.Lenses) > 0 {
-		if err := event.View.PostWasmToFile(h.LensRegistryPath); err != nil {
-			return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
-		}
-	}
-
 	// Register view
 	if err := h.viewManager.RegisterView(ctx, &event.View); err != nil {
 		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
@@ -986,20 +983,17 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					continue
 				}
 
-				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
-				if len(registeredEvent.View.Data.Transform.Lenses) > 0 {
-					if err := registeredEvent.View.PostWasmToFile(h.LensRegistryPath); err != nil {
-						logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
-						continue
-					}
-				}
-
-				// 3. Register the view with ViewManager and persist to registry
+				// 2. Register the view with ViewManager and persist to registry
 				if h.viewManager != nil {
-					if err := h.viewManager.RegisterView(ctx, &registeredEvent.View); err != nil {
+					err := h.viewManager.RegisterView(ctx, &registeredEvent.View)
+					switch {
+					case errors.Is(err, view.ErrViewChainNotServed):
+						// The host receives every registered view, so one on a chain it does not serve is expected.
+						logger.Sugar.Debugf("View %s not registered: %v", registeredEvent.View.Name, err)
+					case err != nil:
 						logger.Sugar.Errorf("❌ Failed to register view %s: %v", registeredEvent.View.Name, err)
-					} else {
-						// 4. Persist view to registry for next startup (with any auto-corrections applied)
+					default:
+						// 3. Persist view to registry for next startup (with any auto-corrections applied)
 						if err := view.SaveViewToRegistry(h.LensRegistryPath, registeredEvent.View); err != nil {
 							logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", registeredEvent.View.Name, err)
 						}

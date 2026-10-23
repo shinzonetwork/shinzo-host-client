@@ -11,6 +11,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 // ErrSchemaPartiallyStored is returned when the database holds only some of a chain's tables.
@@ -43,9 +44,9 @@ type ChainApplier struct {
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
 // the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
 // when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
-// and no schema from Served matches them. A response whose network names another chain matches
-// nothing, and its part of the error also wraps ErrSchemaWrongNetwork. If Served yields nothing,
-// the tables are not compared.
+// and no schema from Served matches them. A schema FetchSchema would refuse is logged and skipped,
+// since wiping the store would not let the host take it. If Served yields no other schema, the
+// tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -67,14 +68,11 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	case 0:
 		var errs []error
 		for generator, resp := range a.Served(ctx) {
-			// A response for another chain is refused whatever tables it declares, as FetchSchema
-			// refuses it. Comparing its tables alone would accept one that declares this chain's.
-			var err error
-			if resp.Network != a.Collections.Prefix {
-				err = fmt.Errorf("network %q, want %q: %w: %w", resp.Network, a.Collections.Prefix, ErrSchemaWrongNetwork, ErrSchemaDrift)
-			} else {
-				err = checkStored(resp.document, cols, a.Collections)
+			if _, err := prepareSchema(resp, a.Collections); err != nil {
+				logger.Sugar.Warnf("Schema from generator %s not compared with the stored %s tables: %v", generator, a.Collections.Prefix, err)
+				continue
 			}
+			err := checkStored(resp.document, cols, a.Collections)
 			if err == nil {
 				errs = nil
 				break

@@ -19,6 +19,10 @@ func TestChainApplier(t *testing.T) {
 	collections := chain.EVM(testPrefix)
 	tables := strings.ReplaceAll(SchemaGraphQL, chain.EthereumMainnet, testPrefix)
 	otherTables := tables + "\ntype " + testPrefix + "__Extra { a: Int }"
+	// Schemas a first start refuses, each the stored tables with one change.
+	withAttestationRecords := tables + "\n" + attestationRecordSchema(collections)
+	withoutIndexedField := strings.Replace(tables, "    number: Int @index\n", "", 1)
+	require.NotEqual(t, tables, withoutIndexedField)
 	errUnavailable := errors.New("tables unavailable")
 	generatorURL := func(i int) string { return fmt.Sprintf("http://generator-%d", i) }
 
@@ -36,6 +40,9 @@ func TestChainApplier(t *testing.T) {
 		served []string
 		// network is the network every served response names; testPrefix when empty.
 		network string
+		// refused is how many of the first served SDLs a first start refuses. The error names only the
+		// generators after them.
+		refused int
 		// wantRead is how many of the served SDLs ApplySchema reads.
 		wantRead  int
 		wantFetch bool
@@ -75,13 +82,32 @@ func TestChainApplier(t *testing.T) {
 			wantReason: testPrefix + "__Extra",
 		},
 		{
-			desc:       "tables stored, a generator serves the same tables for another chain",
+			desc:     "tables stored, a generator serves the same tables for another chain",
+			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:   []string{tables},
+			network:  chain.EthereumMainnet,
+			wantRead: 1,
+		},
+		{
+			desc:     "tables stored, a generator serves them with the host's attestation records",
+			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:   []string{withAttestationRecords},
+			wantRead: 1,
+		},
+		{
+			desc:     "tables stored, a generator serves them without a field the host indexes",
+			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:   []string{withoutIndexedField},
+			wantRead: 1,
+		},
+		{
+			desc:       "tables stored, a generator's schema is refused and the next serves other tables",
 			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
-			served:     []string{tables},
-			network:    chain.EthereumMainnet,
-			wantRead:   1,
+			served:     []string{withAttestationRecords, otherTables},
+			refused:    1,
+			wantRead:   2,
 			wantErr:    ErrSchemaDrift,
-			wantReason: fmt.Sprintf("network %q", chain.EthereumMainnet),
+			wantReason: testPrefix + "__Extra",
 		},
 		{
 			desc:     "tables stored, the first of two generators serves the same tables",
@@ -142,7 +168,7 @@ func TestChainApplier(t *testing.T) {
 			require.Equal(t, c.wantRead, read)
 			if c.wantErr != nil {
 				require.ErrorIs(t, err, c.wantErr)
-				for i := range c.wantRead {
+				for i := c.refused; i < c.wantRead; i++ {
 					require.ErrorContains(t, err, "generator "+generatorURL(i)+": "+c.wantReason)
 				}
 				return
