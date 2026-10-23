@@ -228,8 +228,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		retentionRule = rule
 	}
 	var replicationFilter client.ReplicationFilter
-	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections); f != nil {
-		replicationFilter = f
+	eventFilter := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections)
+	if eventFilter != nil {
+		replicationFilter = eventFilter
 	}
 
 	// wazero runs lens transforms in pure Go. wasmtime is the upstream default,
@@ -256,6 +257,16 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		nodeOpts.SetDisableAPI(true)
 	}
 
+	resolveCollections := func(cols []client.Collection) {
+		if rule != nil {
+			names := rule.ResolveCollections(cols)
+			logger.Sugar.Infof("Retention rule active on %d collections (%s)", len(names), strings.Join(names, ", "))
+		}
+		if eventFilter != nil {
+			eventFilter.ResolveCollections(cols)
+		}
+	}
+
 	internalCfg := cfg.ToInternalConfig()
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
@@ -263,6 +274,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
+		resolveCollections,
 		collections.Subscribed()...,
 	)
 	if err != nil {
@@ -276,16 +288,6 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	err = waitForDefraDB(ctx, defraNode, collections.Block.Name)
 	if err != nil {
 		return nil, err
-	}
-
-	if rule != nil {
-		cols, err := defraNode.DB.GetCollections(ctx)
-		if err != nil {
-			logger.Sugar.Errorf("Retention rule inactive until restart, could not read collection IDs: %v", err)
-		} else {
-			names := rule.ResolveCollections(cols)
-			logger.Sugar.Infof("Retention rule active on %d collections (%s)", len(names), strings.Join(names, ", "))
-		}
 	}
 
 	// Recording the served-query attesting set needs the host's observed
