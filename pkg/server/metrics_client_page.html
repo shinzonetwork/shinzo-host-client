@@ -410,7 +410,7 @@
                 name.textContent = chain.chain;
                 const block = document.createElement('p');
                 block.className = 'metric-value';
-                block.textContent = chain.enabled ? formatNumber(chain.current_block) : 'Disabled';
+                block.textContent = chain.enabled ? formatNumber(chain.current_block) : `Disabled (${chain.reason})`;
                 return [name, block];
             }));
         }

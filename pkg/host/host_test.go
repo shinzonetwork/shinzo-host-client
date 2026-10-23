@@ -1669,7 +1669,7 @@ func TestHost_Close_Full(t *testing.T) {
 }
 
 // Every enabled chain's generators are dialed, the chain is handed to the attestation listener and its
-// views register; a disabled chain gets none of these.
+// views register; a disabled chain gets none of these, and its stored views are unsubscribed and refused.
 func TestStartHosting_ServesEnabledChains(t *testing.T) {
 	const (
 		other     = "Testchain__Devnet"
@@ -1705,11 +1705,17 @@ func TestStartHosting_ServesEnabledChains(t *testing.T) {
 
 	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	ethLog := view.View{Name: "EthLog", Data: viewbundle.View{Query: chain.EthereumMainnet + "__Log { address }", Sdl: "type EthLog { address: String }"}}
 	otherLog := view.View{Name: "OtherLog", Data: viewbundle.View{Query: other + "__Log { address }", Sdl: "type OtherLog { address: String }"}}
+	require.NoError(t, h.RegisterViewWithManager(context.Background(), ethLog))
 	require.NoError(t, h.RegisterViewWithManager(context.Background(), otherLog))
+	subscribed, err := h.DefraNode.DB.ListP2PCollections(context.Background())
+	require.NoError(t, err)
+	require.Subset(t, subscribed, []string{"EthLog", "OtherLog"})
 
 	// After a restart, the other chain's stored tables differ from what its generator serves, so the
-	// chain is disabled: its generator is not dialed and registering a view on it is refused.
+	// chain is disabled: its generator is not dialed, its stored view is unsubscribed and refused, and
+	// registering a view on it is refused.
 	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1720,7 +1726,16 @@ func TestStartHosting_ServesEnabledChains(t *testing.T) {
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
 	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	subscribed, err = h.DefraNode.DB.ListP2PCollections(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, subscribed, "EthLog")
+	require.NotContains(t, subscribed, "OtherLog")
+	require.False(t, h.viewManager.IsRefused("EthLog"))
+	require.True(t, h.viewManager.IsRefused("OtherLog"))
 	require.ErrorIs(t, h.RegisterViewWithManager(context.Background(), otherLog), view.ErrViewChainNotServed)
+	// The refused view's name stays refused even for a query on a served chain.
+	sameName := view.View{Name: "OtherLog", Data: viewbundle.View{Query: chain.EthereumMainnet + "__Log { address }", Sdl: "type OtherLog { address: String }"}}
+	require.ErrorIs(t, h.RegisterViewWithManager(context.Background(), sameName), view.ErrViewChainNotServed)
 }
 
 // A restart compares the stored tables with the schema the chain's generator serves, and refuses to
@@ -1816,6 +1831,61 @@ func TestStartHosting_LeavesOutUnansweredChain(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
 	require.Contains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Len(t, h.pruners, 2)
+}
+
+// A chain whose tables cannot be set up is left out and the host still starts. Enabled chains and
+// chains disabled for drift get a pruner; the others do not.
+func TestStartHosting_LeavesOutChainsItCannotSetUp(t *testing.T) {
+	const (
+		other = "Testchain__Devnet"
+		third = "Third__Chain"
+	)
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
+	otherGenerator := httptest.NewServer(schemaHandler(t, other))
+	t.Cleanup(otherGenerator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Pruner.Enabled = true
+	// The third chain's generator serves Ethereum mainnet's schema, which the checks refuse.
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL}}},
+		{Prefix: other, Generators: []chain.Generator{{URL: otherGenerator.URL}}},
+		{Prefix: third, Generators: []chain.Generator{{URL: generator.URL}}},
+	}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	require.Len(t, h.pruners, 2)
+
+	// After a restart, the other chain's stored tables differ from what its generator serves, and the
+	// store holds only one of the third chain's tables.
+	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+chain.EVM(third).Block.Name+" { number: Int }")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
 	require.Len(t, h.pruners, 2)
 }
 
