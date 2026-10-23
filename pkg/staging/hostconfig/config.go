@@ -3,6 +3,7 @@ package hostconfig
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -20,14 +21,14 @@ const (
 	logLevelError = "error"
 )
 
-// Config is a Shinzo Host instance: its settings, plus where everything
-// resolved to on disk.
+// Config is a Shinzo Host instance. Its settings, plus where
+// everything resolved to on disk.
 type Config struct {
 	// Runtime
 	// These are configs for unpersisted data that's still needed at runtime.
 	// Add a value here by making sure you set `toml:"-"`.
 
-	// Home is the home path; it can be supplied or resolves to the default ~/.shinzo/host/
+	// Home is the home path. It can be supplied or resolves to the default ~/.shinzo/host/
 	Home string `toml:"-"`
 
 	// DataDir is where the host's data is stored, separated from the home path
@@ -39,11 +40,11 @@ type Config struct {
 	ConfigPath string `toml:"-"`
 
 	// KeyDir is where the host's key material is stored. Always a fixed
-	// subdirectory of home; unlike DataDir there's no override for it.
+	// subdirectory of home. Unlike DataDir there's no override for it.
 	KeyDir string `toml:"-"`
 
 	// FilterDir is where event filter rules are stored. Always a fixed
-	// subdirectory of home; unlike DataDir there's no override for it.
+	// subdirectory of home. Unlike DataDir there's no override for it.
 	FilterDir string `toml:"-"`
 
 	// Persisted
@@ -66,17 +67,34 @@ type HTTPConfig struct {
 	Addr string `comment:"address the HTTP server listens on, e.g. :8080" toml:"addr"`
 }
 
-// Setup creates a brand-new instance: resolves home and dataDir, creates
-// every directory the host needs, and writes a fresh config.toml built
-// from defaults with overrides applied on top. The config always lands at
-// the fixed path under home; unlike Load there's no way to point it at an
-// arbitrary location, since Setup is building one coherent instance
-// rooted at home, not just writing a lone file. Fails if a config already
-// exists at that path. Unlike Load, overrides here are baked into the
-// saved file, since Setup is always a deliberate, one-time provisioning
-// step.
-func Setup(home, dataDir string, overrides map[string]any) (Config, error) {
-	cfg, err := resolve(home, dataDir, "")
+// ValidateOverrides reports whether overrides would produce a valid
+// Config, without resolving paths or touching disk at all. Call this
+// before anything else that could still fail (e.g. generating keys),
+// so a bad override is always caught first, the same way Prepare
+// already catches one before Commit tries to write it.
+func ValidateOverrides(overrides map[string]any) error {
+	var cfg Config
+	if err := applyDefaults(&cfg); err != nil {
+		return err
+	}
+	if err := applyOverrides(&cfg, overrides); err != nil {
+		return err
+	}
+	return validate(cfg)
+}
+
+// Prepare resolves a brand-new instance and creates every directory the
+// host needs, but does not write config.toml yet. The config always
+// lands at the fixed path under home. Unlike Load there's no way to
+// point it at an arbitrary location, since Prepare is building one
+// coherent instance rooted at home, not just a lone file.
+//
+// Call Commit, with the Config this returns, once everything else
+// needed to finish setting the instance up (e.g. generating its keys)
+// has also succeeded. Nothing about the instance is written until
+// then, so there's nothing to undo if one of those other steps fails.
+func Prepare(home, dataDir string, overrides map[string]any) (Config, error) {
+	cfg, err := Resolve(home, dataDir, "")
 	if err != nil {
 		return Config{}, err
 	}
@@ -91,125 +109,119 @@ func Setup(home, dataDir string, overrides map[string]any) (Config, error) {
 
 	// Layer whatever the caller explicitly asked for on top of those
 	// defaults. Unlike Load, these overrides end up in the saved file,
-	// since Setup is a deliberate, one-time provisioning step.
+	// since Prepare/Commit together are a deliberate, one-time
+	// provisioning step. Validated now, so a bad override is caught
+	// before the caller does anything else with the result, rather
+	// than only once Commit tries to write it.
 	if err := applyOverrides(&cfg, overrides); err != nil {
 		return Config{}, err
 	}
-
-	// Write it. Fails if a config already exists at cfg.ConfigPath.
-	if err := create(cfg); err != nil {
+	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
 
 	return cfg, nil
 }
 
-// Load returns the Config for an instance. If a config already exists at
-// the resolved location it's loaded from disk; if not, and configPath was
-// left empty (the default location, not an explicit path), a fresh one is
-// created from defaults instead. An explicit configPath that doesn't
-// exist is always an error, never auto-created. Unlike Setup, overrides
-// are applied only to the returned, in-memory Config, never saved to
-// disk, whether the file was just created or already existed.
+// Commit writes config.toml for a Config returned by Prepare. Fails if
+// one already exists at that path.
+func Commit(cfg Config) (Config, error) {
+	if err := create(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// Exists reports whether a config.toml already exists at cfg.ConfigPath.
+func Exists(cfg Config) bool {
+	_, err := os.Stat(cfg.ConfigPath)
+	return err == nil
+}
+
+// Ensure loads the config already at the resolved location, or
+// resolves, creates every directory the host needs, and writes a new
+// one. existed reports which happened, so the caller can report that
+// honestly without re-deriving it itself.
+//
+// overrides are baked into a newly written config, same as Prepare,
+// but never applied when one already exists: unlike start, where a
+// flag overriding a saved setting for just that run is expected,
+// init's whole job here is reporting what's actually saved, so
+// showing an override that won't persist would be misleading. The
+// caller can tell overrides were ignored by checking existed and
+// len(overrides) itself.
+func Ensure(home, dataDir string, overrides map[string]any) (cfg Config, existed bool, err error) {
+	resolved, err := Resolve(home, dataDir, "")
+	if err != nil {
+		return Config{}, false, err
+	}
+
+	if Exists(resolved) {
+		cfg, err = Load(home, dataDir, "", nil)
+		return cfg, true, err
+	}
+
+	cfg, err = Prepare(home, dataDir, overrides)
+	if err != nil {
+		return Config{}, false, err
+	}
+
+	cfg, err = Commit(cfg)
+	if err == nil {
+		return cfg, false, nil
+	}
+
+	// Another process can win the race to create config.toml here
+	// first, between our Exists check above and this Commit. Safe to
+	// fall back to loading what it wrote, the same way keys.Ensure
+	// falls back when it loses the equivalent race: nothing here was
+	// recovering a specific value, so whichever instance got created
+	// first is just as good as this one would have been.
+	if errors.Is(err, errAlreadyExists) {
+		cfg, err = Load(home, dataDir, "", nil)
+		return cfg, true, err
+	}
+	return Config{}, false, err
+}
+
+// Load returns the Config for an already-initialized instance. The
+// config.toml at the resolved location must already exist. Use
+// Prepare and Commit to create a new instance. Overrides are applied
+// only to the returned, in-memory Config, never saved back to disk.
 func Load(home, dataDir, configPath string, overrides map[string]any) (Config, error) {
-	cfg, err := resolve(home, dataDir, configPath)
+	cfg, err := Resolve(home, dataDir, configPath)
 	if err != nil {
 		return Config{}, err
 	}
 
-	_, statErr := os.Stat(cfg.ConfigPath)
-	missing := errors.Is(statErr, fs.ErrNotExist)
-
-	// Stat failed for a reason that has nothing to do with the file being
-	// missing, e.g. a permissions error, or a parent path that exists but
-	// isn't a directory. Always a real problem, surface it as-is.
-	if statErr != nil && !missing {
-		return Config{}, statErr
-	}
-
-	// Explicit path, but nothing's there. This is almost always a mistake,
-	// not an intent to create something new: a typo'd path, or pointing
-	// at a backup/restore location on a drive that isn't mounted yet.
-	// Auto-creating here would silently start a brand-new, empty instance
-	// instead of the real one the operator meant to use, and they might
-	// not notice for a long time. Error loudly instead.
-	if missing && configPath != "" {
-		return Config{}, statErr
+	if _, err := os.Stat(cfg.ConfigPath); errors.Is(err, fs.ErrNotExist) {
+		return Config{}, fmt.Errorf("%w: %s", ErrConfigNotFound, cfg.ConfigPath)
 	}
 
 	if err := applyDefaults(&cfg); err != nil {
 		return Config{}, err
 	}
 
-	// Default location, nothing there yet. This is just a genuine first
-	// run (e.g. starting on a brand-new machine, nothing ever set up).
-	// There's no ambiguity about where this should live, so it's safe to
-	// create it fresh, entirely from defaults.
-	if missing {
-		// Check what the final, overridden result would look like
-		// before anything below touches disk: a copy with overrides
-		// applied, so a bad override (e.g. an invalid --logger.level) is
-		// caught first. Without this, a failed first run still left
-		// directories (and, before that fix, a config.toml) behind, since
-		// overrides are only applied for real below, after create.
-		candidate := cfg
-		if err := applyOverrides(&candidate, overrides); err != nil {
-			return Config{}, err
-		}
-		if err := validate(candidate); err != nil {
-			return Config{}, err
-		}
-
-		// Only reached once the would-be result is confirmed valid, so a
-		// failed first run (e.g. a bad override) leaves nothing behind
-		// at all, not even the directories.
-		if err := createPath(cfg); err != nil {
-			return Config{}, err
-		}
-
-		if err := create(cfg); err != nil {
-			return Config{}, err
-		}
-	} else {
-		// Either way, and something's actually there: the normal case.
-		// Load whatever's saved, on top of the defaults already applied
-		// above, so a config that's missing a key (hand-edited, or from
-		// an older version) still gets a sane value instead of a zero
-		// one.
-		if err := load(&cfg); err != nil {
-			return Config{}, err
-		}
-
-		if err := validate(cfg); err != nil {
-			return Config{}, err
-		}
-
-		// Defensive: config.toml already exists, but the rest of the
-		// directory structure (data/keys/filter) might not, e.g. an
-		// older instance, or one of them got deleted by hand.
-		if err := createPath(cfg); err != nil {
-			return Config{}, err
-		}
+	// Loaded on top of the defaults already applied above, so a config
+	// that's missing a key (hand-edited, or from an older version)
+	// still gets a sane value instead of a zero one.
+	if err := load(&cfg); err != nil {
+		return Config{}, err
 	}
 
-	// Applied last, onto the in-memory result only — never saved back,
-	// whether cfg was just created above or loaded from an existing file.
+	// Defensive. config.toml exists, but the rest of the directory
+	// structure (data/keys/filter) might not, e.g. an older instance, or
+	// one of them got deleted by hand.
+	if err := createPath(cfg); err != nil {
+		return Config{}, err
+	}
+
 	if err := applyOverrides(&cfg, overrides); err != nil {
 		return Config{}, err
 	}
 
-	// Validated again here, but only for the else branch above: the
-	// candidate check in the missing branch already validated this exact
-	// combination (defaults + overrides) before create ran, so checking
-	// again would just repeat it for free, and validate will only get
-	// more expensive to repeat as hostconfig.Config grows. The else
-	// branch never went through that check, so it still needs this:
-	// without it, a bad override (e.g. an invalid --logger.level) applied
-	// on top of an existing, valid file would reach the caller untouched.
-	if !missing {
-		if err := validate(cfg); err != nil {
-			return Config{}, err
-		}
+	if err := validate(cfg); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil

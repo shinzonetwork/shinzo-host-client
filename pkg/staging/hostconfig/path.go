@@ -51,7 +51,7 @@ func resolveConfigPath(home, configPath string) (string, error) {
 
 // Custom resolves
 //
-// No override: these are always just a fixed subdir of home. So, if
+// No override. These are always just a fixed subdir of home. So, if
 // anyone wants to create a new dir, this is where you add it.
 
 func resolveKeyDir(home string) string {
@@ -62,11 +62,14 @@ func resolveFilterDir(home string) string {
 	return filepath.Join(home, filterDirName)
 }
 
-// resolve computes every directory/path the host needs and returns a
+// Resolve computes every directory/path the host needs and returns a
 // fully populated Config. Each field is resolved independently via its
 // resolve* helper, using resolvedHome (not the raw home arg) as the base
 // so overrides and defaults stay consistent with each other.
-func resolve(home, dataDir, configPath string) (Config, error) {
+//
+// Exported, unlike resolve*, since it does no disk I/O and callers may
+// need to know e.g. KeyDir before deciding whether to call Prepare/Load.
+func Resolve(home, dataDir, configPath string) (Config, error) {
 	resolvedHome, err := resolveHome(home)
 	if err != nil {
 		return Config{}, err
@@ -94,7 +97,7 @@ func resolve(home, dataDir, configPath string) (Config, error) {
 // createPath ensures all directories the host needs exist on disk,
 // creating any that are missing. Everything here is read straight off cfg,
 // since resolve has already computed it all. Add new required dirs here as
-// a new entry in dirs; if resolve grows a new field for it, use that field
+// a new entry in dirs. If resolve grows a new field for it, use that field
 // rather than recomputing it with its own resolve* helper, so there's only
 // ever one place that formula lives.
 func createPath(cfg Config) error {

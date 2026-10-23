@@ -8,7 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
+
+func testNodeKeys(t *testing.T) hostkey.NodeKeys {
+	t.Helper()
+	nodeKeys, _, err := hostkey.Ensure(t.TempDir(), "")
+	require.NoError(t, err)
+	return nodeKeys
+}
 
 func TestPrintConfigIncludesEveryFieldExceptHome(t *testing.T) {
 	cfg := hostconfig.Config{
@@ -21,8 +29,12 @@ func TestPrintConfigIncludesEveryFieldExceptHome(t *testing.T) {
 		HTTP:       hostconfig.HTTPConfig{Addr: ":9090"},
 	}
 
+	nodeKeys := testNodeKeys(t)
+	wantAddr, err := nodeKeys.ShinzoAddress()
+	require.NoError(t, err)
+
 	var out bytes.Buffer
-	require.NoError(t, printConfig(&out, cfg))
+	require.NoError(t, printConfig(&out, cfg, nodeKeys))
 
 	for _, want := range []string{
 		"/resolved/data",
@@ -32,6 +44,7 @@ func TestPrintConfigIncludesEveryFieldExceptHome(t *testing.T) {
 		"development=true",
 		"level=warn",
 		"addr=:9090",
+		wantAddr,
 	} {
 		require.Contains(t, out.String(), want)
 	}
@@ -43,7 +56,7 @@ func TestPrintConfigIncludesEveryFieldExceptHome(t *testing.T) {
 }
 
 func TestPrintConfigFailsIfWriteFails(t *testing.T) {
-	require.Error(t, printConfig(failingWriter{}, hostconfig.Config{}))
+	require.Error(t, printConfig(failingWriter{}, hostconfig.Config{}, testNodeKeys(t)))
 }
 
 // failingWriter always fails, so printConfig's error path is reachable
