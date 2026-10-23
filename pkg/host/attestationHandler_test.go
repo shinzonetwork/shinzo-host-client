@@ -20,6 +20,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/event"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -109,30 +110,6 @@ func TestEnqueueDoc(t *testing.T) {
 		}
 	}
 	require.True(t, hasDoc3, "doc3 should be in queue")
-}
-
-// ---------------------------------------------------------------------------
-// processAttestationEventsWithSubscription
-// ---------------------------------------------------------------------------
-
-func TestProcessAttestationEventsWithSubscription_ContextCancelled(t *testing.T) {
-	h := &Host{
-		DefraNode: nil,
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-	// Should return promptly since context is already canceled
-	done := make(chan struct{})
-	go func() {
-		h.processAttestationEventsWithSubscription(ctx)
-		close(done)
-	}()
-	select {
-	case <-done:
-		// Success
-	case <-time.After(5 * time.Second):
-		t.Fatal("processAttestationEventsWithSubscription did not return after context cancellation")
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +266,7 @@ func TestStartEventBusListener_NilDefraNode(t *testing.T) {
 	// Should return immediately since DefraNode is nil
 	done := make(chan struct{})
 	go func() {
-		h.startEventBusListener(context.Background())
+		h.startEventBusListener(context.Background(), nil)
 		close(done)
 	}()
 	select {
@@ -537,16 +514,19 @@ func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
 	}
 
 	// Start the listener
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+
 	listenerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
-		h.startEventBusListener(listenerCtx)
+		h.startEventBusListener(listenerCtx, updates)
 		close(done)
 	}()
 
-	// Give listener time to subscribe
+	// Give the listener time to start its workers
 	time.Sleep(300 * time.Millisecond)
 
 	// Write a document to trigger events (even though it's not a relay, it exercises the subscription path)
@@ -587,12 +567,15 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 	}
 
 	// Use a short-lived context so the listener stops after a brief run
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+
 	listenerCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
-		h.startEventBusListener(listenerCtx)
+		h.startEventBusListener(listenerCtx, updates)
 		close(done)
 	}()
 
@@ -601,6 +584,13 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 		// Listener returned after context timeout
 	case <-time.After(5 * time.Second):
 		t.Fatal("startEventBusListener did not return after context timeout")
+	}
+
+	select {
+	case _, open := <-updates.Message():
+		require.False(t, open)
+	default:
+		t.Fatal("the listener left its subscription open")
 	}
 }
 
@@ -1286,16 +1276,19 @@ func TestStartEventBusListener_WithMetricsAndCollections(t *testing.T) {
 	}
 
 	// Start the listener with a timeout
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+
 	listenerCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
-		h.startEventBusListener(listenerCtx)
+		h.startEventBusListener(listenerCtx, updates)
 		close(done)
 	}()
 
-	// Give listener time to subscribe and set up workers
+	// Give the listener time to start its workers
 	time.Sleep(300 * time.Millisecond)
 
 	// Write docs to various collections to trigger event routing

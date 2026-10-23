@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -13,14 +12,12 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/sec"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 // DefaultPeerDiscoveryTimeout is the default timeout for discovering a peer's ID.
 const DefaultPeerDiscoveryTimeout = 10 * time.Second
-
-// DefaultP2PPort is the default libp2p port used when only an IP is provided.
-const DefaultP2PPort = "9171"
 
 type result struct {
 	index int
@@ -55,7 +52,7 @@ func resolveBootstrapPeers(ctx context.Context, peers []string, timeout time.Dur
 		}
 
 		// Normalize the address to a multiaddr
-		maddr, err := normalizeToMultiaddr(peerAddr)
+		maddr, err := chain.ParsePeer(peerAddr)
 		if err != nil {
 			logger.Sugar.Warnf("⚠️ Invalid peer address '%s': %v", peerAddr, err)
 			continue
@@ -114,44 +111,6 @@ func makeSortedArray(results []result, peers []string) []string {
 		}
 	}
 	return sorted
-}
-
-// normalizeToMultiaddr converts various address formats to a proper multiaddr.
-// Supports IPv4, IPv6, and multiaddr formats.
-func normalizeToMultiaddr(addr string) (ma.Multiaddr, error) {
-	// Already a multiaddr
-	if strings.HasPrefix(addr, "/") {
-		return ma.NewMultiaddr(addr)
-	}
-
-	// Try parsing as host:port using net.SplitHostPort, which handles
-	// both "1.2.3.4:9171" and "[::1]:9171" correctly.
-	host, port, err := net.SplitHostPort(addr)
-	if err == nil {
-		return buildMultiaddr(host, port)
-	}
-
-	// No port — could be bare IPv4 ("1.2.3.4"), bare IPv6 ("::1"), or bracketed IPv6 ("[::1]")
-	host = strings.TrimPrefix(addr, "[")
-	host = strings.TrimSuffix(host, "]")
-
-	return buildMultiaddr(host, DefaultP2PPort)
-}
-
-// buildMultiaddr constructs a multiaddr from a host and port,
-// auto-detecting whether the host is IPv4 or IPv6.
-func buildMultiaddr(host, port string) (ma.Multiaddr, error) {
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil, fmt.Errorf("IP address %s: %w", host, ErrInvalidIPAddress)
-	}
-
-	proto := "ip4"
-	if ip.To4() == nil {
-		proto = "ip6"
-	}
-
-	return ma.NewMultiaddr(fmt.Sprintf("/%s/%s/tcp/%s", proto, host, port))
 }
 
 // hasPeerID checks if a multiaddr contains a /p2p/ protocol component.
