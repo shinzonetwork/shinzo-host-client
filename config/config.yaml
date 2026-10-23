@@ -55,7 +55,7 @@ shinzo:
   batch_processing_enabled: true     # Enable batch processing for efficiency
   batch_max_views_per_job: 50         # Split large batches to prevent memory issues
   batch_query_cache_size: 1000        # Cache query templates for reuse
-  # Attestation Processing Settings
+  # Attestation Processing Settings, for each enabled chain
   doc_worker_count: 32
   doc_queue_size: 50000
   # Event Replication Filter
@@ -121,6 +121,7 @@ pruner:
 # built-in schema. A chain's schema comes from its generators, tried in order.
 # chains:
 #   - prefix: Ethereum__Mainnet
+#     max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
 #     generators:
 #       - url: http://35.254.135.221:8080
 #         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT

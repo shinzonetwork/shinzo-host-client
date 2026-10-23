@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -191,23 +192,12 @@ func TestHost_IsHealthy_NoDefraNode(t *testing.T) {
 	require.False(t, host.IsHealthy())
 }
 
-func TestHost_GetCurrentBlock(t *testing.T) {
-	metrics := server.NewHostMetrics()
-	metrics.MostRecentBlock = 12345
-
-	host := &Host{
-		metrics: metrics,
-	}
-
-	require.Equal(t, int64(12345), host.GetCurrentBlock())
-}
-
-func TestHost_GetCurrentBlock_NoMetrics(t *testing.T) {
+func TestHost_ChainStatuses_NoMetrics(t *testing.T) {
 	host := &Host{
 		metrics: nil,
 	}
 
-	require.Equal(t, int64(0), host.GetCurrentBlock())
+	require.Nil(t, host.ChainStatuses())
 }
 
 func TestHost_GetLastProcessedTime(t *testing.T) {
@@ -995,10 +985,19 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_EmptySDL(t *testing.T) {
 // SignMessages, GetNodePublicKey, GetPeerPublicKey - nil config/DefraNode
 // ---------------------------------------------------------------------------
 
+// emptyStoreConfig returns DefaultConfig with its store in a new temporary directory, so the store
+// holds no identity. DefaultConfig's own store is a fixed path that other tests write to.
+func emptyStoreConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	return &cfg
+}
+
 func TestHost_SignMessages_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
-		config:    DefaultConfig,
+		config:    emptyStoreConfig(t),
 	}
 
 	_, _, err := h.SignMessages("test message")
@@ -1008,7 +1007,7 @@ func TestHost_SignMessages_NilDefraNode(t *testing.T) {
 func TestHost_GetNodePublicKey_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
-		config:    DefaultConfig,
+		config:    emptyStoreConfig(t),
 	}
 
 	_, err := h.GetNodePublicKey()
@@ -1018,7 +1017,7 @@ func TestHost_GetNodePublicKey_NilDefraNode(t *testing.T) {
 func TestHost_GetPeerPublicKey_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
-		config:    DefaultConfig,
+		config:    emptyStoreConfig(t),
 	}
 
 	_, err := h.GetPeerPublicKey()
@@ -1461,22 +1460,6 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 }
 
 // ---------------------------------------------------------------------------
-// waitForDefraDB - with real DefraDB
-// ---------------------------------------------------------------------------
-
-func TestWaitForDefraDB_WithRealDefraDB(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	// Should succeed quickly since DefraDB is already ready
-	err = waitForDefraDB(ctx, defraNode, testCollections.Block.Name)
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------
 // Close - with pruner
 // ---------------------------------------------------------------------------
 
@@ -1487,7 +1470,7 @@ func TestHost_Close_WithPruner(t *testing.T) {
 		DefraNode:              nil,
 		webhookCleanupFunction: func() {},
 		processingCancel:       func() {},
-		// pruner is nil by default - this is a safe close
+		// no pruners - this is a safe close
 	}
 
 	err := host.Close(ctx)
@@ -1510,9 +1493,6 @@ func TestStartHostingWithTestConfig(t *testing.T) {
 	require.NotNil(t, host.DefraNode)
 	require.NotNil(t, host.metrics)
 	require.True(t, host.IsHealthy())
-
-	// Verify GetCurrentBlock returns a value
-	_ = host.GetCurrentBlock()
 
 	// Verify GetLastProcessedTime returns a value
 	_ = host.GetLastProcessedTime()
@@ -1688,8 +1668,13 @@ func TestHost_Close_Full(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A generator's peer is added to the host's peers along with the bootstrap peers.
-func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
+// Every enabled chain's generators are dialed, the chain is handed to the attestation listener and its
+// views register; a disabled chain gets none of these.
+func TestStartHosting_ServesEnabledChains(t *testing.T) {
+	const (
+		other     = "Testchain__Devnet"
+		otherPeer = "/ip4/10.0.0.2/tcp/9171/p2p/12D3KooWNgg9VnEWeaoJYg5J2ehi9Ktfsxyise2Hkf4Mb12CaG6H"
+	)
 	listener, err := net.Listen("tcp", testLoopbackAddr)
 	require.NoError(t, err)
 	addr, ok := listener.Addr().(*net.TCPAddr)
@@ -1697,16 +1682,18 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	require.NoError(t, listener.Close())
 	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
 	t.Cleanup(generator.Close)
+	otherGenerator := httptest.NewServer(schemaHandler(t, other))
+	t.Cleanup(otherGenerator.Close)
 
 	cfg := *DefaultConfig
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = testLoopbackAddr
 	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
 	cfg.HostConfig.HealthServerPort = addr.Port
-	cfg.Chains = []chain.Config{{
-		Prefix:     chain.EthereumMainnet,
-		Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}},
-	}}
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}}},
+		{Prefix: other, Generators: []chain.Generator{{URL: otherGenerator.URL, Peer: otherPeer}}},
+	}
 
 	h, err := StartHosting(&cfg)
 	require.NoError(t, err)
@@ -1716,7 +1703,24 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 		require.NoError(t, h.Close(ctx))
 	})
 
+	require.Subset(t, h.NetworkHandler.GetPeers(), []string{testPeerMultiaddr, otherPeer})
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	otherLog := view.View{Name: "OtherLog", Data: viewbundle.View{Query: other + "__Log { address }", Sdl: "type OtherLog { address: String }"}}
+	require.NoError(t, h.RegisterViewWithManager(context.Background(), otherLog))
+
+	// After a restart, the other chain's stored tables differ from what its generator serves, so the
+	// chain is disabled: its generator is not dialed and registering a view on it is refused.
+	_, err = h.DefraNode.DB.AddCollection(context.Background(), "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
+	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	require.ErrorIs(t, h.RegisterViewWithManager(context.Background(), otherLog), view.ErrViewChainNotServed)
 }
 
 // A restart compares the stored tables with the schema the chain's generator serves, and refuses to
@@ -1753,6 +1757,66 @@ func TestStartHosting_RefusesDriftedStore(t *testing.T) {
 
 	_, err = StartHosting(&cfg)
 	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
+}
+
+// A chain no generator answers for at its first start is left out: its generators are not dialed and
+// it gets no tables and no pruner. It comes up at the next start once a generator answers.
+func TestStartHosting_LeavesOutUnansweredChain(t *testing.T) {
+	const (
+		other     = "Testchain__Devnet"
+		otherPeer = "/ip4/10.0.0.2/tcp/9171/p2p/12D3KooWNgg9VnEWeaoJYg5J2ehi9Ktfsxyise2Hkf4Mb12CaG6H"
+	)
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
+	var otherAnswers atomic.Bool
+	otherSchema := schemaHandler(t, other)
+	otherGenerator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !otherAnswers.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		otherSchema(w, r)
+	}))
+	t.Cleanup(otherGenerator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Pruner.Enabled = true
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}}},
+		{Prefix: other, Generators: []chain.Generator{{URL: otherGenerator.URL, Peer: otherPeer}}},
+	}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(ctx))
+	})
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet)}, h.chains)
+	require.NotContains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Len(t, h.pruners, 1)
+	_, err = h.DefraNode.DB.GetCollectionByName(context.Background(), chain.EVM(other).Block.Name)
+	require.Error(t, err)
+
+	otherAnswers.Store(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, []chain.Collections{chain.EVM(chain.EthereumMainnet), chain.EVM(other)}, h.chains)
+	require.Contains(t, h.NetworkHandler.GetPeers(), otherPeer)
+	require.Len(t, h.pruners, 2)
 }
 
 // DefraDB's API answers only once the chain's tables exist.
@@ -1832,6 +1896,6 @@ func TestStartHosting_ServesAPIAfterTables(t *testing.T) {
 
 	api, err := defradbHttp.NewClient(apiAddr)
 	require.NoError(t, err)
-	result := api.ExecRequest(context.Background(), "{ "+h.collections.Block.Name+" { __typename } }")
+	result := api.ExecRequest(context.Background(), "{ "+testCollections.Block.Name+" { __typename } }")
 	require.Empty(t, result.GQL.Errors)
 }

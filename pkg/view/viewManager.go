@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -29,6 +30,8 @@ type Registrar interface {
 type ActiveView struct {
 	Lens            *client.LensConfig
 	ContractAddress string
+	// Chain is the prefix of the chain the view's source table belongs to.
+	Chain string
 }
 
 // Manager orchestrates the complete lifecycle of Shinzo views including:
@@ -45,14 +48,14 @@ type Manager struct {
 	wasmRegistry    *WASMRegistry
 	registryPath    string
 	metricsCallback func() *server.HostMetrics
-	// chainPrefix is the prefix of the chain the host serves. Views reading another chain are
+	// chainPrefixes are the prefixes of the chains the host serves. Views reading another chain are
 	// refused.
-	chainPrefix string
+	chainPrefixes []string
 }
 
-// NewManager creates a new Manager for the chain with chainPrefix, with the given DefraDB node and
+// NewManager creates a new Manager for the chains with chainPrefixes, with the given DefraDB node and
 // registry path. It initializes all required services.
-func NewManager(defraNode *node.Node, registryPath, chainPrefix string) *Manager {
+func NewManager(defraNode *node.Node, registryPath string, chainPrefixes ...string) *Manager {
 	wasmRegistry, _ := NewWASMRegistry(registryPath, zap.L().Sugar())
 	return &Manager{
 		activeViews:   make(map[string]*ActiveView),
@@ -60,7 +63,7 @@ func NewManager(defraNode *node.Node, registryPath, chainPrefix string) *Manager
 		schemaService: NewSchemaService(),
 		wasmRegistry:  wasmRegistry,
 		registryPath:  registryPath,
-		chainPrefix:   chainPrefix,
+		chainPrefixes: chainPrefixes,
 	}
 }
 
@@ -206,6 +209,18 @@ func (m *Manager) ContractAddress(viewName string) (string, bool) {
 	return av.ContractAddress, true
 }
 
+// Chain returns the prefix of the chain the active view viewName reads, and false when no such view
+// is active.
+func (m *Manager) Chain(viewName string) (string, bool) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	av, ok := m.activeViews[viewName]
+	if !ok {
+		return "", false
+	}
+	return av.Chain, true
+}
+
 // RegisterView implements the full view registration flow with validation.
 // RegisterView registers a view with DefraDB and sets up all required infrastructure.
 func (m *Manager) RegisterView(ctx context.Context, v *View) error {
@@ -219,7 +234,7 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 
 	fixQueryInputData(v)
 
-	table, err := qualifySourceCollection(v, m.chainPrefix)
+	table, chainPrefix, err := qualifySourceCollection(v, m.chainPrefixes)
 	if err != nil {
 		return err
 	}
@@ -252,6 +267,7 @@ func (m *Manager) RegisterView(ctx context.Context, v *View) error {
 			DestinationCollectionVersionID: v.Data.Sdl,
 		},
 		ContractAddress: v.ContractAddress,
+		Chain:           chainPrefix,
 	}
 
 	return nil
@@ -288,27 +304,31 @@ func (m *Manager) setupLens(ctx context.Context, v *View) (string, error) {
 	return lensCID, nil
 }
 
-// qualifySourceCollection writes the chain into the view's source table and returns the table. It
-// returns ErrViewQueryInvalid when the query does not read one table, and ErrViewChainNotServed
-// when the table belongs to a chain the host does not serve. A table named without a chain, such
-// as Log, is read as Ethereum mainnet's, so such views run only on an Ethereum mainnet host.
-func qualifySourceCollection(v *View, chainPrefix string) (string, error) {
+// qualifySourceCollection writes the chain into the view's source table and returns the table and
+// the prefix of its chain. It returns ErrViewQueryInvalid when the query does not read one table,
+// and ErrViewChainNotServed when the table belongs to none of chainPrefixes. A table named without
+// a chain, such as Log, is read as Ethereum mainnet's, so such views run only on a host that serves
+// Ethereum mainnet.
+func qualifySourceCollection(v *View, chainPrefixes []string) (string, string, error) {
 	source, at, err := sourceTable(v.Data.Query)
 	if err != nil {
-		return "", fmt.Errorf("view %s: %w", v.Name, err)
+		return "", "", fmt.Errorf("view %s: %w", v.Name, err)
 	}
 	table := source
 	if !strings.Contains(source, "__") {
 		table = chain.EthereumMainnet + "__" + source
 	}
-	if !strings.HasPrefix(table, chainPrefix+"__") {
-		return "", fmt.Errorf("view %s reads %s: %w", v.Name, table, ErrViewChainNotServed)
+	match := slices.IndexFunc(chainPrefixes, func(prefix string) bool {
+		return strings.HasPrefix(table, prefix+"__")
+	})
+	if match < 0 {
+		return "", "", fmt.Errorf("view %s reads %s: %w", v.Name, table, ErrViewChainNotServed)
 	}
 	if table != source {
 		v.Data.Query = v.Data.Query[:at] + table + v.Data.Query[at+len(source):]
 		logger.Sugar.Debugf("Fixed collection name: %s → %s", source, table)
 	}
-	return table, nil
+	return table, chainPrefixes[match], nil
 }
 
 // sourceTable returns the table a view's query reads and the byte offset of the table's name in the

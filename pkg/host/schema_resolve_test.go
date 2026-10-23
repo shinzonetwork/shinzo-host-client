@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
@@ -59,9 +61,10 @@ func TestResolveSchema(t *testing.T) {
 		{desc: "a valid generator", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{valid}},
 		{desc: "the first generator fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, valid}},
 		{desc: "the first generator times out", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{slow, valid}},
-		{desc: "every generator fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, wrongNetwork}, wantErr: errNoGeneratorSchema},
+		{desc: "every generator fails or times out", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, slow}, wantErr: errNoGeneratorAnswered},
+		{desc: "one generator serves another chain and the next fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{wrongNetwork, failing}, wantErr: errNoGeneratorSchema},
 		{desc: "another chain with no generators", prefix: other, wantErr: errNoChainSchema},
-		{desc: "another chain whose generators fail", prefix: other, generators: []http.HandlerFunc{failing, valid}, wantErr: errNoGeneratorSchema},
+		{desc: "another chain whose generators fail or serve Ethereum mainnet", prefix: other, generators: []http.HandlerFunc{failing, valid}, wantErr: errNoGeneratorSchema},
 		{desc: "another chain with a valid generator", prefix: other, generators: []http.HandlerFunc{otherValid}},
 	}
 
@@ -108,48 +111,75 @@ func TestResolveSchemaUsesFirstUsableGenerator(t *testing.T) {
 	require.False(t, secondCalled.Load(), "a generator after the first usable one was contacted")
 }
 
-func TestServedSchema(t *testing.T) {
+func TestServedSchemas(t *testing.T) {
+	const sepolia = "Ethereum__Sepolia"
 	valid := schemaHandler(t, chain.EthereumMainnet)
-	wrongNetwork := schemaHandler(t, "Ethereum__Sepolia")
+	wrongNetwork := schemaHandler(t, sepolia)
 	failing := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }
+	serving := func(sdl string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: sdl}))
+		}
+	}
 	// A schema for the chain that the fetch checks would refuse: it lacks most of the tables.
 	partialSDL := "type " + testCollections.Block.Name + " { number: Int }"
-	partial := func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: partialSDL}))
-	}
 
+	// answer is a schema servedSchemas yielded, with the index of the generator that served it.
+	type answer struct {
+		generator int
+		schema    string
+	}
 	cases := []struct {
 		desc       string
 		generators []http.HandlerFunc
-		want       string
-		wantOK     bool
+		want       []answer
 	}{
 		{desc: "no generators"},
-		{desc: "the first generator's schema is used unchecked", generators: []http.HandlerFunc{partial, valid}, want: partialSDL, wantOK: true},
-		{desc: "a failing generator and one for another chain are skipped", generators: []http.HandlerFunc{failing, wrongNetwork, valid}, want: generatorSchema(t), wantOK: true},
-		{desc: "no generator answers", generators: []http.HandlerFunc{failing, wrongNetwork}},
+		{
+			desc:       "schemas are yielded unchecked, in order",
+			generators: []http.HandlerFunc{serving(partialSDL), valid},
+			want:       []answer{{generator: 0, schema: partialSDL}, {generator: 1, schema: generatorSchema(t)}},
+		},
+		{
+			desc:       "a failing generator is skipped and one for another chain is yielded",
+			generators: []http.HandlerFunc{failing, wrongNetwork, valid},
+			want: []answer{
+				{generator: 1, schema: strings.ReplaceAll(generatorSchema(t), chain.EthereumMainnet, sepolia)},
+				{generator: 2, schema: generatorSchema(t)},
+			},
+		},
+		{
+			desc:       "a generator serving a schema that does not parse is skipped",
+			generators: []http.HandlerFunc{serving("type {"), valid},
+			want:       []answer{{generator: 1, schema: generatorSchema(t)}},
+		},
+		{desc: "no generator answers", generators: []http.HandlerFunc{failing, serving("type {")}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
 			served := chain.Config{Prefix: chain.EthereumMainnet}
+			var urls []string
 			for _, handler := range c.generators {
 				srv := httptest.NewServer(handler)
 				t.Cleanup(srv.Close)
 				served.Generators = append(served.Generators, chain.Generator{URL: srv.URL})
+				urls = append(urls, srv.URL)
 			}
 			schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
 
-			got, ok := servedSchema(context.Background(), schemaCfg, served)
+			var got []answer
+			for url, resp := range servedSchemas(context.Background(), schemaCfg, served) {
+				got = append(got, answer{generator: slices.Index(urls, url), schema: resp.Schema})
+			}
 
-			require.Equal(t, c.wantOK, ok)
 			require.Equal(t, c.want, got)
 		})
 	}
 }
 
-func TestServedSchemaSharesOneDeadline(t *testing.T) {
+func TestServedSchemasShareOneDeadline(t *testing.T) {
 	// The first generator holds the request until the host gives up on it.
 	hanging := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	t.Cleanup(hanging.Close)
@@ -164,7 +194,148 @@ func TestServedSchemaSharesOneDeadline(t *testing.T) {
 	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: hanging.URL}, {URL: second.URL}}}
 	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
 
-	_, ok := servedSchema(context.Background(), schemaCfg, served)
-	require.False(t, ok)
+	for generator := range servedSchemas(context.Background(), schemaCfg, served) {
+		t.Fatalf("generator %s answered after the first used up the deadline", generator)
+	}
 	require.False(t, secondCalled.Load(), "a generator was asked after the first used up the deadline")
+}
+
+func TestServedSchemasStopsEarly(t *testing.T) {
+	first := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(first.Close)
+	var secondCalled atomic.Bool
+	second := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { secondCalled.Store(true) }))
+	t.Cleanup(second.Close)
+
+	served := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: first.URL}, {URL: second.URL}}}
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+
+	for range servedSchemas(context.Background(), schemaCfg, served) {
+		break
+	}
+	require.False(t, secondCalled.Load(), "a generator was contacted after the caller stopped")
+}
+
+func TestChainsApplier(t *testing.T) {
+	const (
+		other = "Testchain__Devnet"
+		third = "Third__Chain"
+	)
+	ctx := context.Background()
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+	var chains []chain.Config
+	for _, prefix := range []string{chain.EthereumMainnet, other} {
+		generator := httptest.NewServer(schemaHandler(t, prefix))
+		t.Cleanup(generator.Close)
+		chains = append(chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
+	}
+
+	// The store holds the first chain before the other is added, as when a chain is added to the
+	// config of a host that already serves one.
+	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &chainsApplier{schemaCfg: schemaCfg, chains: chains[:1]})
+	require.NoError(t, err)
+	defer func() { _ = node.Close(ctx) }()
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(other).Block.Name)
+	require.Error(t, err)
+
+	applier := &chainsApplier{schemaCfg: schemaCfg, chains: chains}
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	var subscribed []string
+	for _, c := range chains {
+		collections := chain.EVM(c.Prefix)
+		for _, col := range append(collections.Generated(), collections.AttestationRecord) {
+			_, err := node.DB.GetCollectionByName(ctx, col.Name)
+			require.NoError(t, err, col.Name)
+		}
+		subscribed = append(subscribed, collections.Subscribed()...)
+	}
+	require.Equal(t, chains, applier.enabled)
+	got, err := node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, subscribed, got)
+
+	// Every stored chain is listed, so a restart is accepted.
+	require.NoError(t, applier.ApplySchema(ctx, node))
+
+	// A view named like a BlockSignature table does not mark a chain.
+	_, err = node.DB.AddView(ctx, chain.EVM(other).Block.Name+" { number }", "type Unlisted__BlockSignature { number: Int }")
+	require.NoError(t, err)
+	require.NoError(t, applier.ApplySchema(ctx, node))
+
+	// A chain the store holds no tables for, whose generator does not answer, is disabled with nothing
+	// stored or subscribed for it, and the other chains are still served.
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(down.Close)
+	unanswered := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: down.URL}}}
+	withUnanswered := &chainsApplier{schemaCfg: schemaCfg, chains: append(slices.Clone(chains), unanswered)}
+	require.NoError(t, withUnanswered.ApplySchema(ctx, node))
+	require.Equal(t, chains, withUnanswered.enabled)
+	require.Equal(t, []string{third}, withUnanswered.unanswered)
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
+	require.Error(t, err)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, subscribed, got)
+
+	// The store holds a chain the config does not list, and the config lists a chain the store does
+	// not hold yet, whose generator serves its tables. The unlisted chain is refused before any table
+	// is created.
+	thirdGenerator := httptest.NewServer(schemaHandler(t, third))
+	t.Cleanup(thirdGenerator.Close)
+	thirdChain := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: thirdGenerator.URL}}}
+	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], thirdChain}}).ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errUnlistedChain)
+	_, err = node.DB.GetCollectionByName(ctx, chain.EVM(third).Block.Name)
+	require.Error(t, err)
+
+	// The store holds a table the other chain's generator does not serve, so that chain is disabled
+	// and unsubscribed, and the first chain is still served.
+	_, err = node.DB.AddCollection(ctx, "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	require.Equal(t, chains[:1], applier.enabled)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, chain.EVM(chain.EthereumMainnet).Subscribed(), got)
+
+	// Drift disables a chain wherever it is listed.
+	driftedFirst := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[1], chains[0]}}
+	require.NoError(t, driftedFirst.ApplySchema(ctx, node))
+	require.Equal(t, chains[:1], driftedFirst.enabled)
+
+	// Any other chain that cannot be provisioned stops the host: one with no generators configured, and
+	// one whose generator answered with a schema the checks refuse (Ethereum mainnet's, for another chain).
+	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], {Prefix: third}}}).ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errNoChainSchema)
+	refusing := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(refusing.Close)
+	refused := chain.Config{Prefix: third, Generators: []chain.Generator{{URL: refusing.URL}}}
+	err = (&chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{chains[0], chains[1], refused}}).ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errNoGeneratorSchema)
+	require.NotErrorIs(t, err, errNoChainEnabled)
+
+	// When drift disables every chain, the host does not start, and the error names each chain.
+	_, err = node.DB.AddCollection(ctx, "type "+chain.EthereumMainnet+"__Extra { a: Int }")
+	require.NoError(t, err)
+	err = applier.ApplySchema(ctx, node)
+	require.ErrorIs(t, err, errNoChainEnabled)
+	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
+	require.ErrorContains(t, err, chain.EthereumMainnet)
+	require.ErrorContains(t, err, other)
+}
+
+// When no generator answers for the only chain, StartDefraInstance returns errNoChainEnabled.
+func TestChainsApplierNoChainAnswered(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(down.Close)
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+	applier := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: down.URL}}}}}
+
+	_, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+	require.ErrorIs(t, err, errNoChainEnabled)
+	require.ErrorIs(t, err, errNoGeneratorAnswered)
 }

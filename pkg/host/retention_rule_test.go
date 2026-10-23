@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 )
 
 // namedCollection carries only what ResolveCollections reads: its identity and its fields.
@@ -60,7 +62,7 @@ func TestRetentionRuleFloor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cutoff := &pruner.Cutoff{}
-			r := NewRetentionRule(pruner.CollectionConfigFor(chain.EVM(chain.EthereumMainnet)), cutoff)
+			r := NewRetentionRule([]prunedChain{{collections: pruner.CollectionConfigFor(testCollections), cutoff: cutoff}})
 			if !tt.unresolved {
 				require.Equal(t,
 					[]string{testCollections.Block.Name, testCollections.Log.Name, testCollections.SnapshotSignature.Name},
@@ -79,9 +81,12 @@ func TestRetentionRuleFloor(t *testing.T) {
 	}
 }
 
-// A host with the pruner enabled installs the retention rule on its node and the pruner publishes its
-// cutoff to that rule. With blocks 1-10 and max_blocks 2, the cutoff is 10 - 2 = 8.
-func TestStartHostingSharesThePrunerCutoffWithTheRule(t *testing.T) {
+// Each configured chain's pruner publishes its own cutoff to the retention rule and to the chain's
+// status, a drift-disabled chain's included, and Close stops every pruner. Ethereum keeps
+// pruner.max_blocks 2, so blocks 1-10 give a cutoff of 8; the other chain keeps its own max_blocks 5,
+// so blocks 1-20 give 15.
+func TestStartHostingPrunesEachChainAgainstItsOwnCutoff(t *testing.T) {
+	const other = "Testchain__Devnet"
 	ctx := context.Background()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -95,6 +100,13 @@ func TestStartHostingSharesThePrunerCutoffWithTheRule(t *testing.T) {
 	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
 	cfg.HostConfig.HealthServerPort = addr.Port
 	cfg.Pruner = pruner.Config{Enabled: true, MaxBlocks: 2, IntervalSeconds: 1, PruneHistory: true}
+	cfg.Chains = nil
+	for _, prefix := range []string{chain.EthereumMainnet, other} {
+		generator := httptest.NewServer(schemaHandler(t, prefix))
+		t.Cleanup(generator.Close)
+		cfg.Chains = append(cfg.Chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
+	}
+	cfg.Chains[1].MaxBlocks = 5
 
 	h, err := StartHosting(&cfg)
 	require.NoError(t, err)
@@ -104,18 +116,55 @@ func TestStartHostingSharesThePrunerCutoffWithTheRule(t *testing.T) {
 		require.NoError(t, h.Close(closeCtx))
 	})
 
-	col, err := h.DefraNode.DB.GetCollectionByName(ctx, testCollections.Block.Name)
-	require.NoError(t, err)
-	for i := 1; i <= 10; i++ {
-		doc, err := client.NewDocFromMap(ctx, map[string]any{"number": i, "hash": fmt.Sprintf("h%d", i)}, col.Version())
+	blocks := map[string]int{chain.EthereumMainnet: 10, other: 20}
+	blockTables := make(map[string]string, len(blocks))
+	for prefix, n := range blocks {
+		col, err := h.DefraNode.DB.GetCollectionByName(ctx, chain.EVM(prefix).Block.Name)
 		require.NoError(t, err)
-		require.NoError(t, col.AddDocument(ctx, doc))
+		for i := 1; i <= n; i++ {
+			doc, err := client.NewDocFromMap(ctx, map[string]any{"number": i, "hash": fmt.Sprintf("h%d", i)}, col.Version())
+			require.NoError(t, err)
+			require.NoError(t, col.AddDocument(ctx, doc))
+		}
+		blockTables[prefix] = col.CollectionID()
+	}
+	want := map[string]int64{chain.EthereumMainnet: 8, other: 15}
+	requireFloors := func(h *Host) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			for prefix, floor := range want {
+				field, got, ok := h.DefraNode.RetentionRule.RetentionFloor(blockTables[prefix])
+				if !ok || field != "number" || got != floor {
+					return false
+				}
+			}
+			return true
+		}, 10*time.Second, 50*time.Millisecond)
+	}
+	requireFloors(h)
+	require.Equal(t, []server.ChainStatus{
+		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
+		{Chain: other, Enabled: true, Cutoff: 15},
+	}, h.ChainStatuses())
+
+	// The other chain's stored tables now differ from what its generator serves.
+	_, err = h.DefraNode.DB.AddCollection(ctx, "type "+other+"__Extra { a: Int }")
+	require.NoError(t, err)
+	pruners := h.pruners
+	require.Len(t, pruners, 2)
+	closeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(closeCtx))
+	for _, p := range pruners {
+		require.False(t, p.GetMetrics().IsRunning)
 	}
 
-	rule := h.DefraNode.RetentionRule
-	require.NotNil(t, rule)
-	require.Eventually(t, func() bool {
-		field, floor, ok := rule.RetentionFloor(col.CollectionID())
-		return ok && field == "number" && floor == 8
-	}, 10*time.Second, 50*time.Millisecond)
+	// After a restart the other chain is disabled, and its pruner sets its cutoff again.
+	h, err = StartHosting(&cfg)
+	require.NoError(t, err)
+	requireFloors(h)
+	require.Equal(t, []server.ChainStatus{
+		{Chain: chain.EthereumMainnet, Enabled: true, Cutoff: 8},
+		{Chain: other, Enabled: false, Cutoff: 15},
+	}, h.ChainStatuses())
 }

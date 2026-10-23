@@ -8,7 +8,6 @@ import (
 
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/vektah/gqlparser/v2/ast"
-	"github.com/vektah/gqlparser/v2/parser"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
@@ -16,7 +15,7 @@ import (
 // ErrSchemaDrift is returned when the stored tables differ from the tables a generator serves.
 var ErrSchemaDrift = fmt.Errorf("stored tables differ from the served schema")
 
-// checkStored compares the tables sdl declares with the chain's stored tables: their names, their
+// checkStored compares the tables doc declares with the chain's stored tables: their names, their
 // fields' names, their fields' kinds and their scalar fields' CRDT types. Stored views, the host's
 // attestation record table, the stored fields DefraDB adds, whose names start with "_", and the
 // many side of a relation, which does not change a table's collection ID, are left out. The
@@ -24,11 +23,8 @@ var ErrSchemaDrift = fmt.Errorf("stored tables differ from the served schema")
 // ID either, so a change to that side alone refuses a restart. It returns ErrSchemaDrift listing
 // every difference and naming the store wipe as the recovery: the host creates a chain's tables only
 // in a store that holds none of them and never changes stored ones.
-func checkStored(sdl string, stored []client.Collection, c chain.Collections) error {
-	served, err := servedTables(sdl)
-	if err != nil {
-		return err
-	}
+func checkStored(doc *ast.SchemaDocument, stored []client.Collection, c chain.Collections) error {
+	served := servedTables(doc)
 	tables := storedTables(stored, c)
 
 	var diffs []string
@@ -68,14 +64,10 @@ func fieldDiffs(table string, stored, served map[string]string) []string {
 	return diffs
 }
 
-// servedTables returns the fields of each type sdl declares, with each field's kind named the way
+// servedTables returns the fields of each type doc declares, with each field's kind named the way
 // DefraDB names the kind it stores, and a scalar field's CRDT type. The many side of a relation is
 // left out.
-func servedTables(sdl string) (map[string]map[string]string, error) {
-	doc, err := parser.ParseSchema(&ast.Source{Input: sdl})
-	if err != nil {
-		return nil, fmt.Errorf("parse served schema: %w: %w", ErrSchemaMalformedResponse, err)
-	}
+func servedTables(doc *ast.SchemaDocument) map[string]map[string]string {
 	tables := make(map[string]map[string]string, len(doc.Definitions))
 	for _, def := range doc.Definitions {
 		fields := make(map[string]string, len(def.Fields))
@@ -95,7 +87,7 @@ func servedTables(sdl string) (map[string]map[string]string, error) {
 		}
 		tables[def.Name] = fields
 	}
-	return tables, nil
+	return tables
 }
 
 // storedTables returns the fields of each stored table under the chain's prefix, with each field's

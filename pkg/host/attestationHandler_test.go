@@ -5,14 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http/httptest"
+	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	gocid "github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
@@ -83,105 +85,81 @@ func TestTruncateString(t *testing.T) {
 	}
 }
 
-func TestEnqueueDoc(t *testing.T) {
-	// Initialize docQueue for test
-	docQueue = make(chan docEvent, 2)
+func TestEnqueueSignature(t *testing.T) {
+	queue := make(chan string, 2)
 
-	// Normal enqueue
-	enqueueDoc(docEvent{docID: testDoc1, collectionName: "col1"})
-	require.Len(t, docQueue, 1)
+	require.Zero(t, enqueueSignature(queue, testDoc1))
+	require.Zero(t, enqueueSignature(queue, testDoc2))
+	require.Len(t, queue, 2)
 
-	enqueueDoc(docEvent{docID: testDoc2, collectionName: "col2"})
-	require.Len(t, docQueue, 2)
-
-	// Queue is full, enqueue should drop oldest and add new
-	enqueueDoc(docEvent{docID: testDoc3, collectionName: "col3"})
-	require.Len(t, docQueue, 2)
-
-	// Drain and verify the newest items are present
-	var events []docEvent
-	for len(docQueue) > 0 {
-		events = append(events, <-docQueue)
-	}
-	// doc1 was dropped, doc2 and doc3 should remain
-	require.Equal(t, 2, len(events))
-	hasDoc3 := false
-	for _, e := range events {
-		if e.docID == testDoc3 {
-			hasDoc3 = true
-		}
-	}
-	require.True(t, hasDoc3, "doc3 should be in queue")
+	// The queue is full, so the oldest ID is dropped
+	require.Equal(t, 1, enqueueSignature(queue, testDoc3))
+	require.Equal(t, []string{testDoc2, testDoc3}, []string{<-queue, <-queue})
 }
 
 // ---------------------------------------------------------------------------
-// initKnownCollectionIDs
+// knownTables
 // ---------------------------------------------------------------------------
 
-func TestInitKnownCollectionIDs_NilDefraNode(t *testing.T) {
+func TestKnownTables_NilDefraNode(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
-	err := h.initKnownCollectionIDs(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "DefraNode not available")
+	_, err := h.knownTables(context.Background(), nil)
+	require.ErrorIs(t, err, ErrDefraNodeUnavailable)
 }
 
 // ---------------------------------------------------------------------------
-// initDocQueue
+// docQueueSettings
 // ---------------------------------------------------------------------------
 
-func TestInitDocQueue_DefaultValues(t *testing.T) {
+func TestDocQueueSettings_DefaultValues(t *testing.T) {
 	cfg := *DefaultConfig
 	cfg.Shinzo.DocQueueSize = 0
 	cfg.Shinzo.DocWorkerCount = 0
 	h := &Host{config: &cfg}
 
-	workerCount, queueSize := h.initDocQueue()
+	workerCount, queueSize := h.docQueueSettings()
 	require.Equal(t, 16, workerCount)
 	require.Equal(t, 5000, queueSize)
-	require.NotNil(t, docQueue)
-	require.Equal(t, 5000, cap(docQueue))
 }
 
-func TestInitDocQueue_CustomValues(t *testing.T) {
+func TestDocQueueSettings_CustomValues(t *testing.T) {
 	cfg := *DefaultConfig
 	cfg.Shinzo.DocQueueSize = 100
 	cfg.Shinzo.DocWorkerCount = 4
 	h := &Host{config: &cfg}
 
-	workerCount, queueSize := h.initDocQueue()
+	workerCount, queueSize := h.docQueueSettings()
 	require.Equal(t, 4, workerCount)
 	require.Equal(t, 100, queueSize)
-	require.Equal(t, 100, cap(docQueue))
 }
 
-func TestInitDocQueue_NegativeValues(t *testing.T) {
+func TestDocQueueSettings_NegativeValues(t *testing.T) {
 	cfg := *DefaultConfig
 	cfg.Shinzo.DocQueueSize = -1
 	cfg.Shinzo.DocWorkerCount = -1
 	h := &Host{config: &cfg}
 
-	workerCount, queueSize := h.initDocQueue()
+	workerCount, queueSize := h.docQueueSettings()
 	require.Equal(t, 16, workerCount)
 	require.Equal(t, 5000, queueSize)
 }
 
 // ---------------------------------------------------------------------------
-// docWorker
+// signatureWorker
 // ---------------------------------------------------------------------------
 
-func TestDocWorker_ContextCancelled(t *testing.T) {
-	// Initialize the docQueue
-	docQueue = make(chan docEvent, 10)
+func TestSignatureWorker_ContextCancelled(t *testing.T) {
 	h := &Host{
 		DefraNode: nil,
 	}
+	c := &attestedChain{collections: testCollections, signatures: make(chan string, 10)}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		h.docWorker(ctx)
+		h.signatureWorker(ctx, c)
 		close(done)
 	}()
 
@@ -190,70 +168,7 @@ func TestDocWorker_ContextCancelled(t *testing.T) {
 	case <-done:
 		// Success
 	case <-time.After(5 * time.Second):
-		t.Fatal("docWorker did not return after context cancellation")
-	}
-}
-
-func TestDocWorker_ProcessesBlockSignatureEvent(t *testing.T) {
-	// Initialize the docQueue
-	docQueue = make(chan docEvent, 10)
-
-	// Host with nil DefraNode - processBlockSignatureFromEventBus will return early
-	h := &Host{
-		DefraNode:   nil,
-		collections: testCollections,
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		h.docWorker(ctx)
-		close(done)
-	}()
-
-	// Send a block signature event
-	docQueue <- docEvent{
-		docID:          "test-doc",
-		collectionName: testCollections.BlockSignature.Name,
-	}
-
-	// Give it time to process
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-		// Success
-	case <-time.After(5 * time.Second):
-		t.Fatal("docWorker did not return")
-	}
-}
-
-func TestDocWorker_IgnoresUnknownCollections(t *testing.T) {
-	docQueue = make(chan docEvent, 10)
-	h := &Host{DefraNode: nil}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		h.docWorker(ctx)
-		close(done)
-	}()
-
-	// Send an event with unknown collection
-	docQueue <- docEvent{
-		docID:          "test-doc",
-		collectionName: "UnknownCollection",
-	}
-
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("docWorker did not return")
+		t.Fatal("signatureWorker did not return after context cancellation")
 	}
 }
 
@@ -288,7 +203,7 @@ func TestProcessBlockSignatureFromEventBus_NilDefraNode(_ *testing.T) {
 		DefraNode: nil,
 	}
 	// Should return immediately
-	h.processBlockSignatureFromEventBus(context.Background(), "test-doc-id")
+	h.processBlockSignatureFromEventBus(context.Background(), testCollections, "test-doc-id")
 }
 
 func TestProcessBlockSignatureFromEventBus_ContextCancelled(_ *testing.T) {
@@ -298,7 +213,7 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelled(_ *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Should return immediately
-	h.processBlockSignatureFromEventBus(ctx, "test-doc-id")
+	h.processBlockSignatureFromEventBus(ctx, testCollections, "test-doc-id")
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +239,7 @@ func TestProcessAttestationsFromBlockSignature_NilDefraNode(_ *testing.T) {
 		CIDs:        []string{testCID1},
 	}
 	// Should return immediately
-	h.processAttestationsFromBlockSignature(context.Background(), blockSig)
+	h.processAttestationsFromBlockSignature(context.Background(), testCollections, blockSig)
 }
 
 func TestProcessAttestationsFromBlockSignature_NoCIDs(_ *testing.T) {
@@ -339,58 +254,7 @@ func TestProcessAttestationsFromBlockSignature_NoCIDs(_ *testing.T) {
 		CIDs:        []string{}, // Empty CIDs
 	}
 	// Should return because DefraNode is nil
-	h.processAttestationsFromBlockSignature(context.Background(), blockSig)
-}
-
-// ---------------------------------------------------------------------------
-// attestedBlocks sync.Map
-// ---------------------------------------------------------------------------
-
-func TestAttestedBlocks_SyncMap(t *testing.T) {
-	// Test the sync.Map used for deduplication
-	attestedBlocks.Delete(int64(999)) // Clean up from any previous tests
-
-	_, existed := attestedBlocks.LoadOrStore(int64(999), true)
-	require.False(t, existed)
-
-	_, existed = attestedBlocks.LoadOrStore(int64(999), true)
-	require.True(t, existed)
-
-	attestedBlocks.Delete(int64(999)) // Clean up
-}
-
-// ---------------------------------------------------------------------------
-// docEvent struct
-// ---------------------------------------------------------------------------
-
-func TestDocEventStruct(t *testing.T) {
-	evt := docEvent{
-		docID:          "doc-1",
-		collectionName: testCollections.BlockSignature.Name,
-	}
-	require.Equal(t, "doc-1", evt.docID)
-	require.Equal(t, testCollections.BlockSignature.Name, evt.collectionName)
-}
-
-// ---------------------------------------------------------------------------
-// Concurrent enqueueDoc
-// ---------------------------------------------------------------------------
-
-func TestEnqueueDoc_Concurrent(t *testing.T) {
-	docQueue = make(chan docEvent, 10)
-
-	var wg sync.WaitGroup
-	for i := range 100 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			enqueueDoc(docEvent{docID: fmt.Sprintf("doc-%d", idx), collectionName: testNameTest})
-		}(i)
-	}
-	wg.Wait()
-
-	// Queue should not exceed its capacity
-	require.LessOrEqual(t, len(docQueue), cap(docQueue))
+	h.processAttestationsFromBlockSignature(context.Background(), testCollections, blockSig)
 }
 
 // ---------------------------------------------------------------------------
@@ -453,10 +317,10 @@ func TestRetryableErrorDetection(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// initKnownCollectionIDs - with real DefraDB (covers success path)
+// knownTables - with real DefraDB (covers success path)
 // ---------------------------------------------------------------------------
 
-func TestInitKnownCollectionIDs_WithRealDefraDB(t *testing.T) {
+func TestKnownTables_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
 
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
@@ -464,92 +328,36 @@ func TestInitKnownCollectionIDs_WithRealDefraDB(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
+		DefraNode: defraNode,
 	}
+	c := &attestedChain{collections: testCollections}
 
-	err = h.initKnownCollectionIDs(ctx)
+	tables, err := h.knownTables(ctx, []*attestedChain{c})
 	require.NoError(t, err)
 
-	want := make(map[string]string)
-	for _, c := range []chain.Collection{
+	want := make(map[string]chainTable)
+	for _, table := range []chain.Collection{
 		testCollections.Block, testCollections.Transaction, testCollections.Log,
 		testCollections.AccessListEntry, testCollections.BlockSignature,
 	} {
-		col, err := defraNode.DB.GetCollectionByName(ctx, c.Name)
+		col, err := defraNode.DB.GetCollectionByName(ctx, table.Name)
 		require.NoError(t, err)
-		want[col.CollectionID()] = c.Name
+		want[col.CollectionID()] = chainTable{chain: c, name: table.Name}
 	}
-	require.Equal(t, want, h.collectionNames)
+	require.Equal(t, want, tables)
 }
 
-func TestInitKnownCollectionIDs_NilDB(t *testing.T) {
+func TestKnownTables_NilDB(t *testing.T) {
 	h := &Host{
 		DefraNode: &node.Node{}, // DefraNode is non-nil but DB is nil
 	}
-	err := h.initKnownCollectionIDs(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "DefraNode not available")
+	_, err := h.knownTables(context.Background(), nil)
+	require.ErrorIs(t, err, ErrDefraNodeUnavailable)
 }
 
 // ---------------------------------------------------------------------------
 // startEventBusListener - with real DefraDB (covers subscription path)
 // ---------------------------------------------------------------------------
-
-func TestStartEventBusListener_WithRealDefraDB_WritesDoc(t *testing.T) {
-	ctx := context.Background()
-
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
-
-	metrics := server.NewHostMetrics()
-	cfg := *DefaultConfig
-	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
-		config:      &cfg,
-		metrics:     metrics,
-	}
-
-	// Start the listener
-	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
-	require.NoError(t, err)
-
-	listenerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		h.startEventBusListener(listenerCtx, updates)
-		close(done)
-	}()
-
-	// Give the listener time to start its workers
-	time.Sleep(300 * time.Millisecond)
-
-	// Write a document to trigger events (even though it's not a relay, it exercises the subscription path)
-	mutation := fmt.Sprintf(`mutation {
-		add_%s(input: {
-			blockNumber: 500,
-			blockHash: "0xeventtest",
-			merkleRoot: "eventmerkle",
-			signatureType: "ES256K",
-			signatureIdentity: "eventkey",
-			signatureValue: "eventsig",
-			createdAt: "2025-01-01T00:00:00Z"
-		}) {
-			_docID
-		}
-	}`, testCollections.BlockSignature.Name)
-	defraNode.DB.ExecRequest(ctx, mutation)
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("startEventBusListener did not return")
-	}
-}
 
 func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 	ctx := context.Background()
@@ -560,9 +368,9 @@ func TestStartEventBusListener_WithRealDefraDB(t *testing.T) {
 
 	cfg := *DefaultConfig
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
-		config:      &cfg,
+		DefraNode: defraNode,
+		chains:    []chain.Collections{testCollections},
+		config:    &cfg,
 	}
 
 	// Use a short-lived context so the listener stops after a brief run
@@ -605,12 +413,11 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testi
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
+		DefraNode: defraNode,
 	}
 
 	// Invalid doc ID format -- should return early from NewDocIDFromString error
-	h.processBlockSignatureFromEventBus(ctx, "not-a-valid-doc-id")
+	h.processBlockSignatureFromEventBus(ctx, testCollections, "not-a-valid-doc-id")
 }
 
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *testing.T) {
@@ -621,12 +428,11 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *tes
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
+		DefraNode: defraNode,
 	}
 
 	// Valid DocID format but document does not exist -- should fail after retries
-	h.processBlockSignatureFromEventBus(ctx, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
+	h.processBlockSignatureFromEventBus(ctx, testCollections, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
 }
 
 // ---------------------------------------------------------------------------
@@ -678,13 +484,12 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 	// will exit at the blockSignatureVerifier == nil check after extracting all fields
 	h := &Host{
 		DefraNode:              defraNode,
-		collections:            testCollections,
 		blockSignatureVerifier: nil,
 		metrics:                server.NewHostMetrics(),
 	}
 
 	// This exercises all the field extraction paths in processBlockSignatureDocument
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 }
 
 func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
@@ -726,13 +531,12 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	bsv := attestationService.NewBlockSignatureVerifier(100)
 	h := &Host{
 		DefraNode:              defraNode,
-		collections:            testCollections,
 		blockSignatureVerifier: bsv,
 		metrics:                server.NewHostMetrics(),
 	}
 
 	// This exercises the verifier path - will fail verification but should not panic
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 
 	// Signature failures should have been incremented
 	require.True(t, h.metrics.SignatureFailures > 0, "signature failures should be incremented")
@@ -752,13 +556,9 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	metrics := server.NewHostMetrics()
 
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
-		metrics:     metrics,
+		DefraNode: defraNode,
+		metrics:   metrics,
 	}
-
-	// Clean up global attestedBlocks state for this block number
-	attestedBlocks.Delete(int64(200))
 
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       200,
@@ -768,17 +568,14 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB(t *testing.T) {
 	}
 
 	// First call should create the attestation
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
 
 	// Verify metrics were updated
 	require.True(t, metrics.AttestationsCreated > 0 || metrics.AttestationErrors > 0,
 		"either attestations created or errors should be incremented")
 
-	// Second call with same block should hit the "existed" path in attestedBlocks
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
-
-	// Clean up
-	attestedBlocks.Delete(int64(200))
+	// Second call with the same block updates the record
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
 }
 
 func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing.T) {
@@ -800,7 +597,7 @@ func TestProcessAttestationsFromBlockSignature_WithRealDefraDB_NoCIDs(t *testing
 		CIDs:              []string{}, // No CIDs -- should return early
 	}
 
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
 }
 
 // ---------------------------------------------------------------------------
@@ -851,13 +648,12 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	h := &Host{
 		DefraNode:              defraNode,
-		collections:            testCollections,
 		blockSignatureVerifier: bsv,
 		metrics:                metrics,
 	}
 
 	// This will fail verification (invalid signature) but exercises the CID extraction paths
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 }
 
 func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
@@ -891,13 +687,12 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
-		metrics:     server.NewHostMetrics(),
+		DefraNode: defraNode,
+		metrics:   server.NewHostMetrics(),
 	}
 
 	// Exercises blockNumber=0 case and nil verifier path
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 }
 
 func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
@@ -929,10 +724,10 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	doc, err := col.GetDocument(ctx, docIDTyped)
 	require.NoError(t, err)
 
-	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics(), collections: testCollections}
+	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics()}
 
 	// Should return early at the empty merkleRoot check
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 }
 
 // makeTestCID generates a valid CIDv1 from arbitrary data.
@@ -950,55 +745,12 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	// Generate an Ed25519 key pair
-	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	// Build valid CIDs
 	cids := []string{
 		makeTestCID("block-data-0"),
 		makeTestCID("block-data-1"),
 		makeTestCID("block-data-2"),
 	}
-
-	// Compute merkle root and sign it
-	merkleRoot := attestationService.ComputeMerkleRootFromStrings(cids)
-	require.NotNil(t, merkleRoot)
-
-	sig, err := privKey.Sign(merkleRoot)
-	require.NoError(t, err)
-
-	merkleRootHex := hex.EncodeToString(merkleRoot)
-	pubKeyHex := privKey.GetPublic().String()
-	sigHex := hex.EncodeToString(sig)
-
-	// Format CID list for the GraphQL mutation
-	quoted := make([]string, len(cids))
-	for i, c := range cids {
-		quoted[i] = fmt.Sprintf(`"%s"`, c)
-	}
-	cidListStr := strings.Join(quoted, ", ")
-
-	mutation := fmt.Sprintf(`mutation {
-		add_%s(input: {
-			blockNumber: 123,
-			blockHash: "0xhash",
-			merkleRoot: "%s",
-			cidCount: %d,
-			cids: [%s],
-			signatureType: "Ed25519",
-			signatureIdentity: "%s",
-			signatureValue: "%s",
-			createdAt: "2025-01-01T00:00:00Z"
-		}) {
-			_docID
-		}
-	}`, testCollections.BlockSignature.Name, merkleRootHex, len(cids), cidListStr, pubKeyHex, sigHex)
-
-	result := defraNode.DB.ExecRequest(ctx, mutation)
-	require.Empty(t, result.GQL.Errors)
-
-	docIDStr := extractDocIDFromMutationResult(t, result, testCollections.BlockSignature.Name)
+	docIDStr, _ := addSignedBlockSignature(ctx, t, defraNode, testCollections.BlockSignature.Name, 123, cids)
 	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
@@ -1009,12 +761,11 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	h := &Host{
 		DefraNode:              defraNode,
-		collections:            testCollections,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                metrics,
 	}
 
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 
 	require.Greater(t, atomic.LoadInt64(&metrics.SignatureVerifications), int64(0))
 	require.Equal(t, int64(0), atomic.LoadInt64(&metrics.SignatureFailures))
@@ -1054,13 +805,12 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 
 	h := &Host{
 		DefraNode:              defraNode,
-		collections:            testCollections,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                server.NewHostMetrics(),
 	}
 
 	// This exercises the full path: get collection, parse docID, fetch document, process it
-	h.processBlockSignatureFromEventBus(ctx, docIDStr)
+	h.processBlockSignatureFromEventBus(ctx, testCollections, docIDStr)
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,14 +826,9 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 
 	metrics := server.NewHostMetrics()
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
-		metrics:     metrics,
+		DefraNode: defraNode,
+		metrics:   metrics,
 	}
-
-	// Clean up global attestedBlocks state
-	attestedBlocks.Delete(int64(300))
-	defer attestedBlocks.Delete(int64(300))
 
 	blockSig := &attestationService.BlockSignature{
 		BlockNumber:       300,
@@ -1093,14 +838,13 @@ func TestProcessAttestationsFromBlockSignature_ExistedPath(t *testing.T) {
 	}
 
 	// First call creates attestation
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
-	_ = atomic.LoadInt64(&metrics.AttestationsCreated)
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
 
-	// Second call hits the "existed" path — should update rather than create
-	h.processAttestationsFromBlockSignature(ctx, blockSig)
-
-	// MostRecentBlock should have been updated
-	require.GreaterOrEqual(t, atomic.LoadUint64(&metrics.MostRecentBlock), uint64(300))
+	// Second call updates the record, so nothing more is counted as created
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSig)
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.AttestationsCreated))
+	require.Equal(t, int64(1), atomic.LoadInt64(&metrics.BlocksProcessed))
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,14 +860,9 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 
 	metrics := server.NewHostMetrics()
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
-		metrics:     metrics,
+		DefraNode: defraNode,
+		metrics:   metrics,
 	}
-
-	// Clean up global attestedBlocks state
-	attestedBlocks.Delete(int64(400))
-	defer attestedBlocks.Delete(int64(400))
 
 	// First indexer attests to block 400
 	blockSigA := &attestationService.BlockSignature{
@@ -1132,7 +871,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 		SignatureIdentity: "indexer-A",
 		CIDs:              []string{testCIDName1, testCIDName2},
 	}
-	h.processAttestationsFromBlockSignature(ctx, blockSigA)
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSigA)
 
 	// Second indexer attests to the same block with the same merkle root
 	blockSigB := &attestationService.BlockSignature{
@@ -1141,7 +880,7 @@ func TestProcessAttestationsFromBlockSignature_MultipleIndexers_PreservesBothIde
 		SignatureIdentity: "indexer-B",
 		CIDs:              []string{testCIDName1, testCIDName2},
 	}
-	h.processAttestationsFromBlockSignature(ctx, blockSigB)
+	h.processAttestationsFromBlockSignature(ctx, testCollections, blockSigB)
 
 	// Query the attestation record
 	query := fmt.Sprintf(`%s(filter: {attested_doc: {_eq: "block:400:aaa"}, doc_type: {_eq: "%s"}}) { attested_doc source_doc }`,
@@ -1220,12 +959,11 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	metrics := server.NewHostMetrics()
 	h := &Host{
 		DefraNode:              defraNode,
-		collections:            testCollections,
 		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
 		metrics:                metrics,
 	}
 
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, testCollections, doc)
 
 	// Signature itself is valid, but CID mismatch should trigger failure
 	require.Greater(t, atomic.LoadInt64(&metrics.SignatureFailures), int64(0),
@@ -1244,8 +982,7 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	h := &Host{
-		DefraNode:   defraNode,
-		collections: testCollections,
+		DefraNode: defraNode,
 	}
 
 	// Use a valid doc ID format but for a non-existent doc
@@ -1253,24 +990,22 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Millisecond)
 	defer cancel()
 
-	h.processBlockSignatureFromEventBus(shortCtx, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
+	h.processBlockSignatureFromEventBus(shortCtx, testCollections, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
 }
 
 // ---------------------------------------------------------------------------
 // startEventBusListener - relay event with metrics and collection routing
 // ---------------------------------------------------------------------------
 
-// The listener counts a document a peer sends under its collection, and ignores updates for
-// collections outside the chain.
+// The listener counts a document a peer sends under its chain's collection, and ignores updates for
+// collections outside the chains.
 func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(ctx) }()
+	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, "Testchain__Devnet")
 
-	metrics := server.NewHostMetrics()
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet}, &server.ChainMetrics{Prefix: "Testchain__Devnet"})
 	cfg := *DefaultConfig
-	h := &Host{DefraNode: defraNode, collections: testCollections, config: &cfg, metrics: metrics}
+	h := &Host{DefraNode: defraNode, chains: chains, config: &cfg, metrics: metrics}
 
 	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
 	require.NoError(t, err)
@@ -1284,33 +1019,202 @@ func TestStartEventBusListener_CountsRelayedDocuments(t *testing.T) {
 	// An update for an unknown collection is not counted.
 	relay("not-a-collection")
 
-	// Each collection gets a different number of updates, so a counter wired to the wrong
-	// collection ends with the wrong count.
-	relays := map[string]int{
-		testCollections.Block.Name:           1,
-		testCollections.Transaction.Name:     2,
-		testCollections.Log.Name:             3,
-		testCollections.AccessListEntry.Name: 4,
-		testCollections.BlockSignature.Name:  5,
-	}
-	total := 0
-	for name, n := range relays {
-		col, err := defraNode.DB.GetCollectionByName(ctx, name)
-		require.NoError(t, err)
-		for range n {
-			relay(col.CollectionID())
+	// Each collection of each chain gets a different number of updates, so a counter wired to the
+	// wrong collection, or a chain the listener does not know, ends with the wrong count.
+	var total, transactions, logs, accessListEntries, blockSignatures int
+	perChain := make(map[string]int, len(chains))
+	for i, c := range chains {
+		relays := map[string]int{
+			c.Block.Name:           1 + 5*i,
+			c.Transaction.Name:     2 + 5*i,
+			c.Log.Name:             3 + 5*i,
+			c.AccessListEntry.Name: 4 + 5*i,
+			c.BlockSignature.Name:  5 + 5*i,
 		}
-		total += n
+		for name, n := range relays {
+			col, err := defraNode.DB.GetCollectionByName(ctx, name)
+			require.NoError(t, err)
+			for range n {
+				relay(col.CollectionID())
+			}
+			total += n
+			perChain[c.Prefix] += n
+		}
+		transactions += relays[c.Transaction.Name]
+		logs += relays[c.Log.Name]
+		accessListEntries += relays[c.AccessListEntry.Name]
+		blockSignatures += relays[c.BlockSignature.Name]
 	}
 
-	c := testCollections
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.Equal(ct, int64(total), atomic.LoadInt64(&metrics.DocumentsReceived))
-		assert.Equal(ct, int64(relays[c.Transaction.Name]), atomic.LoadInt64(&metrics.TransactionsProcessed))
-		assert.Equal(ct, int64(relays[c.Log.Name]), atomic.LoadInt64(&metrics.LogsProcessed))
-		assert.Equal(ct, int64(relays[c.AccessListEntry.Name]), atomic.LoadInt64(&metrics.AccessListsProcessed))
-		assert.Equal(ct, int64(relays[c.BlockSignature.Name]), atomic.LoadInt64(&metrics.BlockSignaturesProcessed))
+		assert.Equal(ct, int64(transactions), atomic.LoadInt64(&metrics.TransactionsProcessed))
+		assert.Equal(ct, int64(logs), atomic.LoadInt64(&metrics.LogsProcessed))
+		assert.Equal(ct, int64(accessListEntries), atomic.LoadInt64(&metrics.AccessListsProcessed))
+		assert.Equal(ct, int64(blockSignatures), atomic.LoadInt64(&metrics.BlockSignaturesProcessed))
 		// A relayed Block counts only as received.
 		assert.Zero(ct, atomic.LoadInt64(&metrics.BlocksProcessed))
+		for prefix, n := range perChain {
+			assert.Equal(ct, int64(n), metrics.Chain(prefix).DocumentsReceived.Load(), prefix)
+		}
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// A full attestation queue drops the oldest block signatures and counts the drops on its own chain
+// only, and the queue's peak depth reads back once.
+func TestStartEventBusListener_CountsQueueDropsPerChain(t *testing.T) {
+	const (
+		flooded = "Testchain__Devnet"
+		// A valid document ID with no document, so a worker keeps retrying its fetch while the
+		// listener fills the queue.
+		absentDocID = "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48"
+		burst       = 50
+	)
+	ctx := context.Background()
+	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, flooded)
+
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet}, &server.ChainMetrics{Prefix: flooded})
+	cfg := *DefaultConfig
+	cfg.Shinzo.DocQueueSize = 1
+	cfg.Shinzo.DocWorkerCount = 1
+	h := &Host{DefraNode: defraNode, chains: chains, config: &cfg, metrics: metrics}
+
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+	listenerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		h.startEventBusListener(listenerCtx, updates)
+	}()
+
+	relaySignatures := func(c chain.Collections, n int) {
+		col, err := defraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
+		require.NoError(t, err)
+		for range n {
+			defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: col.CollectionID(), DocID: absentDocID, IsRelay: true}))
+		}
+	}
+	relaySignatures(chains[0], 1)
+	relaySignatures(chains[1], burst)
+
+	ethereum, other := metrics.Chain(chain.EthereumMainnet), metrics.Chain(flooded)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Equal(ct, int64(1), ethereum.DocumentsReceived.Load())
+		assert.Equal(ct, int64(burst), other.DocumentsReceived.Load())
+	}, 5*time.Second, 10*time.Millisecond)
+	// The listener finishes the update it is on before it stops, so the counters below are final.
+	cancel()
+	<-stopped
+
+	require.Positive(t, other.QueueDrops.Load())
+	require.Zero(t, ethereum.QueueDrops.Load())
+	require.Equal(t, int64(1), other.TakeQueuePeak())
+	require.Zero(t, other.TakeQueuePeak())
+}
+
+// Each chain's relayed block signature is attested in that chain's own AttestationRecord table, and
+// raises only that chain's current block.
+func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
+	const other = "Testchain__Devnet"
+	ctx := context.Background()
+	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, other)
+
+	cfg := *DefaultConfig
+	attesters := map[string]*observedAttesters{chain.EthereumMainnet: newObservedAttesters(time.Minute), other: newObservedAttesters(time.Minute)}
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet, Enabled: true}, &server.ChainMetrics{Prefix: other, Enabled: true})
+	h := &Host{
+		DefraNode:              defraNode,
+		chains:                 chains,
+		config:                 &cfg,
+		metrics:                metrics,
+		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(100),
+		attesters:              attesters,
+	}
+
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+	listenerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go h.startEventBusListener(listenerCtx, updates)
+
+	// Each chain signs a different block and CIDs with its own key, so anything credited to the other
+	// chain shows.
+	blocks := map[string]int{chains[0].Prefix: 42, chains[1].Prefix: 7}
+	cids := make(map[string][]string, len(chains))
+	signers := make(map[string]string, len(chains))
+	for _, c := range chains {
+		cids[c.Prefix] = []string{makeTestCID(c.Prefix)}
+		docID, signer := addSignedBlockSignature(ctx, t, defraNode, c.BlockSignature.Name, blocks[c.Prefix], cids[c.Prefix])
+		signers[c.Prefix] = signer
+		col, err := defraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
+		require.NoError(t, err)
+		defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: col.CollectionID(), DocID: docID, IsRelay: true}))
+	}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, c := range chains {
+			records, err := defradb.QueryArray[constants.AttestationRecord](ctx, defraNode, c.AttestationRecord.Name+" { CIDs }")
+			if assert.NoError(ct, err) && assert.Len(ct, records, 1, c.Prefix) {
+				assert.Equal(ct, cids[c.Prefix], records[0].CIDs, c.Prefix)
+			}
+			// The worker raises the chain's current block after it writes the record.
+			assert.Equal(ct, int64(blocks[c.Prefix]), metrics.Chain(c.Prefix).CurrentBlock(), c.Prefix)
+		}
+	}, 5*time.Second, 20*time.Millisecond)
+	for _, c := range chains {
+		require.Equal(t, []string{signers[c.Prefix]}, attesters[c.Prefix].Snapshot(), c.Prefix)
+	}
+}
+
+// startChainsNode starts a DefraDB node holding the tables of a chain for each of prefixes.
+func startChainsNode(t *testing.T, prefixes ...string) (*node.Node, []chain.Collections) {
+	t.Helper()
+	applier := &chainsApplier{schemaCfg: config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}}
+	var chains []chain.Collections
+	for _, prefix := range prefixes {
+		generator := httptest.NewServer(schemaHandler(t, prefix))
+		t.Cleanup(generator.Close)
+		applier.chains = append(applier.chains, chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: generator.URL}}})
+		chains = append(chains, chain.EVM(prefix))
+	}
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = defraNode.Close(context.Background()) })
+	return defraNode, chains
+}
+
+// addSignedBlockSignature writes a BlockSignature for blockNumber to table, signed over cids with a
+// new key, and returns its document ID and the signer's identity.
+func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.Node, table string, blockNumber int, cids []string) (docID, signer string) {
+	t.Helper()
+	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
+	require.NoError(t, err)
+	merkleRoot := attestationService.ComputeMerkleRootFromStrings(cids)
+	sig, err := privKey.Sign(merkleRoot)
+	require.NoError(t, err)
+
+	quoted := make([]string, len(cids))
+	for i, c := range cids {
+		quoted[i] = strconv.Quote(c)
+	}
+	result := defraNode.DB.ExecRequest(ctx, fmt.Sprintf(`mutation {
+		add_%s(input: {
+			blockNumber: %d,
+			blockHash: "0xhash",
+			merkleRoot: "%s",
+			cidCount: %d,
+			cids: [%s],
+			signatureType: "Ed25519",
+			signatureIdentity: "%s",
+			signatureValue: "%s",
+			createdAt: "2025-01-01T00:00:00Z"
+		}) {
+			_docID
+		}
+	}`, table, blockNumber, hex.EncodeToString(merkleRoot), len(cids), strings.Join(quoted, ", "),
+		privKey.GetPublic().String(), hex.EncodeToString(sig)))
+	require.Empty(t, result.GQL.Errors)
+	return extractDocIDFromMutationResult(t, result, table), privKey.GetPublic().String()
 }

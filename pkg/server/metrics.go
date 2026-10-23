@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 )
 
 //go:embed metrics_client_page.html
@@ -49,15 +50,39 @@ type HostMetrics struct {
 	// System metrics
 	StartTime        time.Time `json:"start_time"`
 	LastDocumentTime time.Time `json:"last_document_time"`
-	MostRecentBlock  uint64    `json:"most_recent_block"`
 
 	// Build configuration metrics
 	BuildTags  string `json:"build_tags"`
 	SchemaType string `json:"schema_type"`
+
+	// chains holds each configured chain's counters, in config order.
+	chains []*ChainMetrics
 }
 
-// NewHostMetrics creates a new metrics instance.
-func NewHostMetrics() *HostMetrics {
+// ChainMetrics is one configured chain's counters: its relayed documents, its attestation queue and
+// the newest block it attested. Prefix, Enabled and Cutoff are set when it is built and only read
+// after.
+type ChainMetrics struct {
+	Prefix            string
+	Enabled           bool           // Whether the chain is served at this start
+	Cutoff            *pruner.Cutoff // The chain's pruner cutoff, nil when the host does not prune
+	DocumentsReceived atomic.Int64
+	QueueDrops        atomic.Int64 // Block signatures dropped because the chain's attestation queue was full
+	queuePeak         atomic.Int64
+	currentBlock      atomic.Int64
+}
+
+// ChainStatus is one configured chain as the health and metrics endpoints report it. CurrentBlock is
+// omitted until the chain attests a block, and Cutoff until its pruner sets one.
+type ChainStatus struct {
+	Chain        string `json:"chain"`
+	Enabled      bool   `json:"enabled"`
+	CurrentBlock int64  `json:"current_block,omitempty"`
+	Cutoff       int64  `json:"cutoff,omitempty"`
+}
+
+// NewHostMetrics creates a new metrics instance reporting chains, in the order given.
+func NewHostMetrics(chains ...*ChainMetrics) *HostMetrics {
 	buildTags := "standard"
 	schemaType := "non-branchable"
 
@@ -65,7 +90,79 @@ func NewHostMetrics() *HostMetrics {
 		StartTime:  time.Now(),
 		BuildTags:  buildTags,
 		SchemaType: schemaType,
+		chains:     chains,
 	}
+}
+
+// Chain returns the counters of the chain with prefix, or nil when m has none for it.
+func (m *HostMetrics) Chain(prefix string) *ChainMetrics {
+	for _, c := range m.chains {
+		if c.Prefix == prefix {
+			return c
+		}
+	}
+	return nil
+}
+
+// Chains returns every chain's counters, in config order.
+func (m *HostMetrics) Chains() []*ChainMetrics {
+	return m.chains
+}
+
+// ChainStatuses returns every chain's status, in config order.
+func (m *HostMetrics) ChainStatuses() []ChainStatus {
+	statuses := make([]ChainStatus, len(m.chains))
+	for i, c := range m.chains {
+		statuses[i] = ChainStatus{Chain: c.Prefix, Enabled: c.Enabled, CurrentBlock: c.CurrentBlock()}
+		if c.Cutoff != nil {
+			statuses[i].Cutoff = c.Cutoff.Load()
+		}
+	}
+	return statuses
+}
+
+// soleCurrentBlock returns the block the endpoints' top-level height fields report: the chain's
+// current block on a host configured with one chain. With several chains there is none, and ok is
+// false.
+func soleCurrentBlock(chains []ChainStatus) (block int64, ok bool) {
+	if len(chains) != 1 {
+		return 0, false
+	}
+	return chains[0].CurrentBlock, true
+}
+
+// UpdateCurrentBlock records blockNumber as the chain's current block if it is newer than the one
+// recorded.
+func (c *ChainMetrics) UpdateCurrentBlock(blockNumber int64) {
+	for {
+		current := c.currentBlock.Load()
+		if blockNumber <= current || c.currentBlock.CompareAndSwap(current, blockNumber) {
+			return
+		}
+	}
+}
+
+// CurrentBlock returns the newest block the chain attested since the host started, or 0 before the
+// first.
+func (c *ChainMetrics) CurrentBlock() int64 {
+	return c.currentBlock.Load()
+}
+
+// ObserveQueueDepth records depth if it is the deepest the chain's queue has been since the last
+// TakeQueuePeak.
+func (c *ChainMetrics) ObserveQueueDepth(depth int) {
+	d := int64(depth)
+	for {
+		current := c.queuePeak.Load()
+		if d <= current || c.queuePeak.CompareAndSwap(current, d) {
+			return
+		}
+	}
+}
+
+// TakeQueuePeak returns the deepest queue depth observed since the previous call and resets it.
+func (c *ChainMetrics) TakeQueuePeak() int64 {
+	return c.queuePeak.Swap(0)
 }
 
 // IncrementAttestationsCreated atomically increments the attestations created counter.
@@ -141,19 +238,6 @@ func (m *HostMetrics) UpdateLastProcessingTime(avgMs float64) {
 	m.lastProcessingTimeBits.Store(bits)
 }
 
-// UpdateMostRecentBlock updates the most recent block number.
-func (m *HostMetrics) UpdateMostRecentBlock(blockNumber uint64) {
-	for {
-		current := atomic.LoadUint64(&m.MostRecentBlock)
-		if blockNumber <= current {
-			return
-		}
-		if atomic.CompareAndSwapUint64(&m.MostRecentBlock, current, blockNumber) {
-			return
-		}
-	}
-}
-
 // GetSnapshot returns a snapshot of the current metrics, loading atomic values safely.
 func (m *HostMetrics) GetSnapshot() *HostMetrics {
 	// Load float64 values from atomic storage
@@ -178,7 +262,6 @@ func (m *HostMetrics) GetSnapshot() *HostMetrics {
 		LastProcessingTime: lastProcessingTime,
 		StartTime:          m.StartTime,
 		LastDocumentTime:   m.LastDocumentTime,
-		MostRecentBlock:    atomic.LoadUint64(&m.MostRecentBlock),
 		BuildTags:          m.BuildTags,
 		SchemaType:         m.SchemaType,
 	}
@@ -209,12 +292,23 @@ func (m *HostMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Add computed metrics
 	uptime := time.Since(snapshot.StartTime)
 
+	// Read once so the top-level heights match the chains list.
+	chains := m.ChainStatuses()
+	metrics := struct {
+		*HostMetrics
+
+		MostRecentBlock *int64 `json:"most_recent_block,omitempty"`
+	}{HostMetrics: snapshot}
 	response := map[string]any{
-		"metrics":        snapshot,
-		"current_block":  snapshot.MostRecentBlock,
+		"metrics":        &metrics,
+		"chains":         chains,
 		"timestamp":      time.Now().Unix(),
 		"uptime_human":   uptime.String(),
 		"uptime_seconds": uptime.Seconds(),
+	}
+	if block, ok := soleCurrentBlock(chains); ok {
+		metrics.MostRecentBlock = &block
+		response["current_block"] = block
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {

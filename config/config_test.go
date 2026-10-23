@@ -423,6 +423,11 @@ func TestLoadConfig_Chains(t *testing.T) {
 		{desc: "empty chains list", yaml: "chains: []\n", wantErr: ErrUnsupportedChains},
 		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n", want: []chain.Config{{Prefix: "Testchain__Devnet"}}},
 		{
+			desc: "a chain's own max_blocks",
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    max_blocks: 500\n",
+			want: []chain.Config{{Prefix: chain.EthereumMainnet, MaxBlocks: 500}},
+		},
+		{
 			desc:    "a second chain",
 			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
 			wantErr: ErrUnsupportedChains,

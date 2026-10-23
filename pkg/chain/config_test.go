@@ -31,6 +31,7 @@ func TestValidate(t *testing.T) {
 		},
 		{"generator without scheme", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "10.0.0.5:8080"}}}}, ErrInvalidGeneratorURL},
 		{"generator without host", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://"}}}}, ErrInvalidGeneratorURL},
+		{"negative max_blocks", []Config{{Prefix: EthereumMainnet, MaxBlocks: -1}}, ErrInvalidMaxBlocks},
 		{"generator with another scheme", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "ws://10.0.0.5:8080"}}}}, ErrInvalidGeneratorURL},
 		{
 			"generator peers in each accepted form",

@@ -33,7 +33,7 @@ type HealthServer struct {
 // HealthChecker interface for checking host health.
 type HealthChecker interface {
 	IsHealthy() bool
-	GetCurrentBlock() int64
+	ChainStatuses() []ChainStatus
 	GetLastProcessedTime() time.Time
 	GetPeerInfo() (*P2PInfo, error)
 	SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error)
@@ -58,6 +58,7 @@ type HealthResponse struct {
 	Status           string               `json:"status"`
 	Timestamp        time.Time            `json:"timestamp"`
 	CurrentBlock     int64                `json:"current_block,omitempty"`
+	Chains           []ChainStatus        `json:"chains,omitempty"`
 	LastProcessed    time.Time            `json:"last_processed,omitzero"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
 	Uptime           string               `json:"uptime"`
@@ -68,10 +69,11 @@ type HealthResponse struct {
 
 // MetricsResponse represents basic metrics.
 type MetricsResponse struct {
-	BlocksProcessed   int64     `json:"blocks_processed"`
-	CurrentBlock      int64     `json:"current_block"`
-	LastProcessedTime time.Time `json:"last_processed_time"`
-	Uptime            string    `json:"uptime"`
+	BlocksProcessed   *int64        `json:"blocks_processed,omitempty"`
+	CurrentBlock      *int64        `json:"current_block,omitempty"`
+	Chains            []ChainStatus `json:"chains,omitempty"`
+	LastProcessedTime time.Time     `json:"last_processed_time"`
+	Uptime            string        `json:"uptime"`
 }
 
 var startTime = time.Now() // nolint:gochecknoglobals
@@ -164,7 +166,8 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hs.host != nil {
-		response.CurrentBlock = hs.host.GetCurrentBlock()
+		response.Chains = hs.host.ChainStatuses()
+		response.CurrentBlock, _ = soleCurrentBlock(response.Chains)
 		response.LastProcessed = hs.host.GetLastProcessedTime()
 		p2p, _ := hs.host.GetPeerInfo()
 		response.P2P = p2p
@@ -212,7 +215,8 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	if hs.host != nil {
-		response.CurrentBlock = hs.host.GetCurrentBlock()
+		response.Chains = hs.host.ChainStatuses()
+		response.CurrentBlock, _ = soleCurrentBlock(response.Chains)
 		response.LastProcessed = hs.host.GetLastProcessedTime()
 		p2p, err := hs.host.GetPeerInfo()
 		response.P2P = p2p
@@ -247,9 +251,13 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hs.host != nil {
-		metrics.CurrentBlock = hs.host.GetCurrentBlock()
+		metrics.Chains = hs.host.ChainStatuses()
+		if block, ok := soleCurrentBlock(metrics.Chains); ok {
+			metrics.CurrentBlock = &block
+			// blocks_processed carries the height, not a count; kept for existing readers.
+			metrics.BlocksProcessed = &block
+		}
 		metrics.LastProcessedTime = hs.host.GetLastProcessedTime()
-		metrics.BlocksProcessed = hs.host.GetCurrentBlock() // Simplified
 	}
 
 	w.Header().Set("Content-Type", "application/json")

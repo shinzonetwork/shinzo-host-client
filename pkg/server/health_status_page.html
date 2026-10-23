@@ -275,10 +275,6 @@
                         <span class="info-value" id="statusValue">-</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">Current Block</span>
-                        <span class="info-value" id="currentBlockValue">-</span>
-                    </div>
-                    <div class="info-row">
                         <span class="info-label">Uptime</span>
                         <span class="info-value" id="uptimeValue">-</span>
                     </div>
@@ -318,6 +314,17 @@
                         <span class="info-label">Action</span>
                         <span class="info-value"><a id="registrationActionLink" href="/registration-app">Register host</a></span>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-label">Chains</div>
+
+        <div class="grid">
+            <div class="col-12">
+                <div class="info-group">
+                    <h2>Current Block</h2>
+                    <div id="chainList"></div>
                 </div>
             </div>
         </div>
@@ -406,6 +413,21 @@
                 peerIdValue.onclick = null;
                 peerIdValue.className = 'info-value';
             }
+        }
+
+        function renderChains(chains) {
+            document.getElementById('chainList').replaceChildren(...(chains || []).map(chain => {
+                const row = document.createElement('div');
+                row.className = 'info-row';
+                const label = document.createElement('span');
+                label.className = 'info-label';
+                label.textContent = chain.chain;
+                const value = document.createElement('span');
+                value.className = 'info-value';
+                value.textContent = chain.enabled ? formatNumber(chain.current_block) : 'Disabled';
+                row.append(label, value);
+                return row;
+            }));
         }
 
         function renderPeers(peers) {
@@ -551,8 +573,8 @@
 
                 // Update status section
                 document.getElementById('statusValue').textContent = data.status || '-';
-                document.getElementById('currentBlockValue').textContent = formatNumber(data.current_block);
                 document.getElementById('uptimeValue').textContent = data.uptime || '-';
+                renderChains(data.chains);
 
                 // Update database section
                 const defraDBValue = document.getElementById('defraDBValue');

@@ -7,13 +7,15 @@ var ( //nolint:revive
 	ErrViewManagerNil       = errors.New("ViewManager not initialized")                  //nolint:revive
 	ErrViewMissingQuery     = errors.New("view missing query")                           //nolint:revive
 	ErrViewMissingSDL       = errors.New("view missing SDL")                             //nolint:revive
-	ErrDefraDBNotReady      = errors.New("DefraDB failed to become ready")               //nolint:revive
 	ErrUnsupportedPlatform  = errors.New("unsupported platform")                         //nolint:revive
 	ErrNoPeerIDMismatchInfo = errors.New("error does not contain peer ID mismatch info") //nolint:revive
 	ErrEmptyMerkleRoot      = errors.New("empty merkleRoot")
 	ErrNoChains             = errors.New("config serves no chain") //nolint:revive
 
-	errHubBaseURLMissing = errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
-	errNoChainSchema     = errors.New("the built-in schema holds only Ethereum mainnet's tables")
-	errNoGeneratorSchema = errors.New("no configured generator served a usable schema")
+	errHubBaseURLMissing   = errors.New("billing middleware enabled but the Shinzo hub base URL is not configured")
+	errNoChainEnabled      = errors.New("every configured chain is disabled")
+	errNoChainSchema       = errors.New("the built-in schema holds only Ethereum mainnet's tables")
+	errNoGeneratorAnswered = errors.New("no configured generator answered")
+	errNoGeneratorSchema   = errors.New("no answering generator served a schema the checks accept")
+	errUnlistedChain       = errors.New("the store holds a chain the config does not list")
 )

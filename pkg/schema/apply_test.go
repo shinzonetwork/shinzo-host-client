@@ -3,6 +3,8 @@ package schema
 import (
 	"context"
 	"errors"
+	"fmt"
+	"iter"
 	"sort"
 	"strings"
 	"testing"
@@ -16,7 +18,9 @@ import (
 func TestChainApplier(t *testing.T) {
 	collections := chain.EVM(testPrefix)
 	tables := strings.ReplaceAll(SchemaGraphQL, chain.EthereumMainnet, testPrefix)
+	otherTables := tables + "\ntype " + testPrefix + "__Extra { a: Int }"
 	errUnavailable := errors.New("tables unavailable")
+	generatorURL := func(i int) string { return fmt.Sprintf("http://generator-%d", i) }
 
 	want := []string{collections.AttestationRecord.Name}
 	for _, c := range collections.Generated() {
@@ -28,10 +32,16 @@ func TestChainApplier(t *testing.T) {
 		desc      string
 		stored    defradb.SchemaApplier
 		tablesErr error
-		// served is the SDL a generator serves; empty means no generator answers.
-		served    string
+		// served are the SDLs the answering generators serve, in order.
+		served []string
+		// network is the network every served response names; testPrefix when empty.
+		network string
+		// wantRead is how many of the served SDLs ApplySchema reads.
+		wantRead  int
 		wantFetch bool
 		wantErr   error
+		// wantReason is what the error says about each served schema ApplySchema reads.
+		wantReason string
 	}{
 		{desc: "empty database", stored: &defradb.MockSchemaApplierThatSucceeds{}, wantFetch: true},
 		{
@@ -43,15 +53,47 @@ func TestChainApplier(t *testing.T) {
 		},
 		{desc: "tables stored, no generator answers", stored: defradb.NewSchemaApplierFromProvidedSchema(tables)},
 		{
-			desc:   "tables stored, a generator serves the same tables",
-			stored: defradb.NewSchemaApplierFromProvidedSchema(tables),
-			served: tables,
+			desc:     "tables stored, a generator serves the same tables",
+			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:   []string{tables},
+			wantRead: 1,
 		},
 		{
-			desc:    "tables stored, a generator serves other tables",
-			stored:  defradb.NewSchemaApplierFromProvidedSchema(tables),
-			served:  tables + "\ntype " + testPrefix + "__Extra { a: Int }",
-			wantErr: ErrSchemaDrift,
+			desc:       "tables stored, a generator serves other tables",
+			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:     []string{otherTables},
+			wantRead:   1,
+			wantErr:    ErrSchemaDrift,
+			wantReason: testPrefix + "__Extra",
+		},
+		{
+			desc:       "tables stored, neither of two generators serves the same tables",
+			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:     []string{otherTables, otherTables},
+			wantRead:   2,
+			wantErr:    ErrSchemaDrift,
+			wantReason: testPrefix + "__Extra",
+		},
+		{
+			desc:       "tables stored, a generator serves the same tables for another chain",
+			stored:     defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:     []string{tables},
+			network:    chain.EthereumMainnet,
+			wantRead:   1,
+			wantErr:    ErrSchemaDrift,
+			wantReason: fmt.Sprintf("network %q", chain.EthereumMainnet),
+		},
+		{
+			desc:     "tables stored, the first of two generators serves the same tables",
+			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:   []string{tables, otherTables},
+			wantRead: 1,
+		},
+		{
+			desc:     "tables stored, the second of two generators serves the same tables",
+			stored:   defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:   []string{otherTables, tables},
+			wantRead: 2,
 		},
 		{
 			desc:   "tables and attestation records stored",
@@ -61,11 +103,6 @@ func TestChainApplier(t *testing.T) {
 			desc:    "only some tables stored",
 			stored:  defradb.NewSchemaApplierFromProvidedSchema("type " + collections.Block.Name + " { number: Int }"),
 			wantErr: ErrSchemaPartiallyStored,
-		},
-		{
-			desc:    "another chain's tables stored",
-			stored:  defradb.NewSchemaApplierFromProvidedSchema(SchemaGraphQL),
-			wantErr: ErrSchemaOtherChainStored,
 		},
 	}
 
@@ -77,19 +114,37 @@ func TestChainApplier(t *testing.T) {
 			defer func() { _ = node.Close(ctx) }()
 
 			var fetched bool
+			var read int
+			network := c.network
+			if network == "" {
+				network = testPrefix
+			}
 			applier := ChainApplier{
 				Tables: func(context.Context) (string, error) {
 					fetched = true
 					return tables, c.tablesErr
 				},
-				Served:      func(context.Context) (string, bool) { return c.served, c.served != "" },
+				Served: func(context.Context) iter.Seq2[string, Response] {
+					return func(yield func(string, Response) bool) {
+						for i, sdl := range c.served {
+							read++
+							if !yield(generatorURL(i), Response{Network: network, Schema: sdl, document: parseSDL(t, sdl)}) {
+								return
+							}
+						}
+					}
+				},
 				Collections: collections,
 			}
 
 			err = applier.ApplySchema(ctx, node)
 			require.Equal(t, c.wantFetch, fetched)
+			require.Equal(t, c.wantRead, read)
 			if c.wantErr != nil {
 				require.ErrorIs(t, err, c.wantErr)
+				for i := range c.wantRead {
+					require.ErrorContains(t, err, "generator "+generatorURL(i)+": "+c.wantReason)
+				}
 				return
 			}
 			require.NoError(t, err)

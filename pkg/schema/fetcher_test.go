@@ -46,9 +46,10 @@ func serveSchema(t *testing.T, resp Response) *httptest.Server {
 
 func TestFetchSchema_Checks(t *testing.T) {
 	cases := []struct {
-		desc    string
-		resp    Response
-		wantErr error
+		desc       string
+		resp       Response
+		wantErr    error
+		noResponse bool
 	}{
 		{
 			desc:    "another chain's network",
@@ -79,9 +80,10 @@ func TestFetchSchema_Checks(t *testing.T) {
 			wantErr: ErrSchemaMissingIndexedField,
 		},
 		{
-			desc:    "schema that does not parse",
-			resp:    Response{Network: chain.EthereumMainnet, Schema: "type {"},
-			wantErr: ErrSchemaMalformedResponse,
+			desc:       "schema that does not parse",
+			resp:       Response{Network: chain.EthereumMainnet, Schema: "type {"},
+			wantErr:    ErrSchemaInvalidSDL,
+			noResponse: true,
 		},
 	}
 
@@ -91,6 +93,11 @@ func TestFetchSchema_Checks(t *testing.T) {
 
 			_, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), ethereum)
 			require.ErrorIs(t, err, c.wantErr)
+			if c.noResponse {
+				require.ErrorIs(t, err, ErrSchemaNoResponse)
+			} else {
+				require.NotErrorIs(t, err, ErrSchemaNoResponse)
+			}
 		})
 	}
 }
@@ -102,6 +109,7 @@ func TestFetchSchema_NetworkError(t *testing.T) {
 	_, err := FetchSchema(context.Background(), client, "http://127.0.0.1:1"+config.DefaultIndexerSchemaEndpoint, ethereum)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaFetchNetwork)
+	require.ErrorIs(t, err, ErrSchemaNoResponse)
 }
 
 func TestFetchSchema_HttpError(t *testing.T) {
@@ -117,6 +125,7 @@ func TestFetchSchema_HttpError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "status 500")
 	require.ErrorIs(t, err, ErrSchemaFetchStatus)
+	require.ErrorIs(t, err, ErrSchemaNoResponse)
 }
 
 func TestFetchSchema_MalformedJSON(t *testing.T) {
@@ -133,6 +142,7 @@ func TestFetchSchema_MalformedJSON(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode schema response")
 	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
+	require.ErrorIs(t, err, ErrSchemaNoResponse)
 }
 
 func TestFetchSchema_EmptySchemaField(t *testing.T) {
@@ -154,6 +164,7 @@ func TestFetchSchema_EmptySchemaField(t *testing.T) {
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv), ethereum)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaEmptyResponse)
+	require.ErrorIs(t, err, ErrSchemaNoResponse)
 }
 
 func TestFetchSchema_OversizedPayload(t *testing.T) {
@@ -173,6 +184,7 @@ func TestFetchSchema_OversizedPayload(t *testing.T) {
 	_, err := FetchSchema(context.Background(), client, testIndexerSchemaURL(srv), ethereum)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSchemaMalformedResponse)
+	require.ErrorIs(t, err, ErrSchemaNoResponse)
 }
 
 func TestNewSchemaHTTPClient(t *testing.T) {

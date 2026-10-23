@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,7 +25,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
@@ -144,10 +143,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
-	collections    chain.Collections       // Collections of the chain this host serves
-	// collectionNames maps the IDs of the chain's subscribed collections to their names. Only the
-	// attestation listener reads and writes it.
-	collectionNames map[string]string
+	chains         []chain.Collections     // The enabled chains; the attestation listener attests their block signatures
 
 	// signature verifier as a service
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
@@ -166,16 +162,16 @@ type Host struct {
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.Manager // Manages view lifecycle and processing
 
-	// Indexers seen attesting, snapshotted into service records. Nil when
-	// recording is off.
-	attesters *observedAttesters
+	// Indexers seen attesting on each enabled chain, by prefix, snapshotted into service records for
+	// the chain a billed view reads. Nil when recording is off.
+	attesters map[string]*observedAttesters
 
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
 
 	// mostRecentBlockReceived uint64
 
-	pruner *pruner.Pruner // Document pruner for removing old blocks
+	pruners []*pruner.Pruner // One document pruner per configured chain that has tables
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -209,18 +205,23 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if len(cfg.Chains) == 0 {
 		return nil, ErrNoChains
 	}
+	// The event filter and snapshots use only the first chain. Config allows them only on a host
+	// serving one chain, and that host does not start when its chain drifts.
 	served := cfg.Chains[0]
 	collections := chain.EVM(served.Prefix)
 
-	// The pruner and the retention rule share one cutoff and the same collections.
-	pruneCollections := pruner.CollectionConfigFor(collections)
-	var cutoff *pruner.Cutoff
+	// Every configured chain gets a cutoff and a retention-rule entry in pruned, in cfg.Chains order.
+	// Each chain with tables, enabled or not (all but the ones no generator answered for), gets a
+	// pruner below.
+	var pruned []prunedChain
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
-		cutoff = &pruner.Cutoff{}
-		// With snapshots enabled the pruner retains history and never sets a cutoff.
+		for _, c := range cfg.Chains {
+			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(chain.EVM(c.Prefix)), cutoff: &pruner.Cutoff{}})
+		}
+		// With snapshots enabled the pruners retain history and never set a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
-			rule = NewRetentionRule(pruneCollections, cutoff)
+			rule = NewRetentionRule(pruned)
 		}
 	}
 	// A nil *RetentionRule stored in the interface would not be nil.
@@ -240,19 +241,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	// Called only when the store has none of the chain's tables, so a restart does not depend on
-	// the chain's generators.
-	tables := func(ctx context.Context) (string, error) {
-		return resolveSchema(ctx, cfg.Schema, served, collections)
-	}
-	// Called only when the store holds the chain's tables, so a restart makes one best-effort call
-	// to the generators to compare the stored tables with the schema they serve.
-	servedSDL := func(ctx context.Context) (string, bool) {
-		return servedSchema(ctx, cfg.Schema, served)
-	}
-
-	// DefraDB would start its API in node.Start, before StartDefraInstance applies the chain's
-	// schema. The host serves it after that (startAPIServer).
+	// DefraDB would start its API in node.Start, before StartDefraInstance applies the schema. The
+	// host serves it after that (startAPIServer).
 	nodeOpts.SetDisableAPI(true)
 
 	resolveCollections := func(cols []client.Collection) {
@@ -266,14 +256,14 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	internalCfg := cfg.ToInternalConfig()
+	applier := &chainsApplier{schemaCfg: cfg.Schema, chains: cfg.Chains}
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		schema.ChainApplier{Tables: tables, Served: servedSDL, Collections: collections},
+		applier,
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
 		resolveCollections,
-		collections.Subscribed()...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %w", err)
@@ -283,34 +273,46 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	ctx := context.Background()
 
-	err = waitForDefraDB(ctx, defraNode, collections.Block.Name)
-	if err != nil {
-		return nil, err
+	enabled := make([]chain.Collections, len(applier.enabled))
+	enabledPrefixes := make([]string, len(applier.enabled))
+	for i, c := range applier.enabled {
+		enabled[i] = chain.EVM(c.Prefix)
+		enabledPrefixes[i] = c.Prefix
 	}
 
-	// Recording the served-query attesting set needs the host's observed
-	// attesters: the block-signature workers populate it and the serve path
-	// snapshots it. Built only when recording is on so the workers skip it
-	// otherwise.
-	var attesters *observedAttesters
+	// Recording the served-query attesting set needs each enabled chain's observed attesters: the
+	// chain's block-signature workers populate its set and the serve path snapshots the set of the
+	// chain a billed view reads. Built only when recording is on so the workers skip it otherwise.
+	var attesters map[string]*observedAttesters
 	if acpCfg.Enabled && acpCfg.ASBaseURL != "" {
 		window := acpCfg.AttesterWindow
 		if window <= 0 {
 			window = DefaultAttesterWindow
 		}
-		attesters = newObservedAttesters(window)
+		attesters = make(map[string]*observedAttesters, len(applier.enabled))
+		for _, c := range applier.enabled {
+			attesters[c.Prefix] = newObservedAttesters(window)
+		}
 	}
 
+	// The endpoints report every configured chain, enabled or not, in config order.
+	chainMetrics := make([]*server.ChainMetrics, len(cfg.Chains))
+	for i, c := range cfg.Chains {
+		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix)}
+		if pruned != nil {
+			chainMetrics[i].Cutoff = pruned[i].cutoff
+		}
+	}
 	newHost := &Host{
 		DefraNode:              defraNode,
 		NetworkHandler:         networkHandler,
-		collections:            collections,
+		chains:                 enabled,
 		blockSignatureVerifier: attestation.NewBlockSignatureVerifier(blockSignatureCacheSize),
 		blockCIDCollector:      attestation.NewBlockCIDCollector(),
 		webhookCleanupFunction: func() {},
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		config:                 cfg,
-		metrics:                server.NewHostMetrics(),
+		metrics:                server.NewHostMetrics(chainMetrics...),
 		attesters:              attesters,
 	}
 	logger.Sugar.Info("🔐 Block signature verifier initialized")
@@ -345,7 +347,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	// View manager has to be built before the ACP middleware because the
 	// middleware's view registry adapts the manager's accessors.
-	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, served.Prefix)
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, enabledPrefixes...)
 
 	apiHandler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
 	if err != nil {
@@ -354,7 +356,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	var handler http.Handler = apiHandler
 	var acpMiddleware *acp.Middleware
 	if acpCfg.Enabled {
-		acpMiddleware, err = newACPMiddleware(acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, attesters)
+		acpMiddleware, err = newACPMiddleware(acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, viewAttesters(viewManager, attesters))
 		if err != nil {
 			return nil, fmt.Errorf("acp middleware: %w", err)
 		}
@@ -465,16 +467,18 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
 		peerAddrs := slices.Clone(cfg.DefraDB.P2P.BootstrapPeers)
-		for _, g := range served.Generators {
-			if g.Peer != "" {
-				peerAddrs = append(peerAddrs, g.Peer)
+		for _, c := range applier.enabled {
+			for _, g := range c.Generators {
+				if g.Peer != "" {
+					peerAddrs = append(peerAddrs, g.Peer)
+				}
 			}
 		}
 
 		// Resolve bootstrap peers: auto-discover peer IDs for addresses that don't include them
 		discoveryTimeout := time.Duration(cfg.DefraDB.P2P.PeerDiscoveryTimeoutMs) * time.Millisecond
 		bootstrapPeers := resolveBootstrapPeers(context.Background(), peerAddrs, discoveryTimeout)
-		// A generator's peer may also be listed as a bootstrap peer.
+		// A generator's peer may also be listed as a bootstrap peer or under another chain.
 		slices.Sort(bootstrapPeers)
 		bootstrapPeers = slices.Compact(bootstrapPeers)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
@@ -531,18 +535,28 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
 	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
 
-	// Initialize pruner for removing old replicated blocks
+	// Initialize the pruners for removing old replicated blocks
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff, pruneCollections)
-		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
+		for i, c := range cfg.Chains {
+			// A chain no generator answered for has no tables to prune.
+			if slices.Contains(applier.unanswered, c.Prefix) {
+				continue
+			}
+			chainCfg := cfg.Pruner
+			if c.MaxBlocks > 0 {
+				chainCfg.MaxBlocks = c.MaxBlocks
+			}
+			p := pruner.NewPruner(&chainCfg, defraNode, pruned[i].cutoff, pruned[i].collections)
+			p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
-		if err := p.Start(ctx); err != nil {
-			logger.Sugar.Warnf("Failed to start pruner: %v", err)
+			if err := p.Start(ctx); err != nil {
+				logger.Sugar.Warnf("Failed to start pruner: %v (chain: %s)", err, c.Prefix)
+			}
+
+			newHost.pruners = append(newHost.pruners, p)
 		}
-
-		newHost.pruner = p
 	}
 
 	go newHost.reportStats(processingCtx)
@@ -574,12 +588,12 @@ func (h *Host) IsHealthy() bool {
 	return h.DefraNode != nil
 }
 
-// GetCurrentBlock returns the most recent block height that the host has processed, based on the host's metrics. This is used for monitoring the progress of block processing and data freshness.
-func (h *Host) GetCurrentBlock() int64 {
-	if h.metrics != nil {
-		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock)) //nolint:gosec // block numbers won't exceed int64 max
+// ChainStatuses returns each configured chain's status, in config order, or nil without host metrics.
+func (h *Host) ChainStatuses() []server.ChainStatus {
+	if h.metrics == nil {
+		return nil
 	}
-	return 0
+	return h.metrics.ChainStatuses()
 }
 
 // ProcessViewRegistrationEvent processes a view registration event.
@@ -751,7 +765,7 @@ func incrementPort(apiURL string) (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
-// Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruner,
+// Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruners,
 // shuts down the playground and API servers, drains the in-flight billing service records, and
 // closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
@@ -770,10 +784,14 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
-	if h.pruner != nil {
-		h.pruner.Stop(ctx)
-		h.pruner = nil
+	// Each pruner stops in its own goroutine, so no pruner waits for another's cycle before it is
+	// signalled, and all of them share the one budget.
+	var stopping sync.WaitGroup
+	for _, p := range h.pruners {
+		stopping.Go(func() { p.Stop(ctx) })
 	}
+	stopping.Wait()
+	h.pruners = nil
 
 	// Close the playground server if it's running
 	if h.playgroundServer != nil {
@@ -821,9 +839,9 @@ func (h *Host) Close(ctx context.Context) error {
 
 // buildRecording constructs service-record submission when an accounting service
 // URL is configured; otherwise the gate serves without recording. attesters
-// supplies the observed attesting set snapshotted into each record, and is
-// non-nil whenever an accounting service URL is set.
-func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters *observedAttesters) (*acp.Recording, error) {
+// supplies the observed attesting set snapshotted into each record for the chain
+// the billed view reads.
+func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters func(view string) []string) (*acp.Recording, error) {
 	if acpCfg.ASBaseURL == "" {
 		return nil, nil //nolint:nilnil // (nil recording, nil error) signals billing is disabled, a valid state
 	}
@@ -834,7 +852,7 @@ func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *n
 	client := accounting.NewClient(acpCfg.ASBaseURL, acp.DefaultRecordTimeout)
 	return &acp.Recording{
 		Recorder:  accounting.NewRecorder(client, nodeKey, acpCfg.ChainID),
-		Attesters: attesters.Snapshot,
+		Attesters: attesters,
 	}, nil
 }
 
@@ -847,7 +865,7 @@ func newACPMiddleware(
 	hubBaseURL string,
 	defraNode *node.Node,
 	viewManager *view.Manager,
-	attesters *observedAttesters,
+	attesters func(view string) []string,
 ) (*acp.Middleware, error) {
 	if hubBaseURL == "" {
 		return nil, errHubBaseURLMissing
@@ -939,32 +957,6 @@ func (h *Host) GetMetricsHandler() http.Handler {
 	return h.metrics
 }
 
-// waitForDefraDB polls the embedded DefraDB node until a trivial schema query
-// succeeds. Returns an error after maxAttempts seconds if the node never
-// responds, e.g. because schema setup failed upstream.
-func waitForDefraDB(ctx context.Context, defraNode *node.Node, blockCollection string) error {
-	fmt.Println("Waiting for defra...")
-	maxAttempts := 30
-
-	// Simple query to check if the schema is ready
-	query := `{ ` + blockCollection + ` { __typename } }`
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := defradb.QuerySingle[map[string]any](ctx, defraNode, query)
-		if err == nil {
-			fmt.Println("Defra is responsive!")
-			return nil
-		}
-
-		if attempt < maxAttempts {
-			fmt.Printf("Attempt %d failed... Trying again\n", attempt)
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	return fmt.Errorf("after %d retry attempts: %w", maxAttempts, ErrDefraDBNotReady)
-}
-
 func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohub.ShinzoEvent) {
 	for {
 		select {
@@ -1029,7 +1021,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 // StartHostingWithTestConfig starts the host with a test configuration, including a temporary DefraDB store path and dynamic health server port. This is used for testing to avoid conflicts with existing instances and to ensure isolation.
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
-	testConfig := DefaultConfig
+	testConfig := *DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.URL = "127.0.0.1:0"
 
@@ -1037,7 +1029,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig.Shinzo.StartHeight = 0
 
 	// Create host with dynamic health server port
-	host, err := StartHosting(testConfig)
+	host, err := StartHosting(&testConfig)
 	if err != nil {
 		return nil, err
 	}
