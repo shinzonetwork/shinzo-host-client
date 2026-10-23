@@ -2,7 +2,9 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -10,13 +12,19 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// resolveSchema returns the schema of the chain the host serves: the first usable schema from the
-// chain's generators, tried in order, or the built-in schema when no generator is configured or
-// none serves a usable one. Each request gets the timeout from schemaCfg.
-func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config, collections chain.Collections) string {
+// resolveSchema returns the schema of the chain the host serves. With generators configured, it is
+// the first usable schema they serve, tried in order, or errNoGeneratorSchema when none serves one.
+// With none configured, Ethereum mainnet uses the built-in schema and any other chain gets
+// errNoChainSchema. The built-in schema is never a fallback: generators may serve tables that
+// differ from it, and a host whose tables differ receives none of the chain's data. Each request
+// gets the timeout from schemaCfg.
+func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config, collections chain.Collections) (string, error) {
 	if len(served.Generators) == 0 {
+		if served.Prefix != chain.EthereumMainnet {
+			return "", fmt.Errorf("no generators configured: %w", errNoChainSchema)
+		}
 		logger.Sugar.Infof("No generators configured for %s, using the built-in schema", served.Prefix)
-		return schema.GetSchema()
+		return schema.GetSchema(), nil
 	}
 
 	client := schema.NewSchemaHTTPClient(schemaCfg)
@@ -31,9 +39,41 @@ func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served ch
 			continue
 		}
 		logger.Sugar.Infof("Using the schema from generator %s", g.URL)
-		return sdl
+		return sdl, nil
 	}
 
-	logger.Sugar.Warnf("No generator served a usable schema for %s, using the built-in schema", served.Prefix)
-	return schema.GetSchema()
+	return "", errNoGeneratorSchema
+}
+
+// servedSchema returns the schema served by the first of the chain's generators to answer, tried in
+// order, or false when none answers. A generator answers when it returns a schema for the served
+// chain. The schema is returned unchecked, so that every difference from the stored tables counts.
+// The requests share one deadline, the timeout schemaCfg gives a single request, which bounds this
+// chain's check: generators that do not answer delay it by that timeout once, not once each, and a
+// generator that hangs leaves less of it, or none, for the ones after it.
+func servedSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config) (string, bool) {
+	// A zero timeout leaves the requests unbounded, as it does in the HTTP client.
+	if schemaCfg.HTTPClientTimeoutSecs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(schemaCfg.HTTPClientTimeoutSecs)*time.Second)
+		defer cancel()
+	}
+	client := schema.NewSchemaHTTPClient(schemaCfg)
+	for _, g := range served.Generators {
+		var resp schema.Response
+		schemaURL, err := url.JoinPath(g.URL, schemaCfg.IndexerSchemaEndpoint)
+		if err == nil {
+			resp, err = schema.FetchResponse(ctx, client, schemaURL)
+		}
+		if err == nil && resp.Network != served.Prefix {
+			err = fmt.Errorf("network %q: %w", resp.Network, schema.ErrSchemaWrongNetwork)
+		}
+		if err != nil {
+			logger.Sugar.Warnf("Generator %s did not answer for %s: %v", g.URL, served.Prefix, err)
+			continue
+		}
+		return resp.Schema, true
+	}
+	logger.Sugar.Warnf("No generator answered for %s, so the stored tables are not compared with a served schema", served.Prefix)
+	return "", false
 }

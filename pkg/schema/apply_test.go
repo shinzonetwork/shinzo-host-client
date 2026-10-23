@@ -2,6 +2,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 func TestChainApplier(t *testing.T) {
 	collections := chain.EVM(testPrefix)
 	tables := strings.ReplaceAll(SchemaGraphQL, chain.EthereumMainnet, testPrefix)
-	applier := ChainApplier{Tables: tables, Collections: collections}
+	errUnavailable := errors.New("tables unavailable")
 
 	want := []string{collections.AttestationRecord.Name}
 	for _, c := range collections.Generated() {
@@ -24,12 +25,34 @@ func TestChainApplier(t *testing.T) {
 	sort.Strings(want)
 
 	cases := []struct {
-		desc    string
-		stored  defradb.SchemaApplier
-		wantErr error
+		desc      string
+		stored    defradb.SchemaApplier
+		tablesErr error
+		// served is the SDL a generator serves; empty means no generator answers.
+		served    string
+		wantFetch bool
+		wantErr   error
 	}{
-		{desc: "empty database", stored: &defradb.MockSchemaApplierThatSucceeds{}},
-		{desc: "tables stored", stored: defradb.NewSchemaApplierFromProvidedSchema(tables)},
+		{desc: "empty database", stored: &defradb.MockSchemaApplierThatSucceeds{}, wantFetch: true},
+		{
+			desc:      "empty database, tables unavailable",
+			stored:    &defradb.MockSchemaApplierThatSucceeds{},
+			tablesErr: errUnavailable,
+			wantFetch: true,
+			wantErr:   errUnavailable,
+		},
+		{desc: "tables stored, no generator answers", stored: defradb.NewSchemaApplierFromProvidedSchema(tables)},
+		{
+			desc:   "tables stored, a generator serves the same tables",
+			stored: defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served: tables,
+		},
+		{
+			desc:    "tables stored, a generator serves other tables",
+			stored:  defradb.NewSchemaApplierFromProvidedSchema(tables),
+			served:  tables + "\ntype " + testPrefix + "__Extra { a: Int }",
+			wantErr: ErrSchemaDrift,
+		},
 		{
 			desc:   "tables and attestation records stored",
 			stored: defradb.NewSchemaApplierFromProvidedSchema(tables + "\n" + attestationRecordSchema(collections)),
@@ -53,7 +76,18 @@ func TestChainApplier(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { _ = node.Close(ctx) }()
 
+			var fetched bool
+			applier := ChainApplier{
+				Tables: func(context.Context) (string, error) {
+					fetched = true
+					return tables, c.tablesErr
+				},
+				Served:      func(context.Context) (string, bool) { return c.served, c.served != "" },
+				Collections: collections,
+			}
+
 			err = applier.ApplySchema(ctx, node)
+			require.Equal(t, c.wantFetch, fetched)
 			if c.wantErr != nil {
 				require.ErrorIs(t, err, c.wantErr)
 				return

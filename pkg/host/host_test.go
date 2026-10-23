@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
@@ -232,7 +234,7 @@ func TestHost_GetActiveViewNames(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := view.NewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir(), testCollections.Prefix)
 
 	host := &Host{
 		DefraNode:   defraNode,
@@ -274,7 +276,7 @@ func TestHost_Close(t *testing.T) {
 		processingCancel: func() {
 			cancelCalled = true
 		},
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	err = host.Close(ctx)
@@ -364,7 +366,7 @@ func TestHost_WithRealDefraDB(t *testing.T) {
 		},
 	}
 
-	vm := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
+	vm := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, testCollections.Prefix)
 
 	host := &Host{
 		DefraNode:              defraNode,
@@ -393,7 +395,7 @@ func TestHost_ViewManagerIntegration(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	host := &Host{
 		DefraNode:        defraNode,
@@ -620,7 +622,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingQuery(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	// No query set (nil)
@@ -641,7 +643,7 @@ func TestHost_ProcessViewRegistrationEvent_MissingSDL(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	query := "SELECT * FROM something"
@@ -667,7 +669,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptyQuery(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	emptyStr := ""
@@ -693,7 +695,7 @@ func TestHost_ProcessViewRegistrationEvent_EmptySDL(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	host := &Host{
-		viewManager: view.NewManager(defraNode, t.TempDir()),
+		viewManager: view.NewManager(defraNode, t.TempDir(), testCollections.Prefix),
 	}
 
 	query := "SELECT * FROM something"
@@ -1055,7 +1057,7 @@ func TestHost_ProcessViewRegistrationEvent_WithLenses(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		DefraNode:        defraNode,
@@ -1097,7 +1099,7 @@ func TestHost_ProcessViewRegistrationEvent_WithViewManager(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		DefraNode:        defraNode,
@@ -1136,7 +1138,7 @@ func TestHost_RegisterViewWithManager_WithViewManager(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := view.NewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir(), testCollections.Prefix)
 	h := &Host{
 		DefraNode:   defraNode,
 		viewManager: vm,
@@ -1166,7 +1168,7 @@ func TestHost_Close_WithViewManager(t *testing.T) {
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 
-	vm := view.NewManager(defraNode, t.TempDir())
+	vm := view.NewManager(defraNode, t.TempDir(), testCollections.Prefix)
 
 	playgroundServer := &http.Server{
 		Addr:              ":0",
@@ -1357,7 +1359,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithLenses(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1414,7 +1416,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithViewManager(t *testing.T) 
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1558,7 +1560,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_WithBase64Lens(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1619,7 +1621,7 @@ func TestHandleIncomingEvents_ViewRegisteredEvent_NoLenses_WithViewManager(t *te
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := view.NewManager(defraNode, registryPath)
+	vm := view.NewManager(defraNode, registryPath, testCollections.Prefix)
 
 	h := &Host{
 		viewManager:      vm,
@@ -1690,16 +1692,17 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	addr, ok := listener.Addr().(*net.TCPAddr)
 	require.True(t, ok)
 	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
 
 	cfg := *DefaultConfig
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = testLoopbackAddr
 	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
 	cfg.HostConfig.HealthServerPort = addr.Port
-	cfg.Schema.HTTPClientTimeoutSecs = 1
 	cfg.Chains = []chain.Config{{
 		Prefix:     chain.EthereumMainnet,
-		Generators: []chain.Generator{{URL: "http://127.0.0.1:1", Peer: testPeerMultiaddr}},
+		Generators: []chain.Generator{{URL: generator.URL, Peer: testPeerMultiaddr}},
 	}}
 
 	h, err := StartHosting(&cfg)
@@ -1711,4 +1714,40 @@ func TestStartHosting_AddsGeneratorPeers(t *testing.T) {
 	})
 
 	require.Contains(t, h.NetworkHandler.GetPeers(), testPeerMultiaddr)
+}
+
+// A restart compares the stored tables with the schema the chain's generator serves, and refuses to
+// start when they differ.
+func TestStartHosting_RefusesDriftedStore(t *testing.T) {
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	generator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(generator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Chains = []chain.Config{{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: generator.URL}}}}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, h.Close(ctx))
+
+	withExtraTable := generatorSchema(t) + "\ntype " + chain.EthereumMainnet + "__Extra { a: Int }"
+	drifted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: chain.EthereumMainnet, Schema: withExtraTable}))
+	}))
+	t.Cleanup(drifted.Close)
+	cfg.Chains = []chain.Config{{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: drifted.URL}}}}
+
+	_, err = StartHosting(&cfg)
+	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
 }
