@@ -39,6 +39,19 @@ The app reads from `config/config.yaml`. The only field you must set is `defradb
 
 See [docs.shinzo.network](https://docs.shinzo.network/hosts/overview) for the full configuration reference.
 
+## Metrics
+
+Metrics are off by default. To export them over OTLP (e.g. to Grafana Cloud), set these in the environment or in a `.env` file next to the compose file:
+
+```shell
+OTEL_METRICS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-<region>.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64 of instanceID:token>
+OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<unique-node-id>
+```
+
+If metrics are enabled but misconfigured (e.g. a malformed `OTEL_RESOURCE_ATTRIBUTES` entry or an unknown exporter), the host refuses to start.
+
 ## Deployment
 
 See the [Shinzo documentation site](https://docs.shinzo.network) for production deployment instructions, hardware requirements, and network topology guidance.

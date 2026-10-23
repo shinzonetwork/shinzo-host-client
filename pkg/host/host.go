@@ -168,6 +168,7 @@ type Host struct {
 
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
+	instruments  hostMetrics
 
 	// mostRecentBlockReceived uint64
 
@@ -186,7 +187,10 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		cfg = DefaultConfig
 	}
 
-	logger.Init(cfg.Logger.Development, "./logs")
+	// main initializes the logger; this fallback covers library and test callers.
+	if logger.Sugar == nil {
+		logger.Init(cfg.Logger.Development, "./logs")
+	}
 
 	// Load ACP middleware configuration from the environment before any
 	// defradb work so a misconfigured host fails fast instead of starting
@@ -320,6 +324,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
 		config:                 cfg,
 		metrics:                server.NewHostMetrics(chainMetrics...),
+		instruments:            newHostMetrics(enabled),
 		attesters:              attesters,
 	}
 	logger.Sugar.Info("🔐 Block signature verifier initialized")
@@ -426,6 +431,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	newHost.apiHandler = apiHandler
 	newHost.acpMiddleware = acpMiddleware
 	newHost.playgroundServer = playgroundServer
+
+	newHost.instruments.gaugesRegistration = registerHostGauges(newHost)
 
 	// Hook up metrics callback for view tracking
 	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
@@ -765,6 +772,7 @@ func incrementPort(apiURL string) (string, error) {
 // shuts down the playground and API servers, drains the in-flight billing service records, and
 // closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
+	h.instruments.unregister()
 	h.webhookCleanupFunction()
 	h.processingCancel()
 	if h.listenerDone != nil {
