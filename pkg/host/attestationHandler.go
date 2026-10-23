@@ -470,36 +470,43 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chai
 			}
 			// Non-retryable error
 			logger.Sugar.Warnf("Failed to post attestation for block %d: %v (chain: %s)", blockNumber, err, c.Prefix)
-			if m != nil {
-				m.AttestationErrors.Add(1)
-			}
-			if o != nil && !errors.Is(err, context.Canceled) {
-				h.instruments.attestations.Add(ctx, 1, o.failure)
-			}
+			h.attestationFailed(ctx, m, o, err)
 			return
 		}
-		if o != nil {
-			h.instruments.attestations.Add(ctx, 1, o.success)
-		}
-		if created {
-			if m != nil {
-				m.AttestationsCreated.Add(1)
-			}
-			logger.Sugar.Infof("Created attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
-		} else {
-			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
-		}
-		if m != nil {
-			m.UpdateCurrentBlock(blockNumber)
-		}
+		h.attestationPosted(ctx, c, m, o, blockSig, created)
 		return
 	}
 
 	logger.Sugar.Warnf("Failed to post attestation for block %d after retries: %v (chain: %s)", blockNumber, lastErr, c.Prefix)
+	h.attestationFailed(ctx, m, o, lastErr)
+}
+
+// attestationPosted counts and logs the attestation record of blockSig's block written on chain c.
+func (h *Host) attestationPosted(ctx context.Context, c chain.Collections, m *server.ChainMetrics, o *chainInstruments, blockSig *attestationService.BlockSignature, created bool) {
+	blockNumber := blockSig.BlockNumber
+	if o != nil {
+		h.instruments.attestations.Add(ctx, 1, o.success)
+	}
+	if created {
+		if m != nil {
+			m.AttestationsCreated.Add(1)
+		}
+		logger.Sugar.Infof("Created attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
+	} else {
+		logger.Sugar.Infof("Updated attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
+	}
+	if m != nil {
+		m.UpdateCurrentBlock(blockNumber)
+	}
+}
+
+// attestationFailed counts an attestation record that could not be written. A cancellation is
+// not an attestation failure, so the OTel counter skips it.
+func (h *Host) attestationFailed(ctx context.Context, m *server.ChainMetrics, o *chainInstruments, err error) {
 	if m != nil {
 		m.AttestationErrors.Add(1)
 	}
-	if o != nil {
+	if o != nil && !errors.Is(err, context.Canceled) {
 		h.instruments.attestations.Add(ctx, 1, o.failure)
 	}
 }
