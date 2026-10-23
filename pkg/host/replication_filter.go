@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
 
 // EventReplicationFilter implements client.ReplicationFilter using the
@@ -13,17 +13,18 @@ import (
 // decides whether the document should be stored based on contract addresses,
 // event topics, and block-number ranges defined in the configuration.
 type EventReplicationFilter struct {
-	cfg config.EventFilterConfig
+	cfg         config.EventFilterConfig
+	collections chain.Collections
 }
 
-// NewEventReplicationFilter creates a filter from the given config.
+// NewEventReplicationFilter creates a filter that applies cfg to the collections of one chain.
 // Returns nil if the filter is not enabled so callers can pass nil directly
 // to StartDefraInstance (which disables filtering).
-func NewEventReplicationFilter(cfg config.EventFilterConfig) *EventReplicationFilter {
+func NewEventReplicationFilter(cfg config.EventFilterConfig, collections chain.Collections) *EventReplicationFilter {
 	if !cfg.Enabled {
 		return nil
 	}
-	return &EventReplicationFilter{cfg: cfg}
+	return &EventReplicationFilter{cfg: cfg, collections: collections}
 }
 
 // AllowReplication implements client.ReplicationFilter.
@@ -35,9 +36,9 @@ func (f *EventReplicationFilter) AllowReplication(
 ) bool {
 	// Structural collections always pass — we never filter blocks or block signatures.
 	switch collectionID {
-	case constants.CollectionBlock:
+	case f.collections.Block.Name:
 		return f.allowBlock(fields)
-	case constants.CollectionBlockSignature, constants.CollectionSnapshotSignature:
+	case f.collections.BlockSignature.Name, f.collections.SnapshotSignature.Name:
 		return true
 	}
 
@@ -48,11 +49,11 @@ func (f *EventReplicationFilter) AllowReplication(
 	}
 
 	switch collectionID {
-	case constants.CollectionTransaction:
+	case f.collections.Transaction.Name:
 		return f.allowTransaction(fields)
-	case constants.CollectionLog:
+	case f.collections.Log.Name:
 		return f.allowLog(fields)
-	case constants.CollectionAccessListEntry:
+	case f.collections.AccessListEntry.Name:
 		return f.allowAccessListEntry(fields)
 	default:
 		// Unknown collection — let it through.

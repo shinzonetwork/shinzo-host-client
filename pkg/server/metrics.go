@@ -11,7 +11,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
@@ -100,20 +99,29 @@ func (m *HostMetrics) IncrementDocumentsReceived() {
 	m.LastDocumentTime = time.Now()
 }
 
-// IncrementDocumentByType atomically increments the counter for a specific document type.
-func (m *HostMetrics) IncrementDocumentByType(docType string) {
-	switch docType {
-	case constants.CollectionBlock:
-		atomic.AddInt64(&m.BlocksProcessed, 1)
-	case constants.CollectionTransaction:
-		atomic.AddInt64(&m.TransactionsProcessed, 1)
-	case constants.CollectionLog:
-		atomic.AddInt64(&m.LogsProcessed, 1)
-	case constants.CollectionAccessListEntry:
-		atomic.AddInt64(&m.AccessListsProcessed, 1)
-	case constants.CollectionBlockSignature:
-		atomic.AddInt64(&m.BlockSignaturesProcessed, 1)
-	}
+// IncrementBlocksProcessed atomically increments the blocks processed counter.
+func (m *HostMetrics) IncrementBlocksProcessed() {
+	atomic.AddInt64(&m.BlocksProcessed, 1)
+}
+
+// IncrementTransactionsProcessed atomically increments the transactions processed counter.
+func (m *HostMetrics) IncrementTransactionsProcessed() {
+	atomic.AddInt64(&m.TransactionsProcessed, 1)
+}
+
+// IncrementLogsProcessed atomically increments the logs processed counter.
+func (m *HostMetrics) IncrementLogsProcessed() {
+	atomic.AddInt64(&m.LogsProcessed, 1)
+}
+
+// IncrementAccessListsProcessed atomically increments the access lists processed counter.
+func (m *HostMetrics) IncrementAccessListsProcessed() {
+	atomic.AddInt64(&m.AccessListsProcessed, 1)
+}
+
+// IncrementBlockSignaturesProcessed atomically increments the block signatures processed counter.
+func (m *HostMetrics) IncrementBlockSignaturesProcessed() {
+	atomic.AddInt64(&m.BlockSignaturesProcessed, 1)
 }
 
 // IncrementViewsRegistered atomically increments the views registered counter.
