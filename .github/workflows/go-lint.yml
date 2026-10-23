@@ -33,6 +33,7 @@ jobs:
       uses: golangci/golangci-lint-action@v9
       with:
         version: v2.15.0
+        args: --build-tags integration
 
     # Collection names come from pkg/chain.
     - name: No hardcoded chain prefix

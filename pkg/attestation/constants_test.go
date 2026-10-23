@@ -14,9 +14,6 @@ const (
 	testCIDA1 = "cid-a1"
 	testCIDB1 = "cid-b1"
 
-	// Source doc IDs used across attestation-record test fixtures.
-	testSource1 = "source-1"
-
 	// Signature identity / value fixtures.
 	testSigAabb = "aabb"
 	testSigCcdd = "ccdd"
@@ -24,8 +21,6 @@ const (
 	// DefraDB doc-type and collection fixture names.
 	testDocType        = "TestDoc"
 	testDocTypeBlock   = "Block"
-	testDocTypeA       = "TypeA"
-	testDocTypeB       = "TypeB"
 	testCollectionName = "MyCollection"
 	testAttestedDocID  = "attested-doc-123"
 	testParsePubKeyErr = "failed to parse public key"
