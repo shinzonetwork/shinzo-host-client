@@ -66,5 +66,6 @@ jobs:
             CHAIN=${{ steps.meta.outputs.chain }}
             NETWORK=${{ steps.meta.outputs.network }}
             TAGS=hostplayground
+            VERSION=sha-${{ steps.short_sha.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
