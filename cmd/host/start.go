@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
 
 func startCmd() *cobra.Command {
@@ -14,10 +16,8 @@ func startCmd() *cobra.Command {
 		Short: "Run the Shinzo Host",
 		Long: `Run the Shinzo Host.
 
-If no config exists yet at the resolved location, start creates one from
-defaults automatically. Running init first is optional, not required.
-Use init instead when you want to set things up, e.g. pass overrides to
-save, before the first start.`,
+Requires an already-initialized instance: run init first. start never
+creates config.toml and never generates keys on its own.`,
 		Example: `  host start
   host start --config /data/shinzo-host/config.toml
   host start --home /data/shinzo-host
@@ -33,22 +33,19 @@ save, before the first start.`,
 	return cmd
 }
 
-func runStart(cmd *cobra.Command, _ []string) error {
+func runStart(cmd *cobra.Command, _ []string) (err error) {
 	home, err := cmd.Flags().GetString("home")
 	if err != nil {
 		return err
 	}
-
 	dataDir, err := cmd.Flags().GetString("data-dir")
 	if err != nil {
 		return err
 	}
-
 	configPath, err := cmd.Flags().GetString("config")
 	if err != nil {
 		return err
 	}
-
 	overrides, err := getOverrides(cmd)
 	if err != nil {
 		return err
@@ -56,6 +53,18 @@ func runStart(cmd *cobra.Command, _ []string) error {
 
 	cfg, err := hostconfig.Load(home, dataDir, configPath, overrides)
 	if err != nil {
+		if errors.Is(err, hostconfig.ErrConfigNotFound) {
+			return fmt.Errorf("%w: run \"host init\" first", err)
+		}
+		return err
+	}
+
+	nodeKeys, err := hostkey.Load(cfg.KeyDir)
+	if err != nil {
+		if errors.Is(err, hostkey.ErrNoKeys) {
+			return fmt.Errorf("%w at %s: run \"host init\" to set up new keys, or \"host init --%s <file>\" to restore existing ones",
+				err, cfg.KeyDir, recoverFileFlag)
+		}
 		return err
 	}
 
@@ -63,5 +72,5 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	return printConfig(cmd.OutOrStdout(), cfg)
+	return printConfig(cmd.OutOrStdout(), cfg, nodeKeys)
 }

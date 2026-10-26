@@ -11,12 +11,12 @@ import (
 // getOverrides reads back whichever flags the caller actually changed
 // from their default. An override flag is any flag named with a dot
 // (e.g. "logger.level"), the same shape hostconfig expects its override
-// keys in; anything else (e.g. --help, --home) is skipped. Note this
+// keys in. Anything else (e.g. --help, --home) is skipped. Note this
 // walks cmd.Flags(), which cobra merges with inherited persistent flags
-// from parent commands at Execute time — fine today since root has no
-// persistent flags, but worth remembering if one is ever added with a dot
-// in its name. The result is ready to pass straight into
-// hostconfig.Setup or hostconfig.Load.
+// from parent commands at Execute time. That's fine today since root has
+// no persistent flags, but worth remembering if one is ever added with a
+// dot in its name. The result is ready to pass straight into
+// hostconfig.Prepare or hostconfig.Load.
 func getOverrides(cmd *cobra.Command) (map[string]any, error) {
 	overrides := map[string]any{}
 
