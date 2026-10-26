@@ -3,9 +3,12 @@ package host
 import (
 	"context"
 	"strings"
+	"sync/atomic"
+
+	"github.com/sourcenetwork/defradb/client"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
 
 // EventReplicationFilter implements client.ReplicationFilter using the
@@ -13,31 +16,58 @@ import (
 // decides whether the document should be stored based on contract addresses,
 // event topics, and block-number ranges defined in the configuration.
 type EventReplicationFilter struct {
-	cfg config.EventFilterConfig
+	cfg         config.EventFilterConfig
+	collections chain.Collections
+	// names maps a collection ID or version ID to the collection's name.
+	names atomic.Pointer[map[string]string]
 }
 
-// NewEventReplicationFilter creates a filter from the given config.
+// NewEventReplicationFilter creates a filter that applies cfg to the collections of one chain.
 // Returns nil if the filter is not enabled so callers can pass nil directly
 // to StartDefraInstance (which disables filtering).
-func NewEventReplicationFilter(cfg config.EventFilterConfig) *EventReplicationFilter {
+func NewEventReplicationFilter(cfg config.EventFilterConfig, collections chain.Collections) *EventReplicationFilter {
 	if !cfg.Enabled {
 		return nil
 	}
-	return &EventReplicationFilter{cfg: cfg}
+	return &EventReplicationFilter{cfg: cfg, collections: collections}
 }
 
-// AllowReplication implements client.ReplicationFilter.
+// ResolveCollections maps the collection ID and the version ID of each of cols to its name.
+// DefraDB names a document's collection by collection ID, and a replicator retry by version ID,
+// which differs from the collection ID once the collection is patched. The IDs exist only once the
+// schema is applied, so until this runs the filter cannot tell which rules apply and allows every
+// document: DefraDB treats a refusal as final, so refusing then could drop a document the rules
+// would keep.
+func (f *EventReplicationFilter) ResolveCollections(cols []client.Collection) {
+	names := make(map[string]string, len(cols))
+	for _, col := range cols {
+		names[col.CollectionID()] = col.Name()
+		names[col.VersionID()] = col.Name()
+	}
+	f.names.Store(&names)
+}
+
+// AllowReplication implements client.ReplicationFilter. DefraDB can ask before a document's field
+// values have arrived and treats a refusal as final, so a rule that needs a missing field allows
+// the document; DefraDB asks again once it has fetched the values. Every document is allowed until
+// ResolveCollections has run.
 func (f *EventReplicationFilter) AllowReplication(
 	_ context.Context,
 	collectionID string,
 	_ string,
 	fields map[string]any,
 ) bool {
-	// Structural collections always pass — we never filter blocks or block signatures.
-	switch collectionID {
-	case constants.CollectionBlock:
+	names := f.names.Load()
+	if names == nil {
+		return true
+	}
+	name := (*names)[collectionID]
+
+	// A block is checked against the block range by its number; signatures always pass.
+	switch name {
+	case f.collections.Block.Name:
 		return f.allowBlock(fields)
-	case constants.CollectionBlockSignature, constants.CollectionSnapshotSignature:
+	case f.collections.BlockSignature.Name, f.collections.SnapshotSignature.Name:
 		return true
 	}
 
@@ -47,12 +77,12 @@ func (f *EventReplicationFilter) AllowReplication(
 		return false
 	}
 
-	switch collectionID {
-	case constants.CollectionTransaction:
+	switch name {
+	case f.collections.Transaction.Name:
 		return f.allowTransaction(fields)
-	case constants.CollectionLog:
+	case f.collections.Log.Name:
 		return f.allowLog(fields)
-	case constants.CollectionAccessListEntry:
+	case f.collections.AccessListEntry.Name:
 		return f.allowAccessListEntry(fields)
 	default:
 		// Unknown collection — let it through.
@@ -82,17 +112,26 @@ func (f *EventReplicationFilter) allowBlock(fields map[string]any) bool {
 }
 
 func (f *EventReplicationFilter) allowTransaction(fields map[string]any) bool {
+	if !hasFields(fields, "to") {
+		return true
+	}
 	to, _ := fieldString(fields, "to")
 	return f.matchesGroups(to, nil, colTypeTransaction)
 }
 
 func (f *EventReplicationFilter) allowLog(fields map[string]any) bool {
+	if !hasFields(fields, "address", "topics") {
+		return true
+	}
 	addr, _ := fieldString(fields, "address")
 	topics := fieldStringSlice(fields, "topics")
 	return f.matchesGroups(addr, topics, colTypeLog)
 }
 
 func (f *EventReplicationFilter) allowAccessListEntry(fields map[string]any) bool {
+	if !hasFields(fields, "address") {
+		return true
+	}
 	addr, _ := fieldString(fields, "address")
 	return f.matchesGroups(addr, nil, colTypeAccessListEntry)
 }
@@ -234,6 +273,16 @@ func (f *EventReplicationFilter) inBlockRange(fields map[string]any) bool {
 // ---------------------------------------------------------------------------
 // Field extraction helpers
 // ---------------------------------------------------------------------------
+
+// hasFields reports whether fields holds every key. A key holding nil is present: the field is null.
+func hasFields(fields map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := fields[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
 
 func fieldString(fields map[string]any, key string) (string, bool) {
 	v, ok := fields[key]

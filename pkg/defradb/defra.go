@@ -307,7 +307,10 @@ func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg DefraP2PConfi
 }
 
 // StartDefraInstance initializes and starts a DefraDB node instance with the provided configuration.
-func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, retentionRule client.RetentionRule, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
+// resolveCollections, if not nil, receives the stored collections after the node starts and again
+// after the schema is applied, so the replication filter and retention rule know the collection IDs
+// before any peer is dialled.
+func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, retentionRule client.RetentionRule, resolveCollections func([]client.Collection)) (*node.Node, *NetworkHandler, error) { //nolint:funlen //TODO fix length
 	ctx := context.Background()
 
 	if cfg == nil {
@@ -411,20 +414,17 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 		return nil, nil, fmt.Errorf("failed to start defra node: %w ", err)
 	}
 
+	// A restarted node rejoins its stored collections' topics while it starts, so documents can
+	// arrive before the schema is applied.
+	resolveStoredCollections(ctx, defraNode, resolveCollections)
+
 	err = schemaApplier.ApplySchema(ctx, defraNode)
 	if err != nil {
-		if strings.Contains(err.Error(), "collection already exists") {
-			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
-		} else {
-			defer func() { _ = defraNode.Close(ctx) }()
-			return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
-		}
+		defer func() { _ = defraNode.Close(ctx) }()
+		return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
-	err = defraNode.DB.AddP2PCollections(ctx, collectionsOfInterest)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to add collections of interest %v: %w", collectionsOfInterest, err)
-	}
+	resolveStoredCollections(ctx, defraNode, resolveCollections)
 
 	// Create network handler
 	networkHandler := NewNetworkHandler(defraNode, cfg)
@@ -443,8 +443,24 @@ func StartDefraInstance(cfg *Config, schemaApplier SchemaApplier, nodeOpts []opt
 	return defraNode, networkHandler, nil
 }
 
+// resolveStoredCollections passes the collections the store holds to resolve. A store that holds
+// none is skipped: it has no IDs to map until the schema is applied.
+func resolveStoredCollections(ctx context.Context, n *node.Node, resolve func([]client.Collection)) {
+	if resolve == nil {
+		return
+	}
+	cols, err := n.DB.GetCollections(ctx)
+	if err != nil {
+		logger.Sugar.Errorf("Could not read the stored collections to map their IDs: %v", err)
+		return
+	}
+	if len(cols) > 0 {
+		resolve(cols)
+	}
+}
+
 // StartDefraInstanceWithTestConfig is a simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test.
-func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier SchemaApplier, collectionsOfInterest ...string) (*node.Node, error) {
+func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier SchemaApplier) (*node.Node, error) {
 	ipAddress, err := getLANIP()
 	if err != nil {
 		return nil, err
@@ -458,7 +474,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *Config, schemaApplier S
 	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
 	cfg.DefraDB.KeyringSecret = "testSecret"
-	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, nil, collectionsOfInterest...)
+	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, nil, nil)
 	return node, err
 }
 

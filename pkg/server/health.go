@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,8 +34,7 @@ type HealthServer struct {
 // HealthChecker interface for checking host health.
 type HealthChecker interface {
 	IsHealthy() bool
-	GetCurrentBlock() int64
-	GetLastProcessedTime() time.Time
+	ChainStatuses() []ChainStatus
 	GetPeerInfo() (*P2PInfo, error)
 	SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error)
 }
@@ -57,8 +57,7 @@ type PeerInfo struct {
 type HealthResponse struct {
 	Status           string               `json:"status"`
 	Timestamp        time.Time            `json:"timestamp"`
-	CurrentBlock     int64                `json:"current_block,omitempty"`
-	LastProcessed    time.Time            `json:"last_processed,omitzero"`
+	Chains           []ChainStatus        `json:"chains,omitempty"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
 	Uptime           string               `json:"uptime"`
 	UptimeSeconds    float64              `json:"uptime_seconds"`
@@ -68,10 +67,8 @@ type HealthResponse struct {
 
 // MetricsResponse represents basic metrics.
 type MetricsResponse struct {
-	BlocksProcessed   int64     `json:"blocks_processed"`
-	CurrentBlock      int64     `json:"current_block"`
-	LastProcessedTime time.Time `json:"last_processed_time"`
-	Uptime            string    `json:"uptime"`
+	Chains []ChainStatus `json:"chains,omitempty"`
+	Uptime string        `json:"uptime"`
 }
 
 var startTime = time.Now() // nolint:gochecknoglobals
@@ -164,8 +161,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hs.host != nil {
-		response.CurrentBlock = hs.host.GetCurrentBlock()
-		response.LastProcessed = hs.host.GetLastProcessedTime()
+		response.Chains = hs.host.ChainStatuses()
 		p2p, _ := hs.host.GetPeerInfo()
 		response.P2P = p2p
 
@@ -188,19 +184,8 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check if host is ready (has processed at least one block recently)
-	ready := true
-	if hs.host != nil {
-		lastProcessed := hs.host.GetLastProcessedTime()
-		if time.Since(lastProcessed) > 5*time.Minute && !lastProcessed.IsZero() {
-			ready = false
-		}
-	}
-
 	defraConnected := hs.checkDefraDB()
-	if !defraConnected {
-		ready = false
-	}
+	ready := defraConnected
 
 	uptime := time.Since(startTime)
 	response := HealthResponse{
@@ -212,8 +197,10 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	if hs.host != nil {
-		response.CurrentBlock = hs.host.GetCurrentBlock()
-		response.LastProcessed = hs.host.GetLastProcessedTime()
+		response.Chains = hs.host.ChainStatuses()
+		// The host is ready while any of its chains is, so one stalled chain does not fail the probe;
+		// that chain reports itself not ready in its own entry.
+		ready = ready && slices.ContainsFunc(response.Chains, func(c ChainStatus) bool { return c.Ready })
 		p2p, err := hs.host.GetPeerInfo()
 		response.P2P = p2p
 		if err != nil {
@@ -247,9 +234,7 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hs.host != nil {
-		metrics.CurrentBlock = hs.host.GetCurrentBlock()
-		metrics.LastProcessedTime = hs.host.GetLastProcessedTime()
-		metrics.BlocksProcessed = hs.host.GetCurrentBlock() // Simplified
+		metrics.Chains = hs.host.ChainStatuses()
 	}
 
 	w.Header().Set("Content-Type", "application/json")

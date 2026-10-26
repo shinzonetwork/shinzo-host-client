@@ -2,10 +2,15 @@ package host
 
 import (
 	"context"
+	"net"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/sourcenetwork/defradb/client"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +37,7 @@ func TestNewEventReplicationFilter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			if tt.wantNil {
 				require.Nil(t, f)
 			} else {
@@ -46,33 +51,66 @@ func TestNewEventReplicationFilter(t *testing.T) {
 // AllowReplication
 // ---------------------------------------------------------------------------
 
+// The test chain's collections and their IDs by name, read once by testCollectionIDs.
+var (
+	filterCollectionsOnce sync.Once
+	filterCollections     []client.Collection
+	filterCollectionIDs   map[string]string
+)
+
+// testCollectionIDs returns the test chain's collections, with their IDs by name. DefraDB passes
+// the filter collection IDs, not names. The first call reads them from a node it starts and then
+// closes, and later calls reuse them: the tests read only each collection's name and ID, which stay
+// readable after the node closes.
+func testCollectionIDs(t *testing.T) ([]client.Collection, map[string]string) {
+	t.Helper()
+	filterCollectionsOnce.Do(func() {
+		ctx := context.Background()
+		node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
+		require.NoError(t, err)
+		defer func() { _ = node.Close(ctx) }()
+
+		cols, err := node.DB.GetCollections(ctx)
+		require.NoError(t, err)
+		ids := make(map[string]string, len(cols))
+		for _, col := range cols {
+			ids[col.Name()] = col.CollectionID()
+		}
+		filterCollections, filterCollectionIDs = cols, ids
+	})
+	require.NotNil(t, filterCollectionIDs, "an earlier test failed to read the collection IDs")
+	return filterCollections, filterCollectionIDs
+}
+
 func TestAllowReplication(t *testing.T) {
 	tests := []struct {
-		name         string
-		cfg          config.EventFilterConfig
-		collectionID string
-		fields       map[string]any
-		want         bool
+		name       string
+		cfg        config.EventFilterConfig
+		collection string
+		fields     map[string]any
+		want       bool
 	}{
 		{
 			name: "block signature always allowed",
 			cfg: config.EventFilterConfig{
-				Enabled: true,
-				Mode:    filterModeAllowlist,
+				Enabled:    true,
+				Mode:       filterModeAllowlist,
+				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			collectionID: constants.CollectionBlockSignature,
-			fields:       map[string]any{},
-			want:         true,
+			collection: testCollections.BlockSignature.Name,
+			fields:     map[string]any{gqlFieldBlockNumber: uint64(50)},
+			want:       true,
 		},
 		{
 			name: "snapshot signature always allowed",
 			cfg: config.EventFilterConfig{
-				Enabled: true,
-				Mode:    filterModeAllowlist,
+				Enabled:    true,
+				Mode:       filterModeAllowlist,
+				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			collectionID: constants.CollectionSnapshotSignature,
-			fields:       map[string]any{},
-			want:         true,
+			collection: testCollections.SnapshotSignature.Name,
+			fields:     map[string]any{gqlFieldBlockNumber: uint64(50)},
+			want:       true,
 		},
 		{
 			name: "block collection uses allowBlock",
@@ -81,9 +119,9 @@ func TestAllowReplication(t *testing.T) {
 				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			collectionID: constants.CollectionBlock,
-			fields:       map[string]any{gqlFieldNumber: uint64(150)},
-			want:         true,
+			collection: testCollections.Block.Name,
+			fields:     map[string]any{gqlFieldNumber: uint64(150)},
+			want:       true,
 		},
 		{
 			name: "block collection rejected by allowBlock",
@@ -92,9 +130,9 @@ func TestAllowReplication(t *testing.T) {
 				Mode:       filterModeAllowlist,
 				BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
 			},
-			collectionID: constants.CollectionBlock,
-			fields:       map[string]any{gqlFieldNumber: uint64(50)},
-			want:         false,
+			collection: testCollections.Block.Name,
+			fields:     map[string]any{gqlFieldNumber: uint64(50)},
+			want:       false,
 		},
 		{
 			name: "transaction uses matchesGroups",
@@ -108,9 +146,25 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionTransaction,
-			fields:       map[string]any{gqlFieldTo: "0xabc"},
-			want:         true,
+			collection: testCollections.Transaction.Name,
+			fields:     map[string]any{gqlFieldTo: "0xabc"},
+			want:       true,
+		},
+		{
+			name: "transaction rejected by matchesGroups",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+					},
+				},
+			},
+			collection: testCollections.Transaction.Name,
+			fields:     map[string]any{gqlFieldTo: "0xdef"},
+			want:       false,
 		},
 		{
 			name: "log uses matchesGroups",
@@ -124,9 +178,25 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionLog,
-			fields:       map[string]any{gqlFieldAddress: "0xdef", gqlFieldTopics: []string{"0xtopic0"}},
-			want:         true,
+			collection: testCollections.Log.Name,
+			fields:     map[string]any{gqlFieldAddress: "0xdef", gqlFieldTopics: []string{"0xtopic0"}},
+			want:       true,
+		},
+		{
+			name: "log rejected by matchesGroups",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: "0xDEF", Types: []string{colTypeLog}}},
+					},
+				},
+			},
+			collection: testCollections.Log.Name,
+			fields:     map[string]any{gqlFieldAddress: "0xabc", gqlFieldTopics: []string{"0xtopic0"}},
+			want:       false,
 		},
 		{
 			name: "accessListEntry uses matchesGroups",
@@ -140,19 +210,35 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionAccessListEntry,
-			fields:       map[string]any{gqlFieldAddress: "0x123"},
-			want:         true,
+			collection: testCollections.AccessListEntry.Name,
+			fields:     map[string]any{gqlFieldAddress: "0x123"},
+			want:       true,
 		},
 		{
-			name: "unknown collection always allowed",
+			name: "accessListEntry rejected by matchesGroups",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: "0x123", Types: []string{colTypeAccessListEntry}}},
+					},
+				},
+			},
+			collection: testCollections.AccessListEntry.Name,
+			fields:     map[string]any{gqlFieldAddress: "0x456"},
+			want:       false,
+		},
+		{
+			name: "collection without rules always allowed",
 			cfg: config.EventFilterConfig{
 				Enabled: true,
 				Mode:    filterModeAllowlist,
 			},
-			collectionID: "SomeUnknownCollection",
-			fields:       map[string]any{},
-			want:         true,
+			collection: testCollections.AttestationRecord.Name,
+			fields:     map[string]any{},
+			want:       true,
 		},
 		{
 			name: "block range rejection for transaction",
@@ -167,19 +253,119 @@ func TestAllowReplication(t *testing.T) {
 					},
 				},
 			},
-			collectionID: constants.CollectionTransaction,
-			fields:       map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)},
-			want:         false,
+			collection: testCollections.Transaction.Name,
+			fields:     map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)},
+			want:       false,
 		},
 	}
+	cols, ids := testCollectionIDs(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
-			got := f.AllowReplication(context.Background(), tt.collectionID, "docID", tt.fields)
+			f.ResolveCollections(cols)
+			got := f.AllowReplication(context.Background(), ids[tt.collection], "docID", tt.fields)
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestAllowReplication_BeforeCollectionsResolved(t *testing.T) {
+	f := NewEventReplicationFilter(config.EventFilterConfig{
+		Enabled:    true,
+		Mode:       filterModeAllowlist,
+		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
+		Groups: []config.FilterGroup{
+			{
+				Enabled:   true,
+				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+			},
+		},
+	}, testCollections)
+	require.NotNil(t, f)
+	_, ids := testCollectionIDs(t)
+
+	// Each of these documents is outside the block range, and the transaction also misses the
+	// allowlist, yet nothing is refused before the filter knows which collection an ID belongs to.
+	fields := map[string]any{gqlFieldTo: "0xDEF", gqlFieldBlockNumber: uint64(50), gqlFieldNumber: uint64(50)}
+	for _, name := range []string{testCollections.Block.Name, testCollections.BlockSignature.Name, testCollections.Transaction.Name} {
+		require.True(t, f.AllowReplication(context.Background(), ids[name], "docID", fields), name)
+	}
+}
+
+// patchedCollection is a collection whose version ID differs from its collection ID, as it does
+// once the collection is patched.
+type patchedCollection struct {
+	client.Collection
+
+	versionID string
+}
+
+func (c patchedCollection) VersionID() string { return c.versionID }
+
+func TestAllowReplication_ByVersionID(t *testing.T) {
+	f := NewEventReplicationFilter(config.EventFilterConfig{
+		Enabled: true,
+		Mode:    filterModeAllowlist,
+		Groups: []config.FilterGroup{{
+			Enabled:   true,
+			Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+		}},
+	}, testCollections)
+	require.NotNil(t, f)
+	cols, _ := testCollectionIDs(t)
+	var resolved []client.Collection
+	for _, col := range cols {
+		if col.Name() == testCollections.Transaction.Name {
+			col = patchedCollection{Collection: col, versionID: "patched-version"}
+		}
+		resolved = append(resolved, col)
+	}
+	f.ResolveCollections(resolved)
+
+	// A retry names the transaction's collection by its version ID, and the allowlist still applies.
+	require.True(t, f.AllowReplication(context.Background(), "patched-version", "docID", map[string]any{gqlFieldTo: "0xABC"}))
+	require.False(t, f.AllowReplication(context.Background(), "patched-version", "docID", map[string]any{gqlFieldTo: "0xDEF"}))
+}
+
+// A host with the event filter enabled installs it on its node with the collection IDs resolved, so
+// the filter applies its per-collection rules.
+func TestStartHostingResolvesTheFilterCollections(t *testing.T) {
+	ctx := context.Background()
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Shinzo.EventFilter = config.EventFilterConfig{
+		Enabled: true,
+		Mode:    filterModeAllowlist,
+		Groups: []config.FilterGroup{{
+			Enabled:   true,
+			Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+		}},
+	}
+
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(closeCtx))
+	})
+
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, testCollections.Transaction.Name)
+	require.NoError(t, err)
+	filter := h.DefraNode.ReplicationFilter
+	require.NotNil(t, filter)
+	require.True(t, filter.AllowReplication(ctx, col.CollectionID(), "docID", map[string]any{gqlFieldTo: "0xABC"}))
+	require.False(t, filter.AllowReplication(ctx, col.CollectionID(), "docID", map[string]any{gqlFieldTo: "0xDEF"}))
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +436,7 @@ func TestAllowBlock(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowBlock(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -299,10 +485,40 @@ func TestAllowTransaction(t *testing.T) {
 			fields: map[string]any{gqlFieldTo: "0xDEF"},
 			want:   false,
 		},
+		{
+			name: "missing to allowed",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+					},
+				},
+			},
+			fields: map[string]any{},
+			want:   true,
+		},
+		{
+			name: "null to rejected in allowlist",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
+					},
+				},
+			},
+			fields: map[string]any{gqlFieldTo: nil},
+			want:   false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowTransaction(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -366,10 +582,40 @@ func TestAllowLog(t *testing.T) {
 			fields: map[string]any{gqlFieldAddress: "0xOTHER", gqlFieldTopics: []string{}},
 			want:   false,
 		},
+		{
+			name: "missing address allowed",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
+					},
+				},
+			},
+			fields: map[string]any{gqlFieldTopics: []string{}},
+			want:   true,
+		},
+		{
+			name: "missing topics allowed",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
+					},
+				},
+			},
+			fields: map[string]any{gqlFieldAddress: "0xOTHER"},
+			want:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowLog(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -418,10 +664,25 @@ func TestAllowAccessListEntry(t *testing.T) {
 			fields: map[string]any{gqlFieldAddress: "0xOTHER"},
 			want:   false,
 		},
+		{
+			name: "missing address allowed",
+			cfg: config.EventFilterConfig{
+				Enabled: true,
+				Mode:    filterModeAllowlist,
+				Groups: []config.FilterGroup{
+					{
+						Enabled:   true,
+						Contracts: []config.ContractFilter{{Address: testHexAleUpper, Types: []string{colTypeAccessListEntry}}},
+					},
+				},
+			},
+			fields: map[string]any{},
+			want:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.allowAccessListEntry(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -515,7 +776,7 @@ func TestMatchesGroups(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.matchesGroups(tt.address, tt.topics, tt.colType)
 			require.Equal(t, tt.want, got)
@@ -576,7 +837,7 @@ func TestGroupMatches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.groupMatches(&tt.group, tt.address, tt.topics, tt.colType)
 			require.Equal(t, tt.want, got)
@@ -770,7 +1031,7 @@ func TestInBlockRange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := NewEventReplicationFilter(tt.cfg)
+			f := NewEventReplicationFilter(tt.cfg, testCollections)
 			require.NotNil(t, f)
 			got := f.inBlockRange(tt.fields)
 			require.Equal(t, tt.want, got)
@@ -937,7 +1198,7 @@ func TestGroupMatches_EmptyAddress(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -954,7 +1215,7 @@ func TestGroupMatches_TopicsNonLogType(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -971,7 +1232,7 @@ func TestGroupMatches_CascadeFromTxToLog(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: true,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -988,7 +1249,7 @@ func TestGroupMatches_CascadeFromTxToAccessListEntry(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: true,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1044,7 +1305,7 @@ func TestMatchesGroups_BlocklistNoEnabledGroups(t *testing.T) {
 		Groups: []config.FilterGroup{
 			{Enabled: false, Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}}},
 		},
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	// Blocklist with no matching (all groups disabled) => !false => true
@@ -1072,7 +1333,7 @@ func TestHasEnabledGroups_Empty(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled: true,
 		Groups:  []config.FilterGroup{},
-	})
+	}, testCollections)
 	require.False(t, f.hasEnabledGroups())
 }
 
@@ -1083,7 +1344,7 @@ func TestHasEnabledGroups_AllDisabled(t *testing.T) {
 			{Enabled: false},
 			{Enabled: false},
 		},
-	})
+	}, testCollections)
 	require.False(t, f.hasEnabledGroups())
 }
 
@@ -1094,7 +1355,7 @@ func TestHasEnabledGroups_OneEnabled(t *testing.T) {
 			{Enabled: false},
 			{Enabled: true},
 		},
-	})
+	}, testCollections)
 	require.True(t, f.hasEnabledGroups())
 }
 
@@ -1106,7 +1367,7 @@ func TestGroupMatches_ContractFilterWrongType(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1129,7 +1390,7 @@ func TestGroupMatches_MultipleContracts(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1162,7 +1423,7 @@ func TestGroupMatches_LogTypeTopicsMatch(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1190,7 +1451,7 @@ func TestGroupMatches_LogMultipleTopicFilters(t *testing.T) {
 	f := NewEventReplicationFilter(config.EventFilterConfig{
 		Enabled:        true,
 		CascadeFilters: false,
-	})
+	}, testCollections)
 	require.NotNil(t, f)
 
 	group := config.FilterGroup{
@@ -1214,11 +1475,13 @@ func TestAllowReplication_BlockNoNumberField(t *testing.T) {
 		Enabled:    true,
 		Mode:       filterModeAllowlist,
 		BlockRange: &config.BlockRangeFilter{MinBlock: 100, MaxBlock: 200},
-	})
+	}, testCollections)
 	require.NotNil(t, f)
+	cols, ids := testCollectionIDs(t)
+	f.ResolveCollections(cols)
 
 	// Block collection with no gqlFieldNumber field should be allowed (can't determine)
-	got := f.AllowReplication(context.Background(), constants.CollectionBlock, "docID", map[string]any{})
+	got := f.AllowReplication(context.Background(), ids[testCollections.Block.Name], "docID", map[string]any{})
 	require.True(t, got)
 }
 
@@ -1237,16 +1500,18 @@ func TestAllowReplication_TransactionBelowBlockRange(t *testing.T) {
 				Contracts: []config.ContractFilter{{Address: "0xABC", Types: []string{colTypeTransaction}}},
 			},
 		},
-	})
+	}, testCollections)
 	require.NotNil(t, f)
+	cols, ids := testCollectionIDs(t)
+	f.ResolveCollections(cols)
 
 	// Transaction with blockNumber below range
-	got := f.AllowReplication(context.Background(), constants.CollectionTransaction, "docID",
+	got := f.AllowReplication(context.Background(), ids[testCollections.Transaction.Name], "docID",
 		map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 
 	// Transaction with blockNumber above range
-	got = f.AllowReplication(context.Background(), constants.CollectionTransaction, "docID",
+	got = f.AllowReplication(context.Background(), ids[testCollections.Transaction.Name], "docID",
 		map[string]any{gqlFieldTo: "0xabc", gqlFieldBlockNumber: uint64(300)})
 	require.False(t, got)
 }
@@ -1266,15 +1531,17 @@ func TestAllowReplication_LogBlockRange(t *testing.T) {
 				Contracts: []config.ContractFilter{{Address: testHexLogUpper, Types: []string{colTypeLog}}},
 			},
 		},
-	})
+	}, testCollections)
+	cols, ids := testCollectionIDs(t)
+	f.ResolveCollections(cols)
 
 	// Log with blockNumber in range, matching address
-	got := f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
+	got := f.AllowReplication(context.Background(), ids[testCollections.Log.Name], "docID",
 		map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldBlockNumber: uint64(150)})
 	require.True(t, got)
 
 	// Log with blockNumber out of range
-	got = f.AllowReplication(context.Background(), constants.CollectionLog, "docID",
+	got = f.AllowReplication(context.Background(), ids[testCollections.Log.Name], "docID",
 		map[string]any{gqlFieldAddress: testHexLogLower, gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 }
@@ -1290,15 +1557,17 @@ func TestAllowReplication_AccessListEntryBlockRange(t *testing.T) {
 				Contracts: []config.ContractFilter{{Address: testHexAleUpper, Types: []string{colTypeAccessListEntry}}},
 			},
 		},
-	})
+	}, testCollections)
+	cols, ids := testCollectionIDs(t)
+	f.ResolveCollections(cols)
 
 	// AccessListEntry with blockNumber in range
-	got := f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
+	got := f.AllowReplication(context.Background(), ids[testCollections.AccessListEntry.Name], "docID",
 		map[string]any{gqlFieldAddress: testHexAleLower, gqlFieldBlockNumber: uint64(150)})
 	require.True(t, got)
 
 	// AccessListEntry with blockNumber below range
-	got = f.AllowReplication(context.Background(), constants.CollectionAccessListEntry, "docID",
+	got = f.AllowReplication(context.Background(), ids[testCollections.AccessListEntry.Name], "docID",
 		map[string]any{gqlFieldAddress: testHexAleLower, gqlFieldBlockNumber: uint64(50)})
 	require.False(t, got)
 }

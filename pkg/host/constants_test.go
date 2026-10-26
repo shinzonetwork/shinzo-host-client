@@ -1,5 +1,13 @@
 package host
 
+import (
+	"context"
+	"iter"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
+)
+
 const (
 	testQueryBlocks   = "SELECT * FROM blocks"
 	testQueryTest     = "SELECT * FROM test"
@@ -34,6 +42,9 @@ const (
 
 	// JSON map key used by replication-filter tests.
 	testMapKeyAddr = "addr"
+
+	// Loopback address on a port the OS picks.
+	testLoopbackAddr = "127.0.0.1:0"
 
 	// Multi-peer libp2p multiaddr used by peer_discovery_test.go.
 	testPeerMultiaddr = "/ip4/10.0.0.1/tcp/9171/p2p/12D3KooWNgSiQsYTdRon2r7439zSockGQxqwNSGFrwmdqTknhN6r"
@@ -75,3 +86,15 @@ const (
 	gqlFieldNumber      = "number"
 	gqlFieldTopics      = "topics"
 )
+
+// testCollections are the Ethereum mainnet collections the tests use.
+var testCollections = chain.EVM(chain.EthereumMainnet)
+
+// testSchemaApplier creates the test chain's collections the way a host with no generators does.
+var testSchemaApplier = localschema.ChainApplier{
+	Tables: func(context.Context) (string, error) { return localschema.GetSchema(), nil },
+	Served: func(context.Context) iter.Seq2[string, localschema.Response] {
+		return func(func(string, localschema.Response) bool) {}
+	},
+	Collections: testCollections,
+}

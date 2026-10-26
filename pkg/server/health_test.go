@@ -28,23 +28,24 @@ func init() {
 // ---------------------------------------------------------------------------
 
 type mockHealthChecker struct {
-	healthy       bool
-	currentBlock  int64
-	lastProcessed time.Time
-	peerInfo      *P2PInfo
-	peerInfoErr   error
-	signErr       error
-	defraReg      DefraPKRegistration
-	peerReg       PeerIDRegistration
+	healthy     bool
+	chains      []ChainStatus
+	peerInfo    *P2PInfo
+	peerInfoErr error
+	signErr     error
+	defraReg    DefraPKRegistration
+	peerReg     PeerIDRegistration
 }
 
-func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
-func (m *mockHealthChecker) GetCurrentBlock() int64          { return m.currentBlock }
-func (m *mockHealthChecker) GetLastProcessedTime() time.Time { return m.lastProcessed }
-func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.peerInfo, m.peerInfoErr }
+func (m *mockHealthChecker) IsHealthy() bool                { return m.healthy }
+func (m *mockHealthChecker) ChainStatuses() []ChainStatus   { return m.chains }
+func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error) { return m.peerInfo, m.peerInfoErr }
 func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
 	return m.defraReg, m.peerReg, m.signErr
 }
+
+// readyChains is a host's chain list with one ready chain.
+var readyChains = []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true, Ready: true}}
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -63,10 +64,8 @@ func newHS(host HealthChecker, defraURL string) *HealthServer {
 
 func TestHealthHandler_GET_Healthy(t *testing.T) {
 	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  100,
-		lastProcessed: time.Now(),
-		peerInfo:      &P2PInfo{Enabled: true},
+		healthy:  true,
+		peerInfo: &P2PInfo{Enabled: true},
 	}
 	hs := newHS(mock, "")
 
@@ -82,15 +81,12 @@ func TestHealthHandler_GET_Healthy(t *testing.T) {
 	var resp HealthResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "healthy", resp.Status)
-	require.Equal(t, int64(100), resp.CurrentBlock)
 	require.True(t, resp.DefraDBConnected)
 }
 
 func TestHealthHandler_GET_Unhealthy(t *testing.T) {
 	mock := &mockHealthChecker{
-		healthy:       false,
-		currentBlock:  50,
-		lastProcessed: time.Now(),
+		healthy: false,
 	}
 	hs := newHS(mock, "")
 
@@ -175,7 +171,32 @@ func TestHealthHandler_NilHost(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	// With nil host, status should remain "healthy" (no IsHealthy call)
 	require.Equal(t, "healthy", resp.Status)
-	require.Equal(t, int64(0), resp.CurrentBlock)
+}
+
+// Each endpoint lists every chain.
+func TestHandlers_ReportChains(t *testing.T) {
+	chains := []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true, Ready: true, CurrentBlock: 100, Cutoff: 90}}
+	hs := newHS(&mockHealthChecker{
+		healthy:  true,
+		chains:   chains,
+		peerInfo: &P2PInfo{Enabled: true},
+	}, "")
+	handlers := map[string]http.HandlerFunc{"/health": hs.healthHandler, "/registration": hs.registrationHandler, "/stats": hs.metricsHandler}
+	for path, handler := range handlers {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Accept", "application/json")
+			w := httptest.NewRecorder()
+			handler(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+
+			var body map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			var got []ChainStatus
+			require.NoError(t, json.Unmarshal(body["chains"], &got))
+			require.Equal(t, chains, got)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -184,12 +205,11 @@ func TestHealthHandler_NilHost(t *testing.T) {
 
 func TestRegistrationHandler_GET_Ready(t *testing.T) {
 	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  200,
-		lastProcessed: time.Now(), // recent => ready
-		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
-		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
+		healthy:  true,
+		chains:   readyChains,
+		peerInfo: &P2PInfo{Enabled: true},
+		defraReg: DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:  PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 	hs := newHS(mock, "") // empty defraURL => checkDefraDB returns true
 
@@ -207,27 +227,46 @@ func TestRegistrationHandler_GET_Ready(t *testing.T) {
 	require.NotNil(t, resp.Registration)
 }
 
-func TestRegistrationHandler_GET_NotReady_StaleTime(t *testing.T) {
-	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  200,
-		lastProcessed: time.Now().Add(-10 * time.Minute), // stale
-		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
-		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
+// The host is ready while any of its chains is.
+func TestRegistrationHandler_GET_ChainReadiness(t *testing.T) {
+	tests := []struct {
+		name       string
+		chains     []ChainStatus
+		wantCode   int
+		wantStatus string
+	}{
+		{
+			name:       "no chain ready",
+			chains:     []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true}, {Chain: "BSC__Mainnet", Enabled: true}},
+			wantCode:   http.StatusServiceUnavailable,
+			wantStatus: "not ready",
+		},
+		{
+			name:       "one of two chains ready",
+			chains:     []ChainStatus{{Chain: "Ethereum__Mainnet", Enabled: true}, {Chain: "BSC__Mainnet", Enabled: true, Ready: true}},
+			wantCode:   http.StatusOK,
+			wantStatus: "ready",
+		},
 	}
-	hs := newHS(mock, "")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hs := newHS(&mockHealthChecker{
+				healthy:  true,
+				chains:   tt.chains,
+				peerInfo: &P2PInfo{Enabled: true},
+				defraReg: DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+				peerReg:  PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
+			}, "")
 
-	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
-	w := httptest.NewRecorder()
+			w := httptest.NewRecorder()
+			hs.registrationHandler(w, httptest.NewRequest(http.MethodGet, "/registration", nil))
 
-	hs.registrationHandler(w, req)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-
-	var resp HealthResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, "not ready", resp.Status)
+			require.Equal(t, tt.wantCode, w.Code)
+			var resp HealthResponse
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Equal(t, tt.wantStatus, resp.Status)
+		})
+	}
 }
 
 func TestRegistrationHandler_POST_MethodNotAllowed(t *testing.T) {
@@ -243,11 +282,10 @@ func TestRegistrationHandler_POST_MethodNotAllowed(t *testing.T) {
 
 func TestRegistrationHandler_PeerInfoError(t *testing.T) {
 	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  200,
-		lastProcessed: time.Now(),
-		peerInfo:      nil,
-		peerInfoErr:   errPeerInfo,
+		healthy:     true,
+		chains:      readyChains,
+		peerInfo:    nil,
+		peerInfoErr: errPeerInfo,
 	}
 	hs := newHS(mock, "")
 
@@ -333,27 +371,6 @@ func TestRegistrationAppHandler_SignError(t *testing.T) {
 // metricsHandler (the /stats endpoint)
 // ---------------------------------------------------------------------------
 
-func TestMetricsHandler_GET_WithHost(t *testing.T) {
-	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  300,
-		lastProcessed: time.Now(),
-	}
-	hs := newHS(mock, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
-	w := httptest.NewRecorder()
-
-	hs.metricsHandler(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Header().Get("Content-Type"), "application/json")
-
-	var resp MetricsResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, int64(300), resp.CurrentBlock)
-}
-
 func TestMetricsHandler_GET_WithoutHost(t *testing.T) {
 	hs := newHS(nil, "")
 
@@ -366,7 +383,6 @@ func TestMetricsHandler_GET_WithoutHost(t *testing.T) {
 
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, int64(0), resp.CurrentBlock)
 }
 
 func TestMetricsHandler_POST_MethodNotAllowed(t *testing.T) {
@@ -622,42 +638,16 @@ func TestRegistrationHandler_NilHost(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// registrationHandler – zero lastProcessed time (should still be ready)
-// ---------------------------------------------------------------------------
-
-func TestRegistrationHandler_ZeroLastProcessed(t *testing.T) {
-	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  1,
-		lastProcessed: time.Time{}, // zero value
-		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
-		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
-	}
-	hs := newHS(mock, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
-	w := httptest.NewRecorder()
-
-	hs.registrationHandler(w, req)
-
-	// Zero time is treated as "not stale" because IsZero() returns true,
-	// so the stale check is skipped.
-	require.Equal(t, http.StatusOK, w.Code)
-}
-
-// ---------------------------------------------------------------------------
 // registrationHandler – DefraDB not connected makes it not ready
 // ---------------------------------------------------------------------------
 
 func TestRegistrationHandler_DefraDBNotConnected(t *testing.T) {
 	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  100,
-		lastProcessed: time.Now(),
-		peerInfo:      &P2PInfo{Enabled: true},
-		defraReg:      DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
-		peerReg:       PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
+		healthy:  true,
+		chains:   readyChains,
+		peerInfo: &P2PInfo{Enabled: true},
+		defraReg: DefraPKRegistration{PublicKey: testRegPublicKey, SignedPKMsg: testRegSignedPKMsg},
+		peerReg:  PeerIDRegistration{PeerID: testRegPeerID, SignedPeerMsg: testRegSignedPeerID},
 	}
 
 	var probes atomic.Int64
@@ -757,12 +747,11 @@ func TestHealthServer_StartStop(t *testing.T) {
 
 func TestRegistrationHandler_SignError_PeerInfoOK(t *testing.T) {
 	mock := &mockHealthChecker{
-		healthy:       true,
-		currentBlock:  100,
-		lastProcessed: time.Now(),
-		peerInfo:      &P2PInfo{Enabled: true},
-		peerInfoErr:   nil,
-		signErr:       errSigningNotConfigured,
+		healthy:     true,
+		chains:      readyChains,
+		peerInfo:    &P2PInfo{Enabled: true},
+		peerInfoErr: nil,
+		signErr:     errSigningNotConfigured,
 	}
 	hs := newHS(mock, "")
 

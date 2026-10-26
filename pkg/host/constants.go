@@ -15,8 +15,6 @@ const (
 	openBrowserDelaySecs = 2
 	// healthServerShutdownTimeoutSecs is a const for shutdown timeout in s.
 	healthServerShutdownTimeoutSecs = 5
-	// knownCollectionIDs is a const for known collection ids is a const for the number of known collection ids.
-	knownCollectionIDs = 6
 	// maxAttestationRetries is a const for the number of max attestation retries.
 	maxAttestationRetries = 5
 	// attestationRetryDelayMs is a const for the attestation retry delay in ms.

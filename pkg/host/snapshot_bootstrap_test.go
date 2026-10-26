@@ -11,7 +11,6 @@ import (
 	hostConfig "github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
-	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/snapshot"
 	"github.com/stretchr/testify/require"
 )
@@ -230,7 +229,7 @@ func TestBootstrapFromSnapshots_NoSnapshotsAvailable(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -243,7 +242,7 @@ func TestBootstrapFromSnapshots_NoSnapshotsAvailable(t *testing.T) {
 	}
 
 	// Should not panic
-	bootstrapFromSnapshots(ctx, defraNode, cfg)
+	bootstrapFromSnapshots(ctx, defraNode, testCollections, cfg)
 }
 
 func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
@@ -254,7 +253,7 @@ func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -267,7 +266,7 @@ func TestBootstrapFromSnapshots_ListSnapshotsFails(t *testing.T) {
 	}
 
 	// Should not panic
-	bootstrapFromSnapshots(ctx, defraNode, cfg)
+	bootstrapFromSnapshots(ctx, defraNode, testCollections, cfg)
 }
 
 func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
@@ -286,7 +285,7 @@ func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -299,7 +298,7 @@ func TestBootstrapFromSnapshots_NoNeededSnapshots(t *testing.T) {
 	}
 
 	// Should not panic - no overlap with requested range
-	bootstrapFromSnapshots(ctx, defraNode, cfg)
+	bootstrapFromSnapshots(ctx, defraNode, testCollections, cfg)
 }
 
 func TestBootstrapFromSnapshots_NilSignature(t *testing.T) {
@@ -318,7 +317,7 @@ func TestBootstrapFromSnapshots_NilSignature(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -331,7 +330,7 @@ func TestBootstrapFromSnapshots_NilSignature(t *testing.T) {
 	}
 
 	// Should not panic - snapshot has nil signature, will be skipped
-	bootstrapFromSnapshots(ctx, defraNode, cfg)
+	bootstrapFromSnapshots(ctx, defraNode, testCollections, cfg)
 }
 
 func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
@@ -362,7 +361,7 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -375,7 +374,7 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 	}
 
 	// Should not panic - download will fail but error is handled gracefully
-	bootstrapFromSnapshots(ctx, defraNode, cfg)
+	bootstrapFromSnapshots(ctx, defraNode, testCollections, cfg)
 }
 
 // ---------------------------------------------------------------------------
@@ -385,11 +384,11 @@ func TestBootstrapFromSnapshots_DownloadFails(t *testing.T) {
 func TestGetExistingBlockRange_EmptyDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
+	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode, testCollections.Block.Name)
 	require.Equal(t, int64(0), minBlock)
 	require.Equal(t, int64(0), maxBlock)
 }
@@ -401,7 +400,7 @@ func TestGetExistingBlockRange_EmptyDB(t *testing.T) {
 func TestCreateSnapshotAttestation_NoBlockSigMerkleRoots(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -413,13 +412,13 @@ func TestCreateSnapshotAttestation_NoBlockSigMerkleRoots(t *testing.T) {
 	}
 
 	// Should log a warning and return early
-	createSnapshotAttestation(ctx, defraNode, sig)
+	createSnapshotAttestation(ctx, defraNode, testCollections.AttestationRecord.Name, sig)
 }
 
 func TestCreateSnapshotAttestation_WithMerkleRoots(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -432,7 +431,7 @@ func TestCreateSnapshotAttestation_WithMerkleRoots(t *testing.T) {
 
 	// Should attempt to create the attestation record
 	// May fail in post but should not panic
-	createSnapshotAttestation(ctx, defraNode, sig)
+	createSnapshotAttestation(ctx, defraNode, testCollections.AttestationRecord.Name, sig)
 }
 
 func TestCreateSnapshotAttestation_RecordFormat(t *testing.T) {
@@ -455,7 +454,7 @@ func TestCreateSnapshotAttestation_RecordFormat(t *testing.T) {
 func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -474,7 +473,7 @@ func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 		require.Empty(t, result.GQL.Errors, "failed to insert block %d", num)
 	}
 
-	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
+	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode, testCollections.Block.Name)
 	require.Equal(t, int64(10), minBlock)
 	require.Equal(t, int64(30), maxBlock)
 }
@@ -482,7 +481,7 @@ func TestGetExistingBlockRange_WithBlocksInDB(t *testing.T) {
 func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -499,7 +498,7 @@ func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 	result := defraNode.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors)
 
-	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode)
+	minBlock, maxBlock := getExistingBlockRange(ctx, defraNode, testCollections.Block.Name)
 	require.Equal(t, int64(42), minBlock)
 	require.Equal(t, int64(42), maxBlock)
 }
@@ -511,7 +510,7 @@ func TestGetExistingBlockRange_SingleBlock(t *testing.T) {
 func TestCreateSnapshotAttestation_SuccessVerifyRecord(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -522,7 +521,7 @@ func TestCreateSnapshotAttestation_SuccessVerifyRecord(t *testing.T) {
 		BlockSigMerkleRoots: []string{"merkle-root-1", "merkle-root-2"},
 	}
 
-	createSnapshotAttestation(ctx, defraNode, sig)
+	createSnapshotAttestation(ctx, defraNode, testCollections.AttestationRecord.Name, sig)
 
 	// Verify the attestation record was created by querying for it
 	query := `query {
@@ -577,7 +576,7 @@ func TestFindCoveringSnapshots_MixedSignedAndExisting(t *testing.T) {
 func TestCreateSnapshotAttestation_NilBlockSigMerkleRoots(t *testing.T) {
 	ctx := context.Background()
 
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -589,7 +588,7 @@ func TestCreateSnapshotAttestation_NilBlockSigMerkleRoots(t *testing.T) {
 	}
 
 	// Should return early since len(nil) == 0
-	createSnapshotAttestation(ctx, defraNode, sig)
+	createSnapshotAttestation(ctx, defraNode, testCollections.AttestationRecord.Name, sig)
 }
 
 func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
@@ -625,7 +624,7 @@ func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
 	defer svr.Close()
 
 	ctx := context.Background()
-	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(localschema.GetSchema()))
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, testSchemaApplier)
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
@@ -639,5 +638,5 @@ func TestBootstrapFromSnapshots_DownloadSucceeds_ImportFails(t *testing.T) {
 
 	// Download succeeds but import will fail due to invalid tar format
 	// This exercises the download+import path without panicking
-	bootstrapFromSnapshots(ctx, defraNode, cfg)
+	bootstrapFromSnapshots(ctx, defraNode, testCollections, cfg)
 }

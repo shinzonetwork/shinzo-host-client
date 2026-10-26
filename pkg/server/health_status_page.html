@@ -89,6 +89,10 @@
             grid-column: span 4;
         }
 
+        .col-6 {
+            grid-column: span 6;
+        }
+
         .col-12 {
             grid-column: span 12;
         }
@@ -238,7 +242,8 @@
                 font-size: 32px;
             }
 
-            .col-4 {
+            .col-4,
+            .col-6 {
                 grid-column: span 12;
             }
 
@@ -275,10 +280,6 @@
                         <span class="info-value" id="statusValue">-</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">Current Block</span>
-                        <span class="info-value" id="currentBlockValue">-</span>
-                    </div>
-                    <div class="info-row">
                         <span class="info-label">Uptime</span>
                         <span class="info-value" id="uptimeValue">-</span>
                     </div>
@@ -291,10 +292,6 @@
                     <div class="info-row">
                         <span class="info-label">DefraDB</span>
                         <span class="info-value" id="defraDBValue">-</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Last Processed</span>
-                        <span class="info-value" id="lastProcessedValue">-</span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Peer ID</span>
@@ -318,6 +315,23 @@
                         <span class="info-label">Action</span>
                         <span class="info-value"><a id="registrationActionLink" href="/registration-app">Register host</a></span>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-label">Chains</div>
+
+        <div class="grid">
+            <div class="col-6">
+                <div class="info-group">
+                    <h2>Current Block</h2>
+                    <div id="chainList"></div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="info-group">
+                    <h2>Last Document</h2>
+                    <div id="chainDocumentList"></div>
                 </div>
             </div>
         </div>
@@ -406,6 +420,23 @@
                 peerIdValue.onclick = null;
                 peerIdValue.className = 'info-value';
             }
+        }
+
+        function renderChains(chains) {
+            const rows = valueOf => (chains || []).map(chain => {
+                const row = document.createElement('div');
+                row.className = 'info-row';
+                const label = document.createElement('span');
+                label.className = 'info-label';
+                label.textContent = chain.chain;
+                const value = document.createElement('span');
+                value.className = 'info-value';
+                value.textContent = valueOf(chain);
+                row.append(label, value);
+                return row;
+            });
+            document.getElementById('chainList').replaceChildren(...rows(chain => chain.enabled ? formatNumber(chain.current_block) : `Disabled (${chain.reason})`));
+            document.getElementById('chainDocumentList').replaceChildren(...rows(chain => formatTime(chain.last_document_time)));
         }
 
         function renderPeers(peers) {
@@ -510,15 +541,16 @@
                         'Accept': 'application/json'
                     }
                 });
-                if (!response.ok) {
+                // While no chain is ready the host answers 503, and the body still carries its DID.
+                if (!response.ok && response.status !== 503) {
                     renderRegistrationStatus('unknown', '', `Local registration unavailable (${response.status})`);
                     return;
                 }
 
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
                 const did = data.registration && data.registration.did;
                 if (!did) {
-                    renderRegistrationStatus('unknown', '', 'Missing host DID');
+                    renderRegistrationStatus('unknown', '', response.ok ? 'Missing host DID' : `Local registration unavailable (${response.status})`);
                     return;
                 }
 
@@ -551,8 +583,8 @@
 
                 // Update status section
                 document.getElementById('statusValue').textContent = data.status || '-';
-                document.getElementById('currentBlockValue').textContent = formatNumber(data.current_block);
                 document.getElementById('uptimeValue').textContent = data.uptime || '-';
+                renderChains(data.chains);
 
                 // Update database section
                 const defraDBValue = document.getElementById('defraDBValue');
@@ -563,7 +595,6 @@
                     defraDBValue.textContent = 'Disconnected';
                     defraDBValue.className = 'info-value status-indicator-inline status-disconnected';
                 }
-                document.getElementById('lastProcessedValue').textContent = formatTime(data.last_processed);
 
                 // Update P2P section
                 if (data.p2p) {

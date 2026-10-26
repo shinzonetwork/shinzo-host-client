@@ -11,16 +11,8 @@ const (
 	testCID1  = "cid-1"
 	testCID2  = "cid-2"
 	testCID3  = "cid-3"
-	testCID4  = "cid-4"
-	testCIDA  = "cid-a"
-	testCIDB  = "cid-b"
 	testCIDA1 = "cid-a1"
 	testCIDB1 = "cid-b1"
-
-	// Source doc IDs used across attestation-record test fixtures.
-	testSource1     = "source-1"
-	testSource2     = "source-2"
-	testBlockSource = "block-source"
 
 	// Signature identity / value fixtures.
 	testSigAabb = "aabb"
@@ -29,8 +21,6 @@ const (
 	// DefraDB doc-type and collection fixture names.
 	testDocType        = "TestDoc"
 	testDocTypeBlock   = "Block"
-	testDocTypeA       = "TypeA"
-	testDocTypeB       = "TypeB"
 	testCollectionName = "MyCollection"
 	testAttestedDocID  = "attested-doc-123"
 	testParsePubKeyErr = "failed to parse public key"
@@ -38,6 +28,9 @@ const (
 	// DefraDB JSON metadata field names.
 	jsonFieldDocID     = "_docID"
 	jsonFieldSourceDoc = "source-doc"
+
+	// testAttestationCollection is the attestation collection the test schemas define.
+	testAttestationCollection = "Ethereum__Mainnet__AttestationRecord"
 
 	testDocAndAttestationSchema = `
 		type TestDoc {

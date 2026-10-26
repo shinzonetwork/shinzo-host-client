@@ -51,16 +51,18 @@ type Recorder interface {
 
 // Recording configures service-record submission on the allow path. A nil
 // Recording (or nil Recorder) means the gate serves without recording. Attesters
-// returns the host's observed attesting set at serve time, or nil.
+// returns the attesting set the host observes, at serve time, for the chain the
+// named view reads, or nil.
 type Recording struct {
 	Recorder  Recorder
-	Attesters func() []string
+	Attesters func(view string) []string
 }
 
 // Middleware gates incoming GraphQL queries on the billing model.
 //
 // Decision tree for a request to GraphQLPath:
 //   - Body parse fails            -> 400 Bad Request
+//   - View on an unserved chain   -> 404 Not Found
 //   - No view collections         -> pass through (nothing to bill)
 //   - More than one view          -> 400 Bad Request (a record attributes one pool)
 //   - Missing/invalid signature   -> 403 Forbidden
@@ -258,7 +260,7 @@ func (m *Middleware) Drain(ctx context.Context) {
 func (m *Middleware) record(payer common.Address, ext billing.Extensions, view viewLookup, rows uint64) {
 	var attested []string
 	if m.recording.Attesters != nil {
-		attested = m.recording.Attesters()
+		attested = m.recording.Attesters(view.Name)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultRecordTimeout)
 	defer cancel()
@@ -275,11 +277,17 @@ func (m *Middleware) record(payer common.Address, ext billing.Extensions, view v
 
 // collectViewLookups resolves each top-level collection name through the
 // registry. Returns (lookups, true) when every view in the request has an
-// on-chain address. Returns (nil, false) after writing a 503 response when a
-// registered view is missing its address (fail-closed).
+// on-chain address. Returns (nil, false) after writing a 404 response when a
+// collection is a view on a chain the host does not serve, or a 503 response
+// when a registered view is missing its address (fail-closed).
 func (m *Middleware) collectViewLookups(w http.ResponseWriter, collections []string) ([]viewLookup, bool) {
 	var lookups []viewLookup
 	for _, name := range collections {
+		if m.registry.IsRefused(name) {
+			m.log.Infow("billing.deny", "reason", "view_not_served", "view", name)
+			http.Error(w, "view not served by this host", http.StatusNotFound)
+			return nil, false
+		}
 		if !m.registry.IsView(name) {
 			continue
 		}

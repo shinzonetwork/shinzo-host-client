@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/viewbundle-go"
@@ -19,7 +20,7 @@ func TestNewViewManager(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	registryPath := t.TempDir()
-	vm := NewManager(defraNode, registryPath)
+	vm := NewManager(defraNode, registryPath, chain.EthereumMainnet)
 
 	require.NotNil(t, vm)
 	require.NotNil(t, vm.activeViews)
@@ -35,7 +36,7 @@ func TestViewManager_GetActiveViewNames_Empty(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 	names := vm.GetActiveViewNames()
 
 	require.Empty(t, names)
@@ -48,7 +49,7 @@ func TestViewManager_GetViewCount_Empty(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 	count := vm.GetViewCount()
 
 	require.Equal(t, 0, count)
@@ -61,7 +62,7 @@ func TestViewManager_LoadAndRegisterViews_NoViews(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 	err = vm.LoadAndRegisterViews(ctx, nil)
 
 	require.NoError(t, err)
@@ -121,33 +122,41 @@ func TestExtractWasmURLsFromViews_NoHTTPURLs(t *testing.T) {
 	require.Empty(t, urls)
 }
 
-func TestExtractCollectionFromQuery(t *testing.T) {
-	tests := []struct {
-		name     string
-		query    string
-		expected string
+func TestSourceTable(t *testing.T) {
+	cases := []struct {
+		desc  string
+		query string
+		table string
+		// before is the query text before the table's name.
+		before  string
+		invalid bool
 	}{
-		{
-			name:     "simple query",
-			query:    queryEthLogAddrTopics,
-			expected: queryEthLog,
-		},
-		{
-			name:     "full collection name",
-			query:    queryEthLogAddr,
-			expected: queryEthLog,
-		},
-		{
-			name:     "no braces",
-			query:    "Ethereum__Mainnet__Transaction",
-			expected: "Ethereum__Mainnet__Transaction",
-		},
+		{desc: "table without a chain", query: queryLogAddrTopics, table: queryLogJustName},
+		{desc: "full table name", query: queryEthLogAddr, table: queryEthLog},
+		{desc: "no selection", query: "Ethereum__Mainnet__Transaction", table: "Ethereum__Mainnet__Transaction"},
+		{desc: "whitespace", query: "  \n\tLog\n{ address }", table: queryLogJustName, before: "  \n\t"},
+		{desc: "arguments", query: `Log(filter: {address: {_eq: "0x123"}}) { address }`, table: queryLogJustName},
+		{desc: "alias", query: "logs: Log { address }", table: queryLogJustName, before: "logs: "},
+		{desc: "alias equal to the table", query: "Log: Log { address }", table: queryLogJustName, before: "Log: "},
+		{desc: "comment with non-ASCII text", query: "# événements\nLog { address }", table: queryLogJustName, before: "# événements\n"},
+		{desc: "two tables", query: "Log { address } Block { hash }", invalid: true},
+		{desc: "selection set", query: "{ Log { address } }", invalid: true},
+		{desc: "fragment", query: "...on Log { address }", invalid: true},
+		{desc: "second operation", query: "Log { address } } query Other { Block { hash }", invalid: true},
+		{desc: "empty", query: "", invalid: true},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractCollectionFromQuery(tt.query)
-			require.Equal(t, tt.expected, result)
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			table, at, err := sourceTable(c.query)
+
+			if c.invalid {
+				require.ErrorIs(t, err, ErrViewQueryInvalid)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, c.table, table)
+			require.Equal(t, c.before, c.query[:at])
 		})
 	}
 }
@@ -188,7 +197,7 @@ func TestViewManager_RegisterView_AlreadyExists(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Manually add a view to activeViews
 	vm.activeViews[testViewName] = nil
@@ -241,7 +250,7 @@ func (m *MockWASMRegistry) SetDownloadError(err error) {
 
 // MockViewManager creates a ViewManager with mocked dependencies to avoid WASM operations.
 func MockViewManager(defraNode *node.Node, registryPath string) *Manager {
-	vm := NewManager(defraNode, registryPath)
+	vm := NewManager(defraNode, registryPath, chain.EthereumMainnet)
 	// Replace WASM registry with mock to avoid any downloads
 	vm.wasmRegistry = nil
 	return vm
@@ -255,7 +264,7 @@ func TestViewManager_SetMetricsCallback(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Initially nil
 	require.Nil(t, vm.metricsCallback)
@@ -284,7 +293,7 @@ func TestViewManager_LoadAndRegisterViews_ExternalViews(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Create source collections first
 	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
@@ -328,7 +337,7 @@ func TestViewManager_LoadAndRegisterViews_ViewWithoutLenses(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Disable WASM registry completely to avoid any downloads
 	vm.wasmRegistry = nil
@@ -363,7 +372,7 @@ func TestViewManager_RegisterView_ValidationFailure(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Test invalid view (missing name)
 	v := View{
@@ -387,7 +396,7 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	v := &View{
 		Name: "CorrectionView",
@@ -409,44 +418,6 @@ func TestViewManager_RegisterView_QueryCorrection(t *testing.T) {
 	require.Contains(t, v.Data.Query, "input")
 }
 
-// TestSuggestCorrectCollection tests collection name correction.
-func TestSuggestCorrectCollection(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple collection",
-			input:    queryLogJustName,
-			expected: queryEthLog,
-		},
-		{
-			name:     "already prefixed",
-			input:    queryEthLog,
-			expected: queryEthLog,
-		},
-		{
-			name:     "different chain prefix",
-			input:    "Polygon__Mainnet__Transaction",
-			expected: "Polygon__Mainnet__Transaction",
-		},
-		{
-			name:     "with double underscore",
-			input:    "SomeChain__Block",
-			expected: "SomeChain__Block",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			vm := &Manager{}
-			result := vm.suggestCorrectCollection(tt.input)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // TestViewManager_SubscribeToSourceCollection tests subscription functionality.
 func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 	ctx := context.Background()
@@ -455,7 +426,7 @@ func TestViewManager_SubscribeToSourceCollection(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	err = vm.subscribeToSourceCollection(ctx, queryEthLog, testViewName)
 	require.NoError(t, err)
@@ -494,7 +465,7 @@ func TestViewManager_LoadAndRegisterViews_Deduplication(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Create source collections first
 	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
@@ -548,7 +519,7 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	defer func() { _ = defraNode.Close(ctx) }()
 
 	// Use regular view manager but disable WASM registry to avoid downloads
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 	vm.wasmRegistry = nil
 
 	// Test with a view that has no lenses to avoid WASM complications
@@ -571,34 +542,127 @@ func TestViewManager_RegisterView_WithBase64WASM(t *testing.T) {
 	require.Equal(t, 1, vm.GetViewCount())
 }
 
-// TestViewManager_RegisterView_CollectionNameCorrection tests automatic collection name fixing.
-func TestViewManager_RegisterView_CollectionNameCorrection(t *testing.T) {
-	ctx := context.Background()
+// TestViewManager_RegisterView_SourceCollection tests how a view's source table is matched to the
+// chains the host serves.
+func TestViewManager_RegisterView_SourceCollection(t *testing.T) {
+	const (
+		other = "Testchain__Devnet"
+		third = "Third__Chain"
+	)
+	otherLogAddr := other + "__Log { address }"
+	ethereum := []string{chain.EthereumMainnet}
+	both := []string{chain.EthereumMainnet, other}
+	// Stored views, each named with one chain's prefix and reading the other chain's table, and one
+	// named without a chain.
+	ethNamedOnOther := chain.EthereumMainnet + "__OnOther"
+	otherNamedOnEth := other + "__OnEthereum"
+	plainOnEth := "PlainOnEthereum"
 
+	cases := []struct {
+		desc      string
+		served    []string
+		query     string
+		wantQuery string
+		wantChain string
+		wantErr   error
+	}{
+		{desc: "table without a chain on an Ethereum host", served: ethereum, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "table without a chain on another chain's host", served: []string{other}, query: queryLogAddr, wantErr: ErrViewChainNotServed},
+		{desc: "the served chain's table", served: []string{other}, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
+		{desc: "another chain's table", served: ethereum, query: otherLogAddr, wantErr: ErrViewChainNotServed},
+		{desc: "aliased table without a chain on an Ethereum host", served: ethereum, query: "Logs: Log { address }", wantQuery: "Logs: Ethereum__Mainnet__Log { address }", wantChain: chain.EthereumMainnet},
+		{desc: "two tables", served: ethereum, query: queryEthLogAddr + " " + queryEthLogAddr, wantErr: ErrViewQueryInvalid},
+		{desc: "table without a chain on a host serving Ethereum and another chain", served: both, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "table without a chain when Ethereum is not the first chain", served: []string{other, chain.EthereumMainnet}, query: queryLogAddr, wantQuery: queryEthLogAddr, wantChain: chain.EthereumMainnet},
+		{desc: "the second chain's table", served: both, query: otherLogAddr, wantQuery: otherLogAddr, wantChain: other},
+		{desc: "a chain the host does not serve", served: both, query: third + "__Log { address }", wantErr: ErrViewChainNotServed},
+		{desc: "a view on another chain's table, named with the served chain's prefix", served: ethereum, query: ethNamedOnOther + " { address }", wantErr: ErrViewChainNotServed},
+		{desc: "a view on the served chain's table, named with another chain's prefix", served: ethereum, query: otherNamedOnEth + " { address }", wantQuery: otherNamedOnEth + " { address }", wantChain: chain.EthereumMainnet},
+		{desc: "a view on the served chain's table, named without a chain", served: ethereum, query: plainOnEth + " { address }", wantQuery: plainOnEth + " { address }", wantChain: chain.EthereumMainnet},
+	}
+
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			ctx := context.Background()
+			defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
+			require.NoError(t, err)
+			defer func() { _ = defraNode.Close(ctx) }()
+
+			// Every chain's table exists, so a refusal comes from the chain check, not a missing table.
+			for _, prefix := range []string{chain.EthereumMainnet, other, third} {
+				_, err = defraNode.DB.AddCollection(ctx, "type "+prefix+"__Log { address: String }")
+				require.NoError(t, err)
+			}
+			_, err = defraNode.DB.AddView(ctx, otherLogAddr, "type "+ethNamedOnOther+" { address: String }")
+			require.NoError(t, err)
+			_, err = defraNode.DB.AddView(ctx, queryEthLogAddr, "type "+otherNamedOnEth+" { address: String }")
+			require.NoError(t, err)
+			_, err = defraNode.DB.AddView(ctx, queryEthLogAddr, "type "+plainOnEth+" { address: String }")
+			require.NoError(t, err)
+
+			vm := NewManager(defraNode, t.TempDir(), c.served...)
+			v := &View{
+				Name: "CollectionTestView",
+				Data: viewbundle.View{Query: c.query, Sdl: "type CollectionTestView { address: String }"},
+			}
+
+			err = vm.RegisterView(ctx, v)
+
+			if c.wantErr != nil {
+				require.ErrorIs(t, err, c.wantErr)
+				require.False(t, vm.IsActive(v.Name))
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, c.wantQuery, v.Data.Query)
+			gotChain, ok := vm.Chain(v.Name)
+			require.True(t, ok)
+			require.Equal(t, c.wantChain, gotChain)
+		})
+	}
+}
+
+// TestViewManager_RefuseUnservedViews tests that a stored view is refused by the chain of the table it
+// reads, through the views it is built on, whatever the views' names say.
+func TestViewManager_RefuseUnservedViews(t *testing.T) {
+	const other = "Testchain__Devnet"
+	ctx := context.Background()
 	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, &defradb.MockSchemaApplierThatSucceeds{})
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
-
-	v := &View{
-		Name: "CollectionTestView",
-		Data: viewbundle.View{
-			Query: queryLogAddr, // Missing chain prefix - should be auto-corrected
-			Sdl:   "type CollectionTestView { address: String }",
-		},
+	for _, prefix := range []string{chain.EthereumMainnet, other} {
+		_, err = defraNode.DB.AddCollection(ctx, "type "+prefix+"__Log { address: String }")
+		require.NoError(t, err)
 	}
+	// Each inner view is named with one chain's prefix, or with none, which reads as Ethereum
+	// mainnet's, and reads the other chain's table. Each outer view reads an inner view. The host
+	// serves only Ethereum mainnet.
+	views := []struct {
+		name, query string
+		refused     bool
+	}{
+		{name: chain.EthereumMainnet + "__OnOther", query: other + "__Log { address }", refused: true},
+		{name: "OuterOnOther", query: chain.EthereumMainnet + "__OnOther { address }", refused: true},
+		{name: other + "__OnEthereum", query: queryEthLogAddr, refused: false},
+		{name: "OuterOnEthereum", query: other + "__OnEthereum { address }", refused: false},
+		{name: "PlainOnOther", query: other + "__Log { address }", refused: true},
+		{name: "OuterOnPlain", query: "PlainOnOther { address }", refused: true},
+	}
+	var names []string
+	for _, v := range views {
+		_, err = defraNode.DB.AddView(ctx, v.query, "type "+v.name+" { address: String }")
+		require.NoError(t, err)
+		names = append(names, v.name)
+	}
+	require.NoError(t, defraNode.DB.AddP2PCollections(ctx, names))
 
-	// Create source collection with full name
-	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
-	require.NoError(t, err)
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
+	require.NoError(t, vm.RefuseUnservedViews(ctx))
 
-	err = vm.RegisterView(ctx, v)
-	require.NoError(t, err)
-
-	// Verify query was corrected to include chain prefix
-	require.Contains(t, v.Data.Query, queryEthLog)
-	require.NotEqual(t, queryLogAddr, v.Data.Query) // Should not be the original uncorrected form
+	for _, v := range views {
+		require.Equal(t, v.refused, vm.IsRefused(v.name), v.name)
+	}
 }
 
 // TestViewManager_Integration_CompleteFlow tests a complete view registration flow without WASM.
@@ -609,7 +673,7 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Set up metrics callback
 	metricsCallCount := 0
@@ -643,58 +707,6 @@ func TestViewManager_Integration_CompleteFlow(t *testing.T) {
 	require.Greater(t, metricsCallCount, 0)
 }
 
-// TestExtractCollectionFromQuery_ComplexQueries tests collection extraction from various query formats.
-func TestExtractCollectionFromQuery_ComplexQueries(t *testing.T) {
-	tests := []struct {
-		name     string
-		query    string
-		expected string
-	}{
-		{
-			name:     "simple query with space",
-			query:    queryLogAddrTopics,
-			expected: queryLogJustName,
-		},
-		{
-			name:     "query with newline",
-			query:    "Log\n{ address }",
-			expected: queryLogJustName,
-		},
-		{
-			name:     "query without braces",
-			query:    "Transaction",
-			expected: "Transaction",
-		},
-		{
-			name:     "query with filter",
-			query:    `Log(where: { address: "0x123" }) { address }`,
-			expected: "Log(where:",
-		},
-		{
-			name:     "empty query",
-			query:    "",
-			expected: "",
-		},
-		{
-			name:     "query with leading newline",
-			query:    "\nLog { address }",
-			expected: queryLogJustName,
-		},
-		{
-			name:     "query with mixed leading whitespace",
-			query:    "  \n\tLog { address }",
-			expected: queryLogJustName,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractCollectionFromQuery(tt.query)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // TestViewManager_RegisterView_NoLenses tests view registration without any lenses.
 func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	ctx := context.Background()
@@ -703,7 +715,7 @@ func TestViewManager_RegisterView_NoLenses(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	v := &View{
 		Name: "NoLensesView",
@@ -736,7 +748,7 @@ func TestViewManager_RegisterView_WithFileURLs(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	v := &View{
 		Name: "FileURLView",
@@ -765,7 +777,7 @@ func TestViewManager_LoadAndRegisterViews_LocalRegistryError(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Use an invalid registry path that should cause loading to fail
 	vm.registryPath = "/invalid/path/that/does/not/exist"
@@ -784,7 +796,7 @@ func TestViewManager_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Test concurrent access to getters
 	done := make(chan bool, 10)
@@ -815,7 +827,7 @@ func TestViewManager_MetricsCallbackError(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	// Set a callback that returns nil (error case)
 	vm.SetMetricsCallback(func() *server.HostMetrics {
@@ -903,7 +915,7 @@ func TestViewManager_ContractAddress_StoredAndRetrieved(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
@@ -936,7 +948,7 @@ func TestViewManager_ContractAddress_EmptyAddressReturnsFalse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
@@ -968,7 +980,7 @@ func TestViewManager_IsActive(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	_, err = defraNode.DB.AddCollection(ctx, "type Ethereum__Mainnet__Log { address: String }")
 	require.NoError(t, err)
@@ -1005,7 +1017,7 @@ func TestViewManager_ContractAddress_UnknownViewReturnsFalse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(ctx) }()
 
-	vm := NewManager(defraNode, t.TempDir())
+	vm := NewManager(defraNode, t.TempDir(), chain.EthereumMainnet)
 
 	got, ok := vm.ContractAddress("NeverRegistered")
 	require.False(t, ok)

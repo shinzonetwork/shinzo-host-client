@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
@@ -65,7 +66,7 @@ type Pruner struct {
 	// retainHistory turns pruning off, for a node bootstrapped with history it should keep.
 	retainHistory bool
 	// heightPrunable is the subset of Dependents the sweep can order on.
-	heightPrunable []CollectionHeight
+	heightPrunable []chain.Collection
 	stopChan       chan struct{}
 	wg             sync.WaitGroup
 	mu             sync.RWMutex
@@ -94,14 +95,10 @@ type Metrics struct {
 }
 
 // NewPruner creates a new Pruner instance that publishes its cutoff to cutoff.
-func NewPruner(cfg *Config, defraNode *node.Node, cutoff *Cutoff, collections ...CollectionConfig) *Pruner {
-	cols := DefaultCollectionConfig()
-	if len(collections) > 0 {
-		cols = collections[0]
-	}
+func NewPruner(cfg *Config, defraNode *node.Node, cutoff *Cutoff, collections CollectionConfig) *Pruner {
 	return &Pruner{
 		cfg:         cfg,
-		collections: cols,
+		collections: collections,
 		defraNode:   defraNode,
 		cutoff:      cutoff,
 		from:        make(map[string]int64),
@@ -118,12 +115,12 @@ func (p *Pruner) SetRetainHistory(retain bool) {
 // Start begins the pruning loop in a background goroutine.
 func (p *Pruner) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {
-		logger.Sugar.Info("Pruner is disabled")
+		logger.Sugar.Infof("Pruner is disabled (chain: %s)", p.collections.Prefix)
 		return nil
 	}
 
 	if p.defraNode == nil {
-		logger.Sugar.Warn("Pruner requires embedded DefraDB node, skipping")
+		logger.Sugar.Warnf("Pruner requires embedded DefraDB node, skipping (chain: %s)", p.collections.Prefix)
 		return nil
 	}
 
@@ -136,10 +133,10 @@ func (p *Pruner) Start(ctx context.Context) error {
 	p.mu.Unlock()
 
 	if p.retainHistory {
-		logger.Sugar.Warn("Pruner is not deleting anything because host.snapshot.enabled is true, which keeps imported snapshot history")
+		logger.Sugar.Warnf("Pruner is not deleting anything because host.snapshot.enabled is true, which keeps imported snapshot history (chain: %s)", p.collections.Prefix)
 	} else {
-		logger.Sugar.Infof("Pruner started: keeps the newest %d block heights, deletes at most %d documents per cycle, runs every %ds, prune_history=%t",
-			p.cfg.MaxBlocks, p.cfg.MaxDocsPerCycle, p.cfg.IntervalSeconds, p.cfg.PruneHistory)
+		logger.Sugar.Infof("Pruner started: keeps the newest %d block heights, deletes at most %d documents per cycle, runs every %ds, prune_history=%t (chain: %s)",
+			p.cfg.MaxBlocks, p.cfg.MaxDocsPerCycle, p.cfg.IntervalSeconds, p.cfg.PruneHistory, p.collections.Prefix)
 	}
 
 	p.wg.Add(1)
@@ -159,7 +156,7 @@ func (p *Pruner) Stop(ctx context.Context) {
 	p.isRunning = false
 	p.mu.Unlock()
 
-	logger.Sugar.Infof("Pruner stopping, waiting for current operation to finish...")
+	logger.Sugar.Infof("Pruner stopping, waiting for current operation to finish... (chain: %s)", p.collections.Prefix)
 	close(p.stopChan)
 
 	stopped := make(chan struct{})
@@ -171,10 +168,10 @@ func (p *Pruner) Stop(ctx context.Context) {
 	select {
 	case <-stopped:
 	case <-ctx.Done():
-		logger.Sugar.Warn("Pruner did not stop within the shutdown budget")
+		logger.Sugar.Warnf("Pruner did not stop within the shutdown budget (chain: %s)", p.collections.Prefix)
 	}
 
-	logger.Sugar.Info("Pruner stopped")
+	logger.Sugar.Infof("Pruner stopped (chain: %s)", p.collections.Prefix)
 }
 
 // GetMetrics returns current pruning statistics.
@@ -203,7 +200,7 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 
 	for {
 		if err := p.runPrune(ctx); err != nil && !abandoned(err) {
-			logger.Sugar.Errorf("Prune cycle failed before deleting anything, retention cutoff unchanged; retrying next interval: %v", err)
+			logger.Sugar.Errorf("Prune cycle failed before deleting anything, retention cutoff unchanged; retrying next interval: %v (chain: %s)", err, p.collections.Prefix)
 		}
 
 		select {
@@ -218,8 +215,8 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 
 // resolveHeightPrunable returns the dependents whose height field carries an index. A field that
 // is absent has no index either, so both cases are skipped.
-func (p *Pruner) resolveHeightPrunable(ctx context.Context) []CollectionHeight {
-	prunable := make([]CollectionHeight, 0, len(p.collections.Dependents))
+func (p *Pruner) resolveHeightPrunable(ctx context.Context) []chain.Collection {
+	prunable := make([]chain.Collection, 0, len(p.collections.Dependents))
 	var skipped []string
 
 	for _, dep := range p.collections.Dependents {
@@ -259,13 +256,13 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 		return err
 	}
 	if !found {
-		logger.Sugar.Info("Prune cycle: skipped, this node holds no blocks yet so there is no retention cutoff; nothing is deleted")
+		logger.Sugar.Infof("Prune cycle: skipped, this node holds no blocks yet so there is no retention cutoff; nothing is deleted (chain: %s)", p.collections.Prefix)
 		return nil
 	}
 	target := highest - p.cfg.MaxBlocks
 	if target <= 0 {
-		logger.Sugar.Infof("Prune cycle: nothing to delete yet, the highest block held (%d) is not above max_blocks (%d)",
-			highest, p.cfg.MaxBlocks)
+		logger.Sugar.Infof("Prune cycle: nothing to delete yet, the highest block held (%d) is not above max_blocks (%d) (chain: %s)",
+			highest, p.cfg.MaxBlocks, p.collections.Prefix)
 		return nil
 	}
 	p.cutoff.Raise(target)
@@ -274,7 +271,7 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 	if now.Sub(p.bottomPassAt) >= bottomPassInterval {
 		clear(p.from)
 		p.bottomPassAt = now
-		logger.Sugar.Info("Prune cycle: sweeping every collection from its lowest height, as on the first cycle and once an hour, to reach documents that arrived below where the sweep had got to")
+		logger.Sugar.Infof("Prune cycle: sweeping every collection from its lowest height, as on the first cycle and once an hour, to reach documents that arrived below where the sweep had got to (chain: %s)", p.collections.Prefix)
 	}
 
 	start := time.Now()
@@ -303,12 +300,12 @@ func (p *Pruner) recordCycle(highest, cutoff int64, fronts []*front, reached int
 		deleted += " (" + strings.Join(perCollection, ", ") + ")"
 	}
 
-	logger.Sugar.Infof("Prune cycle: keeping blocks %d-%d (the newest %d heights); asked DefraDB to delete %s at or below block %d; took %v",
-		cutoff+1, highest, highest-cutoff, deleted, cutoff, took.Round(time.Millisecond))
+	logger.Sugar.Infof("Prune cycle: keeping blocks %d-%d (the newest %d heights); asked DefraDB to delete %s at or below block %d; took %v (chain: %s)",
+		cutoff+1, highest, highest-cutoff, deleted, cutoff, took.Round(time.Millisecond), p.collections.Prefix)
 
 	if submitted >= p.cfg.MaxDocsPerCycle {
-		logger.Sugar.Warnf("Prune cycle reached the max_docs_per_cycle limit (%d) at block %d; the documents from block %d to %d are deleted in the next cycles",
-			p.cfg.MaxDocsPerCycle, reached, reached, cutoff)
+		logger.Sugar.Warnf("Prune cycle reached the max_docs_per_cycle limit (%d) at block %d; the documents from block %d to %d are deleted in the next cycles (chain: %s)",
+			p.cfg.MaxDocsPerCycle, reached, reached, cutoff, p.collections.Prefix)
 	}
 
 	if submitted == 0 {
@@ -357,7 +354,7 @@ type heightDoc struct {
 // front is one collection's place in a sweep: the page read from its position, whether anything
 // due lies beyond that page, and how many documents the sweep has handed to DefraDB from it.
 type front struct {
-	col       CollectionHeight
+	col       chain.Collection
 	isBlock   bool
 	from      int64
 	page      []heightDoc
@@ -544,7 +541,7 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 	for _, id := range docIDs {
 		docID, err := client.NewDocIDFromString(id)
 		if err != nil {
-			logger.Sugar.Warnf("Skipping invalid docID %s: %v", id, err)
+			logger.Sugar.Warnf("Skipping invalid docID %s: %v (chain: %s)", id, err, p.collections.Prefix)
 			continue
 		}
 		clientDocIDs = append(clientDocIDs, docID)

@@ -33,3 +33,12 @@ jobs:
       uses: golangci/golangci-lint-action@v9
       with:
         version: v2.15.0
+        args: --build-tags integration
+
+    # Collection names come from pkg/chain.
+    - name: No hardcoded chain prefix
+      run: |
+        if git grep -n 'Ethereum__Mainnet' -- '*.go' ':!*_test.go' ':!pkg/chain/'; then
+          echo "Use the names from pkg/chain instead of a hardcoded chain prefix."
+          exit 1
+        fi

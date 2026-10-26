@@ -1,12 +1,16 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	"gopkg.in/yaml.v3"
@@ -27,6 +31,17 @@ var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must 
 
 // ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
 var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
+
+// ErrNoChains is returned when the chains key lists no chain.
+var ErrNoChains = errors.New("chains must list at least one chain")
+
+// ErrSnapshotChain is returned when host.snapshot is enabled on a host that does not serve Ethereum
+// mainnet alone.
+var ErrSnapshotChain = fmt.Errorf("host.snapshot is supported only on a host serving %s alone", chain.EthereumMainnet)
+
+// ErrEventFilterChains is returned when the event filter is enabled on a host serving more than one
+// chain.
+var ErrEventFilterChains = errors.New("shinzo.event_filter is supported only on a host serving one chain")
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -82,6 +97,8 @@ type Config struct {
 	Logger     LoggerConfig  `yaml:"logger"`
 	HostConfig HostConfig    `yaml:"host"`
 	Pruner     pruner.Config `yaml:"pruner"`
+	// Chains are the chains the host serves. A config without the key serves Ethereum mainnet.
+	Chains []chain.Config `yaml:"chains"`
 }
 
 // SchemaConfig represents configuration for dynamic schema fetching.
@@ -95,7 +112,7 @@ type SchemaConfig struct {
 	// SILENTLY IGNORED. The token MUST be provided via the INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN
 	// environment variable. Setting this field in config.yaml will NOT work —
 	// the host will start with an empty token, causing schema fetches to
-	// receive 401/503 and fall back to the embedded schema (fail-closed).
+	// receive 401/503; a host starting on an empty store then refuses to start.
 	AuthToken string `yaml:"-"`
 }
 
@@ -115,8 +132,8 @@ type ShinzoConfig struct {
 	ViewQueueSize         int    `yaml:"view_queue_size"`         // Queue size for view processing jobs (default: 1000)
 
 	// Attestation Processing Settings
-	DocWorkerCount int `yaml:"doc_worker_count"` // Number of document processing workers
-	DocQueueSize   int `yaml:"doc_queue_size"`   // Queue size for document event notifications
+	DocWorkerCount int `yaml:"doc_worker_count"` // Attestation workers for each enabled chain
+	DocQueueSize   int `yaml:"doc_queue_size"`   // Block signatures each enabled chain's attestation queue holds
 
 	// Event Filtering
 	EventFilter EventFilterConfig `yaml:"event_filter"` // Configure filtering of P2P events
@@ -198,6 +215,13 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if cfg.Chains, err = loadChains(data); err != nil {
+		return nil, err
+	}
+	if err := CheckChainSettings(&cfg); err != nil {
+		return nil, err
+	}
+
 	// Apply environment variable overrides
 	if v := os.Getenv("START_HEIGHT"); v != "" {
 		height, err := strconv.ParseUint(v, 10, 64)
@@ -258,6 +282,55 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// CheckChainSettings refuses settings the configured chains cannot use. Snapshots need a host serving
+// Ethereum mainnet alone: a snapshot does not name its chain, so another chain's host would import an
+// Ethereum mainnet snapshot, and with snapshots enabled no chain is pruned, including chains the
+// snapshot does not cover. The event filter's rules name one chain's collections and EVM fields, so
+// it needs a host serving one chain. cfg must list at least one chain.
+func CheckChainSettings(cfg *Config) error {
+	if cfg.HostConfig.Snapshot.Enabled {
+		if len(cfg.Chains) > 1 {
+			return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrSnapshotChain)
+		}
+		if cfg.Chains[0].Prefix != chain.EthereumMainnet {
+			return fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotChain)
+		}
+	}
+	if cfg.Shinzo.EventFilter.Enabled && len(cfg.Chains) > 1 {
+		return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrEventFilterChains)
+	}
+	return nil
+}
+
+// loadChains reads and validates the chains key of the config file. A file without the key serves
+// Ethereum mainnet; otherwise the key must list at least one chain. Keys the config does not
+// define are ignored elsewhere in the file but rejected under chains, where a misspelled key would
+// leave a chain misconfigured without an error.
+func loadChains(data []byte) ([]chain.Config, error) {
+	// The inline map takes every top-level key other than chains, so only chains is checked.
+	var doc struct {
+		Chains []chain.Config `yaml:"chains"`
+		Other  map[string]any `yaml:",inline"`
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to parse chains: %w", err)
+	}
+
+	chains := doc.Chains
+	if chains == nil {
+		chains = []chain.Config{{Prefix: chain.EthereumMainnet}}
+	}
+	if err := chain.Validate(chains); err != nil {
+		return nil, fmt.Errorf("invalid chains: %w", err)
+	}
+	if len(chains) == 0 {
+		return nil, ErrNoChains
+	}
+	return chains, nil
 }
 
 // ToInternalConfig converts the host config to the pkg/defradb internal config

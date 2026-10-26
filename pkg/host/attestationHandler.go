@@ -9,102 +9,62 @@ import (
 	"time"
 
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/event"
 	"github.com/sourcenetwork/immutable"
 )
 
-// attestedBlocks tracks which blocks already have an attestation record (in-memory, for logging only).
-var (
-	attestedBlocks sync.Map  //nolint:gochecknoglobals
-	startTime      time.Time //nolint:gochecknoglobals,unused
-)
-
-// processAttestationEventsWithSubscription starts DefraDB event listeners.
-func (h *Host) processAttestationEventsWithSubscription(ctx context.Context) {
-	logger.Sugar.Info("Starting DefraDB event listener")
-	// Start event bus listener - handles both metrics AND attestation creation for all P2P docs
-	go h.startEventBusListener(ctx)
-	logger.Sugar.Info("Event bus listener started")
-	// Wait for context cancellation
-	<-ctx.Done()
-	logger.Sugar.Info("Event listeners stopped")
+// attestedChain is an enabled chain as the attestation listener serves it: its tables, the queue of
+// its block signatures waiting for one of its workers, and its counters (nil without host metrics).
+type attestedChain struct {
+	collections chain.Collections
+	signatures  chan string
+	metrics     *server.ChainMetrics
 }
 
-// Known collection IDs - stored at startup for direct comparison.
-var (
-	blockSigCollectionID    string //nolint:gochecknoglobals
-	blockCollectionID       string //nolint:gochecknoglobals
-	transactionCollectionID string //nolint:gochecknoglobals
-	logCollectionID         string //nolint:gochecknoglobals
-	accessListCollectionID  string //nolint:gochecknoglobals
-	attRecCollectionID      string //nolint:gochecknoglobals
-)
-
-// collectionIDToName - mapping for ID to Name.
-// Populated at runtime by initKnownCollectionIDs after fetching real collection IDs from DefraDB.
-var collectionIDToName = map[string]string{} //nolint:gochecknoglobals
-
-// collectionsWithMetrics - mapping collection to bool.
-var collectionsWithMetrics = map[string]bool{ //nolint:gochecknoglobals
-	constants.CollectionBlockSignature:  true,
-	constants.CollectionTransaction:     true,
-	constants.CollectionLog:             true,
-	constants.CollectionAccessListEntry: true,
+// chainTable is one of an enabled chain's tables.
+type chainTable struct {
+	chain *attestedChain
+	name  string
 }
 
-// initKnownCollectionIDs fetches the CollectionIDs for collections we care about at startup.
-func (h *Host) initKnownCollectionIDs(ctx context.Context) error {
+// knownTables maps the collection IDs of the chains' subscribed tables to the chain and table.
+// Update events carry only a collection ID.
+func (h *Host) knownTables(ctx context.Context, chains []*attestedChain) (map[string]chainTable, error) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
-		return ErrDefraNodeUnavailable
+		return nil, ErrDefraNodeUnavailable
 	}
 
-	// Get BlockSignature collection ID
 	cols, err := h.DefraNode.DB.GetCollections(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get collections: %w", err)
+		return nil, fmt.Errorf("failed to get collections: %w", err)
 	}
 
+	byName := make(map[string]chainTable)
+	for _, attested := range chains {
+		for _, name := range attested.collections.Subscribed() {
+			byName[name] = chainTable{chain: attested, name: name}
+		}
+	}
+	tables := make(map[string]chainTable, len(byName))
 	for _, col := range cols {
-		switch col.Name() {
-		case constants.CollectionBlockSignature:
-			blockSigCollectionID = col.CollectionID()
-			collectionIDToName[blockSigCollectionID] = constants.CollectionBlockSignature
-		case constants.CollectionBlock:
-			blockCollectionID = col.CollectionID()
-			collectionIDToName[blockCollectionID] = constants.CollectionBlock
-		case constants.CollectionTransaction:
-			transactionCollectionID = col.CollectionID()
-			collectionIDToName[transactionCollectionID] = constants.CollectionTransaction
-		case constants.CollectionLog:
-			logCollectionID = col.CollectionID()
-			collectionIDToName[logCollectionID] = constants.CollectionLog
-		case constants.CollectionAccessListEntry:
-			accessListCollectionID = col.CollectionID()
-			collectionIDToName[accessListCollectionID] = constants.CollectionAccessListEntry
-		case constants.CollectionAttestationRecord:
-			attRecCollectionID = col.CollectionID()
-			collectionIDToName[attRecCollectionID] = constants.CollectionAttestationRecord
+		if t, ok := byName[col.Name()]; ok {
+			tables[col.CollectionID()] = t
 		}
 	}
 
-	logger.Sugar.Infof("Initialized %d known collection IDs", knownCollectionIDs)
-	return nil
+	logger.Sugar.Infof("Initialized %d known collection IDs", len(tables))
+	return tables, nil
 }
 
-// docEvent represents a document event to be processed.
-type docEvent struct {
-	docID          string
-	collectionName string
-}
-
-// docQueue is the unified queue for all document processing with drop-oldest backpressure.
-var docQueue chan docEvent //nolint:gochecknoglobals
-
-// initDocQueue initializes the document queue with config values.
-func (h *Host) initDocQueue() (workerCount, queueSize int) {
+// docQueueSettings returns how many attestation workers each enabled chain gets and how many block
+// signatures its queue holds.
+func (h *Host) docQueueSettings() (workerCount, queueSize int) {
 	queueSize = h.config.Shinzo.DocQueueSize
 	if queueSize <= 0 {
 		queueSize = 5000
@@ -113,61 +73,76 @@ func (h *Host) initDocQueue() (workerCount, queueSize int) {
 	if workerCount <= 0 {
 		workerCount = 16
 	}
-	docQueue = make(chan docEvent, queueSize)
 	return workerCount, queueSize
 }
 
-// enqueueDoc adds a document to the processing queue with drop-oldest backpressure.
-func enqueueDoc(evt docEvent) {
+// enqueueSignature adds a block signature's document ID to queue, dropping the oldest IDs while the
+// queue is full, and returns how many it dropped.
+func enqueueSignature(queue chan string, docID string) (dropped int) {
 	for {
 		select {
-		case docQueue <- evt:
-			return
+		case queue <- docID:
+			return dropped
 		default:
 			select {
-			case <-docQueue:
+			case <-queue:
+				dropped++
 			default:
 			}
 		}
 	}
 }
 
-// docWorker processes documents from the unified queue.
-func (h *Host) docWorker(ctx context.Context) {
+// signatureWorker attests the block signatures queued for attested until ctx is done.
+func (h *Host) signatureWorker(ctx context.Context, attested *attestedChain) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case evt := <-docQueue:
-			if evt.collectionName == constants.CollectionBlockSignature {
-				h.processBlockSignatureFromEventBus(ctx, evt.docID)
-			}
+		case docID := <-attested.signatures:
+			h.processBlockSignatureFromEventBus(ctx, attested.collections, docID)
 		}
 	}
 }
 
-// startEventBusListener subscribes to DefraDB's event bus to track document metrics.
-func (h *Host) startEventBusListener(ctx context.Context) {
+// startEventBusListener reads update events from updates: it counts the documents peers send and
+// queues each enabled chain's block signatures for attestation. It closes updates when it stops, and
+// returns once every chain's attestation workers have stopped.
+func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscription) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		logger.Sugar.Warn("DefraNode not available, skipping event bus listener")
 		return
 	}
 
-	if err := h.initKnownCollectionIDs(ctx); err != nil {
-		logger.Sugar.Errorf("Failed to initialize known collection IDs: %v", err)
+	// The workers stop when the listener returns, and the listener waits for them, so whoever waits
+	// for the listener knows no worker is still using DefraDB.
+	workerCtx, stopWorkers := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() {
+		stopWorkers()
+		workers.Wait()
+	}()
+	workerCount, queueSize := h.docQueueSettings()
+	chains := make([]*attestedChain, len(h.chains))
+	for i, c := range h.chains {
+		chains[i] = &attestedChain{
+			collections: c,
+			signatures:  make(chan string, queueSize),
+			metrics:     h.chainMetrics(c.Prefix),
+		}
+		for range workerCount {
+			workers.Go(func() { h.signatureWorker(workerCtx, chains[i]) })
+		}
+		logger.Sugar.Infof("Started %d document workers (queue: %d, chain: %s)", workerCount, queueSize, c.Prefix)
 	}
+	// Deferred calls run last in, first out, so updates is closed, and read until it is, before the
+	// workers are waited on: a stopping worker's write publishes an update, and once updates' buffer
+	// is full the bus stalls until someone reads it.
+	defer defradb.CloseSubscription(h.DefraNode.DB.Events(), updates)
 
-	workerCount, queueSize := h.initDocQueue()
-	for range workerCount {
-		go h.docWorker(ctx)
-	}
-	logger.Sugar.Infof("Started %d document workers (queue: %d)", workerCount, queueSize)
-
-	// Subscribe to document update events
-	updateSub, err := h.DefraNode.DB.Events().Subscribe(event.UpdateName)
+	tables, err := h.knownTables(ctx, chains)
 	if err != nil {
-		logger.Sugar.Errorf("Failed to subscribe to DefraDB events: %v", err)
-		return
+		logger.Sugar.Errorf("Failed to initialize known collection IDs: %v", err)
 	}
 
 	logger.Sugar.Info("DefraDB event bus listener started")
@@ -178,7 +153,7 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 			logger.Sugar.Info("Event bus listener stopped")
 			return
 
-		case msg, ok := <-updateSub.Message():
+		case msg, ok := <-updates.Message():
 			if !ok {
 				logger.Sugar.Warn("Event bus channel closed")
 				return
@@ -190,7 +165,7 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 					continue
 				}
 
-				collectionName, known := collectionIDToName[update.CollectionID]
+				table, known := tables[update.CollectionID]
 				if !known {
 					continue
 				}
@@ -202,30 +177,37 @@ func (h *Host) startEventBusListener(ctx context.Context) {
 					continue
 				}
 
-				if h.metrics != nil {
-					h.metrics.IncrementDocumentsReceived()
+				c := table.chain.collections
+				m := table.chain.metrics
+				if m != nil {
+					// Keyed without the chain prefix, so every chain reports its tables under the same names.
+					m.RecordDocument(strings.TrimPrefix(table.name, c.Prefix+"__"))
+					if table.name == c.BlockSignature.Name {
+						m.BlockSignaturesProcessed.Add(1)
+					}
 				}
-				if collectionsWithMetrics[collectionName] && h.metrics != nil {
-					h.metrics.IncrementDocumentByType(collectionName)
-				}
-				if collectionName == constants.CollectionBlockSignature {
-					enqueueDoc(docEvent{docID: update.DocID, collectionName: collectionName})
+				if table.name == c.BlockSignature.Name {
+					dropped := enqueueSignature(table.chain.signatures, update.DocID)
+					if m != nil {
+						m.QueueDrops.Add(int64(dropped))
+						m.ObserveQueueDepth(len(table.chain.signatures))
+					}
 				}
 			}
 		}
 	}
 }
 
-// processBlockSignatureFromEventBus fetches a BlockSignature document by DocID and processes it.
-func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID string) {
-	startTime = time.Now()
+// processBlockSignatureFromEventBus fetches one of chain c's BlockSignature documents by DocID and
+// processes it.
+func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, c chain.Collections, docID string) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		return
 	}
 
-	col, err := h.DefraNode.DB.GetCollectionByName(ctx, constants.CollectionBlockSignature)
+	col, err := h.DefraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
 	if err != nil {
-		logger.Sugar.Warnf("Failed to get BlockSignature collection: %v", err)
+		logger.Sugar.Warnf("Failed to get BlockSignature collection: %v (chain: %s)", err, c.Prefix)
 		return
 	}
 
@@ -252,11 +234,11 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, docID stri
 	}
 
 	if err != nil || doc == nil {
-		logger.Sugar.Warnf("Failed to fetch BlockSignature doc %s after %d retries: %v", docID, maxRetries, err)
+		logger.Sugar.Warnf("Failed to fetch BlockSignature doc %s after %d retries: %v (chain: %s)", docID, maxRetries, err, c.Prefix)
 		return
 	}
 
-	h.processBlockSignatureDocument(ctx, doc)
+	h.processBlockSignatureDocument(ctx, c, doc)
 }
 
 // extractBlockSignatureCore extracts blockNumber and merkleRoot, returning a partial BlockSignature or error.
@@ -348,13 +330,14 @@ func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationServi
 	}
 }
 
-// verifyBlockSignature verifies the signature and CID list, updating metrics on failure.
-// Returns false if verification fails and processing should stop.
-func (h *Host) verifyBlockSignature(blockSig *attestationService.BlockSignature) bool {
+// verifyBlockSignature verifies the signature and CID list, updating metrics on failure; prefix
+// names the block's chain in its log lines. Returns false if verification fails and processing
+// should stop.
+func (h *Host) verifyBlockSignature(prefix string, blockSig *attestationService.BlockSignature) bool {
 	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig); err != nil {
-		logger.Sugar.Warnf("Invalid block signature for block %d: %v", blockSig.BlockNumber, err)
-		if h.metrics != nil {
-			h.metrics.IncrementSignatureFailures()
+		logger.Sugar.Warnf("Invalid block signature for block %d: %v (chain: %s)", blockSig.BlockNumber, err, prefix)
+		if m := h.chainMetrics(prefix); m != nil {
+			m.SignatureFailures.Add(1)
 		}
 		return false
 	}
@@ -362,11 +345,11 @@ func (h *Host) verifyBlockSignature(blockSig *attestationService.BlockSignature)
 	if len(blockSig.CIDs) > 0 {
 		cidMatch, cidErr := h.blockSignatureVerifier.VerifyCIDListAgainstMerkleRoot(blockSig)
 		if cidErr != nil {
-			logger.Sugar.Warnf("Block %d: CID list verification error: %v", blockSig.BlockNumber, cidErr)
+			logger.Sugar.Warnf("Block %d: CID list verification error: %v (chain: %s)", blockSig.BlockNumber, cidErr, prefix)
 		} else if !cidMatch {
-			logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root", blockSig.BlockNumber)
-			if h.metrics != nil {
-				h.metrics.IncrementSignatureFailures()
+			logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root (chain: %s)", blockSig.BlockNumber, prefix)
+			if m := h.chainMetrics(prefix); m != nil {
+				m.SignatureFailures.Add(1)
 			}
 			return false
 		}
@@ -375,13 +358,14 @@ func (h *Host) verifyBlockSignature(blockSig *attestationService.BlockSignature)
 	return true
 }
 
-// processBlockSignatureDocument extracts fields from a client.Document and processes them.
-func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Document) {
+// processBlockSignatureDocument extracts fields from one of chain c's BlockSignature documents and
+// processes them.
+func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collections, doc *client.Document) {
 	startTime := time.Now()
 
 	blockSig, blockNumber, err := extractBlockSignatureCore(doc)
 	if err != nil {
-		logger.Sugar.Warnf("BlockSignature extraction failed: %v (block %d)", err, blockNumber)
+		logger.Sugar.Warnf("BlockSignature extraction failed: %v (block %d, chain: %s)", err, blockNumber, c.Prefix)
 		return
 	}
 
@@ -389,21 +373,21 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 	populateBlockSignatureCIDs(doc, blockSig)
 
 	if h.blockSignatureVerifier != nil {
-		if !h.verifyBlockSignature(blockSig) {
+		if !h.verifyBlockSignature(c.Prefix, blockSig) {
 			return
 		}
 
-		// A verified peer signature is the host observing that indexer attesting.
-		if h.attesters != nil {
-			h.attesters.Observe(blockSig.SignatureIdentity)
+		// A verified peer signature is the host observing that indexer attesting on chain c.
+		if set := h.attesters[c.Prefix]; set != nil {
+			set.Observe(blockSig.SignatureIdentity)
 		}
 
-		if h.metrics != nil {
-			h.metrics.IncrementSignatureVerifications()
+		if m := h.chainMetrics(c.Prefix); m != nil {
+			m.SignatureVerifications.Add(1)
 		}
 
 		h.blockSignatureVerifier.AddBlockSignature(blockSig)
-		h.processAttestationsFromBlockSignature(ctx, blockSig)
+		h.processAttestationsFromBlockSignature(ctx, c, blockSig)
 	}
 
 	if h.metrics != nil {
@@ -411,8 +395,9 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, doc *client.Do
 	}
 }
 
-// processAttestationsFromBlockSignature creates or updates an attestation record for a block.
-func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockSig *attestationService.BlockSignature) {
+// processAttestationsFromBlockSignature creates or updates the attestation record of one of chain c's
+// blocks.
+func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, c chain.Collections, blockSig *attestationService.BlockSignature) {
 	if h.DefraNode == nil {
 		return
 	}
@@ -421,7 +406,7 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 	blockAttestedID := fmt.Sprintf("block:%d:%s", blockNumber, blockSig.MerkleRoot)
 
 	if len(blockSig.CIDs) == 0 {
-		logger.Sugar.Warnf("Skipping attestation for block %d: block signature has no CID list", blockNumber)
+		logger.Sugar.Warnf("Skipping attestation for block %d: block signature has no CID list (chain: %s)", blockNumber, c.Prefix)
 		return
 	}
 
@@ -434,11 +419,13 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 		BlockNumber:   &blockNumber,
 	}
 
+	m := h.chainMetrics(c.Prefix)
 	var lastErr error
 	for attempt := range maxAttestationRetries {
-		if err := attestationService.PostAttestationRecord(ctx, h.DefraNode, record); err != nil {
+		created, err := attestationService.PostAttestationRecord(ctx, h.DefraNode, c.AttestationRecord.Name, record)
+		if err != nil {
 			if errors.Is(err, attestationService.ErrDocumentNotFound) {
-				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff", blockNumber)
+				logger.Sugar.Infof("Skipping attestation for block %d: the pruner deleted its record because the block is at or below the retention cutoff (chain: %s)", blockNumber, c.Prefix)
 				return
 			}
 			lastErr = err
@@ -447,32 +434,39 @@ func (h *Host) processAttestationsFromBlockSignature(ctx context.Context, blockS
 				continue
 			}
 			// Non-retryable error
-			logger.Sugar.Warnf("Failed to post attestation for block %d: %v", blockNumber, err)
-			if h.metrics != nil {
-				h.metrics.IncrementAttestationErrors()
+			logger.Sugar.Warnf("Failed to post attestation for block %d: %v (chain: %s)", blockNumber, err, c.Prefix)
+			if m != nil {
+				m.AttestationErrors.Add(1)
 			}
 			return
 		}
-		// Success
-		if _, existed := attestedBlocks.LoadOrStore(blockNumber, true); existed {
-			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
-		} else {
-			if h.metrics != nil {
-				h.metrics.IncrementAttestationsCreated()
-				h.metrics.IncrementDocumentByType(constants.CollectionBlock)
+		if created {
+			if m != nil {
+				m.AttestationsCreated.Add(1)
 			}
-			logger.Sugar.Infof("Created attestation for block %d (indexer: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength))
+			logger.Sugar.Infof("Created attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
+		} else {
+			logger.Sugar.Infof("Updated attestation for block %d (indexer: %s, chain: %s)", blockNumber, truncateString(blockSig.SignatureIdentity, identityTruncateLength), c.Prefix)
 		}
-		if h.metrics != nil {
-			h.metrics.UpdateMostRecentBlock(uint64(blockNumber)) //nolint:gosec // block numbers are always positive
+		if m != nil {
+			m.UpdateCurrentBlock(blockNumber)
 		}
 		return
 	}
 
-	logger.Sugar.Warnf("Failed to post attestation for block %d after retries: %v", blockNumber, lastErr)
-	if h.metrics != nil {
-		h.metrics.IncrementAttestationErrors()
+	logger.Sugar.Warnf("Failed to post attestation for block %d after retries: %v (chain: %s)", blockNumber, lastErr, c.Prefix)
+	if m != nil {
+		m.AttestationErrors.Add(1)
 	}
+}
+
+// chainMetrics returns the counters of the chain with prefix, or nil when the host keeps no
+// metrics or none for that chain.
+func (h *Host) chainMetrics(prefix string) *server.ChainMetrics {
+	if h.metrics == nil {
+		return nil
+	}
+	return h.metrics.Chain(prefix)
 }
 
 func truncateString(s string, maxLen int) string {

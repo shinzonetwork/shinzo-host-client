@@ -46,9 +46,11 @@ jobs:
         go test -count=1 -timeout=3m \
           -covermode=atomic \
           -coverprofile=coverage.out \
-          ./pkg/... \
-          ./cmd/host/...
+          ./...
     
+    - name: Run integration test
+      run: go test -count=1 -tags integration ./integration/
+
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
       with:

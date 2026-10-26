@@ -9,9 +9,10 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
@@ -31,6 +32,7 @@ import (
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
+	"github.com/sourcenetwork/defradb/event"
 	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -132,6 +134,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 		HostConfig: config.HostConfig{
 			LensRegistryPath: "./.defra/lens",
 		},
+		Chains: []chain.Config{{Prefix: chain.EthereumMainnet}},
 	}
 	return cfg
 }()
@@ -140,6 +143,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 type Host struct {
 	DefraNode      *node.Node
 	NetworkHandler *defradb.NetworkHandler // P2P network control
+	chains         []chain.Collections     // The enabled chains; the attestation listener attests their block signatures
 
 	// signature verifier as a service
 	blockSignatureVerifier *attestation.BlockSignatureVerifier // Block signature verifier for block-signed documents
@@ -147,25 +151,27 @@ type Host struct {
 
 	webhookCleanupFunction func()
 	LensRegistryPath       string
-	processingCancel       context.CancelFunc  // For canceling the event processing goroutine
-	playgroundServer       *http.Server        // Playground HTTP server (if enabled)
-	acpServer              *defradbHttp.Server // ACP-wrapped GraphQL server (set when the ACP middleware owns the API port)
-	acpMiddleware          *acp.Middleware     // Billing gate; drained on Close so in-flight records are not lost
-	config                 *config.Config      // Host configuration including StartHeight
+	processingCancel       context.CancelFunc   // For canceling the event processing goroutine
+	listenerDone           <-chan struct{}      // Closed once the attestation listener has stopped
+	playgroundServer       *http.Server         // Playground HTTP server (if enabled)
+	apiServer              *defradbHttp.Server  // Serves DefraDB's API, wrapped in the ACP middleware when it is enabled
+	apiHandler             *defradbHttp.Handler // DefraDB's API handler that apiServer serves
+	acpMiddleware          *acp.Middleware      // Billing gate; drained on Close so in-flight records are not lost
+	config                 *config.Config       // Host configuration including StartHeight
 
 	// VIEW MANAGEMENT SYSTEM: Handle lens transformations and view lifecycle
 	viewManager *view.Manager // Manages view lifecycle and processing
 
-	// Indexers seen attesting, snapshotted into service records. Nil when
-	// recording is off.
-	attesters *observedAttesters
+	// Indexers seen attesting on each enabled chain, by prefix, snapshotted into service records for
+	// the chain a billed view reads. Nil when recording is off.
+	attesters map[string]*observedAttesters
 
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
 
 	// mostRecentBlockReceived uint64
 
-	pruner *pruner.Pruner // Document pruner for removing old blocks
+	pruners []*pruner.Pruner // One document pruner per chain with all its tables stored
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
 }
 
@@ -195,14 +201,30 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		Level: corelog.LevelError,
 	})
 
-	// The pruner and the retention rule share one cutoff.
-	var cutoff *pruner.Cutoff
+	// LoadConfig requires at least one chain; a config built in code may hold none.
+	if len(cfg.Chains) == 0 {
+		return nil, ErrNoChains
+	}
+	// A config built in code does not go through LoadConfig's check.
+	if err := config.CheckChainSettings(cfg); err != nil {
+		return nil, err
+	}
+	// The event filter and snapshots use only the first chain. Config allows them only on a host
+	// serving one chain, and that host does not start when its chain is disabled.
+	served := cfg.Chains[0]
+	collections := chain.EVM(served.Prefix)
+
+	// Every configured chain gets a cutoff and a retention-rule entry in pruned, in cfg.Chains order.
+	// Only chains with all their tables stored get a pruner below.
+	var pruned []prunedChain
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
-		cutoff = &pruner.Cutoff{}
-		// With snapshots enabled the pruner retains history and never sets a cutoff.
+		for _, c := range cfg.Chains {
+			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(chain.EVM(c.Prefix)), cutoff: &pruner.Cutoff{}})
+		}
+		// With snapshots enabled the pruners retain history and never set a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
-			rule = NewRetentionRule(pruner.DefaultCollectionConfig(), cutoff)
+			rule = NewRetentionRule(pruned)
 		}
 	}
 	// A nil *RetentionRule stored in the interface would not be nil.
@@ -211,8 +233,9 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		retentionRule = rule
 	}
 	var replicationFilter client.ReplicationFilter
-	if f := NewEventReplicationFilter(cfg.Shinzo.EventFilter); f != nil {
-		replicationFilter = f
+	eventFilter := NewEventReplicationFilter(cfg.Shinzo.EventFilter, collections)
+	if eventFilter != nil {
+		replicationFilter = eventFilter
 	}
 
 	// wazero runs lens transforms in pure Go. wasmtime is the upstream default,
@@ -221,25 +244,29 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	nodeOpts := options.Node()
 	nodeOpts.DB().SetLensRuntime("wazero")
 
-	schemaCtx, schemaCtxCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Schema.HTTPClientTimeoutSecs)*time.Second)
-	resolvedSchema := resolveSchema(schemaCtx, cfg)
-	schemaCtxCancel()
+	// DefraDB would start its API in node.Start, before StartDefraInstance applies the schema. The
+	// host serves it after that (startAPIServer).
+	nodeOpts.SetDisableAPI(true)
 
-	// When the ACP middleware is enabled the host owns the GraphQL API port.
-	// Defradb still initializes its store, ACP, P2P, and DB on Start; only
-	// the auto-start of the HTTP server is suppressed.
-	if acpCfg.Enabled {
-		nodeOpts.SetDisableAPI(true)
+	resolveCollections := func(cols []client.Collection) {
+		if rule != nil {
+			names := rule.ResolveCollections(cols)
+			logger.Sugar.Infof("Retention rule active on %d collections (%s)", len(names), strings.Join(names, ", "))
+		}
+		if eventFilter != nil {
+			eventFilter.ResolveCollections(cols)
+		}
 	}
 
 	internalCfg := cfg.ToInternalConfig()
+	applier := &chainsApplier{schemaCfg: cfg.Schema, chains: cfg.Chains}
 	defraNode, networkHandler, err := defradb.StartDefraInstance(
 		internalCfg,
-		defradb.NewSchemaApplierFromProvidedSchema(resolvedSchema),
+		applier,
 		[]options.Enumerable[options.NodeOptions]{nodeOpts},
 		replicationFilter,
 		retentionRule,
-		constants.AllCollections...,
+		resolveCollections,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error starting defra instance: %w", err)
@@ -249,60 +276,106 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 
 	ctx := context.Background()
 
-	err = waitForDefraDB(ctx, defraNode)
-	if err != nil {
-		return nil, err
+	enabled := make([]chain.Collections, len(applier.enabled))
+	enabledPrefixes := make([]string, len(applier.enabled))
+	for i, c := range applier.enabled {
+		enabled[i] = chain.EVM(c.Prefix)
+		enabledPrefixes[i] = c.Prefix
 	}
 
-	// Apply local schema after DefraDB is ready (for use with non-branchable)
-	err = applySchema(ctx, defraNode, resolvedSchema)
-	if err != nil {
-		return nil, fmt.Errorf("failed to apply schema: %w", err)
-	}
-
-	if rule != nil {
-		cols, err := defraNode.DB.GetCollections(ctx)
-		if err != nil {
-			logger.Sugar.Errorf("Retention rule inactive until restart, could not read collection IDs: %v", err)
-		} else {
-			names := rule.ResolveCollections(cols)
-			logger.Sugar.Infof("Retention rule active on %d collections (%s)", len(names), strings.Join(names, ", "))
-		}
-	}
-
-	// Bootstrap from historical snapshots before P2P starts
-	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
-		bootstrapFromSnapshots(ctx, defraNode, cfg.HostConfig.Snapshot)
-	}
-
-	// View manager has to be built before the ACP server because the
-	// middleware's view registry adapts the manager's accessors.
-	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath)
-
-	// Recording the served-query attesting set needs the host's observed
-	// attesters: the block-signature workers populate it and the serve path
-	// snapshots it. Built only when recording is on so the workers skip it
-	// otherwise.
-	var attesters *observedAttesters
+	// Recording the served-query attesting set needs each enabled chain's observed attesters: the
+	// chain's block-signature workers populate its set and the serve path snapshots the set of the
+	// chain a billed view reads. Built only when recording is on so the workers skip it otherwise.
+	var attesters map[string]*observedAttesters
 	if acpCfg.Enabled && acpCfg.ASBaseURL != "" {
 		window := acpCfg.AttesterWindow
 		if window <= 0 {
 			window = DefaultAttesterWindow
 		}
-		attesters = newObservedAttesters(window)
+		attesters = make(map[string]*observedAttesters, len(applier.enabled))
+		for _, c := range applier.enabled {
+			attesters[c.Prefix] = newObservedAttesters(window)
+		}
 	}
 
-	// When the middleware is enabled the host owns the GraphQL API. The
-	// handler is constructed here, wrapped, and served on cfg.DefraDB.URL.
-	// defraNode.APIURL is populated inside startACPServer so the playground
-	// proxy below uses our address.
-	var acpServer *defradbHttp.Server
+	// The endpoints report every configured chain, enabled or not, in config order, then the removed
+	// chains.
+	chainMetrics := make([]*server.ChainMetrics, len(cfg.Chains))
+	for i, c := range cfg.Chains {
+		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix), Reason: applier.reasons[c.Prefix]}
+		if pruned != nil {
+			chainMetrics[i].Cutoff = pruned[i].cutoff
+		}
+	}
+	for _, prefix := range applier.removed {
+		chainMetrics = append(chainMetrics, &server.ChainMetrics{Prefix: prefix, Reason: server.ReasonRemoved})
+	}
+	newHost := &Host{
+		DefraNode:              defraNode,
+		NetworkHandler:         networkHandler,
+		chains:                 enabled,
+		blockSignatureVerifier: attestation.NewBlockSignatureVerifier(blockSignatureCacheSize),
+		blockCIDCollector:      attestation.NewBlockCIDCollector(),
+		webhookCleanupFunction: func() {},
+		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
+		config:                 cfg,
+		metrics:                server.NewHostMetrics(chainMetrics...),
+		attesters:              attesters,
+	}
+	logger.Sugar.Info("🔐 Block signature verifier initialized")
+
+	// The attestation listener subscribes before the host dials any peer, so it sees every update
+	// from the peers it dials. Updates delivered before this point, such as from a peer that dialled
+	// this host first, are not attested. The Host is built first because the listener needs its
+	// verifier.
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe to DefraDB updates: %w", err)
+	}
+	processingCtx, processingCancel := context.WithCancel(context.Background())
+	newHost.processingCancel = processingCancel
+	started := false
+	defer func() {
+		if !started {
+			processingCancel()
+		}
+	}()
+	listenerDone := make(chan struct{})
+	newHost.listenerDone = listenerDone
+	go func() {
+		defer close(listenerDone)
+		newHost.startEventBusListener(processingCtx, updates)
+	}()
+
+	// Bootstrap from historical snapshots before P2P starts
+	if cfg.HostConfig.Snapshot.Enabled && cfg.HostConfig.Snapshot.IndexerURL != "" && len(cfg.HostConfig.Snapshot.HistoricalRanges) > 0 {
+		bootstrapFromSnapshots(ctx, defraNode, collections, cfg.HostConfig.Snapshot)
+	}
+
+	// View manager has to be built before the ACP middleware because the
+	// middleware's view registry adapts the manager's accessors.
+	viewManager := view.NewManager(defraNode, cfg.HostConfig.LensRegistryPath, enabledPrefixes...)
+	if err := viewManager.RefuseUnservedViews(ctx); err != nil {
+		return nil, fmt.Errorf("refuse views on unserved chains: %w", err)
+	}
+
+	apiHandler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
+	if err != nil {
+		return nil, fmt.Errorf("defradb handler: %w", err)
+	}
+	var handler http.Handler = apiHandler
 	var acpMiddleware *acp.Middleware
 	if acpCfg.Enabled {
-		acpServer, acpMiddleware, err = startACPServer(ctx, acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, cfg.DefraDB.URL, attesters)
+		acpMiddleware, err = newACPMiddleware(acpCfg, internalCfg, cfg.Shinzo.HubBaseURL, defraNode, viewManager, viewAttesters(viewManager, attesters))
 		if err != nil {
-			return nil, fmt.Errorf("acp server: %w", err)
+			return nil, fmt.Errorf("acp middleware: %w", err)
 		}
+		handler = acpMiddleware.Wrap(apiHandler)
+	}
+	// startAPIServer sets defraNode.APIURL, which the playground proxy below and the health probe use.
+	apiServer, err := startAPIServer(ctx, handler, cfg.DefraDB.URL, defraNode)
+	if err != nil {
+		return nil, fmt.Errorf("api server: %w", err)
 	}
 
 	// Log API URL
@@ -348,20 +421,11 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		fmt.Printf("   (Playground proxies API requests to defradb at %s)\n", defraNode.APIURL)
 	}
 
-	newHost := &Host{
-		DefraNode:              defraNode,
-		NetworkHandler:         networkHandler,
-		webhookCleanupFunction: func() {},
-		LensRegistryPath:       cfg.HostConfig.LensRegistryPath,
-		processingCancel:       func() {},
-		playgroundServer:       playgroundServer,
-		acpServer:              acpServer,
-		acpMiddleware:          acpMiddleware,
-		config:                 cfg,
-		metrics:                server.NewHostMetrics(),
-		viewManager:            viewManager,
-		attesters:              attesters,
-	}
+	newHost.viewManager = viewManager
+	newHost.apiServer = apiServer
+	newHost.apiHandler = apiHandler
+	newHost.acpMiddleware = acpMiddleware
+	newHost.playgroundServer = playgroundServer
 
 	// Hook up metrics callback for view tracking
 	newHost.viewManager.SetMetricsCallback(func() *server.HostMetrics {
@@ -412,9 +476,21 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if networkHandler != nil {
 		logger.Sugar.Info("▶️ Adding P2P peers and starting network...")
 
+		peerAddrs := slices.Clone(cfg.DefraDB.P2P.BootstrapPeers)
+		for _, c := range applier.enabled {
+			for _, g := range c.Generators {
+				if g.Peer != "" {
+					peerAddrs = append(peerAddrs, g.Peer)
+				}
+			}
+		}
+
 		// Resolve bootstrap peers: auto-discover peer IDs for addresses that don't include them
 		discoveryTimeout := time.Duration(cfg.DefraDB.P2P.PeerDiscoveryTimeoutMs) * time.Millisecond
-		bootstrapPeers := resolveBootstrapPeers(context.Background(), cfg.DefraDB.P2P.BootstrapPeers, discoveryTimeout)
+		bootstrapPeers := resolveBootstrapPeers(context.Background(), peerAddrs, discoveryTimeout)
+		// A generator's peer may also be listed as a bootstrap peer or under another chain.
+		slices.Sort(bootstrapPeers)
+		bootstrapPeers = slices.Compact(bootstrapPeers)
 		logger.Sugar.Infof("▶️ Adding %d P2P peers and starting network...", len(bootstrapPeers))
 
 		for _, peer := range bootstrapPeers {
@@ -448,22 +524,8 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
-	// Start the event-driven attestation processing system
-	processingCtx, processingCancel := context.WithCancel(context.Background())
-	newHost.processingCancel = processingCancel
-	go newHost.processAttestationEventsWithSubscription(processingCtx)
-
-	// Block monitoring is now handled by the event-driven processAllViews goroutine
-	// No separate monitoring goroutine needed
-
 	// Initialize and start health server
 	healthDefraURL := defraProbeAddress(defraNode, cfg.DefraDB.URL)
-
-	if defraNode != nil {
-		newHost.blockSignatureVerifier = attestation.NewBlockSignatureVerifier(blockSignatureCacheSize)
-		newHost.blockCIDCollector = attestation.NewBlockCIDCollector()
-		logger.Sugar.Info("🔐 Block signature verifier initialized")
-	}
 
 	port := cfg.HostConfig.HealthServerPort
 	if port == 0 {
@@ -483,21 +545,31 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	logger.Sugar.Infof("📊 Metrics available at: %s", metricsURL)
 	logger.Sugar.Infof("🏥 Health available at: %s", healthURL)
 
-	// Initialize pruner for removing old replicated blocks
+	// Initialize the pruners for removing old replicated blocks
 	if cfg.Pruner.Enabled && defraNode != nil {
 		cfg.Pruner.SetDefaults()
 
-		p := pruner.NewPruner(&cfg.Pruner, defraNode, cutoff)
-		p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
+		for i, c := range cfg.Chains {
+			// Only enabled chains and chains disabled for drift have all their tables stored.
+			if reason := applier.reasons[c.Prefix]; reason != "" && reason != server.ReasonSchemaDrift {
+				continue
+			}
+			chainCfg := cfg.Pruner
+			if c.MaxBlocks > 0 {
+				chainCfg.MaxBlocks = c.MaxBlocks
+			}
+			p := pruner.NewPruner(&chainCfg, defraNode, pruned[i].cutoff, pruned[i].collections)
+			p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
 
-		if err := p.Start(ctx); err != nil {
-			logger.Sugar.Warnf("Failed to start pruner: %v", err)
+			if err := p.Start(ctx); err != nil {
+				logger.Sugar.Warnf("Failed to start pruner: %v (chain: %s)", err, c.Prefix)
+			}
+
+			newHost.pruners = append(newHost.pruners, p)
 		}
-
-		newHost.pruner = p
 	}
 
-	go newHost.reportStats(processingCtx)
+	go newHost.reportStats(processingCtx, statsInterval, logger.Sugar)
 
 	if cfg.HostConfig.OpenBrowserOnStart {
 		go func() {
@@ -516,6 +588,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}()
 	}
 
+	started = true
 	return newHost, nil
 }
 
@@ -525,12 +598,13 @@ func (h *Host) IsHealthy() bool {
 	return h.DefraNode != nil
 }
 
-// GetCurrentBlock returns the most recent block height that the host has processed, based on the host's metrics. This is used for monitoring the progress of block processing and data freshness.
-func (h *Host) GetCurrentBlock() int64 {
-	if h.metrics != nil {
-		return int64(atomic.LoadUint64(&h.metrics.MostRecentBlock)) //nolint:gosec // block numbers won't exceed int64 max
+// ChainStatuses returns each configured chain's status, in config order, then each removed chain's,
+// or nil without host metrics.
+func (h *Host) ChainStatuses() []server.ChainStatus {
+	if h.metrics == nil {
+		return nil
 	}
-	return 0
+	return h.metrics.ChainStatuses()
 }
 
 // ProcessViewRegistrationEvent processes a view registration event.
@@ -547,13 +621,6 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 		return fmt.Errorf("view %s: %w", event.View.Name, ErrViewMissingSDL)
 	}
 
-	// Write WASM to disk
-	if len(event.View.Data.Transform.Lenses) > 0 {
-		if err := event.View.PostWasmToFile(h.LensRegistryPath); err != nil {
-			return fmt.Errorf("failed to write WASM for view %s: %w", event.View.Name, err)
-		}
-	}
-
 	// Register view
 	if err := h.viewManager.RegisterView(ctx, &event.View); err != nil {
 		return fmt.Errorf("failed to register view %s: %w", event.View.Name, err)
@@ -565,14 +632,6 @@ func (h *Host) ProcessViewRegistrationEvent(ctx context.Context, event shinzohub
 	}
 
 	return nil
-}
-
-// GetLastProcessedTime returns the timestamp of the most recently processed block, based on the host's metrics. This is used for monitoring the freshness of the data being processed by the host.
-func (h *Host) GetLastProcessedTime() time.Time {
-	if h.metrics != nil {
-		return h.metrics.LastDocumentTime
-	}
-	return time.Time{}
 }
 
 // GetPeerInfo returns information about the host's P2P network status, including whether P2P is enabled, the host's own peer ID and addresses, and a list of currently connected peers. This is used for monitoring and debugging the P2P network status of the host.
@@ -702,17 +761,33 @@ func incrementPort(apiURL string) (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port+1)), nil
 }
 
-// Close stops the ShinzoHub event subscription, the event listener and the pruner, shuts down the
-// playground and ACP servers, drains the in-flight billing service records, and closes the
-// DefraDB node.
+// Close stops the ShinzoHub event subscription, the event listener, the P2P network and the pruners,
+// shuts down the playground and API servers, drains the in-flight billing service records, and
+// closes the DefraDB node.
 func (h *Host) Close(ctx context.Context) error {
 	h.webhookCleanupFunction()
 	h.processingCancel()
-
-	if h.pruner != nil {
-		h.pruner.Stop(ctx)
-		h.pruner = nil
+	if h.listenerDone != nil {
+		select {
+		case <-h.listenerDone:
+		case <-ctx.Done():
+		}
 	}
+
+	if h.NetworkHandler != nil {
+		if err := h.NetworkHandler.StopNetwork(); err != nil {
+			fmt.Printf("Error stopping P2P network: %v\n", err)
+		}
+	}
+
+	// Each pruner stops in its own goroutine, so no pruner waits for another's cycle before it is
+	// signalled, and all of them share the one budget.
+	var stopping sync.WaitGroup
+	for _, p := range h.pruners {
+		stopping.Go(func() { p.Stop(ctx) })
+	}
+	stopping.Wait()
+	h.pruners = nil
 
 	// Close the playground server if it's running
 	if h.playgroundServer != nil {
@@ -728,12 +803,15 @@ func (h *Host) Close(ctx context.Context) error {
 		}
 	}
 
-	// Shut down the ACP-wrapped GraphQL server before closing defradb;
-	// the server holds a handler that calls into defraNode.DB.
-	if h.acpServer != nil {
-		if err := h.acpServer.Shutdown(ctx); err != nil {
-			fmt.Printf("Error shutting down ACP server: %v\n", err)
+	// Shut down the API server before closing defradb; its handler calls into defraNode.DB.
+	if h.apiServer != nil {
+		if err := h.apiServer.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down API server: %v\n", err)
 		}
+	}
+	// DefraDB's Close closes only an API handler it created itself.
+	if h.apiHandler != nil {
+		h.apiHandler.Close()
 	}
 
 	// The server no longer accepts requests, so drain the service records it
@@ -757,9 +835,9 @@ func (h *Host) Close(ctx context.Context) error {
 
 // buildRecording constructs service-record submission when an accounting service
 // URL is configured; otherwise the gate serves without recording. attesters
-// supplies the observed attesting set snapshotted into each record, and is
-// non-nil whenever an accounting service URL is set.
-func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters *observedAttesters) (*acp.Recording, error) {
+// supplies the observed attesting set snapshotted into each record for the chain
+// the billed view reads.
+func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *node.Node, attesters func(view string) []string) (*acp.Recording, error) {
 	if acpCfg.ASBaseURL == "" {
 		return nil, nil //nolint:nilnil // (nil recording, nil error) signals billing is disabled, a valid state
 	}
@@ -770,28 +848,23 @@ func buildRecording(acpCfg acp.Config, internalCfg *defradb.Config, defraNode *n
 	client := accounting.NewClient(acpCfg.ASBaseURL, acp.DefaultRecordTimeout)
 	return &acp.Recording{
 		Recorder:  accounting.NewRecorder(client, nodeKey, acpCfg.ChainID),
-		Attesters: attesters.Snapshot,
+		Attesters: attesters,
 	}, nil
 }
 
-// startACPServer constructs the host-owned GraphQL HTTP server: it wraps
-// defradb's API handler with the ACP middleware, binds the listener on
-// the resolved LAN address, points defraNode.APIURL at the address so
-// the playground proxy uses it, and waits for the server to answer a
-// health check before returning. Caller shuts the returned server down
-// via Host.Close.
-func startACPServer(
-	ctx context.Context,
+// newACPMiddleware builds the ACP middleware, which gates GraphQL requests to acp.GraphQLPath: a
+// balance check against the hub and, when an accounting service is configured, service-record
+// submission.
+func newACPMiddleware(
 	acpCfg acp.Config,
 	internalCfg *defradb.Config,
 	hubBaseURL string,
 	defraNode *node.Node,
 	viewManager *view.Manager,
-	defraURL string,
-	attesters *observedAttesters,
-) (*defradbHttp.Server, *acp.Middleware, error) {
+	attesters func(view string) []string,
+) (*acp.Middleware, error) {
 	if hubBaseURL == "" {
-		return nil, nil, errHubBaseURLMissing
+		return nil, errHubBaseURLMissing
 	}
 	// The host reads the hub over its Cosmos LCD (REST) port.
 	lcdURL := deriveShinzoHubURLs(hubBaseURL).lcd
@@ -805,63 +878,63 @@ func startACPServer(
 
 	recording, err := buildRecording(acpCfg, internalCfg, defraNode, attesters)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	mw := acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar)
+	return acp.NewMiddleware(authz, registry, acpCfg.ChainID, acp.DefaultRequestMaxAge, recording, logger.Sugar), nil
+}
 
-	handler, err := defradbHttp.NewHandler(defraNode.DB, defraNode.Options())
-	if err != nil {
-		return nil, nil, fmt.Errorf("defradb handler: %w", err)
-	}
-
+// startAPIServer serves handler on defraURL, points defraNode.APIURL at the bound address, and
+// waits for the server to answer a health check before returning. Caller shuts the returned server
+// down via Host.Close.
+func startAPIServer(ctx context.Context, handler http.Handler, defraURL string, defraNode *node.Node) (*defradbHttp.Server, error) {
 	// Bind on host:port. Loopback hosts (localhost, 127.0.0.1, ::1) are
 	// promoted to 0.0.0.0 so the same listener accepts both external
 	// connections and in-process loopback calls (e.g. healthcheck probes).
 	host, port, splitErr := net.SplitHostPort(defraURL)
 	if splitErr != nil {
-		return nil, nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
+		return nil, fmt.Errorf("parse defraURL %q: %w", defraURL, splitErr)
 	}
 	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
 		host = "0.0.0.0"
 	}
 	listenAddr := net.JoinHostPort(host, port)
 
-	server, err := defradbHttp.NewServer(mw.Wrap(handler), options.NodeHTTP().SetAddress(listenAddr))
+	server, err := defradbHttp.NewServer(handler, options.NodeHTTP().SetAddress(listenAddr))
 	if err != nil {
-		return nil, nil, fmt.Errorf("defradb server: %w", err)
+		return nil, fmt.Errorf("defradb server: %w", err)
 	}
 	if err := server.SetListener(); err != nil {
-		return nil, nil, fmt.Errorf("listener: %w", err)
+		return nil, fmt.Errorf("listener: %w", err)
 	}
 
 	go func() {
 		if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Sugar.Errorf("ACP server stopped: %v", err)
+			logger.Sugar.Errorf("API server stopped: %v", err)
 		}
 	}()
 
 	defraNode.APIURL = server.Address()
 
-	healthCtx, cancel := context.WithTimeout(ctx, acpHealthCheckTimeout)
+	healthCtx, cancel := context.WithTimeout(ctx, apiHealthCheckTimeout)
 	defer cancel()
 
 	healthClient, err := defradbHttp.NewClient(server.Address())
 	if err != nil {
 		_ = server.Shutdown(ctx)
-		return nil, nil, fmt.Errorf("health client: %w", err)
+		return nil, fmt.Errorf("health client: %w", err)
 	}
 	if err := healthClient.HealthCheck(healthCtx); err != nil {
 		_ = server.Shutdown(ctx)
-		return nil, nil, fmt.Errorf("health check: %w", err)
+		return nil, fmt.Errorf("health check: %w", err)
 	}
 
-	return server, mw, nil
+	return server, nil
 }
 
-// acpHealthCheckTimeout bounds the post-listen health check on the
-// ACP-wrapped server. The server is local; a slow response indicates
+// apiHealthCheckTimeout bounds the post-listen health check on the
+// API server. The server is local; a slow response indicates
 // startup is wedged and the host should fail rather than hang.
-const acpHealthCheckTimeout = 5 * time.Second
+const apiHealthCheckTimeout = 5 * time.Second
 
 // epochPollInterval bounds how often the balance gate re-reads the hub height to
 // learn the current settlement epoch. Balances only change at epoch close, so a
@@ -878,32 +951,6 @@ func (h *Host) GetMetricsHandler() http.Handler {
 		})
 	}
 	return h.metrics
-}
-
-// waitForDefraDB polls the embedded DefraDB node until a trivial schema query
-// succeeds. Returns an error after maxAttempts seconds if the node never
-// responds, e.g. because schema setup failed upstream.
-func waitForDefraDB(ctx context.Context, defraNode *node.Node) error {
-	fmt.Println("Waiting for defra...")
-	maxAttempts := 30
-
-	// Simple query to check if the schema is ready
-	query := `{ ` + constants.CollectionBlock + ` { __typename } }`
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err := defradb.QuerySingle[map[string]any](ctx, defraNode, query)
-		if err == nil {
-			fmt.Println("Defra is responsive!")
-			return nil
-		}
-
-		if attempt < maxAttempts {
-			fmt.Printf("Attempt %d failed... Trying again\n", attempt)
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	return fmt.Errorf("after %d retry attempts: %w", maxAttempts, ErrDefraDBNotReady)
 }
 
 func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohub.ShinzoEvent) {
@@ -936,20 +983,17 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 					continue
 				}
 
-				// 2. Ensure WASM files are written to disk (decodes base64 and writes to lens registry)
-				if len(registeredEvent.View.Data.Transform.Lenses) > 0 {
-					if err := registeredEvent.View.PostWasmToFile(h.LensRegistryPath); err != nil {
-						logger.Sugar.Errorf("❌ Failed to write WASM files for view %s: %v", registeredEvent.View.Name, err)
-						continue
-					}
-				}
-
-				// 3. Register the view with ViewManager and persist to registry
+				// 2. Register the view with ViewManager and persist to registry
 				if h.viewManager != nil {
-					if err := h.viewManager.RegisterView(ctx, &registeredEvent.View); err != nil {
+					err := h.viewManager.RegisterView(ctx, &registeredEvent.View)
+					switch {
+					case errors.Is(err, view.ErrViewChainNotServed):
+						// The host receives every registered view, so one on a chain it does not serve is expected.
+						logger.Sugar.Debugf("View %s not registered: %v", registeredEvent.View.Name, err)
+					case err != nil:
 						logger.Sugar.Errorf("❌ Failed to register view %s: %v", registeredEvent.View.Name, err)
-					} else {
-						// 4. Persist view to registry for next startup (with any auto-corrections applied)
+					default:
+						// 3. Persist view to registry for next startup (with any auto-corrections applied)
 						if err := view.SaveViewToRegistry(h.LensRegistryPath, registeredEvent.View); err != nil {
 							logger.Sugar.Warnf("⚠️ Failed to persist view %s: %v", registeredEvent.View.Name, err)
 						}
@@ -970,7 +1014,7 @@ func (h *Host) handleIncomingEvents(ctx context.Context, channel <-chan shinzohu
 
 // StartHostingWithTestConfig starts the host with a test configuration, including a temporary DefraDB store path and dynamic health server port. This is used for testing to avoid conflicts with existing instances and to ensure isolation.
 func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
-	testConfig := DefaultConfig
+	testConfig := *DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.URL = "127.0.0.1:0"
 
@@ -978,7 +1022,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig.Shinzo.StartHeight = 0
 
 	// Create host with dynamic health server port
-	host, err := StartHosting(testConfig)
+	host, err := StartHosting(&testConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -1019,24 +1063,6 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 // isPlaygroundEnabled checks the environment variable to determine if the GraphQL Playground should be enabled. This allows for dynamic control over the playground feature without changing code, which is useful for testing and different deployment environments.
 func isPlaygroundEnabled() bool {
 	return playgroundEnabled
-}
-
-// applySchema applies the GraphQL schema to DefraDB node.
-func applySchema(ctx context.Context, defraNode *node.Node, schemaStr string) error {
-	fmt.Println("Applying schema...")
-
-	_, err := defraNode.DB.AddCollection(ctx, schemaStr)
-	if err != nil && strings.Contains(err.Error(), "collection already exists") {
-		fmt.Println("Schema already exists, trying to add new types individually...")
-		// Try adding Config__LastProcessedPage separately in case it's new
-		configSchema := `type Config__LastProcessedPage { page: Int, pageSize: Int }`
-		_, configErr := defraNode.DB.AddCollection(ctx, configSchema)
-		if configErr != nil && !strings.Contains(configErr.Error(), "collection already exists") {
-			fmt.Printf("Note: Could not add Config__LastProcessedPage: %v\n", configErr)
-		}
-		return nil
-	}
-	return err
 }
 
 // RegisterViewWithManager registers a view and manages its lifecycle.
