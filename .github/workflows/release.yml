@@ -37,6 +37,7 @@ jobs:
           CHAIN="${SUFFIX%-*}"
           echo "chain=$CHAIN" >> $GITHUB_OUTPUT
           echo "network=$NETWORK" >> $GITHUB_OUTPUT
+          echo "version=${TAG%-"$SUFFIX"}" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         run: |
@@ -44,6 +45,7 @@ jobs:
                        -t ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest \
                        --build-arg CHAIN=${{ steps.meta.outputs.chain }} \
                        --build-arg NETWORK=${{ steps.meta.outputs.network }} \
+                       --build-arg VERSION=${{ steps.meta.outputs.version }} \
                        --build-arg TAGS=hostplayground .
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker push ghcr.io/${{ github.repository }}:${{ github.ref_name }}
