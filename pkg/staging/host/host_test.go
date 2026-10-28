@@ -18,6 +18,10 @@ import (
 // test doesn't hardcode (and risk colliding on) a fixed one. srv
 // itself is given a plain, concrete address either way, same as it
 // would be in production.
+func testDefra() DefraService {
+	return NewDefraService(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
+}
+
 func freeAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -39,7 +43,7 @@ func TestStartBindsTheServer(t *testing.T) {
 		_, _ = w.Write([]byte("pong"))
 	})
 
-	err = Start(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, srv)
+	err = Start(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv)
 	require.NoError(t, err)
 
 	resp, err := http.Get("http://" + addr + "/ping") //nolint:gosec,noctx // test hits its own just-bound local server
@@ -57,7 +61,7 @@ func TestStartMountsStatus(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close(context.Background()) })
 
-	require.NoError(t, Start(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, srv))
+	require.NoError(t, Start(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv))
 
 	resp, err := http.Get("http://" + addr + "/status") //nolint:gosec,noctx // test hits its own just-bound local server
 	require.NoError(t, err)

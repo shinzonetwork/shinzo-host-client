@@ -86,7 +86,9 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	if err := host.Start(cfg, log, nodeKeys, srv); err != nil {
+	defra := host.NewDefraService(cfg, log, nodeKeys)
+
+	if err := host.Start(cfg, log, nodeKeys, defra, srv); err != nil {
 		return err
 	}
 
