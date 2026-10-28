@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -96,6 +97,55 @@ func TestCloseJoinsErrorsFromShutdownFuncs(t *testing.T) {
 func TestCloseWithoutStartIsSafe(t *testing.T) {
 	srv, _ := newTestServer(t)
 	require.NoError(t, srv.Close(context.Background()))
+}
+
+// A second Close must not rerun shutdown fns.
+func TestCloseIsIdempotent(t *testing.T) {
+	srv, _ := newTestServer(t)
+	require.NoError(t, srv.Start())
+
+	var calls int
+	srv.RegisterShutdown(func(context.Context) error {
+		calls++
+		return nil
+	})
+
+	first := srv.Close(context.Background())
+	second := srv.Close(context.Background())
+	require.NoError(t, first)
+	require.NoError(t, second)
+	require.Equal(t, 1, calls)
+}
+
+// A second Close returns the first call's error, not nil.
+func TestCloseReplaysFirstCallsError(t *testing.T) {
+	srv, _ := newTestServer(t)
+	require.NoError(t, srv.Start())
+
+	boom := errors.New("boom")
+	srv.RegisterShutdown(func(context.Context) error { return boom })
+
+	require.ErrorIs(t, srv.Close(context.Background()), boom)
+	require.ErrorIs(t, srv.Close(context.Background()), boom)
+}
+
+// Shutdown fns get their own budget, not whatever the HTTP drain left.
+func TestCloseGivesShutdownFnsTheirOwnBudget(t *testing.T) {
+	srv, _ := newTestServer(t)
+	require.NoError(t, srv.Start())
+
+	var deadline time.Time
+	var hasDeadline bool
+	srv.RegisterShutdown(func(ctx context.Context) error {
+		deadline, hasDeadline = ctx.Deadline()
+		return nil
+	})
+
+	before := time.Now()
+	require.NoError(t, srv.Close(context.Background()))
+
+	require.True(t, hasDeadline)
+	require.InDelta(t, shutdownFnsTimeout.Seconds(), deadline.Sub(before).Seconds(), 1)
 }
 
 func TestStartFailsIfAddressAlreadyBound(t *testing.T) {

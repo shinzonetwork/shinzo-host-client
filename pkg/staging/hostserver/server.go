@@ -7,14 +7,16 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
 )
 
 const (
-	shutdownTimeout   = 15 * time.Second
-	readHeaderTimeout = 10 * time.Second
+	// shutdownFnsTimeout is the shutdown fns' own budget, separate from the HTTP drain.
+	shutdownFnsTimeout = 15 * time.Second
+	readHeaderTimeout  = 10 * time.Second
 )
 
 // ErrNilLogger is returned by New when given a nil logger.
@@ -31,6 +33,9 @@ type Server struct {
 	httpSrv *http.Server
 
 	shutdownFns []func(context.Context) error
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // New builds a Server that will listen on addr once Start is called.
@@ -80,23 +85,28 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Close shuts the HTTP server down, giving in-flight requests up to
-// shutdownTimeout to finish, then runs every registered shutdown
-// function, reverse of the order they were added in.
+// Close shuts the HTTP server down, then runs shutdown fns with their
+// own budget. Safe to call more than once.
 func (s *Server) Close(ctx context.Context) error {
-	shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
-	defer cancel()
+	s.closeOnce.Do(func() {
+		s.closeErr = s.close(ctx)
+	})
+	return s.closeErr
+}
 
+func (s *Server) close(ctx context.Context) error {
 	var errs []error
 
 	if s.httpSrv != nil {
-		if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {
+		if err := s.httpSrv.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("http server shutdown: %w", err))
 		}
 	}
 
+	fnsCtx, cancel := context.WithTimeout(ctx, shutdownFnsTimeout)
+	defer cancel()
 	for _, fn := range slices.Backward(s.shutdownFns) {
-		if err := fn(shutdownCtx); err != nil {
+		if err := fn(fnsCtx); err != nil {
 			errs = append(errs, err)
 		}
 	}
