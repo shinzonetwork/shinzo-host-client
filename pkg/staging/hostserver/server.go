@@ -22,7 +22,8 @@ var ErrNilLogger = errors.New("hostserver: nil logger")
 
 // Server is an HTTP server built around one shared mux.
 type Server struct {
-	addr string
+	addr      string
+	boundAddr string
 
 	log *zap.SugaredLogger
 	mux *http.ServeMux
@@ -49,6 +50,11 @@ func (s *Server) Mux() *http.ServeMux {
 	return s.mux
 }
 
+// Addr returns the address Start actually bound.
+func (s *Server) Addr() string {
+	return s.boundAddr
+}
+
 // RegisterShutdown adds fn to run, in reverse registration order, when
 // Close runs — for anything else that needs to stop alongside the HTTP server.
 func (s *Server) RegisterShutdown(fn func(context.Context) error) {
@@ -61,6 +67,7 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("binding %s: %w", s.addr, err)
 	}
+	s.boundAddr = ln.Addr().String()
 
 	s.httpSrv = &http.Server{Handler: s.mux, ReadHeaderTimeout: readHeaderTimeout}
 

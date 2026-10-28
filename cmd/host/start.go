@@ -90,7 +90,7 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Listening on %s\n", cfg.HTTP.Addr); err != nil {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Listening on %s\n", srv.Addr()); err != nil {
 		return err
 	}
 

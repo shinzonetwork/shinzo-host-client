@@ -14,13 +14,10 @@ import (
 )
 
 // Start the host.
-func Start(cfg hostconfig.Config, log *zap.Logger, keys hostkey.NodeKeys, srv *hostserver.Server) error {
-	// cfg, log and keys aren't used by any mount yet, kept as params so
-	// this signature won't need to change when one needs them.
-	_ = cfg
-	_ = log
-	_ = keys
-
+//
+// cfg, log and keys aren't used by any mount yet, kept as params so this
+// signature won't need to change when one needs them.
+func Start(_ hostconfig.Config, _ *zap.Logger, _ hostkey.NodeKeys, srv *hostserver.Server) error {
 	mountStatus(srv.Mux(), time.Now())
 
 	return srv.Start()
