@@ -2,16 +2,36 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
+
+// stopImmediately gives cmd an already-canceled context. start now
+// genuinely blocks until signaled to stop, so a test exercising its
+// success path needs this to reach shutdown deterministically,
+// without waiting on a real OS signal or a timing-dependent sleep.
+func stopImmediately(cmd *cobra.Command) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+}
+
+// cmd.Context() is nil unless the command was run through cobra's own
+// Execute/ExecuteContext, which real usage always goes through. Tests
+// call runStart directly, bypassing that, so they set one themselves,
+// same as cobra would have.
+func withContext(cmd *cobra.Command) {
+	cmd.SetContext(context.Background())
+}
 
 // seedConfig pre-creates config.toml, since start no longer bootstraps
 // one itself.
@@ -38,6 +58,7 @@ func TestRunStartFailsIfConfigMissing(t *testing.T) {
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
 	cmd.SetOut(&bytes.Buffer{})
+	withContext(cmd)
 
 	err := runStart(cmd, nil)
 	require.ErrorIs(t, err, hostconfig.ErrConfigNotFound)
@@ -51,6 +72,7 @@ func TestRunStartFailsIfExplicitConfigMissing(t *testing.T) {
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
 	require.NoError(t, cmd.Flags().Set("config", configPath))
+	withContext(cmd)
 
 	require.Error(t, runStart(cmd, nil))
 }
@@ -64,6 +86,7 @@ func TestRunStartOverridesAreNeverPersisted(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("home", home))
 	require.NoError(t, cmd.Flags().Set("logger.level", "warn"))
 	cmd.SetOut(&bytes.Buffer{})
+	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
 
 	reloaded, err := hostconfig.Load(home, "", "", nil)
@@ -86,6 +109,7 @@ func TestRunStartAppliesBoolOverride(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
+	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
 	require.Contains(t, out.String(), "development=true")
 }
@@ -108,6 +132,7 @@ func TestRunStartSucceedsWithExplicitExistingConfig(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("config", configPath))
 	cmd.SetOut(&bytes.Buffer{})
 
+	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
 }
 
@@ -122,6 +147,7 @@ func TestRunStartUsesCustomDataDir(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("data-dir", dataDir))
 	cmd.SetOut(&bytes.Buffer{})
 
+	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
 	require.DirExists(t, dataDir)
 }
@@ -137,6 +163,7 @@ level = "bogus"
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
 	cmd.SetOut(&bytes.Buffer{})
+	withContext(cmd)
 
 	require.Error(t, runStart(cmd, nil))
 }
@@ -158,6 +185,7 @@ func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
+	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
 	require.Contains(t, out.String(), "addr=:9191")
 }
@@ -184,6 +212,7 @@ func TestRunStartWithoutDataDirDoesNotReuseInitsCustomDataDir(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
+	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
 	require.Contains(t, out.String(), filepath.Join(home, "data"), "start without --data-dir falls back to the default, not init's custom one")
 	require.NotContains(t, out.String(), customDataDir)
@@ -205,6 +234,7 @@ func TestRunStartRefusesWithoutKeys(t *testing.T) {
 	cmd := startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
 	cmd.SetOut(&bytes.Buffer{})
+	withContext(cmd)
 
 	err := runStart(cmd, nil)
 	require.ErrorIs(t, err, hostkey.ErrNoKeys)
@@ -227,6 +257,7 @@ func TestRunInitAndRunStartAgreeOnKeys(t *testing.T) {
 	require.NoError(t, start.Flags().Set("home", home))
 	var startOut bytes.Buffer
 	start.SetOut(&startOut)
+	stopImmediately(start)
 	require.NoError(t, runStart(start, nil))
 
 	initAddr := extractOperatorAddress(t, initOut.String())
