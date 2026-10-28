@@ -34,10 +34,11 @@ func withContext(cmd *cobra.Command) {
 }
 
 // seedConfig pre-creates config.toml, since start no longer bootstraps
-// one itself.
+// one itself. http.addr is pinned to a loopback, OS-assigned port so
+// the success-path tests below don't bind a real, fixed port.
 func seedConfig(t *testing.T, home string) {
 	t.Helper()
-	prepared, err := hostconfig.Prepare(home, "", nil)
+	prepared, err := hostconfig.Prepare(home, "", map[string]any{"http.addr": "127.0.0.1:0"})
 	require.NoError(t, err)
 	_, err = hostconfig.Commit(prepared)
 	require.NoError(t, err)
@@ -173,7 +174,7 @@ level = "bogus"
 func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "myhost")
 
-	prepared, err := hostconfig.Prepare(home, "", map[string]any{"http.addr": ":9191"})
+	prepared, err := hostconfig.Prepare(home, "", map[string]any{"http.addr": "127.0.0.1:0"})
 	require.NoError(t, err)
 	_, err = hostconfig.Commit(prepared)
 	require.NoError(t, err)
@@ -187,7 +188,7 @@ func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 
 	stopImmediately(cmd)
 	require.NoError(t, runStart(cmd, nil))
-	require.Contains(t, out.String(), "addr=:9191")
+	require.Contains(t, out.String(), "addr=127.0.0.1:0")
 }
 
 // Demonstrates the documented data-dir tradeoff, at the CLI level rather

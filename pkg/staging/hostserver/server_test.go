@@ -148,6 +148,22 @@ func TestCloseGivesShutdownFnsTheirOwnBudget(t *testing.T) {
 	require.InDelta(t, shutdownFnsTimeout.Seconds(), deadline.Sub(before).Seconds(), 1)
 }
 
+// OnFailure's callback and Err() reflect what Start's goroutine
+// stores and calls on a real Serve failure.
+func TestOnFailureAndErr(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	var called bool
+	srv.OnFailure(func() { called = true })
+
+	boom := errors.New("boom")
+	srv.crashErr = boom
+	srv.onFailure()
+
+	require.True(t, called)
+	require.ErrorIs(t, srv.Err(), boom)
+}
+
 func TestStartFailsIfAddressAlreadyBound(t *testing.T) {
 	blocker, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

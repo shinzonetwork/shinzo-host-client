@@ -30,7 +30,9 @@ type Server struct {
 	log *zap.SugaredLogger
 	mux *http.ServeMux
 
-	httpSrv *http.Server
+	httpSrv   *http.Server
+	onFailure func()
+	crashErr  error
 
 	shutdownFns []func(context.Context) error
 
@@ -66,6 +68,18 @@ func (s *Server) RegisterShutdown(fn func(context.Context) error) {
 	s.shutdownFns = append(s.shutdownFns, fn)
 }
 
+// OnFailure registers fn to run if Serve stops on its own, for any
+// reason other than Close.
+func (s *Server) OnFailure(fn func()) {
+	s.onFailure = fn
+}
+
+// Err returns the error Serve stopped with, or nil if it hasn't
+// failed (including if it was stopped cleanly by Close).
+func (s *Server) Err() error {
+	return s.crashErr
+}
+
 // Start binds addr and begins serving in the background.
 func (s *Server) Start() error {
 	ln, err := net.Listen("tcp", s.addr)
@@ -79,6 +93,10 @@ func (s *Server) Start() error {
 	go func() {
 		if err := s.httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Errorw("http server stopped unexpectedly", "err", err)
+			s.crashErr = err
+			if s.onFailure != nil {
+				s.onFailure()
+			}
 		}
 	}()
 

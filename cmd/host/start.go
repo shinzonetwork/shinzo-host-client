@@ -85,6 +85,7 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 	if err != nil {
 		return err
 	}
+	srv.OnFailure(stop)
 
 	if err := host.Start(cfg, log, nodeKeys, srv); err != nil {
 		return err
@@ -96,10 +97,13 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 
 	<-ctx.Done()
 	stop() // let a second signal force kill instead of waiting out the shutdown timeout
+	if crashErr := srv.Err(); crashErr != nil {
+		err = fmt.Errorf("http server stopped: %w", crashErr)
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	return srv.Close(shutdownCtx)
+	return errors.Join(err, srv.Close(shutdownCtx))
 }
 
 func parseStartFlags(cmd *cobra.Command) (home, dataDir, configPath string, overrides map[string]any, err error) {
