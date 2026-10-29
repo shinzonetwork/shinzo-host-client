@@ -9,4 +9,5 @@ var ( //nolint:revive
 	ErrInvalidGeneratorPeer = errors.New("generator peer must be a multiaddr or an IP address with an optional port")                      //nolint:revive
 	ErrInvalidIPAddress     = errors.New("invalid IP address")                                                                             //nolint:revive
 	ErrInvalidMaxBlocks     = errors.New("max_blocks must not be negative")                                                                //nolint:revive
+	ErrMissingChainID       = errors.New("chain_id must be set")                                                                           //nolint:revive
 )

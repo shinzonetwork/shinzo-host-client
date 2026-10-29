@@ -134,7 +134,7 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 		HostConfig: config.HostConfig{
 			LensRegistryPath: "./.defra/lens",
 		},
-		Chains: []chain.Config{{Prefix: chain.EthereumMainnet}},
+		Chains: []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1}},
 	}
 	return cfg
 }()

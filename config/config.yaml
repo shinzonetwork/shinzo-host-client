@@ -123,6 +123,7 @@ pruner:
 # dropped from the list is unsubscribed at the next start; its data stays until the store is wiped.
 chains:
   - prefix: Ethereum__Mainnet
+    chain_id: 1  # The chain ID its generators bind block signatures to
     # max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
     # generators:
     #   - url: http://35.254.135.221:8080

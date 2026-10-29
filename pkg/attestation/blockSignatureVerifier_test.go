@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -273,7 +274,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := v.VerifyBlockSignature(tt.sig)
+			err := v.VerifyBlockSignature(tt.sig, testChainPrefix, testChainID)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -398,14 +399,25 @@ func TestBlockSignatureVerifier_VerifyCIDListAgainstMerkleRoot(t *testing.T) {
 			name: "non-empty CIDs with matching root",
 			sig: &BlockSignature{
 				CIDs:       []string{cid1, cid2},
+				CIDCount:   2,
 				MerkleRoot: rootHex,
 			},
 			wantMatch: true,
 		},
 		{
+			name: "fewer CIDs than the signed count",
+			sig: &BlockSignature{
+				CIDs:       []string{cid1, cid2},
+				CIDCount:   3,
+				MerkleRoot: rootHex,
+			},
+			wantMatch: false,
+		},
+		{
 			name: "non-empty CIDs with mismatched root",
 			sig: &BlockSignature{
 				CIDs:       []string{cid1, cid2},
+				CIDCount:   2,
 				MerkleRoot: "0000000000000000000000000000000000000000000000000000000000000000",
 			},
 			wantMatch: false,
@@ -630,109 +642,98 @@ func TestBlockCIDCollector_ClearBlock_NonExistent(t *testing.T) {
 
 // ---- VerifyBlockSignature success and verification-failure tests ----
 
-// signMerkleRoot generates a real signature over merkleRoot bytes using the given key type.
-func signMerkleRoot(t *testing.T, merkleRoot []byte, keyType crypto.KeyType) (pubKeyHex, sigHex string) {
+// signPayload signs sig's payload under the test chain with a new key of keyType and fills in the
+// signature's identity and value.
+func signPayload(t *testing.T, sig *BlockSignature, keyType crypto.KeyType) {
 	t.Helper()
+	merkleRoot, err := hex.DecodeString(sig.MerkleRoot)
+	require.NoError(t, err)
+	payload, err := SignaturePayload(testChainPrefix, testChainID, sig.BlockNumber, sig.BlockHash, sig.CIDCount, merkleRoot)
+	require.NoError(t, err)
+
 	privKey, err := crypto.GenerateKey(keyType)
 	require.NoError(t, err)
-
-	sig, err := privKey.Sign(merkleRoot)
+	value, err := privKey.Sign(payload)
 	require.NoError(t, err)
 
-	pubKeyHex = privKey.GetPublic().String()
-	sigHex = hex.EncodeToString(sig)
-	return pubKeyHex, sigHex
+	sig.SignatureIdentity = privKey.GetPublic().String()
+	sig.SignatureValue = hex.EncodeToString(value)
 }
 
 func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_Success(t *testing.T) {
 	// Generate a real Ed25519 key pair, sign a merkle root, verify it succeeds.
 	merkleRoot := sha256.Sum256([]byte("test-merkle-data"))
-	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
-
 	v := NewBlockSignatureVerifier(10)
 
 	sig := &BlockSignature{
-		BlockNumber:       42,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeEd25519,
-		SignatureIdentity: pubKeyHex,
+		BlockNumber:   42,
+		MerkleRoot:    hex.EncodeToString(merkleRoot[:]),
+		SignatureType: sigTypeEd25519,
 	}
+	signPayload(t, sig, crypto.KeyTypeEd25519)
 
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.NoError(t, err)
 }
 
 func TestBlockSignatureVerifier_VerifyBlockSignature_EdDSA_Success(t *testing.T) {
 	merkleRoot := sha256.Sum256([]byte("test-eddsa"))
-	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
-
 	v := NewBlockSignatureVerifier(10)
 
 	sig := &BlockSignature{
-		BlockNumber:       46,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeEdDSA,
-		SignatureIdentity: pubKeyHex,
+		BlockNumber:   46,
+		MerkleRoot:    hex.EncodeToString(merkleRoot[:]),
+		SignatureType: sigTypeEdDSA,
 	}
+	signPayload(t, sig, crypto.KeyTypeEd25519)
 
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.NoError(t, err)
 }
 
 func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519Lowercase_Success(t *testing.T) {
 	merkleRoot := sha256.Sum256([]byte("test-ed25519-lowercase"))
-	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
-
 	v := NewBlockSignatureVerifier(10)
 
 	sig := &BlockSignature{
-		BlockNumber:       43,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeEd25519Lower,
-		SignatureIdentity: pubKeyHex,
+		BlockNumber:   43,
+		MerkleRoot:    hex.EncodeToString(merkleRoot[:]),
+		SignatureType: sigTypeEd25519Lower,
 	}
+	signPayload(t, sig, crypto.KeyTypeEd25519)
 
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.NoError(t, err)
 }
 
 func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_Success(t *testing.T) {
 	// Generate a real secp256k1 key pair, sign a merkle root, verify it succeeds.
 	merkleRoot := sha256.Sum256([]byte("test-secp256k1-data"))
-	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeSecp256k1)
-
 	v := NewBlockSignatureVerifier(10)
 
 	sig := &BlockSignature{
-		BlockNumber:       44,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeES256K,
-		SignatureIdentity: pubKeyHex,
+		BlockNumber:   44,
+		MerkleRoot:    hex.EncodeToString(merkleRoot[:]),
+		SignatureType: sigTypeES256K,
 	}
+	signPayload(t, sig, crypto.KeyTypeSecp256k1)
 
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.NoError(t, err)
 }
 
 func TestBlockSignatureVerifier_VerifyBlockSignature_EcdsaAlias_Success(t *testing.T) {
 	merkleRoot := sha256.Sum256([]byte("test-ecdsa-alias"))
-	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeSecp256k1)
-
 	v := NewBlockSignatureVerifier(10)
 
 	sig := &BlockSignature{
-		BlockNumber:       45,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeES256KLower,
-		SignatureIdentity: pubKeyHex,
+		BlockNumber:   45,
+		MerkleRoot:    hex.EncodeToString(merkleRoot[:]),
+		SignatureType: sigTypeES256KLower,
 	}
+	signPayload(t, sig, crypto.KeyTypeSecp256k1)
 
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.NoError(t, err)
 }
 
@@ -743,19 +744,17 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_InvalidSignature(t *testing
 	differentData := sha256.Sum256([]byte("different-data"))
 
 	// Sign different data, but present the real merkle root for verification
-	pubKeyHex, sigHex := signMerkleRoot(t, differentData[:], crypto.KeyTypeEd25519)
+	sig := &BlockSignature{
+		BlockNumber:   46,
+		MerkleRoot:    hex.EncodeToString(differentData[:]),
+		SignatureType: sigTypeEd25519,
+	}
+	signPayload(t, sig, crypto.KeyTypeEd25519)
+	sig.MerkleRoot = hex.EncodeToString(merkleRoot[:])
 
 	v := NewBlockSignatureVerifier(10)
 
-	sig := &BlockSignature{
-		BlockNumber:       46,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeEd25519,
-		SignatureIdentity: pubKeyHex,
-	}
-
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.Error(t, err)
 	// Should be either "signature verification error" or "block signature verification failed"
 	errMsg := err.Error()
@@ -771,19 +770,17 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Secp256k1_InvalidSignature(
 	merkleRoot := sha256.Sum256([]byte("secp-merkle-root"))
 	differentData := sha256.Sum256([]byte("secp-different-data"))
 
-	pubKeyHex, sigHex := signMerkleRoot(t, differentData[:], crypto.KeyTypeSecp256k1)
+	sig := &BlockSignature{
+		BlockNumber:   47,
+		MerkleRoot:    hex.EncodeToString(differentData[:]),
+		SignatureType: sigTypeES256K,
+	}
+	signPayload(t, sig, crypto.KeyTypeSecp256k1)
+	sig.MerkleRoot = hex.EncodeToString(merkleRoot[:])
 
 	v := NewBlockSignatureVerifier(10)
 
-	sig := &BlockSignature{
-		BlockNumber:       47,
-		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
-		SignatureValue:    sigHex,
-		SignatureType:     sigTypeES256K,
-		SignatureIdentity: pubKeyHex,
-	}
-
-	err := v.VerifyBlockSignature(sig)
+	err := v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.Error(t, err)
 }
 
@@ -807,7 +804,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_MalformedSignatureBytes(t *
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err = v.VerifyBlockSignature(sig)
+	err = v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.Error(t, err)
 }
 
@@ -830,7 +827,7 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_MalformedSignatureB
 		SignatureIdentity: pubKeyHex,
 	}
 
-	err = v.VerifyBlockSignature(sig)
+	err = v.VerifyBlockSignature(sig, testChainPrefix, testChainID)
 	require.Error(t, err)
 	errMsg := err.Error()
 	require.True(t,
@@ -838,6 +835,92 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_MalformedSignatureB
 			strings.Contains(errMsg, "block signature verification failed"),
 		"unexpected error: %s", errMsg,
 	)
+}
+
+func TestBlockSignatureVerifier_VerifyBlockSignature_BoundToChainAndBlock(t *testing.T) {
+	merkleRoot := sha256.Sum256([]byte("bound-merkle-root"))
+	signed := func() *BlockSignature {
+		sig := &BlockSignature{
+			BlockNumber:   100,
+			BlockHash:     "0xblock100",
+			CIDCount:      3,
+			MerkleRoot:    hex.EncodeToString(merkleRoot[:]),
+			SignatureType: sigTypeES256K,
+		}
+		signPayload(t, sig, crypto.KeyTypeSecp256k1)
+		return sig
+	}
+
+	tests := []struct {
+		name    string
+		prefix  string
+		chainID uint64
+		change  func(*BlockSignature)
+		wantErr error
+	}{
+		{name: "same chain and block", prefix: testChainPrefix, chainID: testChainID},
+		{name: "other prefix", prefix: "Ethereum__Sepolia", chainID: testChainID, wantErr: ErrBlockSigVerifyFailed},
+		{name: "other chain ID", prefix: testChainPrefix, chainID: 56, wantErr: ErrBlockSigVerifyFailed},
+		{name: "other block number", prefix: testChainPrefix, chainID: testChainID, change: func(s *BlockSignature) { s.BlockNumber = 101 }, wantErr: ErrBlockSigVerifyFailed},
+		{name: "other block hash", prefix: testChainPrefix, chainID: testChainID, change: func(s *BlockSignature) { s.BlockHash = "0xblock101" }, wantErr: ErrBlockSigVerifyFailed},
+		{name: "other CID count", prefix: testChainPrefix, chainID: testChainID, change: func(s *BlockSignature) { s.CIDCount = 4 }, wantErr: ErrBlockSigVerifyFailed},
+	}
+
+	v := NewBlockSignatureVerifier(10)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sig := signed()
+			if tt.change != nil {
+				tt.change(sig)
+			}
+			err := v.VerifyBlockSignature(sig, tt.prefix, tt.chainID)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+// The expected bytes are the reference vector generators sign: the generator repository checks the
+// same inputs against the same bytes.
+func TestSignaturePayload(t *testing.T) {
+	merkleRoot := make([]byte, 32)
+	for i := range merkleRoot {
+		merkleRoot[i] = byte(i + 1)
+	}
+
+	payload, err := SignaturePayload("Ethereum__Mainnet", 1, 26293834, "0x"+strings.Repeat("ab", 32), 3, merkleRoot)
+	require.NoError(t, err)
+	want := "0011457468657265756d5f5f4d61696e6e6574" + // chain prefix
+		"0000000000000001" + // chain ID
+		"000000000191364a" + // block number
+		"0042307861626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162" + // block hash
+		"0000000000000003" + // CID count
+		"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" // Merkle root
+	require.Equal(t, want, hex.EncodeToString(payload))
+}
+
+func TestSignaturePayload_UnencodableField(t *testing.T) {
+	tests := []struct {
+		name        string
+		prefix      string
+		blockNumber int64
+		blockHash   string
+		cidCount    int
+	}{
+		{name: "negative block number", prefix: "Ethereum__Mainnet", blockNumber: -1, blockHash: "0xab", cidCount: 1},
+		{name: "negative CID count", prefix: "Ethereum__Mainnet", blockNumber: 1, blockHash: "0xab", cidCount: -1},
+		{name: "prefix too long", prefix: strings.Repeat("a", math.MaxUint16+1), blockNumber: 1, blockHash: "0xab", cidCount: 1},
+		{name: "block hash too long", prefix: "Ethereum__Mainnet", blockNumber: 1, blockHash: strings.Repeat("a", math.MaxUint16+1), cidCount: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := SignaturePayload(tt.prefix, 1, tt.blockNumber, tt.blockHash, tt.cidCount, make([]byte, 32))
+			require.ErrorIs(t, err, ErrSignaturePayloadField)
+		})
+	}
 }
 
 func TestComputeMerkleRootFromStrings_FiveCIDs(t *testing.T) {

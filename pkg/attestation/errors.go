@@ -8,4 +8,5 @@ var ( //nolint:revive
 	ErrBlockSigVerifyFailed     = errors.New("block signature verification failed")     //nolint:revive
 	ErrComputeMerkleRoot        = errors.New("failed to compute merkle root from CIDs") //nolint:revive
 	ErrDocumentNotFound         = errors.New("document not found")                      //nolint:revive
+	ErrSignaturePayloadField    = errors.New("block field cannot be signed")            //nolint:revive
 )

@@ -19,10 +19,11 @@ import (
 	"github.com/sourcenetwork/immutable"
 )
 
-// attestedChain is an enabled chain as the attestation listener serves it: its tables, the queue of
-// its block signatures waiting for one of its workers, its counters (nil without host metrics) and
-// its OpenTelemetry attributes (nil without instruments).
+// attestedChain is an enabled chain as the attestation listener serves it: its config entry, its
+// tables, the queue of its block signatures waiting for one of its workers, its counters (nil
+// without host metrics) and its OpenTelemetry attributes (nil without instruments).
 type attestedChain struct {
+	config      chain.Config
 	collections chain.Collections
 	signatures  chan string
 	metrics     *server.ChainMetrics
@@ -102,7 +103,7 @@ func (h *Host) signatureWorker(ctx context.Context, attested *attestedChain) {
 		case <-ctx.Done():
 			return
 		case docID := <-attested.signatures:
-			h.processBlockSignatureFromEventBus(ctx, attested.collections, docID)
+			h.processBlockSignatureFromEventBus(ctx, attested, docID)
 		}
 	}
 }
@@ -132,6 +133,11 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 			signatures:  make(chan string, queueSize),
 			metrics:     h.chainMetrics(c.Prefix),
 			instruments: h.instruments.chain(c.Prefix),
+		}
+		for _, configured := range h.config.Chains {
+			if configured.Prefix == c.Prefix {
+				chains[i].config = configured
+			}
 		}
 		if o := chains[i].instruments; o != nil {
 			o.queue.Store(&chains[i].signatures)
@@ -211,12 +217,13 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 	}
 }
 
-// processBlockSignatureFromEventBus fetches one of chain c's BlockSignature documents by DocID and
-// processes it.
-func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, c chain.Collections, docID string) {
+// processBlockSignatureFromEventBus fetches one of the attested chain's BlockSignature documents by
+// DocID and processes it.
+func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, attested *attestedChain, docID string) {
 	if h.DefraNode == nil || h.DefraNode.DB == nil {
 		return
 	}
+	c := attested.collections
 
 	col, err := h.DefraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
 	if err != nil {
@@ -251,7 +258,7 @@ func (h *Host) processBlockSignatureFromEventBus(ctx context.Context, c chain.Co
 		return
 	}
 
-	h.processBlockSignatureDocument(ctx, c, doc)
+	h.processBlockSignatureDocument(ctx, attested, doc)
 }
 
 // extractBlockSignatureCore extracts blockNumber and merkleRoot, returning a partial BlockSignature or error.
@@ -343,11 +350,12 @@ func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationServi
 	}
 }
 
-// verifyBlockSignature verifies the signature and CID list, updating metrics on failure; prefix
-// names the block's chain in its log lines. Returns false if verification fails and processing
-// should stop.
-func (h *Host) verifyBlockSignature(ctx context.Context, prefix string, blockSig *attestationService.BlockSignature) bool {
-	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig); err != nil {
+// verifyBlockSignature verifies the signature against the chain's prefix and chain ID, and the CID
+// list, updating metrics on failure. Returns false if verification fails and processing should
+// stop.
+func (h *Host) verifyBlockSignature(ctx context.Context, chainCfg chain.Config, blockSig *attestationService.BlockSignature) bool {
+	prefix := chainCfg.Prefix
+	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig, prefix, chainCfg.ChainID); err != nil {
 		logger.Sugar.Warnf("Invalid block signature for block %d: %v (chain: %s)", blockSig.BlockNumber, err, prefix)
 		if m := h.chainMetrics(prefix); m != nil {
 			m.SignatureFailures.Add(1)
@@ -363,7 +371,7 @@ func (h *Host) verifyBlockSignature(ctx context.Context, prefix string, blockSig
 		if cidErr != nil {
 			logger.Sugar.Warnf("Block %d: CID list verification error: %v (chain: %s)", blockSig.BlockNumber, cidErr, prefix)
 		} else if !cidMatch {
-			logger.Sugar.Warnf("Block %d: CID list does NOT match Merkle root (chain: %s)", blockSig.BlockNumber, prefix)
+			logger.Sugar.Warnf("Block %d: CID list does not match the signed CID count and Merkle root (chain: %s)", blockSig.BlockNumber, prefix)
 			if m := h.chainMetrics(prefix); m != nil {
 				m.SignatureFailures.Add(1)
 			}
@@ -377,10 +385,11 @@ func (h *Host) verifyBlockSignature(ctx context.Context, prefix string, blockSig
 	return true
 }
 
-// processBlockSignatureDocument extracts fields from one of chain c's BlockSignature documents and
-// processes them.
-func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collections, doc *client.Document) {
+// processBlockSignatureDocument extracts fields from one of the attested chain's BlockSignature
+// documents and processes them.
+func (h *Host) processBlockSignatureDocument(ctx context.Context, attested *attestedChain, doc *client.Document) {
 	startTime := time.Now()
+	c := attested.collections
 
 	blockSig, blockNumber, err := extractBlockSignatureCore(doc)
 	if err != nil {
@@ -392,7 +401,7 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collec
 	populateBlockSignatureCIDs(doc, blockSig)
 
 	if h.blockSignatureVerifier != nil {
-		if !h.verifyBlockSignature(ctx, c.Prefix, blockSig) {
+		if !h.verifyBlockSignature(ctx, attested.config, blockSig) {
 			return
 		}
 

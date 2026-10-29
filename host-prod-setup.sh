@@ -25,6 +25,7 @@ defradb:
 # dials each generator's peer.
 chains:
   - prefix: Ethereum__Mainnet
+    chain_id: 1
     generators:
       - url: http://35.254.135.221:8080 # IND1
         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
