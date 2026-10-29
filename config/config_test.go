@@ -372,6 +372,7 @@ func TestLoadConfig_SchemaAuthToken(t *testing.T) {
 
 func TestLoadConfig_Chains(t *testing.T) {
 	ethereum := []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1, Signers: []string{"02aa"}}}
+	tokensEthereum := minimalChains + "    mode: tokens\n    contracts: [0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d]\n"
 	cases := []struct {
 		desc       string
 		yaml       string
@@ -434,6 +435,16 @@ func TestLoadConfig_Chains(t *testing.T) {
 			desc: "event filter on another chain alone",
 			yaml: "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\nshinzo:\n  event_filter:\n    enabled: true\n",
 			want: []chain.Config{{Prefix: "Testchain__Devnet", ChainID: 2, Signers: []string{"02aa"}}},
+		},
+		{
+			desc:    "snapshots for Ethereum in tokens mode",
+			yaml:    tokensEthereum + "host:\n  snapshot:\n    enabled: true\n",
+			wantErr: ErrSnapshotTokensMode,
+		},
+		{
+			desc:    "event filter on a tokens-mode chain",
+			yaml:    tokensEthereum + "shinzo:\n  event_filter:\n    enabled: true\n",
+			wantErr: ErrEventFilterTokensMode,
 		},
 		{
 			desc:    "event filter on two chains",
