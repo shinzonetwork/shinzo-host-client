@@ -383,6 +383,8 @@ func (h *Host) verifyBlockSignature(ctx context.Context, chainCfg chain.Config, 
 			logger.Sugar.Warnf("Block %d: CID list verification error: %v (chain: %s)", blockSig.BlockNumber, cidErr, prefix)
 		} else if !cidMatch {
 			logger.Sugar.Warnf("Block %d: CID list does not match the signed CID count and Merkle root (chain: %s)", blockSig.BlockNumber, prefix)
+		}
+		if cidErr != nil || !cidMatch {
 			if m := h.chainMetrics(prefix); m != nil {
 				m.SignatureFailures.Add(1)
 			}

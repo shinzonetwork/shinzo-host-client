@@ -1048,6 +1048,32 @@ func TestVerifyBlockSignature_UnlistedSigner(t *testing.T) {
 	require.Equal(t, "unlisted", result.AsString())
 }
 
+func TestVerifyBlockSignature_UnparsableCIDs(t *testing.T) {
+	h := &Host{
+		metrics:                server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix}),
+		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(10),
+	}
+
+	// A valid signature from a listed signer, carrying a CID list in which nothing parses as a CID.
+	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	chainCfg := testChainConfig
+	chainCfg.Signers = []string{key.GetPublic().String()}
+	signed := []string{makeTestCID("a"), makeTestCID("b")}
+	root := attestationService.ComputeMerkleRootFromStrings(signed)
+	payload, err := attestationService.SignaturePayload(chainCfg.Prefix, chainCfg.ChainID, 5, "0xhash", len(signed), root)
+	require.NoError(t, err)
+	sig, err := key.Sign(payload)
+	require.NoError(t, err)
+
+	require.False(t, h.verifyBlockSignature(t.Context(), chainCfg, &attestationService.BlockSignature{
+		BlockNumber: 5, BlockHash: "0xhash", CIDCount: len(signed), CIDs: []string{"not-a-cid", "also-not-a-cid"},
+		MerkleRoot: hex.EncodeToString(root), SignatureType: "ES256K", SignatureIdentity: key.GetPublic().String(),
+		SignatureValue: hex.EncodeToString(sig),
+	}))
+	require.Equal(t, int64(1), h.metrics.Chain(testCollections.Prefix).SignatureFailures.Load())
+}
+
 // ---------------------------------------------------------------------------
 // processBlockSignatureFromEventBus - context canceled during retry loop
 // ---------------------------------------------------------------------------
