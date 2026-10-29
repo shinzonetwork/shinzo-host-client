@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
+	"github.com/sourcenetwork/corekv"
 	defraclient "github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -290,6 +291,42 @@ func TestPostAttestationRecord_VoteCountCountsDistinctSources(t *testing.T) {
 	}
 }
 
+func TestPostAttestationRecord_MergeFromStaleReadConflicts(t *testing.T) {
+	ctx := context.Background()
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(testAttestationRecordSchema))
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	recordFrom := func(source string) *Record {
+		return &Record{
+			AttestedDocID: "block:700:feed",
+			SourceDocIDs:  []string{source},
+			CIDs:          []string{testCID1},
+			DocType:       testDocTypeBlock,
+			VoteCount:     1,
+		}
+	}
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, recordFrom("indexer-A"))
+	require.NoError(t, err)
+
+	// indexer-C's merge reads the record, then indexer-B's merge commits before it.
+	txn, err := defraNode.DB.NewTxn(false)
+	require.NoError(t, err)
+	defer txn.Discard()
+	_, err = postAttestationRecordIn(ctx, txn, testAttestationCollection, recordFrom("indexer-C"))
+	require.NoError(t, err)
+	_, err = PostAttestationRecord(ctx, defraNode, testAttestationCollection, recordFrom("indexer-B"))
+	require.NoError(t, err)
+	require.ErrorIs(t, txn.Commit(), corekv.ErrTxnConflict)
+
+	query := fmt.Sprintf(`%s(filter: {attested_doc: {_eq: "block:700:feed"}}) { source_doc vote_count }`, testAttestationCollection)
+	records, err := defradb.QueryArray[Record](ctx, defraNode, query)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.ElementsMatch(t, []string{"indexer-A", "indexer-B"}, records[0].SourceDocIDs)
+	require.Equal(t, 2, records[0].VoteCount)
+}
+
 // ========================================
 // POST ATTESTATION RECORD REMAINING BRANCHES
 // ========================================
@@ -546,7 +583,7 @@ func TestLookupExistingAttestation_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for a non-existent attested doc - should return nil, nil
-	doc, err := lookupExistingAttestation(ctx, defraNode, col, "nonexistent-doc")
+	doc, err := lookupExistingAttestation(ctx, defraNode.DB, col, "nonexistent-doc")
 	require.NoError(t, err)
 	require.Nil(t, doc)
 }
@@ -590,7 +627,7 @@ func TestLookupExistingAttestation_Found(t *testing.T) {
 	require.NoError(t, err)
 
 	// Query for the existing attested doc - should return the document
-	doc, err := lookupExistingAttestation(ctx, defraNode, col, "lookup-existing-doc")
+	doc, err := lookupExistingAttestation(ctx, defraNode.DB, col, "lookup-existing-doc")
 	require.NoError(t, err)
 	require.NotNil(t, doc)
 }
@@ -748,7 +785,7 @@ func TestUpdateAttestationRecord_DoesNotRecreateAPrunedRecord(t *testing.T) {
 
 	col, err := defraNode.DB.GetCollectionByName(ctx, testAttestationCollection)
 	require.NoError(t, err)
-	existing, err := lookupExistingAttestation(ctx, defraNode, col, record.AttestedDocID)
+	existing, err := lookupExistingAttestation(ctx, defraNode.DB, col, record.AttestedDocID)
 	require.NoError(t, err)
 	require.NotNil(t, existing)
 	require.NoError(t, col.PurgeByDocIDs(ctx, []defraclient.DocID{existing.ID()}, true))
