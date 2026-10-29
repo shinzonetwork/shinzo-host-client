@@ -15,11 +15,22 @@ import (
 // collections.
 var prefixPattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*__[A-Z][A-Za-z0-9]*$`)
 
+// Chain modes. Full mode serves every block, transaction, log and access-list entry. Tokens mode
+// serves block headers and the logs of the chain's contracts only.
+const (
+	ModeFull   = "full"
+	ModeTokens = "tokens"
+)
+
 // Config is a chain the host serves.
 type Config struct {
 	Prefix string `yaml:"prefix"`
 	// ChainID is the chain's ID, which its generators bind every block signature to.
 	ChainID uint64 `yaml:"chain_id"`
+	// Mode is ModeFull, the default, or ModeTokens.
+	Mode string `yaml:"mode"`
+	// Contracts are the contracts whose logs a tokens-mode chain serves, as 20-byte hex addresses.
+	Contracts []string `yaml:"contracts"`
 	// MaxBlocks is the number of newest block heights the pruner keeps for this chain. Zero keeps
 	// pruner.max_blocks.
 	MaxBlocks int64 `yaml:"max_blocks"`
@@ -51,10 +62,10 @@ type Generator struct {
 	Peer string `yaml:"peer"`
 }
 
-// Validate checks every chain's prefix, chain_id, max_blocks and signers, and each generator's URL
-// and peer. Two prefixes that differ only in case are rejected: DefraDB keeps them as separate
-// collections, so such a pair is one chain mistyped. A peer is parsed as the host parses it before
-// dialling, so one the host would skip is refused here instead.
+// Validate checks every chain's prefix, chain_id, max_blocks, signers, mode and contracts, and each
+// generator's URL and peer. Two prefixes that differ only in case are rejected: DefraDB keeps them
+// as separate collections, so such a pair is one chain mistyped. A peer is parsed as the host
+// parses it before dialling, so one the host would skip is refused here instead.
 func Validate(chains []Config) error {
 	seen := make(map[string]string, len(chains))
 	for _, c := range chains {
@@ -82,6 +93,9 @@ func Validate(chains []Config) error {
 				return fmt.Errorf("chain %q signer %q: %w", c.Prefix, signer, ErrInvalidSigner)
 			}
 		}
+		if err := validateMode(c); err != nil {
+			return fmt.Errorf("chain %q: %w", c.Prefix, err)
+		}
 
 		for _, g := range c.Generators {
 			u, err := url.Parse(g.URL)
@@ -96,4 +110,44 @@ func Validate(chains []Config) error {
 		}
 	}
 	return nil
+}
+
+// validateMode checks the chain's mode, and that its contracts are distinct addresses in tokens
+// mode and absent in full mode, where they would have no effect.
+func validateMode(c Config) error {
+	switch c.Mode {
+	case "", ModeFull:
+		if len(c.Contracts) > 0 {
+			return ErrInvalidContracts
+		}
+	case ModeTokens:
+		if len(c.Contracts) == 0 {
+			return ErrInvalidContracts
+		}
+		seen := make(map[string]bool, len(c.Contracts))
+		for _, raw := range c.Contracts {
+			addr, err := contractAddress(raw)
+			if err != nil {
+				return err
+			}
+			if seen[addr] {
+				return fmt.Errorf("%w: %q is listed twice", ErrInvalidContract, raw)
+			}
+			seen[addr] = true
+		}
+	default:
+		return fmt.Errorf("%w: got %q", ErrInvalidMode, c.Mode)
+	}
+	return nil
+}
+
+// contractAddress returns a contract address as 40 lower-case hex digits without 0x, the form
+// generators name a contract's table with. It accepts either letter case, with or without 0x, and
+// returns ErrInvalidContract for anything that is not 20 bytes of hex.
+func contractAddress(raw string) (string, error) {
+	addr := strings.TrimPrefix(strings.ToLower(raw), "0x")
+	if len(addr) != 40 || strings.Trim(addr, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("%w: got %q", ErrInvalidContract, raw)
+	}
+	return addr, nil
 }
