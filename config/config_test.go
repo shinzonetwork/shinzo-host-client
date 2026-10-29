@@ -10,12 +10,15 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
 
+// minimalChains is the chains section a config file needs to load.
+const minimalChains = "chains:\n  - prefix: " + chain.EthereumMainnet + "\n"
+
 func TestLoadConfig_ValidYAML(t *testing.T) {
 	// Create a temporary config file
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "test_config.yaml")
 
-	configContent := `
+	configContent := minimalChains + `
 defradb:
   url: "http://localhost:9181"
   p2p:
@@ -56,7 +59,7 @@ func TestLoadConfig_EnvironmentOverrides(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "test_config.yaml")
 
-	configContent := `
+	configContent := minimalChains + `
 defradb:
   keyring_secret: "original_secret"
 `
@@ -77,29 +80,6 @@ defradb:
 
 	if cfg.DefraDB.KeyringSecret != "original_secret" {
 		t.Errorf("Expected keyring_secret 'original_secret', got '%s'", cfg.DefraDB.KeyringSecret)
-	}
-}
-
-func TestLoadConfig_EmptyConfig(t *testing.T) {
-	// Create a temporary config file with empty config
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "empty_config.yaml")
-
-	configContent := `{}`
-
-	err := os.WriteFile(configPath, []byte(configContent), 0o600)
-	if err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
-
-	// Test that empty config loads without error
-	if cfg == nil {
-		t.Error("Expected config to be loaded, got nil")
 	}
 }
 
@@ -194,7 +174,7 @@ func TestLoadConfig_StartHeightEnvOverride(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"shinzo:\n  start_height: 100\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("START_HEIGHT", "500")
@@ -208,7 +188,7 @@ func TestLoadConfig_InvalidStartHeightEnv(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("shinzo:\n  start_height: 100\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"shinzo:\n  start_height: 100\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("START_HEIGHT", "not_a_number")
@@ -222,7 +202,7 @@ func TestLoadConfig_BootstrapPeersEnvOverride(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("defradb:\n  p2p:\n    bootstrap_peers: []\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"defradb:\n  p2p:\n    bootstrap_peers: []\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("BOOTSTRAP_PEERS", "peer1,peer2,peer3")
@@ -236,7 +216,7 @@ func TestLoadConfig_DefraURLEnvOverride(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"defradb:\n  url: localhost:9181\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("DEFRA_URL", "0.0.0.0:9181")
@@ -250,7 +230,7 @@ func TestLoadConfig_DefraURLEnvUnsetKeepsYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("defradb:\n  url: localhost:9181\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"defradb:\n  url: localhost:9181\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("DEFRA_URL", "")
@@ -264,7 +244,7 @@ func TestLoadConfig_IndexerSchemaEndpoint_YAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: /custom/v2/schema\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"schema:\n  indexer_schema_endpoint: /custom/v2/schema\n"), 0o600)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -276,7 +256,7 @@ func TestLoadConfig_IndexerSchemaEndpoint_EnvOverride(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("schema:\n  indexer_schema_endpoint: "+DefaultIndexerSchemaEndpoint+"\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"schema:\n  indexer_schema_endpoint: "+DefaultIndexerSchemaEndpoint+"\n"), 0o600)
 	require.NoError(t, err)
 
 	t.Setenv("INDEXER_SCHEMA_ENDPOINT", "/env/v3/schema")
@@ -290,7 +270,7 @@ func TestLoadConfig_IndexerSchemaEndpoint_Default(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("{}"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains), 0o600)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -302,7 +282,7 @@ func TestLoadConfig_SchemaHTTPClientTimeout_YAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 60\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"schema:\n  http_client_timeout_secs: 60\n"), 0o600)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -314,7 +294,7 @@ func TestLoadConfig_SchemaHTTPClientTimeout_Default(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("{}"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains), 0o600)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -326,7 +306,7 @@ func TestLoadConfig_SchemaHTTPClientTimeout_Negative(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: -5\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"schema:\n  http_client_timeout_secs: -5\n"), 0o600)
 	require.NoError(t, err)
 
 	_, err = LoadConfig(configPath)
@@ -338,7 +318,7 @@ func TestLoadConfig_SchemaHTTPClientTimeout_Excessive(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
-	err := os.WriteFile(configPath, []byte("schema:\n  http_client_timeout_secs: 999999\n"), 0o600)
+	err := os.WriteFile(configPath, []byte(minimalChains+"schema:\n  http_client_timeout_secs: 999999\n"), 0o600)
 	require.NoError(t, err)
 
 	_, err = LoadConfig(configPath)
@@ -355,19 +335,19 @@ func TestLoadConfig_SchemaAuthToken(t *testing.T) {
 	}{
 		{
 			name:        "env sets token",
-			yamlContent: `{}`,
+			yamlContent: minimalChains,
 			setEnv:      func(t *testing.T) { t.Setenv("INDEXER_SCHEMA_ENDPOINT_AUTH_TOKEN", "my-secret-tok") },
 			wantToken:   "my-secret-tok",
 		},
 		{
 			name:        "env unset keeps empty default",
-			yamlContent: `{}`,
+			yamlContent: minimalChains,
 			setEnv:      func(_ *testing.T) {},
 			wantToken:   "",
 		},
 		{
 			name:        "YAML auth_token field ignored due to yaml dash tag",
-			yamlContent: "schema:\n  auth_token: \"should-be-ignored\"\n",
+			yamlContent: minimalChains + "schema:\n  auth_token: \"should-be-ignored\"\n",
 			setEnv:      func(_ *testing.T) {},
 			wantToken:   "",
 		},
@@ -399,8 +379,8 @@ func TestLoadConfig_Chains(t *testing.T) {
 		wantErr    error
 		wantErrMsg string
 	}{
-		{desc: "empty file", yaml: "", want: ethereum},
-		{desc: "no chains key", yaml: "pruner:\n  max_blocks: 1000\n", want: ethereum},
+		{desc: "empty file", yaml: "", wantErr: ErrNoChains},
+		{desc: "no chains key", yaml: "pruner:\n  max_blocks: 1000\n", wantErr: ErrNoChains},
 		{
 			desc: "Ethereum with generators",
 			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    generators:\n      - url: http://10.0.0.5:8080\n        peer: /ip4/10.0.0.5/tcp/9171\n      - url: http://10.0.0.6:8080\n",
@@ -432,7 +412,7 @@ func TestLoadConfig_Chains(t *testing.T) {
 			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n  - prefix: Testchain__Devnet\n",
 			want: []chain.Config{{Prefix: chain.EthereumMainnet}, {Prefix: "Testchain__Devnet"}},
 		},
-		{desc: "snapshots for Ethereum", yaml: "host:\n  snapshot:\n    enabled: true\n", want: ethereum},
+		{desc: "snapshots for Ethereum", yaml: minimalChains + "host:\n  snapshot:\n    enabled: true\n", want: ethereum},
 		{
 			desc:    "snapshots for another chain",
 			yaml:    "chains:\n  - prefix: Testchain__Devnet\nhost:\n  snapshot:\n    enabled: true\n",
@@ -445,7 +425,7 @@ func TestLoadConfig_Chains(t *testing.T) {
 		},
 		{
 			desc: "event filter on one chain",
-			yaml: "shinzo:\n  event_filter:\n    enabled: true\n",
+			yaml: minimalChains + "shinzo:\n  event_filter:\n    enabled: true\n",
 			want: ethereum,
 		},
 		{
