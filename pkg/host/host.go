@@ -215,7 +215,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// The event filter and snapshots use only the first chain. Config allows them only on a host
 	// serving one chain, and that host does not start when its chain is disabled.
 	served := cfg.Chains[0]
-	collections := chain.EVM(served.Prefix)
+	collections := served.Collections()
 
 	// Every configured chain gets a cutoff and a retention-rule entry in pruned, in cfg.Chains order.
 	// Only chains with all their tables stored get a pruner below.
@@ -223,7 +223,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
 		for _, c := range cfg.Chains {
-			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(chain.EVM(c.Prefix)), cutoff: &pruner.Cutoff{}})
+			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(c.Collections()), cutoff: &pruner.Cutoff{}})
 		}
 		// With snapshots enabled the pruners retain history and never set a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
@@ -282,7 +282,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	enabled := make([]chain.Collections, len(applier.enabled))
 	enabledPrefixes := make([]string, len(applier.enabled))
 	for i, c := range applier.enabled {
-		enabled[i] = chain.EVM(c.Prefix)
+		enabled[i] = c.Collections()
 		enabledPrefixes[i] = c.Prefix
 	}
 

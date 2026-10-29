@@ -1,6 +1,10 @@
 package pruner
 
-import "github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+import (
+	"slices"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+)
 
 const defaultMaxDocsPerCycle = 50000
 
@@ -25,9 +29,16 @@ type CollectionConfig struct {
 	Dependents []chain.Collection
 }
 
-// CollectionConfigFor returns the collections to prune for a chain: its blocks, and every other
-// collection of the chain as a dependent.
+// CollectionConfigFor returns the collections to prune for a chain: its height table, Block or a
+// tokens-mode chain's Header, and every other collection of the chain as a dependent.
 func CollectionConfigFor(c chain.Collections) CollectionConfig {
+	if c.TokensMode() {
+		return CollectionConfig{
+			Prefix:     c.Prefix,
+			Block:      c.Header,
+			Dependents: slices.Concat(c.ContractLogs, []chain.Collection{c.BlockSignature, c.AttestationRecord}),
+		}
+	}
 	return CollectionConfig{
 		Prefix: c.Prefix,
 		Block:  c.Block,

@@ -141,13 +141,18 @@ func validateMode(c Config) error {
 	return nil
 }
 
-// contractAddress returns a contract address as 40 lower-case hex digits without 0x, the form
-// generators name a contract's table with. It accepts either letter case, with or without 0x, and
-// returns ErrInvalidContract for anything that is not 20 bytes of hex.
+// contractAddress returns a contract address as contractKey does, and returns ErrInvalidContract
+// for anything that is not 20 bytes of hex.
 func contractAddress(raw string) (string, error) {
-	addr := strings.TrimPrefix(strings.ToLower(raw), "0x")
+	addr := contractKey(raw)
 	if len(addr) != 40 || strings.Trim(addr, "0123456789abcdef") != "" {
 		return "", fmt.Errorf("%w: got %q", ErrInvalidContract, raw)
 	}
 	return addr, nil
+}
+
+// contractKey is a contract address as generators name a contract's table with: lower-case hex
+// without 0x. It accepts either letter case, with or without 0x.
+func contractKey(raw string) string {
+	return strings.TrimPrefix(strings.ToLower(raw), "0x")
 }
