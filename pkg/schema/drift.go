@@ -17,15 +17,17 @@ var ErrSchemaDrift = fmt.Errorf("stored tables differ from the served schema")
 
 // checkStored compares the tables doc declares with the chain's stored tables: their names, their
 // fields' names, their fields' kinds and their scalar fields' CRDT types. Stored views, the host's
-// attestation record table, the stored fields DefraDB adds, whose names start with "_", and the
-// many side of a relation, which does not change a table's collection ID, are left out. The
-// secondary side of a one-to-one relation is compared, although it does not change the collection
-// ID either, so a change to that side alone refuses a restart. It returns ErrSchemaDrift listing
-// every difference and naming the store wipe as the recovery: the host creates a chain's tables only
-// in a store that holds none of them and never changes stored ones.
+// attestation record table, served tables the host does not use (see unusedTable), the stored
+// fields DefraDB adds, whose names start with "_", and the many side of a relation, which does not
+// change a table's collection ID, are left out. The secondary side of a one-to-one relation is
+// compared, although it does not change the collection ID either, so a change to that side alone
+// refuses a restart. It returns ErrSchemaDrift listing every difference and naming the store wipe
+// as the recovery: the host creates a chain's tables only in a store that holds none of them and
+// never changes stored ones.
 func checkStored(doc *ast.SchemaDocument, stored []client.Collection, c chain.Collections) error {
 	served := servedTables(doc)
 	tables := storedTables(stored, c)
+	maps.DeleteFunc(served, func(name string, _ map[string]string) bool { return unusedTable(c, name) })
 
 	var diffs []string
 	for _, name := range unionKeys(tables, served) {

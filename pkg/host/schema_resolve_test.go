@@ -363,17 +363,21 @@ func TestChainsApplier(t *testing.T) {
 	require.ErrorContains(t, err, other)
 }
 
-// A tokens-mode chain stores and subscribes to exactly its tables, and removing it from the config
-// unsubscribes all of them.
+// A tokens-mode chain stores and subscribes to exactly its tables, leaving out the tables of other
+// contracts its generator serves, and removing it from the config unsubscribes all of them.
 func TestChainsApplierTokensMode(t *testing.T) {
-	const prefix = "Bsc__Mainnet"
+	const (
+		prefix        = "Bsc__Mainnet"
+		otherContract = prefix + "__ContractLog_55d398326f99059ff775485246999027b3197955"
+	)
 	ctx := context.Background()
 	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
 	sdl, err := os.ReadFile(filepath.Join("..", "schema", "testdata", "generator_tokens_schema.graphql"))
 	require.NoError(t, err)
+	served := string(sdl) + "\ntype " + otherContract + " {\n    blockNumber: Int @index\n    address: String\n}\n"
 	tokensGenerator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: string(sdl)}))
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: served}))
 	}))
 	t.Cleanup(tokensGenerator.Close)
 	ethereumGenerator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
@@ -396,9 +400,15 @@ func TestChainsApplierTokensMode(t *testing.T) {
 		_, err := node.DB.GetCollectionByName(ctx, col.Name)
 		require.NoError(t, err, col.Name)
 	}
+	_, err = node.DB.GetCollectionByName(ctx, otherContract)
+	require.Error(t, err)
 	got, err := node.DB.ListP2PCollections(ctx)
 	require.NoError(t, err)
 	require.ElementsMatch(t, append(ethereum.Collections().Subscribed(), collections.Subscribed()...), got)
+
+	// A restart compares the stored tables with the served schema, which still has the other table.
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	require.Equal(t, []chain.Config{ethereum, tokens}, applier.enabled)
 
 	withoutTokens := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{ethereum}}
 	require.NoError(t, withoutTokens.ApplySchema(ctx, node))
