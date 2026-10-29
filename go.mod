@@ -14,7 +14,6 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/pelletier/go-toml/v2 v2.4.3
-	github.com/rs/zerolog v1.35.1
 	github.com/shinzonetwork/shinzo-querysig v0.2.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
@@ -32,7 +31,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.24.0
-	golang.org/x/term v0.45.0
+	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -335,6 +334,7 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
+	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sasha-s/go-deadlock v0.3.7 // indirect
@@ -421,7 +421,7 @@ require (
 	golang.org/x/mod v0.39.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
