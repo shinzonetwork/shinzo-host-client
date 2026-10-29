@@ -663,6 +663,24 @@ func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519_Success(t *testing.
 	require.NoError(t, err)
 }
 
+func TestBlockSignatureVerifier_VerifyBlockSignature_EdDSA_Success(t *testing.T) {
+	merkleRoot := sha256.Sum256([]byte("test-eddsa"))
+	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)
+
+	v := NewBlockSignatureVerifier(10)
+
+	sig := &BlockSignature{
+		BlockNumber:       46,
+		MerkleRoot:        hex.EncodeToString(merkleRoot[:]),
+		SignatureValue:    sigHex,
+		SignatureType:     sigTypeEdDSA,
+		SignatureIdentity: pubKeyHex,
+	}
+
+	err := v.VerifyBlockSignature(sig)
+	require.NoError(t, err)
+}
+
 func TestBlockSignatureVerifier_VerifyBlockSignature_Ed25519Lowercase_Success(t *testing.T) {
 	merkleRoot := sha256.Sum256([]byte("test-ed25519-lowercase"))
 	pubKeyHex, sigHex := signMerkleRoot(t, merkleRoot[:], crypto.KeyTypeEd25519)

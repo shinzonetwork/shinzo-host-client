@@ -18,7 +18,7 @@ type BlockSignature struct {
 	MerkleRoot        string   `json:"merkleRoot"` // Hex-encoded merkle root
 	CIDCount          int      `json:"cidCount"`
 	CIDs              []string `json:"cids"`              // Sorted CID strings for Merkle verification
-	SignatureType     string   `json:"signatureType"`     // ES256K or Ed25519
+	SignatureType     string   `json:"signatureType"`     // ES256K or EdDSA
 	SignatureIdentity string   `json:"signatureIdentity"` // Hex-encoded public key
 	SignatureValue    string   `json:"signatureValue"`    // Hex-encoded signature
 	CreatedAt         string   `json:"createdAt"`
@@ -113,7 +113,7 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error
 	switch sig.SignatureType {
 	case sigTypeES256K, sigTypeES256KLower:
 		keyType = crypto.KeyTypeSecp256k1
-	case sigTypeEd25519, sigTypeEd25519Lower:
+	case sigTypeEdDSA, sigTypeEd25519, sigTypeEd25519Lower:
 		keyType = crypto.KeyTypeEd25519
 	default:
 		return fmt.Errorf("%w: %v", ErrUnsupportedSignatureType, sig.SignatureType)
