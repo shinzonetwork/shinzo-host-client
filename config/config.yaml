@@ -118,16 +118,21 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # true: each prune also deletes the removed docs' block history (walks their DAG, slower per prune); false keeps it, so the blockstore only grows.
   max_docs_per_cycle: 50000 # Documents removed per cycle. Must exceed the arrival rate over one interval.
-# chains lists the chains this host serves, one or more. Without it the host serves Ethereum
-# mainnet with the built-in schema. A chain's schema comes from its generators, tried in order. A
-# chain dropped from the list is unsubscribed at the next start; its data stays until the store is
-# wiped.
-# chains:
-#   - prefix: Ethereum__Mainnet
-#     max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
-#     generators:
-#       - url: http://35.254.135.221:8080
-#         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
+# chains lists the chains this host serves, one or more. A chain's schema comes from its
+# generators, tried in order; Ethereum mainnet without generators uses the built-in schema. A chain
+# dropped from the list is unsubscribed at the next start; its data stays until the store is wiped.
+chains:
+  - prefix: Ethereum__Mainnet
+    chain_id: 1  # The chain ID its generators bind block signatures to
+    signers:  # The generators whose block signatures count, as their /registration pages show them
+      - "0x025b33affa6b716c8fd6ac8c176c9dde5fac85aa222b0d6a3c58a6283bdf042c8b" # IND1
+      - "0x03b5b655700e41fb287a34853ecfda16c1000c452f8505aabc83c37c888b3752b8" # IND2
+      - "0x0342cdbd2e5cf526e1ca18e6a16b31e78e7871b1fe7b528f04ec6616a517560eb4" # IND3
+      - "0x0360ea698273a9ddc4033f0048f8f0a8741a6799121a2f11f205dc94973b5d1bc0" # IND4
+    # max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
+    # generators:
+    #   - url: http://35.254.135.221:8080
+    #     peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
 schema:
   indexer_schema_endpoint: /api/v1/schema
   http_client_timeout_secs: 30

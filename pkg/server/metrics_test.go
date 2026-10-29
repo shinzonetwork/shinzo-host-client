@@ -238,7 +238,7 @@ func TestGetSnapshot(t *testing.T) {
 
 // noCounts is a chain's counters in /metrics before it counts anything.
 const noCounts = `"documents_received":0,"documents_by_table":{},` +
-	`"block_signatures_processed":0,"signature_verifications":0,"signature_failures":0,"attestations_created":0,` +
+	`"block_signatures_processed":0,"signature_verifications":0,"signature_failures":0,"unlisted_signatures":0,"attestations_created":0,` +
 	`"attestation_errors":0`
 
 // /metrics lists every chain and reports heights only per chain.
@@ -334,7 +334,7 @@ func TestServeHTTP_ChainCounters(t *testing.T) {
 	bsc.RecordDocument("Log")
 	for i, counter := range []*atomic.Int64{
 		&bsc.BlockSignaturesProcessed, &bsc.SignatureVerifications, &bsc.SignatureFailures,
-		&bsc.AttestationsCreated, &bsc.AttestationErrors,
+		&bsc.UnlistedSignatures, &bsc.AttestationsCreated, &bsc.AttestationErrors,
 	} {
 		counter.Add(int64(i + 4))
 	}
@@ -355,7 +355,7 @@ func TestServeHTTP_ChainCounters(t *testing.T) {
 	require.JSONEq(t, `{"chain":"BSC__Mainnet","enabled":true,"ready":true,"last_document_time":"`+lastDocument+`",`+
 		`"documents_received":3,"documents_by_table":{"Log":2,"Transaction":1},`+
 		`"block_signatures_processed":4,"signature_verifications":5,"signature_failures":6,`+
-		`"attestations_created":7,"attestation_errors":8}`, string(resp.Chains[1]))
+		`"unlisted_signatures":7,"attestations_created":8,"attestation_errors":9}`, string(resp.Chains[1]))
 }
 
 func TestServeHTTP_HTML(t *testing.T) {

@@ -1,8 +1,10 @@
 package attestation
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"sync"
 
 	gocid "github.com/ipfs/go-cid"
@@ -18,7 +20,7 @@ type BlockSignature struct {
 	MerkleRoot        string   `json:"merkleRoot"` // Hex-encoded merkle root
 	CIDCount          int      `json:"cidCount"`
 	CIDs              []string `json:"cids"`              // Sorted CID strings for Merkle verification
-	SignatureType     string   `json:"signatureType"`     // ES256K or Ed25519
+	SignatureType     string   `json:"signatureType"`     // ES256K or EdDSA
 	SignatureIdentity string   `json:"signatureIdentity"` // Hex-encoded public key
 	SignatureValue    string   `json:"signatureValue"`    // Hex-encoded signature
 	CreatedAt         string   `json:"createdAt"`
@@ -93,8 +95,10 @@ func (v *BlockSignatureVerifier) GetBlockSignature(blockNumber int64) (*BlockSig
 	return v.cache.Get(blockNumber)
 }
 
-// VerifyBlockSignature verifies that a block signature is valid.
-func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error {
+// VerifyBlockSignature verifies that sig signs its block's payload, rebuilt from the chain's prefix
+// and chain ID and from the block number, block hash, CID count and Merkle root the signature
+// carries.
+func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature, prefix string, chainID uint64) error {
 	if sig == nil {
 		return ErrBlockSignatureNil
 	}
@@ -113,7 +117,7 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error
 	switch sig.SignatureType {
 	case sigTypeES256K, sigTypeES256KLower:
 		keyType = crypto.KeyTypeSecp256k1
-	case sigTypeEd25519, sigTypeEd25519Lower:
+	case sigTypeEdDSA, sigTypeEd25519, sigTypeEd25519Lower:
 		keyType = crypto.KeyTypeEd25519
 	default:
 		return fmt.Errorf("%w: %v", ErrUnsupportedSignatureType, sig.SignatureType)
@@ -124,7 +128,11 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error
 		return fmt.Errorf("failed to parse public key: %w", err)
 	}
 
-	valid, err := pubKey.Verify(merkleRoot, sigValue)
+	payload, err := SignaturePayload(prefix, chainID, sig.BlockNumber, sig.BlockHash, sig.CIDCount, merkleRoot)
+	if err != nil {
+		return err
+	}
+	valid, err := pubKey.Verify(payload, sigValue)
 	if err != nil {
 		return fmt.Errorf("signature verification error: %w", err)
 	}
@@ -133,6 +141,31 @@ func (v *BlockSignatureVerifier) VerifyBlockSignature(sig *BlockSignature) error
 	}
 
 	return nil
+}
+
+// SignaturePayload returns the bytes a block signature signs, in this order: the chain prefix, the
+// chain ID, the block number, the block hash as stored in the block document, the number of signed
+// CIDs and their Merkle root. The two strings are preceded by their length as a big-endian uint16
+// and the three integers are big-endian uint64, so no two field sets share a payload. Generators
+// build the same bytes when they sign.
+func SignaturePayload(prefix string, chainID uint64, blockNumber int64, blockHash string, cidCount int, merkleRoot []byte) ([]byte, error) {
+	if blockNumber < 0 || cidCount < 0 {
+		return nil, fmt.Errorf("%w: negative block number %d or CID count %d", ErrSignaturePayloadField, blockNumber, cidCount)
+	}
+	prefixLen, hashLen := len(prefix), len(blockHash)
+	if prefixLen > math.MaxUint16 || hashLen > math.MaxUint16 {
+		return nil, fmt.Errorf("%w: prefix or block hash longer than %d bytes", ErrSignaturePayloadField, math.MaxUint16)
+	}
+
+	payload := make([]byte, 0, 2+prefixLen+8+8+2+hashLen+8+len(merkleRoot))
+	payload = binary.BigEndian.AppendUint16(payload, uint16(prefixLen))
+	payload = append(payload, prefix...)
+	payload = binary.BigEndian.AppendUint64(payload, chainID)
+	payload = binary.BigEndian.AppendUint64(payload, uint64(blockNumber))
+	payload = binary.BigEndian.AppendUint16(payload, uint16(hashLen))
+	payload = append(payload, blockHash...)
+	payload = binary.BigEndian.AppendUint64(payload, uint64(cidCount))
+	return append(payload, merkleRoot...), nil
 }
 
 // VerifyCIDsAgainstBlockSignature verifies that a list of CIDs matches a block signature's merkle root.
@@ -164,9 +197,10 @@ func (v *BlockSignatureVerifier) VerifyCIDsAgainstBlockSignature(cids []string, 
 }
 
 // VerifyCIDListAgainstMerkleRoot verifies that the CID list stored on a
-// BlockSignature matches its Merkle root.
+// BlockSignature is the signed set: it holds the signed CID count and rebuilds
+// the Merkle root.
 func (v *BlockSignatureVerifier) VerifyCIDListAgainstMerkleRoot(sig *BlockSignature) (bool, error) {
-	if sig == nil || len(sig.CIDs) == 0 {
+	if sig == nil || len(sig.CIDs) == 0 || len(sig.CIDs) != sig.CIDCount {
 		return false, nil
 	}
 	return v.VerifyCIDsAgainstBlockSignature(sig.CIDs, sig)

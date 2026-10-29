@@ -26,6 +26,9 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func init() {
@@ -202,7 +205,7 @@ func TestProcessBlockSignatureFromEventBus_NilDefraNode(_ *testing.T) {
 		DefraNode: nil,
 	}
 	// Should return immediately
-	h.processBlockSignatureFromEventBus(context.Background(), testCollections, "test-doc-id")
+	h.processBlockSignatureFromEventBus(context.Background(), testAttestedChain, "test-doc-id")
 }
 
 func TestProcessBlockSignatureFromEventBus_ContextCancelled(_ *testing.T) {
@@ -212,7 +215,7 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelled(_ *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Should return immediately
-	h.processBlockSignatureFromEventBus(ctx, testCollections, "test-doc-id")
+	h.processBlockSignatureFromEventBus(ctx, testAttestedChain, "test-doc-id")
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +419,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_InvalidDocID(t *testi
 	}
 
 	// Invalid doc ID format -- should return early from NewDocIDFromString error
-	h.processBlockSignatureFromEventBus(ctx, testCollections, "not-a-valid-doc-id")
+	h.processBlockSignatureFromEventBus(ctx, testAttestedChain, "not-a-valid-doc-id")
 }
 
 func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *testing.T) {
@@ -431,7 +434,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_NonExistentDoc(t *tes
 	}
 
 	// Valid DocID format but document does not exist -- should fail after retries
-	h.processBlockSignatureFromEventBus(ctx, testCollections, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
+	h.processBlockSignatureFromEventBus(ctx, testAttestedChain, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +491,7 @@ func TestProcessBlockSignatureDocument_WithRealDefraDB(t *testing.T) {
 	}
 
 	// This exercises all the field extraction paths in processBlockSignatureDocument
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, testAttestedChain, doc)
 }
 
 func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
@@ -535,7 +538,7 @@ func TestProcessBlockSignatureDocument_WithVerifier(t *testing.T) {
 	}
 
 	// This exercises the verifier path - will fail verification but should not panic
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, attestedChainFor("badinvalid"), doc)
 
 	// Signature failures should have been incremented
 	require.Equal(t, int64(1), h.metrics.Chain(testCollections.Prefix).SignatureFailures.Load(), "signature failures should be incremented")
@@ -653,7 +656,7 @@ func TestProcessBlockSignatureDocument_WithCIDs(t *testing.T) {
 	}
 
 	// This will fail verification (invalid signature) but exercises the CID extraction paths
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, testAttestedChain, doc)
 }
 
 func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
@@ -692,7 +695,7 @@ func TestProcessBlockSignatureDocument_ZeroBlockNumber(t *testing.T) {
 	}
 
 	// Exercises blockNumber=0 case and nil verifier path
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, testAttestedChain, doc)
 }
 
 func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
@@ -727,7 +730,7 @@ func TestProcessBlockSignatureDocument_EmptyMerkleRoot(t *testing.T) {
 	h := &Host{DefraNode: defraNode, metrics: server.NewHostMetrics()}
 
 	// Should return early at the empty merkleRoot check
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, testAttestedChain, doc)
 }
 
 // makeTestCID generates a valid CIDv1 from arbitrary data.
@@ -750,7 +753,9 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 		makeTestCID("block-data-1"),
 		makeTestCID("block-data-2"),
 	}
-	docIDStr, _ := addSignedBlockSignature(ctx, t, defraNode, testCollections.BlockSignature.Name, 123, cids)
+	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
+	require.NoError(t, err)
+	docIDStr := addSignedBlockSignature(ctx, t, defraNode, testChainConfig, privKey, 123, cids)
 	col, err := defraNode.DB.GetCollectionByName(ctx, testCollections.BlockSignature.Name)
 	require.NoError(t, err)
 	docIDTyped, err := client.NewDocIDFromString(docIDStr)
@@ -765,7 +770,7 @@ func TestProcessBlockSignatureDocument_WithValidSignatureAndCIDs(t *testing.T) {
 		metrics:                metrics,
 	}
 
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, attestedChainFor(privKey.GetPublic().String()), doc)
 
 	counters := metrics.Chain(testCollections.Prefix).Counters()
 	require.Equal(t, int64(1), counters.SignatureVerifications)
@@ -811,7 +816,7 @@ func TestProcessBlockSignatureFromEventBus_WithRealDefraDB_FullPath(t *testing.T
 	}
 
 	// This exercises the full path: get collection, parse docID, fetch document, process it
-	h.processBlockSignatureFromEventBus(ctx, testCollections, docIDStr)
+	h.processBlockSignatureFromEventBus(ctx, testAttestedChain, docIDStr)
 }
 
 // ---------------------------------------------------------------------------
@@ -938,15 +943,23 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 	cids := []string{makeTestCID("data-a"), makeTestCID("data-b")}
 	merkleRoot := attestationService.ComputeMerkleRootFromStrings(cids)
 
-	sig, err := privKey.Sign(merkleRoot)
+	// Create BlockSignature with DIFFERENT CIDs than what was signed (CID mismatch)
+	wrongCids := []string{makeTestCID("wrong-a"), makeTestCID("wrong-b")}
+
+	payload, err := attestationService.SignaturePayload(testAttestedChain.config.Prefix, testAttestedChain.config.ChainID, 124, "0xmismatch", len(wrongCids), merkleRoot)
+	require.NoError(t, err)
+	sig, err := privKey.Sign(payload)
 	require.NoError(t, err)
 
 	merkleRootHex := hex.EncodeToString(merkleRoot)
 	pubKeyHex := privKey.GetPublic().String()
 	sigHex := hex.EncodeToString(sig)
 
-	// Create BlockSignature with DIFFERENT CIDs than what was signed (CID mismatch)
-	wrongCids := []string{makeTestCID("wrong-a"), makeTestCID("wrong-b")}
+	// The signature is valid for the document's fields, so only the CID list can fail it.
+	require.NoError(t, attestationService.NewBlockSignatureVerifier(1).VerifyBlockSignature(&attestationService.BlockSignature{
+		BlockNumber: 124, BlockHash: "0xmismatch", CIDCount: len(wrongCids), MerkleRoot: merkleRootHex,
+		SignatureType: "Ed25519", SignatureIdentity: pubKeyHex, SignatureValue: sigHex,
+	}, testAttestedChain.config.Prefix, testAttestedChain.config.ChainID))
 	quoted := make([]string, len(wrongCids))
 	for i, c := range wrongCids {
 		quoted[i] = fmt.Sprintf(`"%s"`, c)
@@ -987,11 +1000,78 @@ func TestProcessBlockSignatureDocument_ValidSigCIDMismatch(t *testing.T) {
 		metrics:                metrics,
 	}
 
-	h.processBlockSignatureDocument(ctx, testCollections, doc)
+	h.processBlockSignatureDocument(ctx, attestedChainFor(pubKeyHex), doc)
 
 	// Signature itself is valid, but CID mismatch should trigger failure
 	require.Equal(t, int64(1), metrics.Chain(testCollections.Prefix).SignatureFailures.Load(),
 		"CID mismatch should increment signature failures")
+}
+
+// Sets the global meter provider, so it cannot run in parallel.
+func TestVerifyBlockSignature_UnlistedSigner(t *testing.T) {
+	orig := otel.GetMeterProvider()
+	t.Cleanup(func() { otel.SetMeterProvider(orig) })
+	reader := sdkmetric.NewManualReader()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	h := &Host{
+		metrics:                server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix}),
+		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(10),
+		instruments:            newHostMetrics([]chain.Collections{testCollections}),
+	}
+
+	// A signature that passes every other check, from a key the chain does not list.
+	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	cids := []string{makeTestCID("unlisted")}
+	root := attestationService.ComputeMerkleRootFromStrings(cids)
+	payload, err := attestationService.SignaturePayload(testChainConfig.Prefix, testChainConfig.ChainID, 5, "0xhash", len(cids), root)
+	require.NoError(t, err)
+	sig, err := key.Sign(payload)
+	require.NoError(t, err)
+
+	require.False(t, h.verifyBlockSignature(t.Context(), testChainConfig, &attestationService.BlockSignature{
+		BlockNumber: 5, BlockHash: "0xhash", CIDCount: len(cids), CIDs: cids, MerkleRoot: hex.EncodeToString(root),
+		SignatureType: "ES256K", SignatureIdentity: key.GetPublic().String(), SignatureValue: hex.EncodeToString(sig),
+	}))
+
+	counters := h.metrics.Chain(testCollections.Prefix).Counters()
+	require.Equal(t, int64(1), counters.UnlistedSignatures)
+	require.Zero(t, counters.SignatureVerifications)
+	require.Zero(t, counters.SignatureFailures)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	sigs := int64Points(t, rm, "shinzo.host.block_signatures")
+	require.Len(t, sigs, 1)
+	result, _ := sigs[0].Attributes.Value("result")
+	require.Equal(t, "unlisted", result.AsString())
+}
+
+func TestVerifyBlockSignature_UnparsableCIDs(t *testing.T) {
+	h := &Host{
+		metrics:                server.NewHostMetrics(&server.ChainMetrics{Prefix: testCollections.Prefix}),
+		blockSignatureVerifier: attestationService.NewBlockSignatureVerifier(10),
+	}
+
+	// A valid signature from a listed signer, carrying a CID list in which nothing parses as a CID.
+	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	chainCfg := testChainConfig
+	chainCfg.Signers = []string{key.GetPublic().String()}
+	signed := []string{makeTestCID("a"), makeTestCID("b")}
+	root := attestationService.ComputeMerkleRootFromStrings(signed)
+	payload, err := attestationService.SignaturePayload(chainCfg.Prefix, chainCfg.ChainID, 5, "0xhash", len(signed), root)
+	require.NoError(t, err)
+	sig, err := key.Sign(payload)
+	require.NoError(t, err)
+
+	require.False(t, h.verifyBlockSignature(t.Context(), chainCfg, &attestationService.BlockSignature{
+		BlockNumber: 5, BlockHash: "0xhash", CIDCount: len(signed), CIDs: []string{"not-a-cid", "also-not-a-cid"},
+		MerkleRoot: hex.EncodeToString(root), SignatureType: "ES256K", SignatureIdentity: key.GetPublic().String(),
+		SignatureValue: hex.EncodeToString(sig),
+	}))
+	require.Equal(t, int64(1), h.metrics.Chain(testCollections.Prefix).SignatureFailures.Load())
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,7 +1094,7 @@ func TestProcessBlockSignatureFromEventBus_ContextCancelledDuringRetry(t *testin
 	shortCtx, cancel := context.WithTimeout(ctx, 5*time.Millisecond)
 	defer cancel()
 
-	h.processBlockSignatureFromEventBus(shortCtx, testCollections, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
+	h.processBlockSignatureFromEventBus(shortCtx, testAttestedChain, "bae-5a32eb7dc5b8df3b10bf76d6e8a43acc0bb04eeba09050b43108a3e6a41a0a48")
 }
 
 // ---------------------------------------------------------------------------
@@ -1147,6 +1227,15 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 	defraNode, chains := startChainsNode(t, chain.EthereumMainnet, other)
 
 	cfg := *DefaultConfig
+	cfg.Chains = []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1}, {Prefix: other, ChainID: 2}}
+	// Each chain's generator signs with its own key, the chain's only signer.
+	keys := make([]crypto.PrivateKey, len(cfg.Chains))
+	for i := range cfg.Chains {
+		key, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
+		require.NoError(t, err)
+		keys[i] = key
+		cfg.Chains[i].Signers = []string{key.GetPublic().String()}
+	}
 	attesters := map[string]*observedAttesters{chain.EthereumMainnet: newObservedAttesters(time.Minute), other: newObservedAttesters(time.Minute)}
 	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: chain.EthereumMainnet, Enabled: true}, &server.ChainMetrics{Prefix: other, Enabled: true})
 	h := &Host{
@@ -1169,10 +1258,11 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 	blocks := map[string]int{chains[0].Prefix: 42, chains[1].Prefix: 7}
 	cids := make(map[string][]string, len(chains))
 	signers := make(map[string]string, len(chains))
-	for _, c := range chains {
+	for i, c := range chains {
+		require.Equal(t, c.Prefix, cfg.Chains[i].Prefix)
 		cids[c.Prefix] = []string{makeTestCID(c.Prefix)}
-		docID, signer := addSignedBlockSignature(ctx, t, defraNode, c.BlockSignature.Name, blocks[c.Prefix], cids[c.Prefix])
-		signers[c.Prefix] = signer
+		docID := addSignedBlockSignature(ctx, t, defraNode, cfg.Chains[i], keys[i], blocks[c.Prefix], cids[c.Prefix])
+		signers[c.Prefix] = keys[i].GetPublic().String()
 		col, err := defraNode.DB.GetCollectionByName(ctx, c.BlockSignature.Name)
 		require.NoError(t, err)
 		defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: col.CollectionID(), DocID: docID, IsRelay: true}))
@@ -1210,14 +1300,15 @@ func startChainsNode(t *testing.T, prefixes ...string) (*node.Node, []chain.Coll
 	return defraNode, chains
 }
 
-// addSignedBlockSignature writes a BlockSignature for blockNumber to table, signed over cids with a
-// new key, and returns its document ID and the signer's identity.
-func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.Node, table string, blockNumber int, cids []string) (docID, signer string) {
+// addSignedBlockSignature writes a BlockSignature for blockNumber to the chain's table, signed over
+// cids with privKey, and returns its document ID.
+func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.Node, chainCfg chain.Config, privKey crypto.PrivateKey, blockNumber int, cids []string) string {
 	t.Helper()
-	privKey, err := crypto.GenerateKey(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
+	table := chain.EVM(chainCfg.Prefix).BlockSignature.Name
 	merkleRoot := attestationService.ComputeMerkleRootFromStrings(cids)
-	sig, err := privKey.Sign(merkleRoot)
+	payload, err := attestationService.SignaturePayload(chainCfg.Prefix, chainCfg.ChainID, int64(blockNumber), "0xhash", len(cids), merkleRoot)
+	require.NoError(t, err)
+	sig, err := privKey.Sign(payload)
 	require.NoError(t, err)
 
 	quoted := make([]string, len(cids))
@@ -1241,5 +1332,5 @@ func addSignedBlockSignature(ctx context.Context, t *testing.T, defraNode *node.
 	}`, table, blockNumber, hex.EncodeToString(merkleRoot), len(cids), strings.Join(quoted, ", "),
 		privKey.GetPublic().String(), hex.EncodeToString(sig)))
 	require.Empty(t, result.GQL.Errors)
-	return extractDocIDFromMutationResult(t, result, table), privKey.GetPublic().String()
+	return extractDocIDFromMutationResult(t, result, table)
 }

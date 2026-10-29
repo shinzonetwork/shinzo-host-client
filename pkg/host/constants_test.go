@@ -90,6 +90,19 @@ const (
 // testCollections are the Ethereum mainnet collections the tests use.
 var testCollections = chain.EVM(chain.EthereumMainnet)
 
+// testChainConfig is testCollections' chain as a host config lists it.
+var testChainConfig = chain.Config{Prefix: chain.EthereumMainnet, ChainID: 1, Signers: []string{"02aa"}}
+
+// testAttestedChain is testCollections as the attestation listener serves it.
+var testAttestedChain = &attestedChain{config: testChainConfig, collections: testCollections}
+
+// attestedChainFor is testAttestedChain with signer as its chain's one signer.
+func attestedChainFor(signer string) *attestedChain {
+	c := *testAttestedChain
+	c.config.Signers = []string{signer}
+	return &c
+}
+
 // testSchemaApplier creates the test chain's collections the way a host with no generators does.
 var testSchemaApplier = localschema.ChainApplier{
 	Tables: func(context.Context) (string, error) { return localschema.GetSchema(), nil },
