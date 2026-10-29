@@ -11,7 +11,7 @@ import (
 )
 
 // minimalChains is the chains section a config file needs to load.
-const minimalChains = "chains:\n  - prefix: " + chain.EthereumMainnet + "\n    chain_id: 1\n"
+const minimalChains = "chains:\n  - prefix: " + chain.EthereumMainnet + "\n    chain_id: 1\n    signers: [02aa]\n"
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
 	// Create a temporary config file
@@ -371,7 +371,7 @@ func TestLoadConfig_SchemaAuthToken(t *testing.T) {
 }
 
 func TestLoadConfig_Chains(t *testing.T) {
-	ethereum := []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1}}
+	ethereum := []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1, Signers: []string{"02aa"}}}
 	cases := []struct {
 		desc       string
 		yaml       string
@@ -383,16 +383,17 @@ func TestLoadConfig_Chains(t *testing.T) {
 		{desc: "no chains key", yaml: "pruner:\n  max_blocks: 1000\n", wantErr: ErrNoChains},
 		{
 			desc: "Ethereum with generators",
-			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    generators:\n      - url: http://10.0.0.5:8080\n        peer: /ip4/10.0.0.5/tcp/9171\n      - url: http://10.0.0.6:8080\n",
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    signers: [02aa]\n    generators:\n      - url: http://10.0.0.5:8080\n        peer: /ip4/10.0.0.5/tcp/9171\n      - url: http://10.0.0.6:8080\n",
 			want: []chain.Config{{
 				Prefix:     chain.EthereumMainnet,
 				ChainID:    1,
+				Signers:    []string{"02aa"},
 				Generators: []chain.Generator{{URL: "http://10.0.0.5:8080", Peer: "/ip4/10.0.0.5/tcp/9171"}, {URL: "http://10.0.0.6:8080"}},
 			}},
 		},
 		{
 			desc: "unknown keys outside chains are ignored",
-			yaml: "not_a_key: 1\npruner:\n  not_a_key: 2\nchains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n",
+			yaml: "not_a_key: 1\npruner:\n  not_a_key: 2\nchains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    signers: [02aa]\n",
 			want: ethereum,
 		},
 		{
@@ -402,26 +403,26 @@ func TestLoadConfig_Chains(t *testing.T) {
 		},
 		{desc: "invalid prefix", yaml: "chains:\n  - prefix: Ethereum\n", wantErr: chain.ErrInvalidPrefix},
 		{desc: "empty chains list", yaml: "chains: []\n", wantErr: ErrNoChains},
-		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\n", want: []chain.Config{{Prefix: "Testchain__Devnet", ChainID: 2}}},
+		{desc: "another chain alone", yaml: "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\n", want: []chain.Config{{Prefix: "Testchain__Devnet", ChainID: 2, Signers: []string{"02aa"}}}},
 		{
 			desc: "a chain's own max_blocks",
-			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    max_blocks: 500\n",
-			want: []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1, MaxBlocks: 500}},
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    signers: [02aa]\n    max_blocks: 500\n",
+			want: []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1, Signers: []string{"02aa"}, MaxBlocks: 500}},
 		},
 		{
 			desc: "two chains",
-			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n  - prefix: Testchain__Devnet\n    chain_id: 2\n",
-			want: []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1}, {Prefix: "Testchain__Devnet", ChainID: 2}},
+			yaml: "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    signers: [02aa]\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\n",
+			want: []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1, Signers: []string{"02aa"}}, {Prefix: "Testchain__Devnet", ChainID: 2, Signers: []string{"02aa"}}},
 		},
 		{desc: "snapshots for Ethereum", yaml: minimalChains + "host:\n  snapshot:\n    enabled: true\n", want: ethereum},
 		{
 			desc:    "snapshots for another chain",
-			yaml:    "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\nhost:\n  snapshot:\n    enabled: true\n",
+			yaml:    "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\nhost:\n  snapshot:\n    enabled: true\n",
 			wantErr: ErrSnapshotChain,
 		},
 		{
 			desc:    "snapshots for Ethereum and another chain",
-			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n  - prefix: Testchain__Devnet\n    chain_id: 2\nhost:\n  snapshot:\n    enabled: true\n",
+			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    signers: [02aa]\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\nhost:\n  snapshot:\n    enabled: true\n",
 			wantErr: ErrSnapshotChain,
 		},
 		{
@@ -431,12 +432,12 @@ func TestLoadConfig_Chains(t *testing.T) {
 		},
 		{
 			desc: "event filter on another chain alone",
-			yaml: "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\nshinzo:\n  event_filter:\n    enabled: true\n",
-			want: []chain.Config{{Prefix: "Testchain__Devnet", ChainID: 2}},
+			yaml: "chains:\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\nshinzo:\n  event_filter:\n    enabled: true\n",
+			want: []chain.Config{{Prefix: "Testchain__Devnet", ChainID: 2, Signers: []string{"02aa"}}},
 		},
 		{
 			desc:    "event filter on two chains",
-			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n  - prefix: Testchain__Devnet\n    chain_id: 2\nshinzo:\n  event_filter:\n    enabled: true\n",
+			yaml:    "chains:\n  - prefix: Ethereum__Mainnet\n    chain_id: 1\n    signers: [02aa]\n  - prefix: Testchain__Devnet\n    chain_id: 2\n    signers: [02aa]\nshinzo:\n  event_filter:\n    enabled: true\n",
 			wantErr: ErrEventFilterChains,
 		},
 	}

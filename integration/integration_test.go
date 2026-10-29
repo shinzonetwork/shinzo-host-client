@@ -44,6 +44,9 @@ const (
 func TestHostAttestsGeneratorBlock(t *testing.T) {
 	ctx := context.Background()
 	gen := startStandIn(t, prefix)
+	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	gen.config.Signers = []string{key.GetPublic().String()}
 	h := startHost(t, []chain.Config{gen.config})
 	gen.waitForHost(t, h)
 	cols := gen.cols
@@ -63,8 +66,6 @@ func TestHostAttestsGeneratorBlock(t *testing.T) {
 	cids := collector.GetCIDs()
 	require.Len(t, cids, len(blockCols))
 
-	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
 	root := node.ComputeMerkleRoot(cids)
 	payload, err := attestation.SignaturePayload(prefix, chainID, blockNumber, blockHash, len(cids), root)
 	require.NoError(t, err)

@@ -350,11 +350,22 @@ func populateBlockSignatureCIDs(doc *client.Document, blockSig *attestationServi
 	}
 }
 
-// verifyBlockSignature verifies the signature against the chain's prefix and chain ID, and the CID
-// list, updating metrics on failure. Returns false if verification fails and processing should
-// stop.
+// verifyBlockSignature skips a signature whose signer is not one of the chain's signers, then
+// verifies the signature against the chain's prefix and chain ID, and the CID list, counting each
+// outcome. Returns false if the signature is skipped or fails and processing should stop.
 func (h *Host) verifyBlockSignature(ctx context.Context, chainCfg chain.Config, blockSig *attestationService.BlockSignature) bool {
 	prefix := chainCfg.Prefix
+	if !chainCfg.AllowsSigner(blockSig.SignatureIdentity) {
+		logger.Sugar.Debugf("Skipping block %d: signer %s is not one of the chain's signers (chain: %s)",
+			blockSig.BlockNumber, blockSig.SignatureIdentity, prefix)
+		if m := h.chainMetrics(prefix); m != nil {
+			m.UnlistedSignatures.Add(1)
+		}
+		if o := h.instruments.chain(prefix); o != nil {
+			h.instruments.blockSignatures.Add(ctx, 1, o.unlisted)
+		}
+		return false
+	}
 	if err := h.blockSignatureVerifier.VerifyBlockSignature(blockSig, prefix, chainCfg.ChainID); err != nil {
 		logger.Sugar.Warnf("Invalid block signature for block %d: %v (chain: %s)", blockSig.BlockNumber, err, prefix)
 		if m := h.chainMetrics(prefix); m != nil {
