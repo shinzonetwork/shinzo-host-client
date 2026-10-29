@@ -259,6 +259,37 @@ func TestPostAttestationRecord_MultipleIndexers_AppendsSourceDoc(t *testing.T) {
 	require.Len(t, record.SourceDocIDs, 2, "Should have exactly 2 indexer identities")
 }
 
+func TestPostAttestationRecord_VoteCountCountsDistinctSources(t *testing.T) {
+	ctx := context.Background()
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, defradb.NewSchemaApplierFromProvidedSchema(testAttestationRecordSchema))
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(ctx) }()
+
+	query := fmt.Sprintf(`%s(filter: {attested_doc: {_eq: "block:600:feed"}}) { vote_count }`, testAttestationCollection)
+	for _, step := range []struct {
+		source    string
+		wantVotes int
+	}{
+		{source: "indexer-A", wantVotes: 1},
+		{source: "indexer-A", wantVotes: 1},
+		{source: "indexer-B", wantVotes: 2},
+	} {
+		_, err := PostAttestationRecord(ctx, defraNode, testAttestationCollection, &Record{
+			AttestedDocID: "block:600:feed",
+			SourceDocIDs:  []string{step.source},
+			CIDs:          []string{testCID1},
+			DocType:       testDocTypeBlock,
+			VoteCount:     1,
+		})
+		require.NoError(t, err)
+
+		records, err := defradb.QueryArray[Record](ctx, defraNode, query)
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		require.Equal(t, step.wantVotes, records[0].VoteCount, "after a post from %s", step.source)
+	}
+}
+
 // ========================================
 // POST ATTESTATION RECORD REMAINING BRANCHES
 // ========================================

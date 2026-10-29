@@ -16,8 +16,9 @@ type Record = constants.AttestationRecord
 
 // PostAttestationRecord writes record to the attestation collection named collection, using
 // read-modify-write to correctly merge source_doc lists when multiple indexers attest to the
-// same block. It reports whether it created the record; false means it merged record into one
-// the collection already held.
+// same block. A merge adds to vote_count only the sources the record did not hold. It reports
+// whether it created the record; false means it merged record into one the collection already
+// held.
 // It returns an error wrapping ErrDocumentNotFound when the existing record is deleted between
 // the read and the write, which the pruner does to records at or below its cutoff.
 func PostAttestationRecord(ctx context.Context, defraNode *node.Node, collection string, record *Record) (bool, error) {
@@ -179,6 +180,7 @@ func extractDocIDFromResult(data any, collectionName string) string {
 // could find.
 func updateAttestationRecord(ctx context.Context, col client.Collection, existingDoc *client.Document, record *Record) error {
 	// Merge source_doc identities
+	existingSources := mergeStringListField(existingDoc, "source_doc", nil)
 	mergedSources := mergeStringListField(existingDoc, "source_doc", record.SourceDocIDs)
 	sourcesAny := make([]any, len(mergedSources))
 	for i, s := range mergedSources {
@@ -198,8 +200,11 @@ func updateAttestationRecord(ctx context.Context, col client.Collection, existin
 		return fmt.Errorf("failed to set CIDs: %w", err)
 	}
 
-	if err := existingDoc.Set(ctx, "vote_count", record.VoteCount); err != nil {
-		return fmt.Errorf("failed to set vote_count: %w", err)
+	// vote_count is a counter: a write adds its value to the stored count.
+	if added := len(mergedSources) - len(existingSources); added > 0 {
+		if err := existingDoc.Set(ctx, "vote_count", added); err != nil {
+			return fmt.Errorf("failed to set vote_count: %w", err)
+		}
 	}
 
 	err := col.UpdateDocument(ctx, existingDoc)
