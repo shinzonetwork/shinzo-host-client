@@ -84,6 +84,7 @@ func TestTokens(t *testing.T) {
 		AttestationRecord: Collection{Name: "Bsc__Mainnet__AttestationRecord", HeightField: "blockNumber"},
 		Header:            header,
 		ContractLogs:      []Collection{bscUSD, usd1},
+		VerifiedBlock:     Collection{Name: "Bsc__Mainnet__VerifiedBlock", HeightField: "blockNumber"},
 	}, got)
 	require.Equal(t, []Collection{header, bscUSD, usd1, signature}, got.Generated())
 	require.Equal(t, []string{header.Name, bscUSD.Name, usd1.Name, signature.Name}, got.Subscribed())

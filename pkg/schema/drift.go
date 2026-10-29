@@ -17,13 +17,13 @@ var ErrSchemaDrift = fmt.Errorf("stored tables differ from the served schema")
 
 // checkStored compares the tables doc declares with the chain's stored tables: their names, their
 // fields' names, their fields' kinds and their scalar fields' CRDT types. Stored views, the host's
-// attestation record table, served tables the host does not use (see unusedTable), the stored
-// fields DefraDB adds, whose names start with "_", and the many side of a relation, which does not
-// change a table's collection ID, are left out. The secondary side of a one-to-one relation is
-// compared, although it does not change the collection ID either, so a change to that side alone
-// refuses a restart. It returns ErrSchemaDrift listing every difference and naming the store wipe
-// as the recovery: the host creates a chain's tables only in a store that holds none of them and
-// never changes stored ones.
+// attestation record and verified block tables, served tables the host does not use (see
+// unusedTable), the stored fields DefraDB adds, whose names start with "_", and the many side of a
+// relation, which does not change a table's collection ID, are left out. The secondary side of a
+// one-to-one relation is compared, although it does not change the collection ID either, so a
+// change to that side alone refuses a restart. It returns ErrSchemaDrift listing every difference
+// and naming the store wipe as the recovery: the host creates a chain's tables only in a store that
+// holds none of them and never changes stored ones.
 func checkStored(doc *ast.SchemaDocument, stored []client.Collection, c chain.Collections) error {
 	served := servedTables(doc)
 	tables := storedTables(stored, c)
@@ -103,7 +103,7 @@ func storedTables(stored []client.Collection, c chain.Collections) map[string]ma
 	tables := make(map[string]map[string]string)
 	for _, col := range stored {
 		if !strings.HasPrefix(col.Name(), c.Prefix+"__") || col.Name() == c.AttestationRecord.Name ||
-			col.Version().Query.HasValue() {
+			col.Name() == c.VerifiedBlock.Name || col.Version().Query.HasValue() {
 			continue
 		}
 		fields := make(map[string]string)

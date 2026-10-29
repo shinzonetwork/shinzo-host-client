@@ -36,7 +36,7 @@ func CollectionConfigFor(c chain.Collections) CollectionConfig {
 		return CollectionConfig{
 			Prefix:     c.Prefix,
 			Block:      c.Header,
-			Dependents: slices.Concat(c.ContractLogs, []chain.Collection{c.BlockSignature, c.AttestationRecord}),
+			Dependents: slices.Concat(c.ContractLogs, []chain.Collection{c.BlockSignature, c.AttestationRecord, c.VerifiedBlock}),
 		}
 	}
 	return CollectionConfig{

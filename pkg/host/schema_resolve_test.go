@@ -396,7 +396,7 @@ func TestChainsApplierTokensMode(t *testing.T) {
 	defer func() { _ = node.Close(ctx) }()
 	require.Equal(t, []chain.Config{ethereum, tokens}, applier.enabled)
 	collections := tokens.Collections()
-	for _, col := range append(collections.Generated(), collections.AttestationRecord) {
+	for _, col := range append(collections.Generated(), collections.AttestationRecord, collections.VerifiedBlock) {
 		_, err := node.DB.GetCollectionByName(ctx, col.Name)
 		require.NoError(t, err, col.Name)
 	}

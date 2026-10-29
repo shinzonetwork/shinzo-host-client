@@ -125,8 +125,8 @@ func FetchResponse(ctx context.Context, httpClient *http.Client, fullURL string)
 }
 
 // checkSchema checks a generator's schema response, as FetchResponse returns it, against the
-// chain's collections: it is for this chain, every type is under the chain's prefix, the host's
-// AttestationRecord type is left out, and every collection the generator writes is there.
+// chain's collections: it is for this chain, every type is under the chain's prefix, the types the
+// host writes are left out, and every collection the generator writes is there.
 func checkSchema(resp Response, c chain.Collections) error {
 	if resp.Network != c.Prefix {
 		return fmt.Errorf("network %q, want %q: %w", resp.Network, c.Prefix, ErrSchemaWrongNetwork)
@@ -136,7 +136,7 @@ func checkSchema(resp Response, c chain.Collections) error {
 		if !strings.HasPrefix(def.Name, c.Prefix+"__") {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaForeignType)
 		}
-		if def.Name == c.AttestationRecord.Name {
+		if def.Name == c.AttestationRecord.Name || def.Name == c.VerifiedBlock.Name {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaHostOwnedType)
 		}
 	}

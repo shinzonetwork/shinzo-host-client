@@ -22,6 +22,11 @@ import (
 //go:embed testdata/generator_schema.graphql
 var generatorSchema string
 
+// generatorTokensSchema is a schema as a tokens-mode generator serves it for USD1 on BSC.
+//
+//go:embed testdata/generator_tokens_schema.graphql
+var generatorTokensSchema string
+
 var (
 	ethereum      = chain.EVM(chain.EthereumMainnet)
 	validResponse = Response{Network: chain.EthereumMainnet, Schema: generatorSchema}
@@ -100,6 +105,15 @@ func TestFetchSchema_Checks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A tokens-mode generator's schema may not declare the host's VerifiedBlock type.
+func TestFetchSchema_RefusesVerifiedBlock(t *testing.T) {
+	tokens := chain.Tokens("Bsc__Mainnet", []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"})
+	srv := serveSchema(t, Response{Network: tokens.Prefix, Schema: generatorTokensSchema + "\n" + verifiedBlockSchema(tokens)})
+
+	_, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), tokens)
+	require.ErrorIs(t, err, ErrSchemaHostOwnedType)
 }
 
 func TestFetchSchema_NetworkError(t *testing.T) {

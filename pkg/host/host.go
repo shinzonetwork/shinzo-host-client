@@ -28,6 +28,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/verifier"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
@@ -173,6 +174,8 @@ type Host struct {
 
 	pruners []*pruner.Pruner // One document pruner per chain with all its tables stored
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
+
+	verifiers sync.WaitGroup // One block verifier per enabled tokens-mode chain
 }
 
 // StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the view manager and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
@@ -575,6 +578,14 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
+	if defraNode != nil {
+		for _, c := range newHost.chains {
+			if c.TokensMode() {
+				newHost.verifiers.Go(func() { verifier.New(defraNode, c).Run(processingCtx) })
+			}
+		}
+	}
+
 	go newHost.reportStats(processingCtx, statsInterval, logger.Sugar)
 
 	if cfg.HostConfig.OpenBrowserOnStart {
@@ -780,6 +791,8 @@ func (h *Host) Close(ctx context.Context) error {
 		case <-ctx.Done():
 		}
 	}
+	// The verifiers query DefraDB, so they stop before it closes.
+	h.verifiers.Wait()
 
 	if h.NetworkHandler != nil {
 		if err := h.NetworkHandler.StopNetwork(); err != nil {
