@@ -18,11 +18,8 @@ func testLogger(t *testing.T) *zap.Logger {
 	return zap.NewNop()
 }
 
-// freeAddr finds a free local port by briefly binding to it, the
-// standard way to get an address safe to hand to a real server in a
-// test without hardcoding (and risking colliding on) a fixed port.
-// Server itself never needs to know this happened; it's handed a
-// plain, concrete address, same as it would be given in production.
+// freeAddr grabs a free port by briefly binding to it, so tests don't
+// hardcode (and risk colliding on) a fixed one.
 func freeAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -46,8 +43,6 @@ func TestNewRejectsNilLogger(t *testing.T) {
 	require.ErrorIs(t, err, ErrNilLogger)
 }
 
-// A handler registered on Mux() before Start must actually be
-// reachable, over a real connection, once the server is listening.
 func TestStartServesRegisteredHandlers(t *testing.T) {
 	srv, addr := newTestServer(t)
 	srv.Mux().HandleFunc("/ping", func(w http.ResponseWriter, _ *http.Request) {
@@ -93,13 +88,11 @@ func TestCloseJoinsErrorsFromShutdownFuncs(t *testing.T) {
 	require.ErrorIs(t, srv.Close(context.Background()), boom)
 }
 
-// Close before Start must not panic: httpSrv is still nil at that point.
 func TestCloseWithoutStartIsSafe(t *testing.T) {
 	srv, _ := newTestServer(t)
 	require.NoError(t, srv.Close(context.Background()))
 }
 
-// A second Close must not rerun shutdown fns.
 func TestCloseIsIdempotent(t *testing.T) {
 	srv, _ := newTestServer(t)
 	require.NoError(t, srv.Start())
@@ -117,7 +110,6 @@ func TestCloseIsIdempotent(t *testing.T) {
 	require.Equal(t, 1, calls)
 }
 
-// A second Close returns the first call's error, not nil.
 func TestCloseReplaysFirstCallsError(t *testing.T) {
 	srv, _ := newTestServer(t)
 	require.NoError(t, srv.Start())
@@ -129,39 +121,53 @@ func TestCloseReplaysFirstCallsError(t *testing.T) {
 	require.ErrorIs(t, srv.Close(context.Background()), boom)
 }
 
-// Shutdown fns get their own budget, not whatever the HTTP drain left.
+// Covers Close being given an already-expired ctx.
 func TestCloseGivesShutdownFnsTheirOwnBudget(t *testing.T) {
 	srv, _ := newTestServer(t)
 	require.NoError(t, srv.Start())
 
+	var fnCtxErr error
 	var deadline time.Time
 	var hasDeadline bool
 	srv.RegisterShutdown(func(ctx context.Context) error {
+		fnCtxErr = ctx.Err()
 		deadline, hasDeadline = ctx.Deadline()
 		return nil
 	})
 
-	before := time.Now()
-	require.NoError(t, srv.Close(context.Background()))
+	expired, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
 
+	before := time.Now()
+	require.NoError(t, srv.Close(expired))
+
+	require.NoError(t, fnCtxErr, "shutdown fns must not see an already-expired ctx")
 	require.True(t, hasDeadline)
 	require.InDelta(t, shutdownFnsTimeout.Seconds(), deadline.Sub(before).Seconds(), 1)
 }
 
-// OnFailure's callback and Err() reflect what Start's goroutine
-// stores and calls on a real Serve failure.
-func TestOnFailureAndErr(t *testing.T) {
-	srv, _ := newTestServer(t)
+func TestOnFailureAndErrOnRealServeFailure(t *testing.T) {
+	srv, err := New(":0", testLogger(t))
+	require.NoError(t, err)
 
-	var called bool
-	srv.OnFailure(func() { called = true })
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
 
-	boom := errors.New("boom")
-	srv.crashErr = boom
-	srv.onFailure()
+	t.Cleanup(func() { _ = srv.Close(context.Background()) })
 
-	require.True(t, called)
-	require.ErrorIs(t, srv.Err(), boom)
+	done := make(chan struct{})
+	srv.OnFailure(func() { close(done) })
+
+	require.NoError(t, srv.startOn(ln))
+	require.NoError(t, ln.Close()) // Serve now fails for a real reason, not via Close/Shutdown
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnFailure never ran after the listener died")
+	}
+
+	require.Error(t, srv.Err())
 }
 
 func TestStartFailsIfAddressAlreadyBound(t *testing.T) {
@@ -173,4 +179,39 @@ func TestStartFailsIfAddressAlreadyBound(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Error(t, srv.Start())
+}
+
+func TestStartTwiceFails(t *testing.T) {
+	srv, _ := newTestServer(t)
+	require.NoError(t, srv.Start())
+	require.ErrorIs(t, srv.Start(), ErrAlreadyStarted)
+}
+
+func TestStartIsRetriableAfterBindFailure(t *testing.T) {
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	srv, err := New(blocker.Addr().String(), testLogger(t))
+	require.NoError(t, err)
+
+	require.Error(t, srv.Start())
+	require.NoError(t, blocker.Close())
+	require.NoError(t, srv.Start())
+	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+}
+
+func TestRegisterShutdownDuringCloseIsRaceFree(t *testing.T) {
+	srv, _ := newTestServer(t)
+	require.NoError(t, srv.Start())
+
+	registering := make(chan struct{})
+	go func() {
+		defer close(registering)
+		for range 100 {
+			srv.RegisterShutdown(func(context.Context) error { return nil })
+		}
+	}()
+
+	_ = srv.Close(context.Background())
+	<-registering
 }

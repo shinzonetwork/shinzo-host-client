@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
 )
 
 const (
-	// shutdownFnsTimeout is the shutdown fns' own budget, separate from the HTTP drain.
 	shutdownFnsTimeout = 15 * time.Second
 	readHeaderTimeout  = 10 * time.Second
 )
@@ -22,18 +22,23 @@ const (
 // ErrNilLogger is returned by New when given a nil logger.
 var ErrNilLogger = errors.New("hostserver: nil logger")
 
+// ErrAlreadyStarted is returned by Start if it's already been called.
+var ErrAlreadyStarted = errors.New("hostserver: already started")
+
 // Server is an HTTP server built around one shared mux.
 type Server struct {
 	addr      string
 	boundAddr string
+	started   atomic.Bool
 
 	log *zap.SugaredLogger
 	mux *http.ServeMux
 
 	httpSrv   *http.Server
 	onFailure func()
-	crashErr  error
+	crashErr  atomic.Pointer[error]
 
+	shutdownMu  sync.Mutex
 	shutdownFns []func(context.Context) error
 
 	closeOnce sync.Once
@@ -52,7 +57,7 @@ func New(addr string, log *zap.Logger) (*Server, error) {
 	}, nil
 }
 
-// Mux is where callers register handlers.
+// Mux is where callers register handlers, before calling Start.
 func (s *Server) Mux() *http.ServeMux {
 	return s.mux
 }
@@ -62,9 +67,10 @@ func (s *Server) Addr() string {
 	return s.boundAddr
 }
 
-// RegisterShutdown adds fn to run, in reverse registration order, when
-// Close runs — for anything else that needs to stop alongside the HTTP server.
+// RegisterShutdown adds fn to run, in reverse registration order, when Close runs.
 func (s *Server) RegisterShutdown(fn func(context.Context) error) {
+	s.shutdownMu.Lock()
+	defer s.shutdownMu.Unlock()
 	s.shutdownFns = append(s.shutdownFns, fn)
 }
 
@@ -77,15 +83,28 @@ func (s *Server) OnFailure(fn func()) {
 // Err returns the error Serve stopped with, or nil if it hasn't
 // failed (including if it was stopped cleanly by Close).
 func (s *Server) Err() error {
-	return s.crashErr
+	if p := s.crashErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
-// Start binds addr and begins serving in the background.
+// Start binds addr and begins serving in the background. Returns
+// ErrAlreadyStarted if called more than once.
 func (s *Server) Start() error {
+	if !s.started.CompareAndSwap(false, true) {
+		return ErrAlreadyStarted
+	}
 	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
+		s.started.Store(false) // allow retry
 		return fmt.Errorf("binding %s: %w", s.addr, err)
 	}
+	return s.startOn(ln)
+}
+
+// startOn is Start's body, taking the listener so tests can force a real Serve failure.
+func (s *Server) startOn(ln net.Listener) error {
 	s.boundAddr = ln.Addr().String()
 
 	s.httpSrv = &http.Server{Handler: s.mux, ReadHeaderTimeout: readHeaderTimeout}
@@ -93,7 +112,7 @@ func (s *Server) Start() error {
 	go func() {
 		if err := s.httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Errorw("http server stopped unexpectedly", "err", err)
-			s.crashErr = err
+			s.crashErr.Store(&err)
 			if s.onFailure != nil {
 				s.onFailure()
 			}
@@ -121,9 +140,15 @@ func (s *Server) close(ctx context.Context) error {
 		}
 	}
 
-	fnsCtx, cancel := context.WithTimeout(ctx, shutdownFnsTimeout)
+	s.shutdownMu.Lock()
+	fns := slices.Clone(s.shutdownFns)
+	s.shutdownMu.Unlock()
+
+	// WithoutCancel drops ctx's deadline, which the HTTP drain above may
+	// have already used up, so fns get a fresh budget of their own.
+	fnsCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownFnsTimeout)
 	defer cancel()
-	for _, fn := range slices.Backward(s.shutdownFns) {
+	for _, fn := range slices.Backward(fns) {
 		if err := fn(fnsCtx); err != nil {
 			errs = append(errs, err)
 		}

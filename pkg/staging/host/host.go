@@ -4,6 +4,7 @@
 package host
 
 import (
+	"context"
 	"time"
 
 	"go.uber.org/zap"
@@ -20,5 +21,9 @@ import (
 func Start(_ hostconfig.Config, _ *zap.Logger, _ hostkey.NodeKeys, srv *hostserver.Server) error {
 	mountStatus(srv.Mux(), time.Now())
 
-	return srv.Start()
+	if err := srv.Start(); err != nil {
+		_ = srv.Close(context.Background()) // clean up anything a mount already registered
+		return err
+	}
+	return nil
 }

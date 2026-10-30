@@ -14,10 +14,8 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
 )
 
-// freeAddr finds a free local port by briefly binding to it, so the
-// test doesn't hardcode (and risk colliding on) a fixed one. srv
-// itself is given a plain, concrete address either way, same as it
-// would be in production.
+// freeAddr grabs a free port by briefly binding to it, so tests don't
+// hardcode (and risk colliding on) a fixed one.
 func freeAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -27,8 +25,6 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-// Start must actually bind srv: a handler registered on its mux
-// beforehand must be reachable once Start returns.
 func TestStartBindsTheServer(t *testing.T) {
 	addr := freeAddr(t)
 	srv, err := hostserver.New(addr, zap.NewNop())
@@ -48,9 +44,7 @@ func TestStartBindsTheServer(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// Start must actually wire mountStatus in — mountStatus's own
-// response shape is tested in mount_status_test.go, this just
-// confirms Start doesn't forget to call it.
+// Response shape is tested in mount_status_test.go, this just checks the wiring.
 func TestStartMountsStatus(t *testing.T) {
 	addr := freeAddr(t)
 	srv, err := hostserver.New(addr, zap.NewNop())
@@ -63,4 +57,22 @@ func TestStartMountsStatus(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestStartCleansUpIfBindFails(t *testing.T) {
+	blocker, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = blocker.Close() }()
+
+	srv, err := hostserver.New(blocker.Addr().String(), zap.NewNop())
+	require.NoError(t, err)
+
+	var cleaned bool
+	srv.RegisterShutdown(func(context.Context) error {
+		cleaned = true
+		return nil
+	})
+
+	require.Error(t, Start(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, srv))
+	require.True(t, cleaned, "Start must run registered shutdown fns if binding fails")
 }
