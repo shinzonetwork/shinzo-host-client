@@ -96,6 +96,32 @@ func enqueueSignature(queue chan string, docID string) (dropped int) {
 	}
 }
 
+// newAttestedChain returns chain c with its config entry and counters, without a signature queue.
+func (h *Host) newAttestedChain(c chain.Collections) *attestedChain {
+	attested := &attestedChain{
+		collections: c,
+		metrics:     h.chainMetrics(c.Prefix),
+		instruments: h.instruments.chain(c.Prefix),
+	}
+	for _, configured := range h.config.Chains {
+		if configured.Prefix == c.Prefix {
+			attested.config = configured
+		}
+	}
+	return attested
+}
+
+// countSignatures returns a function that attests chain c's BlockSignature documents by ID, the way
+// the attestation listener attests the ones peers send.
+func (h *Host) countSignatures(c chain.Collections) func(ctx context.Context, signatureIDs []string) {
+	attested := h.newAttestedChain(c)
+	return func(ctx context.Context, signatureIDs []string) {
+		for _, id := range signatureIDs {
+			h.processBlockSignatureFromEventBus(ctx, attested, id)
+		}
+	}
+}
+
 // signatureWorker attests the block signatures queued for attested until ctx is done.
 func (h *Host) signatureWorker(ctx context.Context, attested *attestedChain) {
 	for {
@@ -128,17 +154,8 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 	workerCount, queueSize := h.docQueueSettings()
 	chains := make([]*attestedChain, len(h.chains))
 	for i, c := range h.chains {
-		chains[i] = &attestedChain{
-			collections: c,
-			signatures:  make(chan string, queueSize),
-			metrics:     h.chainMetrics(c.Prefix),
-			instruments: h.instruments.chain(c.Prefix),
-		}
-		for _, configured := range h.config.Chains {
-			if configured.Prefix == c.Prefix {
-				chains[i].config = configured
-			}
-		}
+		chains[i] = h.newAttestedChain(c)
+		chains[i].signatures = make(chan string, queueSize)
 		if o := chains[i].instruments; o != nil {
 			o.queue.Store(&chains[i].signatures)
 		}

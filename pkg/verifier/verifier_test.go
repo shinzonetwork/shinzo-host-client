@@ -50,6 +50,9 @@ func newVerifierNode(t *testing.T) *node.Node {
 	return n
 }
 
+// countNothing is the count function of verifiers whose tests attest every signature themselves.
+func countNothing(context.Context, []string) {}
+
 // add writes a document and returns its ID and CID.
 func add(t *testing.T, n *node.Node, collection string, fields map[string]any) (client.DocID, string) {
 	t.Helper()
@@ -95,22 +98,27 @@ func addBlock(t *testing.T, n *node.Node, height int64) (cids []string, logs []c
 func attest(t *testing.T, n *node.Node, height int64, signers, cids []string) {
 	t.Helper()
 	for _, signer := range signers {
-		_, err := attestation.PostAttestationRecord(context.Background(), n, tokens.AttestationRecord.Name, &constants.AttestationRecord{
-			AttestedDocID: fmt.Sprintf("block:%d:%s", height, strings.Join(cids, ",")),
-			SourceDocIDs:  []string{signer},
-			CIDs:          cids,
-			DocType:       "Block",
-			VoteCount:     1,
-			BlockNumber:   &height,
-		})
-		require.NoError(t, err)
+		require.NoError(t, postAttestation(context.Background(), n, height, signer, cids))
 	}
+}
+
+// postAttestation records signer signing cids at height.
+func postAttestation(ctx context.Context, n *node.Node, height int64, signer string, cids []string) error {
+	_, err := attestation.PostAttestationRecord(ctx, n, tokens.AttestationRecord.Name, &constants.AttestationRecord{
+		AttestedDocID: fmt.Sprintf("block:%d:%s", height, strings.Join(cids, ",")),
+		SourceDocIDs:  []string{signer},
+		CIDs:          cids,
+		DocType:       "Block",
+		VoteCount:     1,
+		BlockNumber:   &height,
+	})
+	return err
 }
 
 // verified returns the heights the VerifiedBlock table holds, in order.
 func verified(t *testing.T, n *node.Node) []int64 {
 	t.Helper()
-	v := New(n, tokens)
+	v := New(n, tokens, countNothing)
 	rows, err := v.query(context.Background(),
 		fmt.Sprintf(`query { blocks: %s(order: {blockNumber: ASC}) { height: blockNumber } }`, tokens.VerifiedBlock.Name))
 	require.NoError(t, err)
@@ -200,7 +208,7 @@ func TestVerify(t *testing.T) {
 			n := newVerifierNode(t)
 			tc.setup(t, n)
 
-			err := New(n, tokens).verify(context.Background(), height)
+			err := New(n, tokens, countNothing).verify(context.Background(), height)
 
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -239,13 +247,57 @@ func TestRun(t *testing.T) {
 	require.Equal(t, []int64{10, 11, 12}, verified(t, n))
 }
 
+// A height short of signers hands count the held signatures no attestation record counts yet, each
+// document once: here 03bb's signature arrived without being attested, as after a document sync.
+func TestRunCountsHeldSignatures(t *testing.T) {
+	cases := []struct {
+		name         string
+		attest       bool
+		wantVerified []int64
+	}{
+		{"counting the signature verifies the block", true, []int64{10}},
+		{"a signature still uncounted is not handed again", false, []int64{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newVerifierNode(t)
+			cids, _ := addBlock(t, n, 10)
+			attest(t, n, 10, []string{"02aa"}, cids)
+			add(t, n, tokens.BlockSignature.Name, map[string]any{"blockNumber": 10, "signatureIdentity": "02aa"})
+			held, _ := add(t, n, tokens.BlockSignature.Name, map[string]any{"blockNumber": 10, "signatureIdentity": "03bb"})
+
+			var handed [][]string
+			var attestErr error
+			count := func(ctx context.Context, ids []string) {
+				handed = append(handed, ids)
+				if tc.attest {
+					attestErr = postAttestation(ctx, n, 10, "03bb", cids)
+				}
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				New(n, tokens, count).Run(ctx)
+			}()
+			time.Sleep(3 * retryInterval)
+			cancel()
+			<-done
+
+			require.NoError(t, attestErr)
+			require.Equal(t, [][]string{{held.String()}}, handed)
+			require.Equal(t, tc.wantVerified, verified(t, n))
+		})
+	}
+}
+
 // run starts a verifier on n and returns a function that stops it and waits for it to return.
 func run(n *node.Node) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(n, tokens).Run(ctx)
+		New(n, tokens, countNothing).Run(ctx)
 	}()
 	return func() {
 		cancel()

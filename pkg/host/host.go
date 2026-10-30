@@ -581,7 +581,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	if defraNode != nil {
 		for _, c := range newHost.chains {
 			if c.TokensMode() {
-				newHost.verifiers.Go(func() { verifier.New(defraNode, c).Run(processingCtx) })
+				newHost.verifiers.Go(func() { verifier.New(defraNode, c, newHost.countSignatures(c)).Run(processingCtx) })
 			}
 		}
 	}

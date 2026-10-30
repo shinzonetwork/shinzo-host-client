@@ -38,11 +38,14 @@ var (
 type Verifier struct {
 	node        *node.Node
 	collections chain.Collections
+	count       func(ctx context.Context, signatureIDs []string)
 }
 
-// New returns a verifier for the tokens-mode chain whose collections are c.
-func New(n *node.Node, c chain.Collections) *Verifier {
-	return &Verifier{node: n, collections: c}
+// New returns a verifier for the tokens-mode chain whose collections are c. count attests the
+// BlockSignature documents with the given IDs; the verifier calls it for signatures the host holds
+// but has not counted.
+func New(n *node.Node, c chain.Collections, count func(ctx context.Context, signatureIDs []string)) *Verifier {
+	return &Verifier{node: n, collections: c, count: count}
 }
 
 // Run verifies heights in order until ctx is done. It starts above the highest verified height or,
@@ -54,15 +57,20 @@ func (v *Verifier) Run(ctx context.Context) {
 		return
 	}
 	var reported string
+	handed := make(map[string]bool)
 	for {
 		err := v.verify(ctx, height)
 		if err == nil {
 			height++
 			reported = ""
+			clear(handed)
 			continue
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		if errors.Is(err, errTooFewSigners) {
+			v.countHeldSignatures(ctx, height, handed)
 		}
 		if msg := err.Error(); msg != reported {
 			reported = msg
@@ -142,6 +150,40 @@ func (v *Verifier) verify(ctx context.Context, height int64) error {
 	return v.record(ctx, height, headers[0].Hash, agreed.Signers)
 }
 
+// countHeldSignatures hands count the BlockSignature documents held at height whose signer no
+// attestation record there counts yet, each document at most once while Run waits on that height.
+// The attestation listener counts only signatures a peer sends as an update, so a signature fetched
+// another way, such as by a document sync, is counted only through here.
+func (v *Verifier) countHeldSignatures(ctx context.Context, height int64, handed map[string]bool) {
+	c := v.collections
+	rows, err := v.query(ctx, fmt.Sprintf(`query { `+
+		`signatures: %s(filter: {%s: {_eq: %d}}) { _docID signatureIdentity } `+
+		`attestations: %s(filter: {%s: {_eq: %d}}) { source_doc } }`,
+		c.BlockSignature.Name, c.BlockSignature.HeightField, height,
+		c.AttestationRecord.Name, c.AttestationRecord.HeightField, height))
+	if err != nil {
+		logger.Sugar.Warnf("Cannot read the signatures held at block %d: %v (chain: %s)", height, err, c.Prefix)
+		return
+	}
+	counted := make(map[string]bool)
+	for _, record := range rows["attestations"] {
+		for _, signer := range record.Signers {
+			counted[signer] = true
+		}
+	}
+	var uncounted []string
+	for _, signature := range rows["signatures"] {
+		if !counted[signature.Signer] && !handed[signature.DocID] {
+			handed[signature.DocID] = true
+			uncounted = append(uncounted, signature.DocID)
+		}
+	}
+	if len(uncounted) > 0 {
+		logger.Sugar.Infof("Counting %d held signatures at block %d (chain: %s)", len(uncounted), height, c.Prefix)
+		v.count(ctx, uncounted)
+	}
+}
+
 // agreedAttestation returns the one attestation record among records that requiredSigners of the
 // chain's signers back. Records hold only signatures that passed the chain's signer and signature
 // checks, one record per signed set of documents, each signer counted once.
@@ -187,8 +229,8 @@ func (v *Verifier) record(ctx context.Context, height int64, hash string, signer
 }
 
 // row is a document a verifier query returns, with the fields that query selects: a height, a
-// Header's hash, a Header's or log's current version, or an attestation record's signers and
-// signed CIDs.
+// Header's hash, a Header's or log's current version, an attestation record's signers and signed
+// CIDs, or a BlockSignature's ID and signer.
 type row struct {
 	Height  int64  `json:"height"`
 	Hash    string `json:"hash"`
@@ -197,6 +239,8 @@ type row struct {
 	} `json:"_version"`
 	Signers []string `json:"source_doc"`
 	CIDs    []string `json:"CIDs"`
+	DocID   string   `json:"_docID"`
+	Signer  string   `json:"signatureIdentity"`
 }
 
 // query runs a GraphQL request and returns its rows by the name each table is selected under.
