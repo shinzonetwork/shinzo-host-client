@@ -1,12 +1,8 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,8 +11,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
 )
-
-const shutdownTimeout = 30 * time.Second
 
 func startCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -42,10 +36,22 @@ creates config.toml and never generates keys on its own.`,
 }
 
 func runStart(cmd *cobra.Command, _ []string) (err error) {
-	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	home, err := cmd.Flags().GetString("home")
+	if err != nil {
+		return err
+	}
 
-	home, dataDir, configPath, overrides, err := parseStartFlags(cmd)
+	dataDir, err := cmd.Flags().GetString("data-dir")
+	if err != nil {
+		return err
+	}
+
+	configPath, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return err
+	}
+
+	overrides, err := getOverrides(cmd)
 	if err != nil {
 		return err
 	}
@@ -85,53 +91,6 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 	if err != nil {
 		return err
 	}
-	srv.OnFailure(stop)
 
-	if err := host.Start(cfg, log, nodeKeys, srv); err != nil {
-		return err
-	}
-
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Listening on %s\n", srv.Addr()); err != nil {
-		return err
-	}
-
-	return waitForShutdown(ctx, stop, srv)
-}
-
-// waitForShutdown blocks until ctx is done, then combines any crash
-// srv reported with any error closing it down.
-func waitForShutdown(ctx context.Context, stop func(), srv *hostserver.Server) error {
-	<-ctx.Done()
-	stop() // let a second signal force kill instead of waiting out the shutdown timeout
-
-	var err error
-	if crashErr := srv.Err(); crashErr != nil {
-		err = fmt.Errorf("http server stopped: %w", crashErr)
-	}
-
-	// shutdownCtx is deliberately not derived from ctx: ctx is already
-	// Done by this point, which would make shutdownCtx already expired too.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	return errors.Join(err, srv.Close(shutdownCtx)) //nolint:contextcheck
-}
-
-func parseStartFlags(cmd *cobra.Command) (home, dataDir, configPath string, overrides map[string]any, err error) {
-	home, err = cmd.Flags().GetString("home")
-	if err != nil {
-		return "", "", "", nil, err
-	}
-	dataDir, err = cmd.Flags().GetString("data-dir")
-	if err != nil {
-		return "", "", "", nil, err
-	}
-	configPath, err = cmd.Flags().GetString("config")
-	if err != nil {
-		return "", "", "", nil, err
-	}
-	overrides, err = getOverrides(cmd)
-	if err != nil {
-		return "", "", "", nil, err
-	}
-	return home, dataDir, configPath, overrides, nil
+	return host.Start(cmd.Context(), cfg, log, nodeKeys, srv)
 }

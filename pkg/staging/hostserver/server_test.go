@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) (srv *Server, addr string) {
 	addr = freeAddr(t)
 	srv, err := New(addr, testLogger(t))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() { _ = srv.Close() })
 	return srv, addr
 }
 
@@ -74,7 +74,7 @@ func TestCloseRunsShutdownFuncsInReverseOrder(t *testing.T) {
 		return nil
 	})
 
-	require.NoError(t, srv.Close(context.Background()))
+	require.NoError(t, srv.Close())
 	require.Equal(t, []int{2, 1}, order, "shutdown funcs must run in reverse of registration order")
 }
 
@@ -85,12 +85,12 @@ func TestCloseJoinsErrorsFromShutdownFuncs(t *testing.T) {
 	boom := errors.New("boom")
 	srv.RegisterShutdown(func(context.Context) error { return boom })
 
-	require.ErrorIs(t, srv.Close(context.Background()), boom)
+	require.ErrorIs(t, srv.Close(), boom)
 }
 
 func TestCloseWithoutStartIsSafe(t *testing.T) {
 	srv, _ := newTestServer(t)
-	require.NoError(t, srv.Close(context.Background()))
+	require.NoError(t, srv.Close())
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
@@ -103,8 +103,8 @@ func TestCloseIsIdempotent(t *testing.T) {
 		return nil
 	})
 
-	first := srv.Close(context.Background())
-	second := srv.Close(context.Background())
+	first := srv.Close()
+	second := srv.Close()
 	require.NoError(t, first)
 	require.NoError(t, second)
 	require.Equal(t, 1, calls)
@@ -117,43 +117,36 @@ func TestCloseReplaysFirstCallsError(t *testing.T) {
 	boom := errors.New("boom")
 	srv.RegisterShutdown(func(context.Context) error { return boom })
 
-	require.ErrorIs(t, srv.Close(context.Background()), boom)
-	require.ErrorIs(t, srv.Close(context.Background()), boom)
+	require.ErrorIs(t, srv.Close(), boom)
+	require.ErrorIs(t, srv.Close(), boom)
 }
 
-// Covers Close being given an already-expired ctx.
 func TestCloseGivesShutdownFnsTheirOwnBudget(t *testing.T) {
 	srv, _ := newTestServer(t)
 	require.NoError(t, srv.Start())
 
-	var fnCtxErr error
 	var deadline time.Time
 	var hasDeadline bool
 	srv.RegisterShutdown(func(ctx context.Context) error {
-		fnCtxErr = ctx.Err()
 		deadline, hasDeadline = ctx.Deadline()
 		return nil
 	})
 
-	expired, cancel := context.WithTimeout(context.Background(), 0)
-	defer cancel()
-
 	before := time.Now()
-	require.NoError(t, srv.Close(expired))
+	require.NoError(t, srv.Close())
 
-	require.NoError(t, fnCtxErr, "shutdown fns must not see an already-expired ctx")
 	require.True(t, hasDeadline)
 	require.InDelta(t, shutdownFnsTimeout.Seconds(), deadline.Sub(before).Seconds(), 1)
 }
 
-func TestOnFailureAndErrOnRealServeFailure(t *testing.T) {
+func TestOnFailureAndCloseOnRealServeFailure(t *testing.T) {
 	srv, err := New(":0", testLogger(t))
 	require.NoError(t, err)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	done := make(chan struct{})
 	srv.OnFailure(func() { close(done) })
@@ -167,7 +160,7 @@ func TestOnFailureAndErrOnRealServeFailure(t *testing.T) {
 		t.Fatal("OnFailure never ran after the listener died")
 	}
 
-	require.Error(t, srv.Err())
+	require.Error(t, srv.Close())
 }
 
 func TestStartFailsIfAddressAlreadyBound(t *testing.T) {
@@ -197,7 +190,7 @@ func TestStartIsRetriableAfterBindFailure(t *testing.T) {
 	require.Error(t, srv.Start())
 	require.NoError(t, blocker.Close())
 	require.NoError(t, srv.Start())
-	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	t.Cleanup(func() { _ = srv.Close() })
 }
 
 func TestRegisterShutdownDuringCloseIsRaceFree(t *testing.T) {
@@ -212,6 +205,6 @@ func TestRegisterShutdownDuringCloseIsRaceFree(t *testing.T) {
 		}
 	}()
 
-	_ = srv.Close(context.Background())
+	_ = srv.Close()
 	<-registering
 }

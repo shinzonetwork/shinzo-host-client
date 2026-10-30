@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	shutdownTimeout    = 15 * time.Second
 	shutdownFnsTimeout = 15 * time.Second
 	readHeaderTimeout  = 10 * time.Second
 )
@@ -28,7 +29,7 @@ var ErrAlreadyStarted = errors.New("hostserver: already started")
 // Server is an HTTP server built around one shared mux.
 type Server struct {
 	addr      string
-	boundAddr string
+	boundAddr atomic.Pointer[string]
 	started   atomic.Bool
 
 	log *zap.SugaredLogger
@@ -64,7 +65,10 @@ func (s *Server) Mux() *http.ServeMux {
 
 // Addr returns the address Start actually bound.
 func (s *Server) Addr() string {
-	return s.boundAddr
+	if p := s.boundAddr.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // RegisterShutdown adds fn to run, in reverse registration order, when Close runs.
@@ -78,15 +82,6 @@ func (s *Server) RegisterShutdown(fn func(context.Context) error) {
 // reason other than Close.
 func (s *Server) OnFailure(fn func()) {
 	s.onFailure = fn
-}
-
-// Err returns the error Serve stopped with, or nil if it hasn't
-// failed (including if it was stopped cleanly by Close).
-func (s *Server) Err() error {
-	if p := s.crashErr.Load(); p != nil {
-		return *p
-	}
-	return nil
 }
 
 // Start binds addr and begins serving in the background. Returns
@@ -105,7 +100,8 @@ func (s *Server) Start() error {
 
 // startOn is Start's body, taking the listener so tests can force a real Serve failure.
 func (s *Server) startOn(ln net.Listener) error {
-	s.boundAddr = ln.Addr().String()
+	addr := ln.Addr().String()
+	s.boundAddr.Store(&addr)
 
 	s.httpSrv = &http.Server{Handler: s.mux, ReadHeaderTimeout: readHeaderTimeout}
 
@@ -122,20 +118,26 @@ func (s *Server) startOn(ln net.Listener) error {
 	return nil
 }
 
-// Close shuts the HTTP server down, then runs shutdown fns with their
-// own budget. Safe to call more than once.
-func (s *Server) Close(ctx context.Context) error {
+// Close reports any crash Serve hit, shuts the HTTP server down, then
+// runs shutdown fns, each with its own budget. Safe to call more than once.
+func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
-		s.closeErr = s.close(ctx)
+		s.closeErr = s.close()
 	})
 	return s.closeErr
 }
 
-func (s *Server) close(ctx context.Context) error {
+func (s *Server) close() error {
 	var errs []error
 
+	if p := s.crashErr.Load(); p != nil {
+		errs = append(errs, fmt.Errorf("http server stopped: %w", *p))
+	}
+
 	if s.httpSrv != nil {
-		if err := s.httpSrv.Shutdown(ctx); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := s.httpSrv.Shutdown(shutdownCtx); err != nil {
 			errs = append(errs, fmt.Errorf("http server shutdown: %w", err))
 		}
 	}
@@ -144,9 +146,7 @@ func (s *Server) close(ctx context.Context) error {
 	fns := slices.Clone(s.shutdownFns)
 	s.shutdownMu.Unlock()
 
-	// WithoutCancel drops ctx's deadline, which the HTTP drain above may
-	// have already used up, so fns get a fresh budget of their own.
-	fnsCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownFnsTimeout)
+	fnsCtx, cancel := context.WithTimeout(context.Background(), shutdownFnsTimeout)
 	defer cancel()
 	for _, fn := range slices.Backward(fns) {
 		if err := fn(fnsCtx); err != nil {

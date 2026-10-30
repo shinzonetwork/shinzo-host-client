@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,11 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
-	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
 )
 
 // stopImmediately gives cmd an already-canceled context. start now
@@ -268,42 +264,6 @@ func TestRunInitAndRunStartAgreeOnKeys(t *testing.T) {
 	initAddr := extractOperatorAddress(t, initOut.String())
 	startAddr := extractOperatorAddress(t, startOut.String())
 	require.Equal(t, initAddr, startAddr)
-}
-
-// The crash-reporting branch (srv.Err() non-nil) is covered in
-// pkg/staging/hostserver instead; cmd/host has no way to force that
-// failure without hostserver's internals.
-func TestWaitForShutdownClosesServerCleanly(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	require.NoError(t, ln.Close())
-
-	srv, err := hostserver.New(ln.Addr().String(), zap.NewNop())
-	require.NoError(t, err)
-	require.NoError(t, srv.Start())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	require.NoError(t, waitForShutdown(ctx, func() {}, srv))
-}
-
-func TestWaitForShutdownJoinsCloseError(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	require.NoError(t, ln.Close())
-
-	srv, err := hostserver.New(ln.Addr().String(), zap.NewNop())
-	require.NoError(t, err)
-	require.NoError(t, srv.Start())
-
-	boom := errors.New("boom")
-	srv.RegisterShutdown(func(context.Context) error { return boom })
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	require.ErrorIs(t, waitForShutdown(ctx, func() {}, srv), boom)
 }
 
 func extractOperatorAddress(t *testing.T, out string) string {
