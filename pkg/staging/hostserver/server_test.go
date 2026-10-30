@@ -163,6 +163,31 @@ func TestOnFailureAndCloseOnRealServeFailure(t *testing.T) {
 	require.Error(t, srv.Close())
 }
 
+// OnFailure can be registered after Start, while Serve is already
+// running, not just beforehand.
+func TestOnFailureCanBeRegisteredAfterStart(t *testing.T) {
+	srv, err := New(":0", testLogger(t))
+	require.NoError(t, err)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = srv.Close() })
+
+	require.NoError(t, srv.startOn(ln))
+
+	done := make(chan struct{})
+	srv.OnFailure(func() { close(done) })
+
+	require.NoError(t, ln.Close()) // Serve now fails for a real reason, not via Close/Shutdown
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnFailure never ran after being registered post-Start")
+	}
+}
+
 func TestStartFailsIfAddressAlreadyBound(t *testing.T) {
 	blocker, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

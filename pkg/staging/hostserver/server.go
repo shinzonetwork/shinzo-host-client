@@ -36,7 +36,7 @@ type Server struct {
 	mux *http.ServeMux
 
 	httpSrv   *http.Server
-	onFailure func()
+	onFailure atomic.Pointer[func()]
 	crashErr  atomic.Pointer[error]
 
 	shutdownMu  sync.Mutex
@@ -79,9 +79,10 @@ func (s *Server) RegisterShutdown(fn func(context.Context) error) {
 }
 
 // OnFailure registers fn to run if Serve stops on its own, for any
-// reason other than Close.
+// reason other than Close. Safe to call at any time, including while
+// already serving.
 func (s *Server) OnFailure(fn func()) {
-	s.onFailure = fn
+	s.onFailure.Store(&fn)
 }
 
 // Start binds addr and begins serving in the background. Returns
@@ -109,8 +110,8 @@ func (s *Server) startOn(ln net.Listener) error {
 		if err := s.httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log.Errorw("http server stopped unexpectedly", "err", err)
 			s.crashErr.Store(&err)
-			if s.onFailure != nil {
-				s.onFailure()
+			if p := s.onFailure.Load(); p != nil {
+				(*p)()
 			}
 		}
 	}()
