@@ -6,8 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/host"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
 )
 
 func startCmd() *cobra.Command {
@@ -38,14 +40,17 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 	if err != nil {
 		return err
 	}
+
 	dataDir, err := cmd.Flags().GetString("data-dir")
 	if err != nil {
 		return err
 	}
+
 	configPath, err := cmd.Flags().GetString("config")
 	if err != nil {
 		return err
 	}
+
 	overrides, err := getOverrides(cmd)
 	if err != nil {
 		return err
@@ -72,5 +77,20 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	return printConfig(cmd.OutOrStdout(), cfg, nodeKeys)
+	if err := printConfig(cmd.OutOrStdout(), cfg, nodeKeys); err != nil {
+		return err
+	}
+
+	log, flush, err := newHostLogger(cfg)
+	if err != nil {
+		return err
+	}
+	defer flush(&err)
+
+	srv, err := hostserver.New(cfg.HTTP.Addr, log)
+	if err != nil {
+		return err
+	}
+
+	return host.Start(cmd.Context(), cfg, log, nodeKeys, srv)
 }
