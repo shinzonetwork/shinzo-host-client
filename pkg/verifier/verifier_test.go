@@ -231,7 +231,7 @@ func TestRun(t *testing.T) {
 	cids11, _ := addBlock(t, n, 11)
 	attest(t, n, 11, signers, cids11)
 
-	stop := run(n)
+	stop := run(n, countNothing)
 	require.Never(t, func() bool { return len(verified(t, n)) > 0 }, 2*retryInterval, 50*time.Millisecond)
 
 	attest(t, n, 10, signers[1:], cids10)
@@ -241,7 +241,7 @@ func TestRun(t *testing.T) {
 
 	cids12, _ := addBlock(t, n, 12)
 	attest(t, n, 12, signers, cids12)
-	stop = run(n)
+	stop = run(n, countNothing)
 	defer stop()
 	require.Eventually(t, func() bool { return len(verified(t, n)) == 3 }, 5*retryInterval, 50*time.Millisecond)
 	require.Equal(t, []int64{10, 11, 12}, verified(t, n))
@@ -291,13 +291,42 @@ func TestRunCountsHeldSignatures(t *testing.T) {
 	}
 }
 
-// run starts a verifier on n and returns a function that stops it and waits for it to return.
-func run(n *node.Node) (stop func()) {
+// Signatures counted at a height are checked at once, so heights waiting only on counting pass
+// without a retryInterval each.
+func TestRunChecksAgainAfterCounting(t *testing.T) {
+	n := newVerifierNode(t)
+	cids := make(map[int64][]string)
+	heights := make(map[string]int64)
+	for h := int64(10); h < 15; h++ {
+		cids[h], _ = addBlock(t, n, h)
+		attest(t, n, h, []string{"02aa"}, cids[h])
+		id, _ := add(t, n, tokens.BlockSignature.Name, map[string]any{"blockNumber": h, "signatureIdentity": "03bb"})
+		heights[id.String()] = h
+	}
+	var countErr error
+	count := func(ctx context.Context, ids []string) {
+		for _, id := range ids {
+			if err := postAttestation(ctx, n, heights[id], "03bb", cids[heights[id]]); err != nil {
+				countErr = err
+			}
+		}
+	}
+
+	stop := run(n, count)
+	defer stop()
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 5 }, 2*retryInterval, 20*time.Millisecond)
+	stop()
+	require.NoError(t, countErr)
+}
+
+// run starts a verifier on n that counts held signatures with count, and returns a function that
+// stops it and waits for it to return.
+func run(n *node.Node, count func(context.Context, []string)) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(n, tokens, countNothing).Run(ctx)
+		New(n, tokens, count).Run(ctx)
 	}()
 	return func() {
 		cancel()

@@ -50,7 +50,8 @@ func New(n *node.Node, c chain.Collections, count func(ctx context.Context, sign
 
 // Run verifies heights in order until ctx is done. It starts above the highest verified height or,
 // on a chain with none, at the lowest height whose Header the host holds. A height that does not
-// pass is checked again every retryInterval and holds back every height above it.
+// pass holds back every height above it. It is checked again at once after the verifier counts
+// signatures the host holds for it, and otherwise every retryInterval.
 func (v *Verifier) Run(ctx context.Context) {
 	height, err := v.firstHeight(ctx)
 	if err != nil {
@@ -69,8 +70,8 @@ func (v *Verifier) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if errors.Is(err, errTooFewSigners) {
-			v.countHeldSignatures(ctx, height, handed)
+		if errors.Is(err, errTooFewSigners) && v.countHeldSignatures(ctx, height, handed) {
+			continue
 		}
 		if msg := err.Error(); msg != reported {
 			reported = msg
@@ -151,10 +152,11 @@ func (v *Verifier) verify(ctx context.Context, height int64) error {
 }
 
 // countHeldSignatures hands count the BlockSignature documents held at height whose signer no
-// attestation record there counts yet, each document at most once while Run waits on that height.
-// The attestation listener counts only signatures a peer sends as an update, so a signature fetched
-// another way, such as by a document sync, is counted only through here.
-func (v *Verifier) countHeldSignatures(ctx context.Context, height int64, handed map[string]bool) {
+// attestation record there counts yet, each document at most once while Run waits on that height,
+// and reports whether it handed any. The attestation listener counts only signatures a peer sends
+// as an update, so a signature fetched another way, such as by a document sync, is counted only
+// through here.
+func (v *Verifier) countHeldSignatures(ctx context.Context, height int64, handed map[string]bool) bool {
 	c := v.collections
 	rows, err := v.query(ctx, fmt.Sprintf(`query { `+
 		`signatures: %s(filter: {%s: {_eq: %d}}) { _docID signatureIdentity } `+
@@ -163,7 +165,7 @@ func (v *Verifier) countHeldSignatures(ctx context.Context, height int64, handed
 		c.AttestationRecord.Name, c.AttestationRecord.HeightField, height))
 	if err != nil {
 		logger.Sugar.Warnf("Cannot read the signatures held at block %d: %v (chain: %s)", height, err, c.Prefix)
-		return
+		return false
 	}
 	counted := make(map[string]bool)
 	for _, record := range rows["attestations"] {
@@ -178,10 +180,12 @@ func (v *Verifier) countHeldSignatures(ctx context.Context, height int64, handed
 			uncounted = append(uncounted, signature.DocID)
 		}
 	}
-	if len(uncounted) > 0 {
-		logger.Sugar.Infof("Counting %d held signatures at block %d (chain: %s)", len(uncounted), height, c.Prefix)
-		v.count(ctx, uncounted)
+	if len(uncounted) == 0 {
+		return false
 	}
+	logger.Sugar.Infof("Counting %d held signatures at block %d (chain: %s)", len(uncounted), height, c.Prefix)
+	v.count(ctx, uncounted)
+	return true
 }
 
 // agreedAttestation returns the one attestation record among records that requiredSigners of the
