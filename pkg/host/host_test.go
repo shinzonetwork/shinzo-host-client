@@ -3,9 +3,11 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -15,7 +17,9 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
@@ -23,6 +27,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
+	"github.com/sourcenetwork/defradb/client"
 	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -1991,4 +1996,76 @@ func TestStartHosting_ServesAPIAfterTables(t *testing.T) {
 	require.NoError(t, err)
 	result := api.ExecRequest(context.Background(), "{ "+testCollections.Block.Name+" { __typename } }")
 	require.Empty(t, result.GQL.Errors)
+}
+
+// A tokens-mode chain's blocks are verified once two signers agree on them and the host holds what
+// they signed; a full-mode chain has no verifier and no VerifiedBlock table.
+func TestStartHosting_VerifiesTokensModeBlocks(t *testing.T) {
+	const prefix = "Bsc__Mainnet"
+	ctx := context.Background()
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	sdl, err := os.ReadFile(filepath.Join("..", "schema", "testdata", "generator_tokens_schema.graphql"))
+	require.NoError(t, err)
+	tokensGenerator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: string(sdl)}))
+	}))
+	t.Cleanup(tokensGenerator.Close)
+	ethereumGenerator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(ethereumGenerator.Close)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: ethereumGenerator.URL}}},
+		{Prefix: prefix, Mode: chain.ModeTokens, Contracts: []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"}, Generators: []chain.Generator{{URL: tokensGenerator.URL}}},
+	}
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(closeCtx))
+	})
+
+	tokens := cfg.Chains[1].Collections()
+	var cids []string
+	for table, fields := range map[string]map[string]any{
+		tokens.Header.Name:          {"number": 7, "hash": "0x07"},
+		tokens.ContractLogs[0].Name: {"blockNumber": 7, "logIndex": 0},
+	} {
+		col, err := h.DefraNode.DB.GetCollectionByName(ctx, table)
+		require.NoError(t, err)
+		doc, err := client.NewDocFromMap(ctx, fields, col.Version())
+		require.NoError(t, err)
+		require.NoError(t, col.AddDocument(ctx, doc))
+		res := h.DefraNode.DB.ExecRequest(ctx, fmt.Sprintf(`query { %s(docID: %q) { _version { cid } } }`, table, doc.ID()))
+		docs, ok := res.GQL.Data.(map[string]any)[table].([]map[string]any)
+		require.True(t, ok)
+		versions, ok := docs[0]["_version"].([]map[string]any)
+		require.True(t, ok)
+		cids = append(cids, versions[0]["cid"].(string))
+	}
+	height := int64(7)
+	for _, signer := range []string{"02aa", "03bb"} {
+		_, err := attestation.PostAttestationRecord(ctx, h.DefraNode, tokens.AttestationRecord.Name, &constants.AttestationRecord{
+			AttestedDocID: "block:7:root", SourceDocIDs: []string{signer}, CIDs: cids, DocType: docTypeBlock, VoteCount: 1, BlockNumber: &height,
+		})
+		require.NoError(t, err)
+	}
+
+	require.Eventually(t, func() bool {
+		res := h.DefraNode.DB.ExecRequest(ctx, "query { "+tokens.VerifiedBlock.Name+" { blockNumber } }")
+		blocks, ok := res.GQL.Data.(map[string]any)[tokens.VerifiedBlock.Name].([]map[string]any)
+		return ok && len(blocks) == 1
+	}, 10*time.Second, 50*time.Millisecond)
+	_, err = h.DefraNode.DB.GetCollectionByName(ctx, chain.EthereumMainnet+"__VerifiedBlock")
+	require.Error(t, err)
 }

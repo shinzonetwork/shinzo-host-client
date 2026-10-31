@@ -2,6 +2,11 @@
 // their data is stored in.
 package chain
 
+import (
+	"slices"
+	"strings"
+)
+
 // EthereumMainnet is the collection prefix of Ethereum mainnet.
 const EthereumMainnet = "Ethereum__Mainnet"
 
@@ -31,6 +36,12 @@ type Collections struct {
 	BlockSignature    Collection
 	SnapshotSignature Collection
 	AttestationRecord Collection
+	// Header is a tokens-mode chain's height table, ContractLogs are its contracts' log tables,
+	// sorted by address, and VerifiedBlock is the host's record of the chain's verified blocks. A
+	// full-mode chain has none of them.
+	Header        Collection
+	ContractLogs  []Collection
+	VerifiedBlock Collection
 }
 
 // EVM returns the collections of an EVM chain whose generators write under prefix. Each is
@@ -49,15 +60,57 @@ func EVM(prefix string) Collections {
 	}
 }
 
-// Generated returns the collections a chain's generators write: all but AttestationRecord, which
-// the host writes.
+// Tokens returns the collections of a tokens-mode chain whose generators write under prefix: Header,
+// one ContractLog table per contract, BlockSignature, and the host's AttestationRecord and
+// VerifiedBlock. contracts are the chain's contract addresses, which Validate has checked.
+func Tokens(prefix string, contracts []string) Collections {
+	name := func(table string) string { return prefix + "__" + table }
+	c := Collections{
+		Prefix:            prefix,
+		Header:            Collection{Name: name("Header"), HeightField: blockHeightField},
+		BlockSignature:    Collection{Name: name("BlockSignature"), HeightField: dependentHeightField},
+		AttestationRecord: Collection{Name: name("AttestationRecord"), HeightField: dependentHeightField},
+		VerifiedBlock:     Collection{Name: name("VerifiedBlock"), HeightField: dependentHeightField},
+	}
+	for _, addr := range contracts {
+		c.ContractLogs = append(c.ContractLogs, Collection{Name: name("ContractLog_" + contractKey(addr)), HeightField: dependentHeightField})
+	}
+	slices.SortFunc(c.ContractLogs, func(a, b Collection) int { return strings.Compare(a.Name, b.Name) })
+	return c
+}
+
+// Collections returns the collections of the chain c configures.
+func (c Config) Collections() Collections {
+	if c.Mode == ModeTokens {
+		return Tokens(c.Prefix, c.Contracts)
+	}
+	return EVM(c.Prefix)
+}
+
+// TokensMode reports whether these are a tokens-mode chain's collections.
+func (c Collections) TokensMode() bool {
+	return c.Header.Name != ""
+}
+
+// Generated returns the collections a chain's generators write: all but AttestationRecord and
+// VerifiedBlock, which the host writes.
 func (c Collections) Generated() []Collection {
+	if c.TokensMode() {
+		return slices.Concat([]Collection{c.Header}, c.ContractLogs, []Collection{c.BlockSignature})
+	}
 	return []Collection{c.Block, c.Transaction, c.Log, c.AccessListEntry, c.BlockSignature, c.SnapshotSignature}
 }
 
 // Subscribed returns the names of the collections the host subscribes to over P2P.
-// AttestationRecord is not among them: each host keeps its own attestations. Neither is
+// AttestationRecord and VerifiedBlock are not among them: each host keeps its own. Neither is
 // SnapshotSignature: the host verifies snapshots against the signatures in the snapshot list.
 func (c Collections) Subscribed() []string {
+	if c.TokensMode() {
+		var names []string
+		for _, col := range c.Generated() {
+			names = append(names, col.Name)
+		}
+		return names
+	}
 	return []string{c.Block.Name, c.Transaction.Name, c.AccessListEntry.Name, c.Log.Name, c.BlockSignature.Name}
 }

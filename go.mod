@@ -18,7 +18,7 @@ require (
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corekv v0.3.2
 	github.com/sourcenetwork/corelog v0.0.9
-	github.com/sourcenetwork/defradb v1.0.1-0.20261026140438-2a899b860df3
+	github.com/sourcenetwork/defradb v1.0.1-0.20261031181049-30c5f41e1ef7
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/sourcenetwork/lens/host-go v0.11.0
 	github.com/spf13/cobra v1.10.2
@@ -351,7 +351,7 @@ require (
 	github.com/sourcenetwork/corekv/memory v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/namespace v0.3.1 // indirect
 	github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 // indirect
-	github.com/sourcenetwork/go-p2p v0.1.11 // indirect
+	github.com/sourcenetwork/go-p2p v0.1.12 // indirect
 	github.com/sourcenetwork/goji v0.0.10 // indirect
 	github.com/sourcenetwork/goleveldb v0.0.0-20251217012629-27249d06b81b // indirect
 	github.com/sourcenetwork/graphql-go v0.7.10-0.20261013230339-4e0c76e8ecf0 // indirect
