@@ -25,6 +25,18 @@ const (
 
 	// retryInterval is how long the verifier waits before it checks an unverified height again.
 	retryInterval = time.Second
+
+	// repairAfter is how long a height may stay unverified, while the host holds a later block,
+	// before the verifier fetches the documents the generators hold for it that the host does not.
+	repairAfter = 10 * time.Second
+
+	// repairHeights is how many heights, from the unverified one up, one repair covers: the most a
+	// generator lists in one request.
+	repairHeights = 1000
+
+	// syncTimeout bounds one document sync, so a peer that never answers cannot hold up the
+	// verifier.
+	syncTimeout = 30 * time.Second
 )
 
 var (
@@ -39,19 +51,28 @@ type Verifier struct {
 	node        *node.Node
 	collections chain.Collections
 	count       func(ctx context.Context, signatureIDs []string)
+	documents   func(ctx context.Context, from, to int64) (map[string][]string, error)
+	repairAfter time.Duration
 }
 
 // New returns a verifier for the tokens-mode chain whose collections are c. count attests the
 // BlockSignature documents with the given IDs; the verifier calls it for signatures the host holds
-// but has not counted.
-func New(n *node.Node, c chain.Collections, count func(ctx context.Context, signatureIDs []string)) *Verifier {
-	return &Verifier{node: n, collections: c, count: count}
+// but has not counted. documents lists the IDs of the documents the chain's generators hold at the
+// heights from through to, by collection; the verifier fetches those the host is missing.
+func New(
+	n *node.Node,
+	c chain.Collections,
+	count func(ctx context.Context, signatureIDs []string),
+	documents func(ctx context.Context, from, to int64) (map[string][]string, error),
+) *Verifier {
+	return &Verifier{node: n, collections: c, count: count, documents: documents, repairAfter: repairAfter}
 }
 
 // Run verifies heights in order until ctx is done. It starts above the highest verified height or,
 // on a chain with none, at the lowest height whose Header the host holds. A height that does not
 // pass holds back every height above it. It is checked again at once after the verifier counts
-// signatures the host holds for it, and otherwise every retryInterval.
+// signatures the host holds for it or fetches missing documents, and otherwise every
+// retryInterval.
 func (v *Verifier) Run(ctx context.Context) {
 	height, err := v.firstHeight(ctx)
 	if err != nil {
@@ -59,18 +80,25 @@ func (v *Verifier) Run(ctx context.Context) {
 	}
 	var reported string
 	handed := make(map[string]bool)
+	waitingSince := time.Now()
 	for {
 		err := v.verify(ctx, height)
 		if err == nil {
 			height++
 			reported = ""
 			clear(handed)
+			waitingSince = time.Now()
 			continue
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		if errors.Is(err, errTooFewSigners) && v.countHeldSignatures(ctx, height, handed) {
+			continue
+		}
+		if time.Since(waitingSince) >= v.repairAfter && v.heldAbove(ctx, height) {
+			v.repair(ctx, height)
+			waitingSince = time.Now()
 			continue
 		}
 		if msg := err.Error(); msg != reported {
@@ -186,6 +214,78 @@ func (v *Verifier) countHeldSignatures(ctx context.Context, height int64, handed
 	logger.Sugar.Infof("Counting %d held signatures at block %d (chain: %s)", len(uncounted), height, c.Prefix)
 	v.count(ctx, uncounted)
 	return true
+}
+
+// heldAbove reports whether the host holds a Header above height: the chain has moved past height,
+// so its documents exist even if the host has not received them.
+func (v *Verifier) heldAbove(ctx context.Context, height int64) bool {
+	h := v.collections.Header
+	rows, err := v.query(ctx, fmt.Sprintf(`query { headers: %s(filter: {%s: {_gt: %d}}, limit: 1) { height: %s } }`,
+		h.Name, h.HeightField, height, h.HeightField))
+	if err != nil {
+		logger.Sugar.Warnf("Cannot read the Headers held above block %d: %v (chain: %s)", height, err, v.collections.Prefix)
+		return false
+	}
+	return len(rows["headers"]) > 0
+}
+
+// repair asks peers for the documents the chain's generators hold at height and the heights above
+// it, up to repairHeights in all, that the host does not hold. Fetched signatures are counted when
+// Run next checks their height.
+func (v *Verifier) repair(ctx context.Context, height int64) {
+	c := v.collections
+	to := height + repairHeights - 1
+	listed, err := v.documents(ctx, height, to)
+	if err != nil {
+		logger.Sugar.Warnf("Cannot list the generators' documents at blocks %d-%d: %v (chain: %s)", height, to, err, c.Prefix)
+		return
+	}
+	held, err := v.heldIDs(ctx, height, to)
+	if err != nil {
+		logger.Sugar.Warnf("Cannot read the documents held at blocks %d-%d: %v (chain: %s)", height, to, err, c.Prefix)
+		return
+	}
+	for _, col := range c.Generated() {
+		var missing []string
+		for _, id := range listed[col.Name] {
+			if !held[id] {
+				missing = append(missing, id)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+		err := v.node.DB.SyncDocuments(syncCtx, col.Name, missing)
+		cancel()
+		if err != nil {
+			logger.Sugar.Warnf("Cannot fetch %d missing %s documents at blocks %d-%d: %v", len(missing), col.Name, height, to, err)
+			continue
+		}
+		logger.Sugar.Infof("Requested %d missing %s documents at blocks %d-%d from peers", len(missing), col.Name, height, to)
+	}
+}
+
+// heldIDs returns the IDs of the documents the host holds in the chain's generated collections at
+// the heights from through to.
+func (v *Verifier) heldIDs(ctx context.Context, from, to int64) (map[string]bool, error) {
+	var query strings.Builder
+	query.WriteString("query { ")
+	for i, col := range v.collections.Generated() {
+		fmt.Fprintf(&query, `c%d: %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } `, i, col.Name, col.HeightField, from, to)
+	}
+	query.WriteString("}")
+	rows, err := v.query(ctx, query.String())
+	if err != nil {
+		return nil, err
+	}
+	held := make(map[string]bool)
+	for _, docs := range rows {
+		for _, doc := range docs {
+			held[doc.DocID] = true
+		}
+	}
+	return held, nil
 }
 
 // agreedAttestation returns the one attestation record among records that requiredSigners of the

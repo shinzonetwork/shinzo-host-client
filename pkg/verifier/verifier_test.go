@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,9 +30,21 @@ var tokens = chain.Tokens("Bsc__Mainnet", []string{usd1})
 // the tables a generator serves, from the served schema fixture, and the host's own tables.
 func newVerifierNode(t *testing.T) *node.Node {
 	t.Helper()
+	n := newServedNode(t, false)
+	addHostTables(t, n)
+	return n
+}
+
+// newServedNode starts a DefraDB node holding the tables a tokens-mode generator serves, with P2P on
+// a local port when p2p is set.
+func newServedNode(t *testing.T, p2p bool) *node.Node {
+	t.Helper()
 	logger.Init(true, "")
 	ctx := context.Background()
-	nb := options.Node().SetDisableAPI(true).SetDisableP2P(true)
+	nb := options.Node().SetDisableAPI(true).SetDisableP2P(!p2p)
+	if p2p {
+		nb.P2P().SetListenAddresses("/ip4/127.0.0.1/tcp/0").SetEnablePubSub(true)
+	}
 	nb.Store().SetPath(t.TempDir())
 	n, err := node.New(ctx, nb)
 	require.NoError(t, err)
@@ -41,17 +55,27 @@ func newVerifierNode(t *testing.T) *node.Node {
 	require.NoError(t, err)
 	_, err = n.DB.AddCollection(ctx, string(served))
 	require.NoError(t, err)
+	return n
+}
+
+// addHostTables adds the tables a host keeps for itself, which no generator serves.
+func addHostTables(t *testing.T, n *node.Node) {
+	t.Helper()
 	for file, table := range map[string]string{"attestationRecord.graphql": "AttestationRecord", "verifiedBlock.graphql": "VerifiedBlock"} {
 		sdl, err := os.ReadFile(filepath.Join("..", "schema", file))
 		require.NoError(t, err)
-		_, err = n.DB.AddCollection(ctx, strings.Replace(string(sdl), "type "+table+" ", "type "+tokens.Prefix+"__"+table+" ", 1))
+		_, err = n.DB.AddCollection(context.Background(), strings.Replace(string(sdl), "type "+table+" ", "type "+tokens.Prefix+"__"+table+" ", 1))
 		require.NoError(t, err)
 	}
-	return n
 }
 
 // countNothing is the count function of verifiers whose tests attest every signature themselves.
 func countNothing(context.Context, []string) {}
+
+// listNothing is the documents function of verifiers whose tests have no generators.
+func listNothing(context.Context, int64, int64) (map[string][]string, error) {
+	return map[string][]string{}, nil
+}
 
 // add writes a document and returns its ID and CID.
 func add(t *testing.T, n *node.Node, collection string, fields map[string]any) (client.DocID, string) {
@@ -118,7 +142,7 @@ func postAttestation(ctx context.Context, n *node.Node, height int64, signer str
 // verified returns the heights the VerifiedBlock table holds, in order.
 func verified(t *testing.T, n *node.Node) []int64 {
 	t.Helper()
-	v := New(n, tokens, countNothing)
+	v := New(n, tokens, countNothing, listNothing)
 	rows, err := v.query(context.Background(),
 		fmt.Sprintf(`query { blocks: %s(order: {blockNumber: ASC}) { height: blockNumber } }`, tokens.VerifiedBlock.Name))
 	require.NoError(t, err)
@@ -208,7 +232,7 @@ func TestVerify(t *testing.T) {
 			n := newVerifierNode(t)
 			tc.setup(t, n)
 
-			err := New(n, tokens, countNothing).verify(context.Background(), height)
+			err := New(n, tokens, countNothing, listNothing).verify(context.Background(), height)
 
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -231,7 +255,7 @@ func TestRun(t *testing.T) {
 	cids11, _ := addBlock(t, n, 11)
 	attest(t, n, 11, signers, cids11)
 
-	stop := run(n, countNothing)
+	stop := run(New(n, tokens, countNothing, listNothing))
 	require.Never(t, func() bool { return len(verified(t, n)) > 0 }, 2*retryInterval, 50*time.Millisecond)
 
 	attest(t, n, 10, signers[1:], cids10)
@@ -241,7 +265,7 @@ func TestRun(t *testing.T) {
 
 	cids12, _ := addBlock(t, n, 12)
 	attest(t, n, 12, signers, cids12)
-	stop = run(n, countNothing)
+	stop = run(New(n, tokens, countNothing, listNothing))
 	defer stop()
 	require.Eventually(t, func() bool { return len(verified(t, n)) == 3 }, 5*retryInterval, 50*time.Millisecond)
 	require.Equal(t, []int64{10, 11, 12}, verified(t, n))
@@ -278,7 +302,7 @@ func TestRunCountsHeldSignatures(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				New(n, tokens, count).Run(ctx)
+				New(n, tokens, count, listNothing).Run(ctx)
 			}()
 			time.Sleep(3 * retryInterval)
 			cancel()
@@ -312,21 +336,134 @@ func TestRunChecksAgainAfterCounting(t *testing.T) {
 		}
 	}
 
-	stop := run(n, count)
+	stop := run(New(n, tokens, count, listNothing))
 	defer stop()
 	require.Eventually(t, func() bool { return len(verified(t, n)) == 5 }, 2*retryInterval, 20*time.Millisecond)
 	stop()
 	require.NoError(t, countErr)
 }
 
-// run starts a verifier on n that counts held signatures with count, and returns a function that
-// stops it and waits for it to return.
-func run(n *node.Node, count func(context.Context, []string)) (stop func()) {
+// A height is repaired only after it has waited repairAfter while the host holds a later block, and
+// the repair covers repairHeights heights from it up.
+func TestRunRepairsOnlyStuckHeights(t *testing.T) {
+	cases := []struct {
+		name        string
+		laterBlock  bool
+		repairAfter time.Duration
+		wantRepair  bool
+	}{
+		{name: "stuck behind a later block", laterBlock: true, repairAfter: 200 * time.Millisecond, wantRepair: true},
+		{name: "no later block held", repairAfter: 200 * time.Millisecond},
+		{name: "not stuck for long enough", laterBlock: true, repairAfter: time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newVerifierNode(t)
+			cids, _ := addBlock(t, n, 10)
+			attest(t, n, 10, []string{"02aa"}, cids)
+			if tc.laterBlock {
+				addBlock(t, n, 11)
+			}
+			var mu sync.Mutex
+			var repaired [][2]int64
+			v := New(n, tokens, countNothing, func(_ context.Context, from, to int64) (map[string][]string, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				repaired = append(repaired, [2]int64{from, to})
+				return map[string][]string{}, nil
+			})
+			v.repairAfter = tc.repairAfter
+			stop := run(v)
+			defer stop()
+
+			repairs := func() [][2]int64 {
+				mu.Lock()
+				defer mu.Unlock()
+				return slices.Clone(repaired)
+			}
+			if !tc.wantRepair {
+				require.Never(t, func() bool { return len(repairs()) > 0 }, 2*retryInterval, 50*time.Millisecond)
+				return
+			}
+			require.Eventually(t, func() bool { return len(repairs()) > 0 }, 2*retryInterval, 50*time.Millisecond)
+			require.Equal(t, [2]int64{10, 10 + repairHeights - 1}, repairs()[0])
+			// A height still stuck after a repair waits repairAfter again before the next one.
+			time.Sleep(retryInterval)
+			require.LessOrEqual(t, len(repairs()), int(retryInterval/tc.repairAfter)+2)
+		})
+	}
+}
+
+// A signature the host never received is fetched from the generator that holds it, counted, and the
+// block verified.
+func TestRunRepairsMissingSignature(t *testing.T) {
+	ctx := context.Background()
+	generator := newServedNode(t, true)
+	host := newServedNode(t, true)
+	addHostTables(t, host)
+	for _, n := range []*node.Node{generator, host} {
+		addBlock(t, n, 11)
+		add(t, n, tokens.BlockSignature.Name, map[string]any{"blockNumber": 10, "signatureIdentity": "02aa"})
+	}
+	cids, _ := addBlock(t, generator, 10)
+	addBlock(t, host, 10)
+	attest(t, host, 10, []string{"02aa"}, cids)
+	missing, _ := add(t, generator, tokens.BlockSignature.Name, map[string]any{"blockNumber": 10, "signatureIdentity": "03bb"})
+
+	addresses, err := generator.DB.PeerInfo(ctx)
+	require.NoError(t, err)
+	require.NoError(t, host.DB.Connect(ctx, addresses))
+	headerID := documentIDs(ctx, t, generator, tokens.Header, 10)[0]
+	require.Eventually(t, func() bool {
+		syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		return host.DB.SyncDocuments(syncCtx, tokens.Header.Name, []string{headerID}) == nil
+	}, 20*time.Second, 100*time.Millisecond, "the generator never answered a document sync")
+
+	var countErr error
+	count := func(ctx context.Context, ids []string) {
+		if slices.Equal(ids, []string{missing.String()}) {
+			countErr = postAttestation(ctx, host, 10, "03bb", cids)
+		}
+	}
+	documents := func(ctx context.Context, from, to int64) (map[string][]string, error) {
+		listed := make(map[string][]string)
+		for _, col := range tokens.Generated() {
+			for h := from; h <= min(to, 11); h++ {
+				listed[col.Name] = append(listed[col.Name], documentIDs(ctx, t, generator, col, h)...)
+			}
+		}
+		return listed, nil
+	}
+	v := New(host, tokens, count, documents)
+	v.repairAfter = 200 * time.Millisecond
+	stop := run(v)
+	defer stop()
+	require.Eventually(t, func() bool { return slices.Contains(verified(t, host), 10) }, 10*retryInterval, 50*time.Millisecond)
+	stop()
+	require.NoError(t, countErr)
+}
+
+// documentIDs returns the IDs of the documents n holds in col at height.
+func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Collection, height int64) []string {
+	t.Helper()
+	res := n.DB.ExecRequest(ctx,
+		fmt.Sprintf(`query { %s(filter: {%s: {_eq: %d}}) { _docID } }`, col.Name, col.HeightField, height))
+	require.Empty(t, res.GQL.Errors)
+	var ids []string
+	for _, doc := range res.GQL.Data.(map[string]any)[col.Name].([]map[string]any) {
+		ids = append(ids, doc["_docID"].(string))
+	}
+	return ids
+}
+
+// run starts v and returns a function that stops it and waits for it to return.
+func run(v *Verifier) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(n, tokens, count).Run(ctx)
+		v.Run(ctx)
 	}()
 	return func() {
 		cancel()
