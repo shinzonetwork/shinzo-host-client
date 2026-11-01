@@ -409,16 +409,7 @@ func TestRunRepairsMissingSignature(t *testing.T) {
 	addBlock(t, host, 10)
 	attest(t, host, 10, []string{"02aa"}, cids)
 	missing, _ := add(t, generator, tokens.BlockSignature.Name, map[string]any{"blockNumber": 10, "signatureIdentity": "03bb"})
-
-	addresses, err := generator.DB.PeerInfo(ctx)
-	require.NoError(t, err)
-	require.NoError(t, host.DB.Connect(ctx, addresses))
-	headerID := documentIDs(ctx, t, generator, tokens.Header, 10)[0]
-	require.Eventually(t, func() bool {
-		syncCtx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
-		return host.DB.SyncDocuments(syncCtx, tokens.Header.Name, []string{headerID}) == nil
-	}, 20*time.Second, 100*time.Millisecond, "the generator never answered a document sync")
+	connect(ctx, t, host, generator)
 
 	var countErr error
 	count := func(ctx context.Context, ids []string) {
@@ -442,6 +433,44 @@ func TestRunRepairsMissingSignature(t *testing.T) {
 	require.Eventually(t, func() bool { return slices.Contains(verified(t, host), 10) }, 10*retryInterval, 50*time.Millisecond)
 	stop()
 	require.NoError(t, countErr)
+}
+
+// A repair fetches every missing document, including those past the first batch.
+func TestRepairFetchesEveryBatch(t *testing.T) {
+	ctx := context.Background()
+	generator := newServedNode(t, true)
+	host := newServedNode(t, true)
+	addHostTables(t, host)
+	logs := tokens.ContractLogs[0]
+	add(t, generator, tokens.Header.Name, map[string]any{"number": 10})
+	for i := range 2*syncBatch + 1 {
+		add(t, generator, logs.Name, map[string]any{"blockNumber": 10, "logIndex": i, "address": usd1})
+	}
+	connect(ctx, t, host, generator)
+
+	documents := func(ctx context.Context, _, _ int64) (map[string][]string, error) {
+		return map[string][]string{logs.Name: documentIDs(ctx, t, generator, logs, 10)}, nil
+	}
+	New(host, tokens, countNothing, documents).repair(ctx, 10)
+
+	want := documentIDs(ctx, t, generator, logs, 10)
+	require.Len(t, want, 2*syncBatch+1)
+	require.ElementsMatch(t, want, documentIDs(ctx, t, host, logs, 10))
+}
+
+// connect connects host to generator and waits until generator answers a document sync for its
+// Header at height 10.
+func connect(ctx context.Context, t *testing.T, host, generator *node.Node) {
+	t.Helper()
+	addresses, err := generator.DB.PeerInfo(ctx)
+	require.NoError(t, err)
+	require.NoError(t, host.DB.Connect(ctx, addresses))
+	headerID := documentIDs(ctx, t, generator, tokens.Header, 10)[0]
+	require.Eventually(t, func() bool {
+		syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		return host.DB.SyncDocuments(syncCtx, tokens.Header.Name, []string{headerID}) == nil
+	}, 20*time.Second, 100*time.Millisecond, "the generator never answered a document sync")
 }
 
 // documentIDs returns the IDs of the documents n holds in col at height.

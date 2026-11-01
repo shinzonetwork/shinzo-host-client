@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sourcenetwork/defradb/client"
@@ -37,6 +39,13 @@ const (
 	// syncTimeout bounds one document sync, so a peer that never answers cannot hold up the
 	// verifier.
 	syncTimeout = 30 * time.Second
+
+	// syncCalls is how many document syncs a repair runs at once; one sync fetches its documents one
+	// at a time.
+	syncCalls = 8
+
+	// syncBatch is how many documents one sync asks for, small enough to finish within syncTimeout.
+	syncBatch = 50
 )
 
 var (
@@ -255,14 +264,26 @@ func (v *Verifier) repair(ctx context.Context, height int64) {
 		if len(missing) == 0 {
 			continue
 		}
-		syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
-		err := v.node.DB.SyncDocuments(syncCtx, col.Name, missing)
-		cancel()
-		if err != nil {
-			logger.Sugar.Warnf("Cannot fetch %d missing %s documents at blocks %d-%d: %v", len(missing), col.Name, height, to, err)
-			continue
+		var requested atomic.Int64
+		var wg sync.WaitGroup
+		calls := make(chan struct{}, syncCalls)
+		for batch := range slices.Chunk(missing, syncBatch) {
+			calls <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-calls }()
+				syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+				defer cancel()
+				if err := v.node.DB.SyncDocuments(syncCtx, col.Name, batch); err != nil {
+					logger.Sugar.Warnf("Cannot fetch %d missing %s documents at blocks %d-%d: %v", len(batch), col.Name, height, to, err)
+					return
+				}
+				requested.Add(int64(len(batch)))
+			})
 		}
-		logger.Sugar.Infof("Requested %d missing %s documents at blocks %d-%d from peers", len(missing), col.Name, height, to)
+		wg.Wait()
+		if n := requested.Load(); n > 0 {
+			logger.Sugar.Infof("Requested %d missing %s documents at blocks %d-%d from peers", n, col.Name, height, to)
+		}
 	}
 }
 
