@@ -16,5 +16,6 @@ var ( //nolint:revive
 	errNoChainEnabled      = errors.New("every configured chain is disabled")
 	errNoChainSchema       = errors.New("the built-in schema holds only Ethereum mainnet's tables")
 	errNoGeneratorAnswered = errors.New("no configured generator answered")
+	errDocumentsRefused    = errors.New("the generator refused the documents request")
 	errNoGeneratorSchema   = errors.New("no answering generator served a schema the checks accept")
 )

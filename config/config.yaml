@@ -130,6 +130,9 @@ chains:
       - "0x0342cdbd2e5cf526e1ca18e6a16b31e78e7871b1fe7b528f04ec6616a517560eb4" # IND3
       - "0x0360ea698273a9ddc4033f0048f8f0a8741a6799121a2f11f205dc94973b5d1bc0" # IND4
     # max_blocks: 1000  # Optional; overrides pruner.max_blocks for this chain
+    # mode: tokens  # Optional; "full" (default) or "tokens": block headers and the listed contracts' logs only
+    # contracts:  # Required in tokens mode
+    #   - "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"
     # generators:
     #   - url: http://35.254.135.221:8080
     #     peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT

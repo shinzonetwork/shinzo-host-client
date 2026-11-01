@@ -1,0 +1,5 @@
+type VerifiedBlock {
+    blockNumber: Int @index
+    blockHash: String
+    signers: [String]
+}

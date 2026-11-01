@@ -8,6 +8,7 @@ import (
 
 func TestValidate(t *testing.T) {
 	signers := []string{"02aa"}
+	const usd1 = "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"
 	cases := []struct {
 		desc    string
 		chains  []Config
@@ -52,6 +53,13 @@ func TestValidate(t *testing.T) {
 		},
 		{"generator peer with a host name", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Generators: []Generator{{URL: "http://10.0.0.5:8080", Peer: "gen.example.com:9171"}}}}, ErrInvalidGeneratorPeer},
 		{"generator peer with a bad multiaddr", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Generators: []Generator{{URL: "http://10.0.0.5:8080", Peer: "/ip4/10.0.0.5/tcpp/9171"}}}}, ErrInvalidGeneratorPeer},
+		{"tokens mode", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: ModeTokens, Contracts: []string{usd1, "8D0D000EE44948FC98C9B98A4FA4921476F08B0E"}}}, nil},
+		{"unknown mode", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: "logs"}}, ErrInvalidMode},
+		{"tokens mode without contracts", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: ModeTokens}}, ErrInvalidContracts},
+		{"contracts in full mode", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: ModeFull, Contracts: []string{usd1}}}, ErrInvalidContracts},
+		{"contract not 20 bytes", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: ModeTokens, Contracts: []string{"0x8d0d"}}}, ErrInvalidContract},
+		{"contract not hex", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: ModeTokens, Contracts: []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0g"}}}, ErrInvalidContract},
+		{"contract listed twice", []Config{{Prefix: EthereumMainnet, ChainID: 1, Signers: signers, Mode: ModeTokens, Contracts: []string{usd1, "8D0D000EE44948FC98C9B98A4FA4921476F08B0D"}}}, ErrInvalidContract},
 	}
 
 	for _, c := range cases {

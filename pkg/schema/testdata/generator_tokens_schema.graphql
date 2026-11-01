@@ -1,0 +1,54 @@
+# Every field of go-ethereum's types.Header under its JSON name, so a document decodes back into
+# the header and re-hashes to hash. number is an Int for the height index; the rest are strings.
+type Bsc__Mainnet__Header {
+    parentHash: String
+    sha3Uncles: String
+    miner: String
+    stateRoot: String
+    transactionsRoot: String
+    receiptsRoot: String
+    logsBloom: String
+    difficulty: String
+    number: Int @index
+    gasLimit: String
+    gasUsed: String
+    timestamp: String
+    extraData: String
+    mixHash: String
+    nonce: String
+    baseFeePerGas: String
+    withdrawalsRoot: String
+    blobGasUsed: String
+    excessBlobGas: String
+    parentBeaconBlockRoot: String
+    requestsHash: String
+    blockAccessListHash: String
+    slotNumber: String
+    hash: String
+}
+
+# BlockSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
+# Created in the same transaction as the block data, arrives via P2P together
+type Bsc__Mainnet__BlockSignature {
+    blockNumber: Int @index
+    blockHash: String
+    merkleRoot: String
+    cidCount: Int
+    cids: [String]
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    createdAt: String
+}
+
+type Bsc__Mainnet__ContractLog_8d0d000ee44948fc98c9b98a4fa4921476f08b0d {
+    address: String
+    topics: [String]
+    data: String
+    transactionHash: String
+    blockHash: String
+    blockNumber: Int @index
+    transactionIndex: Int
+    logIndex: Int
+    removed: String
+}

@@ -29,6 +29,18 @@ func attestationRecordSchema(c chain.Collections) string {
 	return strings.Replace(attestationRecordTemplate, "type AttestationRecord ", "type "+c.AttestationRecord.Name+" ", 1)
 }
 
+// verifiedBlockTemplate declares the verified block collection under the type name VerifiedBlock,
+// which verifiedBlockSchema replaces with the chain's collection name.
+//
+//go:embed verifiedBlock.graphql
+var verifiedBlockTemplate string
+
+// verifiedBlockSchema returns the SDL of a tokens-mode chain's verified block collection. The host
+// writes these records, so generators do not serve the type.
+func verifiedBlockSchema(c chain.Collections) string {
+	return strings.Replace(verifiedBlockTemplate, "type VerifiedBlock ", "type "+c.VerifiedBlock.Name+" ", 1)
+}
+
 // ChainApplier creates a chain's collections in DefraDB. It implements defradb.SchemaApplier.
 type ChainApplier struct {
 	// Tables returns the SDL of the chain's tables. ApplySchema calls it only when the database
@@ -42,11 +54,11 @@ type ChainApplier struct {
 }
 
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
-// the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
-// when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
-// and no schema from Served matches them. A schema FetchSchema would refuse is logged and skipped,
-// since wiping the store would not let the host take it. If Served yields no other schema, the
-// tables are not compared.
+// the chain's attestation record collection, and a tokens-mode chain's verified block collection,
+// if missing. It returns ErrSchemaPartiallyStored when the database holds only some of the chain's
+// tables, and ErrSchemaDrift when it holds them and no schema from Served matches them. A schema
+// FetchSchema would refuse is logged and skipped, since wiping the store would not let the host take
+// it. If Served yields no other schema, the tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -97,6 +109,11 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	if !stored[a.Collections.AttestationRecord.Name] {
 		if _, err := n.DB.AddCollection(ctx, attestationRecordSchema(a.Collections)); err != nil {
 			return fmt.Errorf("add %s: %w", a.Collections.AttestationRecord.Name, err)
+		}
+	}
+	if a.Collections.TokensMode() && !stored[a.Collections.VerifiedBlock.Name] {
+		if _, err := n.DB.AddCollection(ctx, verifiedBlockSchema(a.Collections)); err != nil {
+			return fmt.Errorf("add %s: %w", a.Collections.VerifiedBlock.Name, err)
 		}
 	}
 	return nil

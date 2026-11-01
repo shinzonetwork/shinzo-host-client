@@ -1,15 +1,18 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/formatter"
 	"github.com/vektah/gqlparser/v2/parser"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
@@ -61,13 +64,24 @@ func FetchSchema(ctx context.Context, httpClient *http.Client, fullURL string, c
 }
 
 // prepareSchema checks a generator's schema response, as FetchResponse returns it, against the
-// chain's collections and returns its schema with the host's indexes. It returns an error when a
-// check refuses the schema or the schema lacks a field the host indexes.
+// chain's collections and returns its schema with the host's indexes, without the tables the host
+// does not use. It returns an error when a check refuses the schema or the schema lacks a field the
+// host indexes.
 func prepareSchema(resp Response, c chain.Collections) (string, error) {
 	if err := checkSchema(resp, c); err != nil {
 		return "", fmt.Errorf("check schema: %w", err)
 	}
-	withIndexes, err := applyHostIndexes(resp.Schema, c.Prefix, SchemaGraphQL)
+	sdl := resp.Schema
+	if c.TokensMode() {
+		used := *resp.document
+		used.Definitions = slices.DeleteFunc(slices.Clone(used.Definitions), func(def *ast.Definition) bool {
+			return unusedTable(c, def.Name)
+		})
+		var buf bytes.Buffer
+		formatter.NewFormatter(&buf).FormatSchemaDocument(&used)
+		sdl = buf.String()
+	}
+	withIndexes, err := applyHostIndexes(sdl, c.Prefix, SchemaGraphQL)
 	if err != nil {
 		return "", fmt.Errorf("apply host indexes: %w", err)
 	}
@@ -111,8 +125,8 @@ func FetchResponse(ctx context.Context, httpClient *http.Client, fullURL string)
 }
 
 // checkSchema checks a generator's schema response, as FetchResponse returns it, against the
-// chain's collections: it is for this chain, every type is under the chain's prefix, the host's
-// AttestationRecord type is left out, and every collection the generator writes is there.
+// chain's collections: it is for this chain, every type is under the chain's prefix, the types the
+// host writes are left out, and every collection the generator writes is there.
 func checkSchema(resp Response, c chain.Collections) error {
 	if resp.Network != c.Prefix {
 		return fmt.Errorf("network %q, want %q: %w", resp.Network, c.Prefix, ErrSchemaWrongNetwork)
@@ -122,7 +136,7 @@ func checkSchema(resp Response, c chain.Collections) error {
 		if !strings.HasPrefix(def.Name, c.Prefix+"__") {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaForeignType)
 		}
-		if def.Name == c.AttestationRecord.Name {
+		if def.Name == c.AttestationRecord.Name || def.Name == c.VerifiedBlock.Name {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaHostOwnedType)
 		}
 	}
@@ -132,6 +146,16 @@ func checkSchema(resp Response, c chain.Collections) error {
 		}
 	}
 	return nil
+}
+
+// unusedTable reports whether table is one of the chain's types the host does not use. A
+// tokens-mode chain's generators serve a table for every contract they index, which can be more
+// than the host lists; a full-mode chain's tables are fixed, so the host uses every one it is served.
+func unusedTable(c chain.Collections, table string) bool {
+	if !c.TokensMode() {
+		return false
+	}
+	return !slices.ContainsFunc(c.Generated(), func(col chain.Collection) bool { return col.Name == table })
 }
 
 // authTransport wraps an http.RoundTripper to inject a Bearer token

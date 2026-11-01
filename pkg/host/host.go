@@ -25,9 +25,11 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/verifier"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
@@ -173,6 +175,8 @@ type Host struct {
 
 	pruners []*pruner.Pruner // One document pruner per chain with all its tables stored
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
+
+	verifiers sync.WaitGroup // One block verifier per enabled tokens-mode chain
 }
 
 // StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the view manager and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
@@ -215,7 +219,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// The event filter and snapshots use only the first chain. Config allows them only on a host
 	// serving one chain, and that host does not start when its chain is disabled.
 	served := cfg.Chains[0]
-	collections := chain.EVM(served.Prefix)
+	collections := served.Collections()
 
 	// Every configured chain gets a cutoff and a retention-rule entry in pruned, in cfg.Chains order.
 	// Only chains with all their tables stored get a pruner below.
@@ -223,7 +227,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	var rule *RetentionRule
 	if cfg.Pruner.Enabled {
 		for _, c := range cfg.Chains {
-			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(chain.EVM(c.Prefix)), cutoff: &pruner.Cutoff{}})
+			pruned = append(pruned, prunedChain{collections: pruner.CollectionConfigFor(c.Collections()), cutoff: &pruner.Cutoff{}})
 		}
 		// With snapshots enabled the pruners retain history and never set a cutoff.
 		if !cfg.HostConfig.Snapshot.Enabled {
@@ -282,7 +286,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	enabled := make([]chain.Collections, len(applier.enabled))
 	enabledPrefixes := make([]string, len(applier.enabled))
 	for i, c := range applier.enabled {
-		enabled[i] = chain.EVM(c.Prefix)
+		enabled[i] = c.Collections()
 		enabledPrefixes[i] = c.Prefix
 	}
 
@@ -575,6 +579,19 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
+	if defraNode != nil {
+		documentsClient := schema.NewSchemaHTTPClient(cfg.Schema)
+		for _, c := range applier.enabled {
+			collections := c.Collections()
+			if collections.TokensMode() {
+				documents := generatorDocuments(c.Generators, documentsClient)
+				newHost.verifiers.Go(func() {
+					verifier.New(defraNode, collections, newHost.countSignatures(collections), documents).Run(processingCtx)
+				})
+			}
+		}
+	}
+
 	go newHost.reportStats(processingCtx, statsInterval, logger.Sugar)
 
 	if cfg.HostConfig.OpenBrowserOnStart {
@@ -780,6 +797,8 @@ func (h *Host) Close(ctx context.Context) error {
 		case <-ctx.Done():
 		}
 	}
+	// The verifiers query DefraDB, so they stop before it closes.
+	h.verifiers.Wait()
 
 	if h.NetworkHandler != nil {
 		if err := h.NetworkHandler.StopNetwork(); err != nil {

@@ -12,4 +12,7 @@ var ( //nolint:revive
 	ErrMissingChainID       = errors.New("chain_id must be set")                                                                           //nolint:revive
 	ErrNoSigners            = errors.New("signers must list at least one generator")                                                       //nolint:revive
 	ErrInvalidSigner        = errors.New("signer must be a public key in hex")                                                             //nolint:revive
+	ErrInvalidMode          = errors.New("mode must be full or tokens")                                                                    //nolint:revive
+	ErrInvalidContracts     = errors.New("contracts must list at least one contract in tokens mode and none in full mode")                 //nolint:revive
+	ErrInvalidContract      = errors.New("contracts must hold distinct 20-byte hex addresses")                                             //nolint:revive
 )
