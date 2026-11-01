@@ -442,3 +442,6 @@ require (
 	pgregory.net/rapid v1.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// Fork that sends each response to the request's author; drop once released upstream.
+replace github.com/sourcenetwork/go-libp2p-pubsub-rpc => github.com/mennatnaga/go-libp2p-pubsub-rpc v0.0.18-0.20261101190910-58ca2540d06f
