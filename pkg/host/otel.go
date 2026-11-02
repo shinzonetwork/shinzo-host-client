@@ -26,11 +26,11 @@ type hostMetrics struct {
 
 // chainInstruments holds one enabled chain's attribute options and the state its gauges read.
 type chainInstruments struct {
-	chain            metric.MeasurementOption            // shinzo.chain.name and shinzo.chain.network
-	success, failure metric.MeasurementOption            // The chain's attributes and result
-	tables           map[string]metric.MeasurementOption // By collection name: the chain's attributes and collection
-	received         atomic.Int64                        // Highest block in a verified block signature from peers
-	queue            atomic.Pointer[chan string]         // The chain's attestation queue, once the listener made it
+	chain                      metric.MeasurementOption            // shinzo.chain.name and shinzo.chain.network
+	success, failure, unlisted metric.MeasurementOption            // The chain's attributes and result
+	tables                     map[string]metric.MeasurementOption // By collection name: the chain's attributes and collection
+	received                   atomic.Int64                        // Highest block in a verified block signature from peers
+	queue                      atomic.Pointer[chan string]         // The chain's attestation queue, once the listener made it
 }
 
 const meterName = "github.com/shinzonetwork/shinzo-host-client/pkg/host"
@@ -96,10 +96,11 @@ func newChainInstruments(c chain.Collections) *chainInstruments {
 	}
 
 	ci := &chainInstruments{
-		chain:   metric.WithAttributeSet(attribute.NewSet(attrs...)),
-		success: with(attribute.String("result", "success")),
-		failure: with(attribute.String("result", "error")),
-		tables:  make(map[string]metric.MeasurementOption),
+		chain:    metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		success:  with(attribute.String("result", "success")),
+		failure:  with(attribute.String("result", "error")),
+		unlisted: with(attribute.String("result", "unlisted")),
+		tables:   make(map[string]metric.MeasurementOption),
 	}
 	// Named without the chain prefix, so every chain reports its tables under the same names.
 	for _, table := range c.Subscribed() {

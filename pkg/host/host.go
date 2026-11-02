@@ -134,7 +134,6 @@ var DefaultConfig *config.Config = func() *config.Config { //nolint:gochecknoglo
 		HostConfig: config.HostConfig{
 			LensRegistryPath: "./.defra/lens",
 		},
-		Chains: []chain.Config{{Prefix: chain.EthereumMainnet}},
 	}
 	return cfg
 }()
@@ -1025,6 +1024,7 @@ func StartHostingWithTestConfig(t *testing.T) (*Host, error) {
 	testConfig := *DefaultConfig
 	testConfig.DefraDB.Store.Path = t.TempDir()
 	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.Chains = []chain.Config{{Prefix: chain.EthereumMainnet, ChainID: 1}}
 
 	// Set start height to 0 for tests to process all documents
 	testConfig.Shinzo.StartHeight = 0

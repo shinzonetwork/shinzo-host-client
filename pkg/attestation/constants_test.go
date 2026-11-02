@@ -18,6 +18,10 @@ const (
 	testSigAabb = "aabb"
 	testSigCcdd = "ccdd"
 
+	// The chain the test signatures are bound to.
+	testChainPrefix = "Ethereum__Mainnet"
+	testChainID     = 1
+
 	// DefraDB doc-type and collection fixture names.
 	testDocType        = "TestDoc"
 	testDocTypeBlock   = "Block"

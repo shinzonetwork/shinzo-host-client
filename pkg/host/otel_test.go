@@ -38,8 +38,8 @@ func TestHostInstruments_RecordPerChain(t *testing.T) {
 	assert.Nil(t, h.instruments.chain("Unserved__Chain"))
 
 	// An invalid signature on the second chain counts as an error on that chain only.
-	require.False(t, h.verifyBlockSignature(t.Context(), other.Prefix, &attestationService.BlockSignature{
-		BlockNumber: 7, MerkleRoot: "zz", SignatureValue: "zz",
+	require.False(t, h.verifyBlockSignature(t.Context(), chain.Config{Prefix: other.Prefix, ChainID: 421614, Signers: []string{"aa"}}, &attestationService.BlockSignature{
+		BlockNumber: 7, MerkleRoot: "zz", SignatureValue: "zz", SignatureIdentity: "aa",
 	}))
 	// Only the first chain has attested a block, so only it reports a height.
 	h.chainMetrics(testCollections.Prefix).UpdateCurrentBlock(42)
