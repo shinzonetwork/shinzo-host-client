@@ -7,7 +7,7 @@ require (
 	github.com/cosmos/cosmos-sdk v0.53.5
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
-	github.com/ethereum/go-ethereum v1.17.8
+	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gorilla/websocket v1.5.3
 	github.com/ipfs/go-cid v0.6.2
 	github.com/libp2p/go-libp2p v0.48.0
