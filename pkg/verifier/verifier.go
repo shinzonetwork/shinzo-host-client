@@ -157,6 +157,8 @@ func (v *Verifier) verify(ctx context.Context, height int64) error {
 	for i, log := range c.ContractLogs {
 		fmt.Fprintf(&query, `log%d: %s(filter: {%s: {_eq: %d}}) { _version { cid } } `, i, log.Name, log.HeightField, height)
 	}
+	fmt.Fprintf(&query, `proofs: %s(filter: {%s: {_eq: %d}}) { _version { cid } } `,
+		c.ReceiptProof.Name, c.ReceiptProof.HeightField, height)
 	fmt.Fprintf(&query, `attestations: %s(filter: {%s: {_eq: %d}}) { source_doc CIDs } }`,
 		c.AttestationRecord.Name, c.AttestationRecord.HeightField, height)
 	rows, err := v.query(ctx, query.String())

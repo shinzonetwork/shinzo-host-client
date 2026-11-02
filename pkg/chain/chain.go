@@ -37,10 +37,12 @@ type Collections struct {
 	SnapshotSignature Collection
 	AttestationRecord Collection
 	// Header is a tokens-mode chain's height table, ContractLogs are its contracts' log tables,
-	// sorted by address, and VerifiedBlock is the host's record of the chain's verified blocks. A
-	// full-mode chain has none of them.
+	// sorted by address, ReceiptProof holds the receipt and transaction proofs of the transactions
+	// that emitted those logs, and VerifiedBlock is the host's record of the chain's verified blocks.
+	// A full-mode chain has none of them.
 	Header        Collection
 	ContractLogs  []Collection
+	ReceiptProof  Collection
 	VerifiedBlock Collection
 }
 
@@ -61,13 +63,14 @@ func EVM(prefix string) Collections {
 }
 
 // Tokens returns the collections of a tokens-mode chain whose generators write under prefix: Header,
-// one ContractLog table per contract, BlockSignature, and the host's AttestationRecord and
-// VerifiedBlock. contracts are the chain's contract addresses, which Validate has checked.
+// one ContractLog table per contract, ReceiptProof, BlockSignature, and the host's AttestationRecord
+// and VerifiedBlock. contracts are the chain's contract addresses, which Validate has checked.
 func Tokens(prefix string, contracts []string) Collections {
 	name := func(table string) string { return prefix + "__" + table }
 	c := Collections{
 		Prefix:            prefix,
 		Header:            Collection{Name: name("Header"), HeightField: blockHeightField},
+		ReceiptProof:      Collection{Name: name("ReceiptProof"), HeightField: dependentHeightField},
 		BlockSignature:    Collection{Name: name("BlockSignature"), HeightField: dependentHeightField},
 		AttestationRecord: Collection{Name: name("AttestationRecord"), HeightField: dependentHeightField},
 		VerifiedBlock:     Collection{Name: name("VerifiedBlock"), HeightField: dependentHeightField},
@@ -96,7 +99,7 @@ func (c Collections) TokensMode() bool {
 // VerifiedBlock, which the host writes.
 func (c Collections) Generated() []Collection {
 	if c.TokensMode() {
-		return slices.Concat([]Collection{c.Header}, c.ContractLogs, []Collection{c.BlockSignature})
+		return slices.Concat([]Collection{c.Header}, c.ContractLogs, []Collection{c.ReceiptProof, c.BlockSignature})
 	}
 	return []Collection{c.Block, c.Transaction, c.Log, c.AccessListEntry, c.BlockSignature, c.SnapshotSignature}
 }

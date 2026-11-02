@@ -75,6 +75,7 @@ func TestTokens(t *testing.T) {
 	header := Collection{Name: "Bsc__Mainnet__Header", HeightField: "number"}
 	bscUSD := Collection{Name: "Bsc__Mainnet__ContractLog_55d398326f99059ff775485246999027b3197955", HeightField: "blockNumber"}
 	usd1 := Collection{Name: "Bsc__Mainnet__ContractLog_8d0d000ee44948fc98c9b98a4fa4921476f08b0d", HeightField: "blockNumber"}
+	proofs := Collection{Name: "Bsc__Mainnet__ReceiptProof", HeightField: "blockNumber"}
 	signature := Collection{Name: "Bsc__Mainnet__BlockSignature", HeightField: "blockNumber"}
 
 	got := c.Collections()
@@ -84,10 +85,11 @@ func TestTokens(t *testing.T) {
 		AttestationRecord: Collection{Name: "Bsc__Mainnet__AttestationRecord", HeightField: "blockNumber"},
 		Header:            header,
 		ContractLogs:      []Collection{bscUSD, usd1},
+		ReceiptProof:      proofs,
 		VerifiedBlock:     Collection{Name: "Bsc__Mainnet__VerifiedBlock", HeightField: "blockNumber"},
 	}, got)
-	require.Equal(t, []Collection{header, bscUSD, usd1, signature}, got.Generated())
-	require.Equal(t, []string{header.Name, bscUSD.Name, usd1.Name, signature.Name}, got.Subscribed())
+	require.Equal(t, []Collection{header, bscUSD, usd1, proofs, signature}, got.Generated())
+	require.Equal(t, []string{header.Name, bscUSD.Name, usd1.Name, proofs.Name, signature.Name}, got.Subscribed())
 
 	require.Equal(t, EVM("Bsc__Mainnet"), Config{Prefix: "Bsc__Mainnet"}.Collections())
 }

@@ -183,6 +183,6 @@ func TestCollectionConfigForTokensMode(t *testing.T) {
 	require.Equal(t, CollectionConfig{
 		Prefix:     "Bsc__Mainnet",
 		Block:      c.Header,
-		Dependents: []chain.Collection{c.ContractLogs[0], c.BlockSignature, c.AttestationRecord, c.VerifiedBlock},
+		Dependents: []chain.Collection{c.ContractLogs[0], c.ReceiptProof, c.BlockSignature, c.AttestationRecord, c.VerifiedBlock},
 	}, CollectionConfigFor(c))
 }
