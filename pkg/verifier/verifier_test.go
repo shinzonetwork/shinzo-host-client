@@ -104,7 +104,8 @@ func currentCID(t *testing.T, n *node.Node, collection string, id client.DocID) 
 	return versions[0]["cid"].(string)
 }
 
-// addBlock writes a Header and two USD1 logs at height and returns their CIDs and the log IDs.
+// addBlock writes a Header, two USD1 logs of one transaction and that transaction's receipt proof
+// at height, and returns their CIDs and the log IDs.
 func addBlock(t *testing.T, n *node.Node, height int64) (cids []string, logs []client.DocID) {
 	t.Helper()
 	_, header := add(t, n, tokens.Header.Name, map[string]any{"number": height, "hash": fmt.Sprintf("0x%064x", height)})
@@ -114,7 +115,8 @@ func addBlock(t *testing.T, n *node.Node, height int64) (cids []string, logs []c
 		cids = append(cids, cid)
 		logs = append(logs, id)
 	}
-	return cids, logs
+	_, proof := add(t, n, tokens.ReceiptProof.Name, map[string]any{"blockNumber": height, "transactionIndex": 0})
+	return append(cids, proof), logs
 }
 
 // attest records each of signers signing cids at height through the host's attestation write, which

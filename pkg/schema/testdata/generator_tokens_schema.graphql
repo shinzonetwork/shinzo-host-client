@@ -41,6 +41,18 @@ type Bsc__Mainnet__BlockSignature {
     createdAt: String
 }
 
+# A transaction that emitted a listed contract's log, with Merkle proofs of its receipt and of the
+# transaction against the header's roots, keyed by transactionIndex. Each proof is the trie nodes
+# from the root down, hex-encoded; the last node holds the encoded receipt or transaction.
+type Bsc__Mainnet__ReceiptProof {
+    blockNumber: Int @index
+    blockHash: String
+    transactionIndex: Int
+    transactionHash: String
+    receiptProof: [String]
+    transactionProof: [String]
+}
+
 type Bsc__Mainnet__ContractLog_8d0d000ee44948fc98c9b98a4fa4921476f08b0d {
     address: String
     topics: [String]
