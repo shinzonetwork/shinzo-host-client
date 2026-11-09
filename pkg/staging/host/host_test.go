@@ -16,10 +16,6 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
 )
 
-func testDefra() DefraService {
-	return NewDefraService(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
-}
-
 // freeAddr grabs a free port by briefly binding to it, so tests don't
 // hardcode (and risk colliding on) a fixed one.
 func freeAddr(t *testing.T) string {
@@ -29,6 +25,11 @@ func freeAddr(t *testing.T) string {
 	addr := ln.Addr().String()
 	require.NoError(t, ln.Close())
 	return addr
+}
+
+// testDefra returns a DefraService for tests that only need one to pass in.
+func testDefra() DefraService {
+	return NewDefra(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
 }
 
 // Start now blocks until ctx is done, so this runs it in the

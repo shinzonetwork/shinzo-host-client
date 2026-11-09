@@ -11,33 +11,32 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 )
 
-// NewDefraService builds a DefraService. Not implemented yet.
-func NewDefraService(cfg hostconfig.Config, log *zap.Logger, keys hostkey.NodeKeys) DefraService {
+// NewDefra builds a Defra. Not implemented yet.
+func NewDefra(cfg hostconfig.Config, log *zap.Logger, keys hostkey.NodeKeys) *Defra {
 	_ = cfg
 	_ = log
 	_ = keys
-	return &defraService{}
+	return &Defra{}
 }
 
-type defraService struct {
+var _ DefraService = (*Defra)(nil)
+
+// Defra is the DefraService implementation backed by a DefraDB node.
+type Defra struct {
 	viewManager *view.Manager
 	handler     http.Handler
 }
 
-func (s *defraService) Start(_ context.Context) error { return nil }
+func (s *Defra) Start(_ context.Context) error { return nil }
 
-func (s *defraService) Bootstrap(_ context.Context) {}
+func (s *Defra) Run(_ context.Context) error { return nil }
 
-func (s *defraService) MaintainPeerConnections(_ context.Context) {}
+func (s *Defra) Stop(_ context.Context) error { return nil }
 
-func (s *defraService) AttestSignatures(_ context.Context) {}
+// Views returns the view manager. It's nil until Start has run: Start
+// builds it last, after bootstrap, because building it queries the node.
+func (s *Defra) Views() *view.Manager { return s.viewManager }
 
-func (s *defraService) TrackDocumentMetrics(_ context.Context) {}
-
-func (s *defraService) PruneDocuments(_ context.Context) {}
-
-func (s *defraService) Stop(_ context.Context) error { return nil }
-
-func (s *defraService) Views() *view.Manager { return s.viewManager }
-
-func (s *defraService) Handler() http.Handler { return s.handler }
+// Handler returns the API handler. It's nil until Start has run: Start
+// builds it last, alongside the view manager.
+func (s *Defra) Handler() http.Handler { return s.handler }

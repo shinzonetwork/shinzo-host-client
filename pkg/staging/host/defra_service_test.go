@@ -11,28 +11,28 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
 
+// TODO: replace once NewDefra is implemented. The tests in this file pin
+// the stub's behaviour, not the DefraService contract, so delete them
+// rather than update them when the real implementation lands.
+
 // Not implemented yet, so every method must be a harmless no-op.
 func TestDefraServiceMethodsAreNoOps(t *testing.T) {
-	defra := NewDefraService(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
+	defra := NewDefra(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
 	ctx := context.Background()
 
 	require.NoError(t, defra.Start(ctx))
-	defra.Bootstrap(ctx)
-	defra.MaintainPeerConnections(ctx)
-	defra.AttestSignatures(ctx)
-	defra.TrackDocumentMetrics(ctx)
-	defra.PruneDocuments(ctx)
+	require.NoError(t, defra.Run(ctx))
 	require.NoError(t, defra.Stop(ctx))
 }
 
 // Views has nothing to return before Start has built a node to build one from.
 func TestDefraServiceViewsIsNilBeforeStart(t *testing.T) {
-	defra := NewDefraService(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
+	defra := NewDefra(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
 	require.Nil(t, defra.Views())
 }
 
 // Handler has nothing to return before Start has built one.
 func TestDefraServiceHandlerIsNilBeforeStart(t *testing.T) {
-	defra := NewDefraService(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
+	defra := NewDefra(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
 	require.Nil(t, defra.Handler())
 }
