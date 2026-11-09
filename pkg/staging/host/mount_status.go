@@ -12,7 +12,7 @@ type statusResponse struct {
 }
 
 func mountStatus(mux *http.ServeMux, startedAt time.Time) {
-	mux.HandleFunc("/status", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /status", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(statusResponse{
 			Status: "ok",

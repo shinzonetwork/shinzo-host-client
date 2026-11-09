@@ -4,6 +4,9 @@
 package host
 
 import (
+	"context"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"go.uber.org/zap"
@@ -13,16 +16,25 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
 )
 
-// Start the host.
-func Start(cfg hostconfig.Config, log *zap.Logger, keys hostkey.NodeKeys, defra DefraService, srv *hostserver.Server) error {
-	// cfg, log, keys and defra aren't used by any mount yet, kept as
-	// params so this signature won't need to change when one needs them.
-	_ = cfg
-	_ = log
-	_ = keys
-	_ = defra
+// Start the host: mounts everything it serves onto srv, binds it, and
+// blocks until ctx is done (a signal, or srv failing on its own).
+//
+// cfg, keys and defra aren't used by any mount yet, kept as params so this
+// signature won't need to change when one needs them.
+func Start(ctx context.Context, _ hostconfig.Config, log *zap.Logger, _ hostkey.NodeKeys, _ DefraService, srv *hostserver.Server) error {
+	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	mountStatus(srv.Mux(), time.Now())
+	srv.OnFailure(stop)
 
-	return srv.Start()
+	if err := srv.Start(); err != nil {
+		_ = srv.Close() //nolint:contextcheck // Close takes no context, nothing to pass through
+		return err
+	}
+	log.Sugar().Infow("listening", "addr", srv.Addr())
+
+	<-runCtx.Done()
+	stop()             // let a second signal force kill instead of waiting out the shutdown timeout
+	return srv.Close() //nolint:contextcheck // Close takes no context, nothing to pass through
 }
