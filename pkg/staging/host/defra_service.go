@@ -27,10 +27,15 @@ type Defra struct {
 	handler     http.Handler
 }
 
+// Start brings the node up and gets it ready to serve. Not implemented yet.
 func (s *Defra) Start(_ context.Context) error { return nil }
 
+// Run connects to the network and starts background upkeep. Not
+// implemented yet.
 func (s *Defra) Run(_ context.Context) error { return nil }
 
+// Stop shuts down the network, the pruners and the node. Not implemented
+// yet.
 func (s *Defra) Stop(_ context.Context) error { return nil }
 
 // Views returns the view manager. It's nil until Start has run: Start
