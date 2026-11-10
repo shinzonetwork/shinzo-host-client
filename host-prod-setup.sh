@@ -130,6 +130,8 @@ sudo tee ~/docker-compose.yml <<'EOF'
 networks:
   shinzo-net:
     driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
 
 services:
   shinzo-host:
@@ -142,14 +144,15 @@ services:
     networks:
       - shinzo-net
     ports:
-      - "443:9181"  # DefraDB API (internal network access)
-      - "444:9182"  # GraphQL Playground 
+      - "8443:9181"  # DefraDB API (internal network access)
+      - "8444:9182"  # GraphQL Playground
       - "9171:9171"  # P2P networking (still needs external access)
+      - "8080:8080" # Health + status routes
     volumes:
-      - ~/data/defradb:/app/.defra
-      - ~/data/keys:/app/.defra/keys
-      - ~/data/lens:/app/.defra/lens
-      - ~/config.yaml:/app/config.yaml:ro
+      - ./data/defradb:/app/.defra
+      - ./data/keys:/app/.defra/keys
+      - ./data/lens:/app/.defra/lens
+      - ./config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
       - GOMEMLIMIT=14GiB
@@ -157,6 +160,7 @@ services:
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
       - ALLOWED_ORIGINS=https://*.shinzo.network
+      - LIBP2P_TCP_REUSEPORT=false
 
       # Metrics (off unless OTEL_METRICS_EXPORTER is set)
       - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-}
@@ -171,21 +175,6 @@ services:
       timeout: 30s
       retries: 10
       start_period: 120s
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "8080:8080"  # health/registration surface the dashboard probes
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
-      - ~/ssl/nginx.key:/etc/nginx/ssl/nginx.key:ro
-    depends_on:
-      - shinzo-host
-    networks:
-      - shinzo-net
-    restart: unless-stopped
 EOF
 
 sudo tee ~/nginx.conf <<'EOF'
