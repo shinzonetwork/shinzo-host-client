@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
@@ -1498,6 +1499,38 @@ func TestStartHosting_ChainSettings(t *testing.T) {
 
 	_, err := StartHosting(&cfg)
 	require.ErrorIs(t, err, config.ErrEventFilterChains)
+}
+
+// A tokens-mode chain whose caip2, signers, required or assets the evidence codec's rule refuses is
+// refused before DefraDB starts. Each case changes one key of an otherwise valid chain.
+func TestStartHosting_TokensModeRule(t *testing.T) {
+	cases := []struct {
+		desc    string
+		change  func(c *chain.Config)
+		wantErr error
+	}{
+		{"caip2 not in the family's form", func(c *chain.Config) { c.CAIP2 = "eip155:01" }, rule.ErrSettings},
+		{"signer not a compressed key", func(c *chain.Config) { c.Signers = []string{"02aa"} }, rule.ErrKey},
+		{"required above the signer count", func(c *chain.Config) { c.Required = 2 }, rule.ErrRequired},
+		{"asset without a supply slot", func(c *chain.Config) { c.Assets[0].SupplySlot = "" }, rule.ErrSettings},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			tokens := chain.Config{
+				Prefix: "Bsc__Mainnet", Mode: chain.ModeTokens, CAIP2: "eip155:56", Required: 1,
+				// The secp256k1 generator point, compressed.
+				Signers: []string{"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"},
+				Assets:  []chain.Asset{{ID: "8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x35"}},
+				Start:   chain.Start{Block: 100, Hash: "0x01"},
+			}
+			tc.change(&tokens)
+			cfg := *DefaultConfig
+			cfg.Chains = []chain.Config{tokens}
+
+			_, err := StartHosting(&cfg)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
