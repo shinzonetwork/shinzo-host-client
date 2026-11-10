@@ -39,6 +39,18 @@ func schemaHandler(t *testing.T, prefix string) http.HandlerFunc {
 	}
 }
 
+// tokensSchemaHandler serves the tokens-mode generator schema fixture, whose tables are named under
+// Bsc__Mainnet, as a generator for prefix serves it.
+func tokensSchemaHandler(t *testing.T, prefix string) http.HandlerFunc {
+	served, err := os.ReadFile(filepath.Join("..", "schema", "testdata", "generator_tokens_schema.graphql"))
+	require.NoError(t, err)
+	sdl := strings.ReplaceAll(string(served), "Bsc__Mainnet", prefix)
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: sdl}))
+	}
+}
+
 func TestResolveSchema(t *testing.T) {
 	const other = "Testchain__Devnet"
 	valid := schemaHandler(t, chain.EthereumMainnet)
@@ -370,12 +382,7 @@ func TestChainsApplierTokensMode(t *testing.T) {
 	const prefix = "Bsc__Mainnet"
 	ctx := context.Background()
 	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
-	sdl, err := os.ReadFile(filepath.Join("..", "schema", "testdata", "generator_tokens_schema.graphql"))
-	require.NoError(t, err)
-	tokensGenerator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: string(sdl)}))
-	}))
+	tokensGenerator := httptest.NewServer(tokensSchemaHandler(t, prefix))
 	t.Cleanup(tokensGenerator.Close)
 	ethereumGenerator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
 	t.Cleanup(ethereumGenerator.Close)
