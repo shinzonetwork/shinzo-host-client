@@ -4,7 +4,7 @@ networks:
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.6.5-ethereum-mainnet
+    image: ghcr.io/shinzonetwork/shinzo-host-client:ethereum-mainnet-latest
     platform: linux/amd64
     mem_reservation: 15g
     restart: unless-stopped
@@ -15,9 +15,10 @@ services:
     networks:
       - shinzo-net
     ports:
-      - "443:9181"  # DefraDB API (internal network access)
-      - "444:9182"  # GraphQL Playground 
-      - "9171:9171"  # P2P networking (still needs external access)
+      - "8443:9181"  # DefraDB API 
+      - "8444:9182"  # GraphQL Playground 
+      - "9171:9171"  # P2P networking 
+      - "8080:8080"  # Health / metrics 
     # volumes:
     #   - ./data/defradb:/app/.defra
     #   - ./data/lens:/app/.lens
@@ -27,6 +28,7 @@ services:
       - LOG_LEVEL=error
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
+      - LIBP2P_TCP_REUSEPORT=false
 
       # Metrics (off unless OTEL_METRICS_EXPORTER is set)
       - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-}
