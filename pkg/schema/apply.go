@@ -42,11 +42,11 @@ type ChainApplier struct {
 }
 
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
-// the chain's attestation record collection if it is missing. It returns ErrSchemaPartiallyStored
-// when the database holds only some of the chain's tables, and ErrSchemaDrift when it holds them
-// and no schema from Served matches them. A schema FetchSchema would refuse is logged and skipped,
-// since wiping the store would not let the host take it. If Served yields no other schema, the
-// tables are not compared.
+// a full-mode chain's attestation record collection if it is missing. It returns
+// ErrSchemaPartiallyStored when the database holds only some of the chain's tables, and
+// ErrSchemaDrift when it holds them and no schema from Served matches them. A schema FetchSchema
+// would refuse is logged and skipped, since wiping the store would not let the host take it. If
+// Served yields no other schema, the tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -94,7 +94,7 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		return fmt.Errorf("%s is missing %s: %w", a.Collections.Prefix, strings.Join(missing, ", "), ErrSchemaPartiallyStored)
 	}
 
-	if !stored[a.Collections.AttestationRecord.Name] {
+	if !a.Collections.TokensMode() && !stored[a.Collections.AttestationRecord.Name] {
 		if _, err := n.DB.AddCollection(ctx, attestationRecordSchema(a.Collections)); err != nil {
 			return fmt.Errorf("add %s: %w", a.Collections.AttestationRecord.Name, err)
 		}

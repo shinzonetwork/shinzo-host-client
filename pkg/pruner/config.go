@@ -25,9 +25,16 @@ type CollectionConfig struct {
 	Dependents []chain.Collection
 }
 
-// CollectionConfigFor returns the collections to prune for a chain: its blocks, and every other
-// collection of the chain as a dependent.
+// CollectionConfigFor returns the collections to prune for a chain: its height table, Block or a
+// tokens-mode chain's Header, and every other collection of the chain as a dependent.
 func CollectionConfigFor(c chain.Collections) CollectionConfig {
+	if c.TokensMode() {
+		return CollectionConfig{
+			Prefix:     c.Prefix,
+			Block:      c.Header,
+			Dependents: []chain.Collection{c.Evidence, c.StateCapture, c.BlockAttestation},
+		}
+	}
 	return CollectionConfig{
 		Prefix: c.Prefix,
 		Block:  c.Block,
