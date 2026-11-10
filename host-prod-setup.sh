@@ -26,14 +26,14 @@ defradb:
 chains:
   - prefix: Ethereum__Mainnet
     generators:
-      - url: http://35.254.135.221:8080 # IND1
-        peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
-      - url: http://34.57.239.57:8080 # IND2
-        peer: /ip4/34.57.239.57/tcp/9171/p2p/12D3KooWBAgCEJHYqzuCFEXzjsw2CnV9JqvqMgTKYDww58aCxwW5
-      - url: http://34.134.119.63:8080 # IND3
-        peer: /ip4/34.134.119.63/tcp/9171/p2p/12D3KooWQQTuSQaz4HfuvnJHakkQy3PhWbKBBbS3RkmBw4ZsFkyT
-      - url: http://104.154.100.2:8080 # IND4
-        peer: /ip4/104.154.100.2/tcp/9171/p2p/12D3KooWSX99Hzxj8YdUGxKtbfvYxu29bE9kNzTwCMLTV7Kmg7EZ
+      - url: https://generator01.infra.shinzo.network:8080
+        peer: /dns4/generator01.infra.shinzo.network/tcp/9174/p2p/12D3KooWHVQHUMxWmSwCHVPZ2pE1xzwjjNJbC7UmcwyqxJUmxRwV
+      - url: https://generator02.infra.shinzo.network:8080
+        peer: /dns4/generator02.infra.shinzo.network/tcp/9175/p2p/12D3KooWKZvZTTWxAGVwBfpVrk6guEt4ZwSXPQogZNUa5pUnV4nR
+      - url: https://generator03.infra.shinzo.network:8080
+        peer: /dns4/generator03.infra.shinzo.network/tcp/9176/p2p/12D3KooWCthjY1CT2Ug7zhyW3jZZugeNnqHrKcpKRWEyU4dJVTL6
+      - url: https://generator04.infra.shinzo.network:8080
+        peer: /dns4/generator04.infra.shinzo.network/tcp/9177/p2p/12D3KooWP7Dy4QevtXX64po3L1MG1Je5m5Dmj81CArTfs76TuPxj
 shinzo:
   minimum_attestations: 1
   start_height: 0 # Indexer auto-detects from chain tip
