@@ -363,8 +363,9 @@ func TestChainsApplier(t *testing.T) {
 	require.ErrorContains(t, err, other)
 }
 
-// A tokens-mode chain stores and subscribes to exactly its tables, and removing it from the config
-// unsubscribes all of them.
+// A tokens-mode chain stores its tables and the host's VerifiedBlock and subscribes to exactly its
+// tables, a restart compares the stored tables with the served schema without VerifiedBlock, and
+// removing the chain from the config unsubscribes all of them.
 func TestChainsApplierTokensMode(t *testing.T) {
 	const prefix = "Bsc__Mainnet"
 	ctx := context.Background()
@@ -387,13 +388,16 @@ func TestChainsApplierTokensMode(t *testing.T) {
 	defer func() { _ = node.Close(ctx) }()
 	require.Equal(t, []chain.Config{ethereum, tokens}, applier.enabled)
 	collections := tokens.Collections()
-	for _, col := range collections.Generated() {
+	for _, col := range append(collections.Generated(), collections.VerifiedBlock) {
 		_, err := node.DB.GetCollectionByName(ctx, col.Name)
 		require.NoError(t, err, col.Name)
 	}
 	got, err := node.DB.ListP2PCollections(ctx)
 	require.NoError(t, err)
 	require.ElementsMatch(t, append(ethereum.Collections().Subscribed(), collections.Subscribed()...), got)
+
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	require.Equal(t, []chain.Config{ethereum, tokens}, applier.enabled)
 
 	withoutTokens := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{ethereum}}
 	require.NoError(t, withoutTokens.ApplySchema(ctx, node))
