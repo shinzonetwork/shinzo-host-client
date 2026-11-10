@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
@@ -14,9 +15,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
-
-// version is set at build time via -ldflags, see the build Makefile target.
-var version = "dev" //nolint:gochecknoglobals // set by the linker
 
 // setupOTel configures metrics export when OTEL_METRICS_EXPORTER is set.
 func setupOTel(ctx context.Context) (func(context.Context) error, error) {
@@ -31,7 +29,7 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName("shinzo-host"),
-			semconv.ServiceVersion(version),
+			semconv.ServiceVersion(config.Version),
 			semconv.HostArchKey.String(runtime.GOARCH),
 		),
 		resource.WithOSType(),

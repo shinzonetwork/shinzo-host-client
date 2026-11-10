@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 go build \
       -trimpath \
       -tags=hostplayground \
-      -ldflags="-w -s -X main.version=${VERSION}" \
+      -ldflags="-w -s -X github.com/shinzonetwork/shinzo-host-client/config.Version=${VERSION}" \
       -o /out/host \
       ./cmd/
 
