@@ -142,6 +142,15 @@ func TestFetchSchema_TokensModeHeightIndexes(t *testing.T) {
 	}
 }
 
+// A tokens-mode generator's schema may not declare the host's VerifiedBlock type.
+func TestFetchSchema_RefusesVerifiedBlock(t *testing.T) {
+	tokens := chain.Tokens("Bsc__Mainnet")
+	srv := serveSchema(t, Response{Network: tokens.Prefix, Schema: generatorTokensSchema + "\n" + verifiedBlockSchema(tokens)})
+
+	_, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), tokens)
+	require.ErrorIs(t, err, ErrSchemaHostOwnedType)
+}
+
 func TestFetchSchema_NetworkError(t *testing.T) {
 	t.Parallel()
 

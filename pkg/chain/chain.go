@@ -31,12 +31,14 @@ type Collections struct {
 	BlockSignature    Collection
 	SnapshotSignature Collection
 	AttestationRecord Collection
-	// Header, Evidence, StateCapture and BlockAttestation are a tokens-mode chain's tables. A
-	// full-mode chain has none of them, and a tokens-mode chain has none of the tables above.
+	// Header, Evidence, StateCapture and BlockAttestation are a tokens-mode chain's tables, and
+	// VerifiedBlock is the host's record of its verified blocks. A full-mode chain has none of them,
+	// and a tokens-mode chain has none of the tables above.
 	Header           Collection
 	Evidence         Collection
 	StateCapture     Collection
 	BlockAttestation Collection
+	VerifiedBlock    Collection
 }
 
 // EVM returns the collections of an EVM chain whose generators write under prefix. Each is
@@ -56,7 +58,8 @@ func EVM(prefix string) Collections {
 }
 
 // Tokens returns the collections of a tokens-mode chain whose generators write under prefix:
-// Header, Evidence, StateCapture and BlockAttestation, each named "<prefix>__<table>".
+// Header, Evidence, StateCapture and BlockAttestation, and the host's VerifiedBlock, each named
+// "<prefix>__<table>".
 func Tokens(prefix string) Collections {
 	name := func(table string) string { return prefix + "__" + table }
 	return Collections{
@@ -65,6 +68,7 @@ func Tokens(prefix string) Collections {
 		Evidence:         Collection{Name: name("Evidence"), HeightField: dependentHeightField},
 		StateCapture:     Collection{Name: name("StateCapture"), HeightField: dependentHeightField},
 		BlockAttestation: Collection{Name: name("BlockAttestation"), HeightField: dependentHeightField},
+		VerifiedBlock:    Collection{Name: name("VerifiedBlock"), HeightField: dependentHeightField},
 	}
 }
 
@@ -81,8 +85,8 @@ func (c Collections) TokensMode() bool {
 	return c.Header.Name != ""
 }
 
-// Generated returns the collections a chain's generators write: in full mode all but
-// AttestationRecord, which the host writes, and in tokens mode all four.
+// Generated returns the collections a chain's generators write: all but AttestationRecord in full
+// mode and VerifiedBlock in tokens mode, which the host writes.
 func (c Collections) Generated() []Collection {
 	if c.TokensMode() {
 		return []Collection{c.Header, c.Evidence, c.StateCapture, c.BlockAttestation}
@@ -90,10 +94,9 @@ func (c Collections) Generated() []Collection {
 	return []Collection{c.Block, c.Transaction, c.Log, c.AccessListEntry, c.BlockSignature, c.SnapshotSignature}
 }
 
-// Subscribed returns the names of the collections the host subscribes to over P2P. In full mode,
-// AttestationRecord is not among them: each host keeps its own attestations. Neither is
-// SnapshotSignature: the host verifies snapshots against the signatures in the snapshot list. In
-// tokens mode they are all four tables.
+// Subscribed returns the names of the collections the host subscribes to over P2P. AttestationRecord
+// and VerifiedBlock are not among them: each host keeps its own. Neither is SnapshotSignature: the
+// host verifies snapshots against the signatures in the snapshot list.
 func (c Collections) Subscribed() []string {
 	if c.TokensMode() {
 		return []string{c.Header.Name, c.Evidence.Name, c.StateCapture.Name, c.BlockAttestation.Name}
