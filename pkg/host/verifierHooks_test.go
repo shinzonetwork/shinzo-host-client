@@ -1,11 +1,16 @@
 package host
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 )
 
 // A verified block's agreeing signers are observed on its chain's attesters set, and a chain without
@@ -24,7 +29,7 @@ func TestVerifierHooksObserveSigners(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &Host{attesters: tc.attesters}
 
-			h.verifierHooks(tokensChain).Verified(rule.Block{Number: 100}, []string{"03bb", "02aa"})
+			h.verifierHooks(chain.Config{Prefix: tokensChain}, nil).Verified(rule.Block{Number: 100}, []string{"03bb", "02aa"})
 
 			if tc.attesters == nil {
 				return
@@ -33,4 +38,23 @@ func TestVerifierHooksObserveSigners(t *testing.T) {
 			require.Empty(t, tc.attesters[other].Snapshot())
 		})
 	}
+}
+
+// The verifier lists the documents to repair from the chain's own generators.
+func TestVerifierHooksListTheChainsGenerators(t *testing.T) {
+	listed := map[string][]string{"Bsc__Mainnet__Header": {"h1"}}
+	generator := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != documentsEndpoint {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(listed)
+	}))
+	t.Cleanup(generator.Close)
+	c := chain.Config{Prefix: "Bsc__Mainnet", Generators: []chain.Generator{{URL: generator.URL}}}
+
+	got, err := (&Host{}).verifierHooks(c, http.DefaultClient).Documents(t.Context(), 10, 12)
+
+	require.NoError(t, err)
+	require.Equal(t, listed, got)
 }

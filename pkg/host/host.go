@@ -26,6 +26,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	playgroundserver "github.com/shinzonetwork/shinzo-host-client/pkg/playground"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
@@ -591,11 +592,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	}
 
 	if defraNode != nil {
+		documentsClient := schema.NewSchemaHTTPClient(cfg.Schema)
 		for _, c := range applier.enabled {
 			if c.Mode != chain.ModeTokens {
 				continue
 			}
-			v, err := verifier.New(defraNode, c, c.Collections(), newHost.verifierHooks(c.Prefix))
+			v, err := verifier.New(defraNode, c, c.Collections(), newHost.verifierHooks(c, documentsClient))
 			if err != nil {
 				return nil, err
 			}

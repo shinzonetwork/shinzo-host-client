@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,12 +71,33 @@ func tokensConfig(start chain.Start) chain.Config {
 }
 
 // newVerifierNode starts a DefraDB node holding a tokens-mode chain's tables as a host stores them:
-// the tables a generator serves, from the served schema fixture, and the host's VerifiedBlock.
+// the tables a generator serves and the host's VerifiedBlock.
 func newVerifierNode(t *testing.T) *node.Node {
+	t.Helper()
+	n := newServedNode(t, false)
+	addVerifiedBlockTable(t, n)
+	return n
+}
+
+// addVerifiedBlockTable adds the host's VerifiedBlock table, which no generator serves.
+func addVerifiedBlockTable(t *testing.T, n *node.Node) {
+	t.Helper()
+	sdl, err := os.ReadFile(filepath.Join("..", "schema", "verifiedBlock.graphql"))
+	require.NoError(t, err)
+	_, err = n.DB.AddCollection(context.Background(), strings.Replace(string(sdl), "type VerifiedBlock ", "type "+tokens.VerifiedBlock.Name+" ", 1))
+	require.NoError(t, err)
+}
+
+// newServedNode starts a DefraDB node holding the tables a tokens-mode generator serves, from the
+// served schema fixture, with P2P on a local port when p2p is set.
+func newServedNode(t *testing.T, p2p bool) *node.Node {
 	t.Helper()
 	logger.Init(true, "")
 	ctx := context.Background()
-	nb := options.Node().SetDisableAPI(true).SetDisableP2P(true)
+	nb := options.Node().SetDisableAPI(true).SetDisableP2P(!p2p)
+	if p2p {
+		nb.P2P().SetListenAddresses("/ip4/127.0.0.1/tcp/0").SetEnablePubSub(true)
+	}
 	nb.Store().SetPath(t.TempDir())
 	n, err := node.New(ctx, nb)
 	require.NoError(t, err)
@@ -85,10 +107,6 @@ func newVerifierNode(t *testing.T) *node.Node {
 	served, err := os.ReadFile(filepath.Join("..", "schema", "testdata", "generator_tokens_schema.graphql"))
 	require.NoError(t, err)
 	_, err = n.DB.AddCollection(ctx, string(served))
-	require.NoError(t, err)
-	sdl, err := os.ReadFile(filepath.Join("..", "schema", "verifiedBlock.graphql"))
-	require.NoError(t, err)
-	_, err = n.DB.AddCollection(ctx, strings.Replace(string(sdl), "type VerifiedBlock ", "type "+tokens.VerifiedBlock.Name+" ", 1))
 	require.NoError(t, err)
 	return n
 }
@@ -431,4 +449,154 @@ func TestDocumentsDecodeBlobs(t *testing.T) {
 		Captures:     []rule.Capture{{Asset: usd1, Value: "ef01", Proof: []byte{0xef, 0x01}}},
 		Attestations: []rule.Attestation{{Signer: "0102", Statement: []byte{0x01, 0x02}}},
 	}, docs)
+}
+
+// A height is repaired only after it has waited repairAfter while the host holds a later Header,
+// and the repair covers repairHeights heights from it up.
+func TestRunRepairsOnlyStuckHeights(t *testing.T) {
+	cases := []struct {
+		name        string
+		laterBlock  bool
+		repairAfter time.Duration
+		noLister    bool
+		wantRepair  bool
+	}{
+		{name: "stuck behind a later block", laterBlock: true, repairAfter: 200 * time.Millisecond, wantRepair: true},
+		{name: "no later block held", repairAfter: 200 * time.Millisecond},
+		{name: "not stuck for long enough", laterBlock: true, repairAfter: time.Hour},
+		{name: "no documents lister", laterBlock: true, repairAfter: 200 * time.Millisecond, noLister: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newVerifierNode(t)
+			b10 := newBlock(t, 10, "0x09", 1_700_000_000)
+			addHeader(t, n, b10)
+			attest(t, n, 0, b10.statement)
+			if tc.laterBlock {
+				addHeader(t, n, newBlock(t, 11, b10.statement.Hash, 1_700_000_012))
+			}
+			var mu sync.Mutex
+			var repaired [][2]uint64
+			hooks := Hooks{
+				Documents: func(_ context.Context, from, to uint64) (map[string][]string, error) {
+					mu.Lock()
+					defer mu.Unlock()
+					repaired = append(repaired, [2]uint64{from, to})
+					return map[string][]string{}, nil
+				},
+			}
+			if tc.noLister {
+				hooks = Hooks{}
+			}
+			v, err := New(n, tokensConfig(chain.Start{Block: 10, Hash: b10.statement.Hash}), tokens, hooks)
+			require.NoError(t, err)
+			v.repairAfter = tc.repairAfter
+			stop := run(v)
+			defer stop()
+
+			repairs := func() [][2]uint64 {
+				mu.Lock()
+				defer mu.Unlock()
+				return slices.Clone(repaired)
+			}
+			if !tc.wantRepair {
+				require.Never(t, func() bool { return len(repairs()) > 0 }, 2*retryInterval, 50*time.Millisecond)
+				return
+			}
+			require.Eventually(t, func() bool { return len(repairs()) > 0 }, 2*retryInterval, 50*time.Millisecond)
+			require.Equal(t, [2]uint64{10, 10 + repairHeights - 1}, repairs()[0])
+			// A height still stuck after a repair waits repairAfter again before the next one.
+			time.Sleep(retryInterval)
+			require.LessOrEqual(t, len(repairs()), int(retryInterval/tc.repairAfter)+2)
+		})
+	}
+}
+
+// An attestation the host never received is fetched from the generator that holds it, and the
+// height verifies.
+func TestRunRepairsMissingAttestation(t *testing.T) {
+	ctx := context.Background()
+	generator := newServedNode(t, true)
+	host := newServedNode(t, true)
+	addVerifiedBlockTable(t, host)
+	b10 := newBlock(t, 10, "0x09", 1_700_000_000)
+	b11 := newBlock(t, 11, b10.statement.Hash, 1_700_000_012)
+	for _, n := range []*node.Node{generator, host} {
+		addHeader(t, n, b10)
+		addHeader(t, n, b11)
+		attest(t, n, 0, b10.statement)
+	}
+	attest(t, generator, 1, b10.statement)
+	connect(ctx, t, host, generator)
+
+	v, err := New(host, tokensConfig(chain.Start{Block: 10, Hash: b10.statement.Hash}), tokens, Hooks{
+		Documents: func(ctx context.Context, from, to uint64) (map[string][]string, error) {
+			listed := make(map[string][]string)
+			for _, col := range tokens.Generated() {
+				for h := from; h <= min(to, 11); h++ {
+					listed[col.Name] = append(listed[col.Name], documentIDs(ctx, t, generator, col, h)...)
+				}
+			}
+			return listed, nil
+		},
+	})
+	require.NoError(t, err)
+	v.repairAfter = 200 * time.Millisecond
+	stop := run(v)
+	defer stop()
+	require.Eventually(t, func() bool { return len(verified(t, host)) > 0 }, 10*retryInterval, 50*time.Millisecond)
+	require.Equal(t, b10.statement.Hash, verified(t, host)[0].Hash)
+}
+
+// A repair fetches every missing document, including those past the first batch.
+func TestRepairFetchesEveryBatch(t *testing.T) {
+	ctx := context.Background()
+	generator := newServedNode(t, true)
+	host := newServedNode(t, true)
+	addVerifiedBlockTable(t, host)
+	addHeader(t, generator, newBlock(t, 10, "0x09", 1_700_000_000))
+	for i := range 2*syncBatch + 1 {
+		add(t, generator, tokens.Evidence.Name, map[string]any{"blockNumber": 10, "asset": usd1, "records": fmt.Sprintf("%04x", i), "proof": "01"})
+	}
+	connect(ctx, t, host, generator)
+
+	v, err := New(host, tokensConfig(chain.Start{}), tokens, Hooks{
+		Documents: func(ctx context.Context, _, _ uint64) (map[string][]string, error) {
+			return map[string][]string{tokens.Evidence.Name: documentIDs(ctx, t, generator, tokens.Evidence, 10)}, nil
+		},
+	})
+	require.NoError(t, err)
+	v.repair(ctx, 10)
+
+	want := documentIDs(ctx, t, generator, tokens.Evidence, 10)
+	require.Len(t, want, 2*syncBatch+1)
+	require.ElementsMatch(t, want, documentIDs(ctx, t, host, tokens.Evidence, 10))
+}
+
+// connect connects host to generator and waits until generator answers a document sync for its
+// Header at height 10.
+func connect(ctx context.Context, t *testing.T, host, generator *node.Node) {
+	t.Helper()
+	addresses, err := generator.DB.PeerInfo(ctx)
+	require.NoError(t, err)
+	require.NoError(t, host.DB.Connect(ctx, addresses))
+	headerID := documentIDs(ctx, t, generator, tokens.Header, 10)[0]
+	require.Eventually(t, func() bool {
+		syncCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		return host.DB.SyncDocuments(syncCtx, tokens.Header.Name, []string{headerID}) == nil
+	}, 20*time.Second, 100*time.Millisecond, "the generator never answered a document sync")
+}
+
+// documentIDs returns the IDs of the documents n holds in col at height.
+func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Collection, height uint64) []string {
+	t.Helper()
+	res := n.DB.ExecRequest(ctx,
+		fmt.Sprintf(`query { %s(filter: {%s: {_eq: %d}}) { _docID } }`, col.Name, col.HeightField, height))
+	require.Empty(t, res.GQL.Errors)
+	var ids []string
+	for _, doc := range res.GQL.Data.(map[string]any)[col.Name].([]map[string]any) {
+		ids = append(ids, doc["_docID"].(string))
+	}
+	return ids
 }
