@@ -28,6 +28,9 @@ import (
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-evidence-codec/merkle"
 	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
@@ -754,4 +757,47 @@ func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Coll
 		ids = append(ids, doc["_docID"].(string))
 	}
 	return ids
+}
+
+// A held height is logged when it first holds and when its reason changes, at info level while the
+// rule waits for documents and at error level when they refuse it. The next height's first hold is
+// logged even with the same reason.
+func TestRunLogsAHoldOncePerReason(t *testing.T) {
+	n := newVerifierNode(t)
+	core, logs := observer.New(zap.InfoLevel)
+	original := logger.Sugar
+	logger.Sugar = zap.New(core).Sugar()
+	t.Cleanup(func() { logger.Sugar = original })
+	messages := func() []string {
+		var m []string
+		for _, entry := range logs.All() {
+			m = append(m, entry.Message)
+		}
+		return m
+	}
+	level := func(i int) zapcore.Level { return logs.All()[i].Level }
+
+	b100 := newBlock(t, 100, "0x99", 1_700_000_000)
+	stop := run(newVerifier(t, n, chain.Start{Block: 100, Hash: b100.statement.Hash}))
+	defer stop()
+	// No document is held, so no group agrees, on each of the checks in this window.
+	require.Never(t, func() bool { return logs.Len() > 1 }, 2*retryInterval+retryInterval/2, 50*time.Millisecond)
+	require.Len(t, messages(), 1)
+	require.Contains(t, messages()[0], "Block 100 is held")
+	require.Contains(t, messages()[0], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.InfoLevel, level(0))
+
+	// 100 verifies, and 101 holds for the same reason.
+	addAttestedBlock(t, n, b100)
+	require.Eventually(t, func() bool { return logs.Len() == 2 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[1], "Block 101 is held")
+	require.Contains(t, messages()[1], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.InfoLevel, level(1))
+
+	// 101's signers agree on a block whose parent is not 100: a new reason.
+	addAttestedBlock(t, n, newBlock(t, 101, "0x77", 1_700_000_012))
+	require.Eventually(t, func() bool { return logs.Len() == 3 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[2], rule.ReasonParent)
+	require.Equal(t, zapcore.ErrorLevel, level(2))
+	require.Len(t, verified(t, n), 1)
 }

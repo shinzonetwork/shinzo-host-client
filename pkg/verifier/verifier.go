@@ -184,7 +184,11 @@ func (v *Verifier) Run(ctx context.Context) {
 		}
 		if msg := err.Error(); msg != reported {
 			reported = msg
-			logger.Sugar.Debugf("Block %d not verified yet: %v (chain: %s)", height, err, v.collections.Prefix)
+			if errors.Is(err, errAwaitingDocuments) {
+				logger.Sugar.Infof("Block %d is held: %v (chain: %s)", height, err, v.collections.Prefix)
+			} else {
+				logger.Sugar.Errorf("Block %d is held: %v (chain: %s)", height, err, v.collections.Prefix)
+			}
 		}
 		if !wait(ctx) {
 			return
