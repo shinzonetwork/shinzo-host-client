@@ -176,13 +176,13 @@ func TestParseBlockNumber(t *testing.T) {
 	}
 }
 
-// A tokens-mode chain is pruned by its Header height, with Evidence, StateCapture and
-// BlockAttestation as dependents.
+// A tokens-mode chain is pruned by its Header height, with Evidence, StateCapture, BlockAttestation
+// and VerifiedBlock as dependents.
 func TestCollectionConfigForTokensMode(t *testing.T) {
 	c := chain.Tokens("Bsc__Mainnet")
 	require.Equal(t, CollectionConfig{
 		Prefix:     "Bsc__Mainnet",
 		Block:      c.Header,
-		Dependents: []chain.Collection{c.Evidence, c.StateCapture, c.BlockAttestation},
+		Dependents: []chain.Collection{c.Evidence, c.StateCapture, c.BlockAttestation, c.VerifiedBlock},
 	}, CollectionConfigFor(c))
 }

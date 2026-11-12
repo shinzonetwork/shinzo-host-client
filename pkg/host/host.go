@@ -169,6 +169,10 @@ type Host struct {
 	// the chain a billed view reads. Nil when recording is off.
 	attesters map[string]*observedAttesters
 
+	// floors holds each tokens-mode chain's lowest unverified height, by prefix, which its verifier
+	// writes and its pruner reads.
+	floors map[string]*pruner.Floor
+
 	healthServer *server.HealthServer
 	metrics      *server.HostMetrics
 	instruments  hostMetrics
@@ -341,6 +345,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		metrics:                server.NewHostMetrics(chainMetrics...),
 		instruments:            newHostMetrics(enabled),
 		attesters:              attesters,
+		floors:                 make(map[string]*pruner.Floor),
+	}
+	for _, c := range cfg.Chains {
+		if c.Mode == chain.ModeTokens {
+			newHost.floors[c.Prefix] = &pruner.Floor{}
+		}
 	}
 	logger.Sugar.Info("🔐 Block signature verifier initialized")
 
@@ -582,6 +592,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 			}
 			p := pruner.NewPruner(&chainCfg, defraNode, pruned[i].cutoff, pruned[i].collections)
 			p.SetRetainHistory(cfg.HostConfig.Snapshot.Enabled)
+			p.SetFloor(newHost.floors[c.Prefix])
 
 			if err := p.Start(ctx); err != nil {
 				logger.Sugar.Warnf("Failed to start pruner: %v (chain: %s)", err, c.Prefix)

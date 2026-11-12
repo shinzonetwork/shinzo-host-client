@@ -56,6 +56,9 @@ type Hooks struct {
 	// Verified is called with each block once its VerifiedBlock document is written, and the
 	// signers who agreed on it.
 	Verified func(b rule.Block, signers []string)
+	// Unverified is called with the lowest height not yet verified: when Run starts and after each
+	// verified block.
+	Unverified func(height uint64)
 	// Documents lists the IDs of the documents the chain's generators hold at the heights from
 	// through to, by collection. Without it the verifier does not fetch missing documents.
 	Documents func(ctx context.Context, from, to uint64) (map[string][]string, error)
@@ -118,6 +121,7 @@ func (v *Verifier) Run(ctx context.Context) {
 	if found {
 		parent, height = &last, last.Number+1
 	}
+	v.unverified(height)
 	var reported string
 	waitingSince := time.Now()
 	for {
@@ -131,6 +135,7 @@ func (v *Verifier) Run(ctx context.Context) {
 			}
 			parent = &block
 			height++
+			v.unverified(height)
 			reported = ""
 			waitingSince = time.Now()
 			continue
@@ -150,6 +155,13 @@ func (v *Verifier) Run(ctx context.Context) {
 		if !wait(ctx) {
 			return
 		}
+	}
+}
+
+// unverified calls the Unverified hook, if any, with height.
+func (v *Verifier) unverified(height uint64) {
+	if v.hooks.Unverified != nil {
+		v.hooks.Unverified(height)
 	}
 }
 

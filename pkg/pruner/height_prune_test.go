@@ -478,3 +478,33 @@ func TestRetainHistorySuppressesHeightPrune(t *testing.T) {
 	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
 }
+
+// On a tokens-mode chain the cutoff stays below the last verified block, at floor-1, and a pruner
+// whose verifier has not set the floor deletes nothing. Blocks 1-20 with a window of 5 give a
+// cutoff of 15 without a floor.
+func TestPruneKeepsTheLastVerifiedBlock(t *testing.T) {
+	cases := []struct {
+		name       string
+		floor      int64
+		wantCutoff int64
+	}{
+		{"floor not set", 0, 0},
+		{"floor above the window", 100, 15},
+		{"floor inside the window", 10, 8},
+		{"floor at the second block", 2, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, n := newHeightTestPruner(t, &Config{Enabled: true, MaxBlocks: 5})
+			seedHeightBlocks(t, n, 1, 20)
+			floor := &Floor{}
+			floor.Raise(tc.floor)
+			p.SetFloor(floor)
+
+			require.NoError(t, p.runPrune(context.Background()))
+
+			require.Equal(t, tc.wantCutoff, p.cutoff.Load())
+			require.Equal(t, heights(tc.wantCutoff+1, 20), blockNumbers(t, n, blockCollection, blockHeightField))
+		})
+	}
+}

@@ -342,11 +342,13 @@ func TestRunResumesAboveTheStoredVerifiedBlock(t *testing.T) {
 	// reaches 100.
 	// The hook runs on the verifier's goroutine; stop waits for it before the test reads these.
 	var hooked, hookedSigners [][]string
+	var unverified []uint64
 	v, err := New(n, tokensConfig(chain.Start{Block: 50, Hash: "0x50"}), tokens, Hooks{
 		Verified: func(b rule.Block, signers []string) {
 			hooked = append(hooked, []string{b.Hash})
 			hookedSigners = append(hookedSigners, signers)
 		},
+		Unverified: func(height uint64) { unverified = append(unverified, height) },
 	})
 	require.NoError(t, err)
 	stop := run(v)
@@ -358,6 +360,8 @@ func TestRunResumesAboveTheStoredVerifiedBlock(t *testing.T) {
 	// The Verified hook gets each block the verifier records, with its signers.
 	require.Equal(t, [][]string{{b100.statement.Hash}, {b101.statement.Hash}}, hooked)
 	require.Equal(t, [][]string{listedSigners(), listedSigners()}, hookedSigners)
+	// The Unverified hook gets the lowest unverified height when Run starts and after each block.
+	require.Equal(t, []uint64{100, 101, 102}, unverified)
 }
 
 // New refuses a chain whose rule configuration the evidence codec refuses.
