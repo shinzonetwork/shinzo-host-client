@@ -2,28 +2,44 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/shinzonetwork/shinzo-evidence-codec/merkle"
 	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
+	"github.com/shinzonetwork/shinzo-evidence-codec/sig"
+	"github.com/shinzonetwork/shinzo-evidence-codec/statement"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/shinzonetwork/viewbundle-go"
+	"github.com/sourcenetwork/defradb/client"
 	defradbHttp "github.com/sourcenetwork/defradb/http"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -2051,4 +2067,144 @@ func TestStartHosting_ServesAPIAfterTables(t *testing.T) {
 	require.NoError(t, err)
 	result := api.ExecRequest(context.Background(), "{ "+testCollections.Block.Name+" { __typename } }")
 	require.Empty(t, result.GQL.Errors)
+}
+
+// A tokens-mode chain started through StartHosting verifies its consecutive signed heights from
+// start.block and records them, its pruner keeps the last verified block, and it gets no
+// AttestationRecord collection and no attestation queue; the full-mode chain beside it keeps its
+// queue and has no VerifiedBlock table.
+func TestStartHosting_VerifiesTokensModeBlocks(t *testing.T) {
+	const prefix = "Bsc__Mainnet"
+	ctx := context.Background()
+	listener, err := net.Listen("tcp", testLoopbackAddr)
+	require.NoError(t, err)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	require.NoError(t, listener.Close())
+	tokensGenerator := httptest.NewServer(tokensSchemaHandler(t, prefix))
+	t.Cleanup(tokensGenerator.Close)
+	ethereumGenerator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(ethereumGenerator.Close)
+
+	var keys []*secp256k1.PrivateKey
+	var signers []string
+	for i := range 2 {
+		seed := sha256.Sum256([]byte{byte(i)})
+		keys = append(keys, secp256k1.PrivKeyFromBytes(seed[:]))
+		signers = append(signers, hex.EncodeToString(keys[i].PubKey().SerializeCompressed()))
+	}
+	blocks := consecutiveBlocks(t, 100, 4)
+
+	cfg := *DefaultConfig
+	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.URL = testLoopbackAddr
+	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"
+	cfg.HostConfig.HealthServerPort = addr.Port
+	// A window of one block, so without the floor the pruner would delete the verified blocks.
+	cfg.Pruner = pruner.Config{Enabled: true, MaxBlocks: 1, IntervalSeconds: 1}
+	cfg.Chains = []chain.Config{
+		{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: ethereumGenerator.URL}}},
+		{
+			Prefix: prefix, Mode: chain.ModeTokens, CAIP2: "eip155:1", Signers: signers, Required: 2,
+			Assets:     []chain.Asset{{ID: "8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x35"}},
+			Start:      chain.Start{Block: 100, Hash: blocks[0].statement.Hash},
+			Generators: []chain.Generator{{URL: tokensGenerator.URL}},
+		},
+	}
+	h, err := StartHosting(&cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, h.Close(closeCtx))
+	})
+
+	// 100 and 101 are signed; 102 and 103 have only a Header, so 102 holds.
+	tokens := cfg.Chains[1].Collections()
+	for i, b := range blocks {
+		s := b.statement
+		addTokensDoc(ctx, t, h.DefraNode, tokens.Header.Name, map[string]any{
+			"number": int64(s.Number), "hash": s.Hash, "parentHash": s.ParentHash, "timestamp": int64(s.Timestamp),
+			"raw": hex.EncodeToString(b.raw),
+		})
+		if i >= 2 {
+			continue
+		}
+		encoded, err := s.Encode()
+		require.NoError(t, err)
+		digest := sha256.Sum256(encoded)
+		for k, key := range keys {
+			addTokensDoc(ctx, t, h.DefraNode, tokens.BlockAttestation.Name, map[string]any{
+				"blockNumber": int64(s.Number), "blockHash": s.Hash, "statement": hex.EncodeToString(encoded),
+				"signatureType": sig.TypeES256K, "signer": signers[k], "signature": hex.EncodeToString(ecdsa.Sign(key, digest[:]).Serialize()),
+			})
+		}
+	}
+
+	// Blocks 102 and 103 put the pruner's window at 102, but the floor, 102, stops it below the last
+	// verified block, 101.
+	heights := func(collection chain.Collection) []int64 {
+		res := h.DefraNode.DB.ExecRequest(ctx, fmt.Sprintf(`query { %s(order: {%s: ASC}) { %s } }`, collection.Name, collection.HeightField, collection.HeightField))
+		require.Empty(t, res.GQL.Errors)
+		var out []int64
+		for _, doc := range res.GQL.Data.(map[string]any)[collection.Name].([]map[string]any) {
+			out = append(out, doc[collection.HeightField].(int64))
+		}
+		return out
+	}
+	require.Eventually(t, func() bool {
+		return slices.Equal(heights(tokens.VerifiedBlock), []int64{101}) && slices.Equal(heights(tokens.Header), []int64{101, 102, 103})
+	}, 15*time.Second, 100*time.Millisecond)
+	require.Equal(t, int64(101), h.chainMetrics(prefix).VerifiedHeight())
+	require.True(t, h.chainMetrics(prefix).Tokens)
+	require.False(t, h.chainMetrics(chain.EthereumMainnet).Tokens)
+
+	_, err = h.DefraNode.DB.GetCollectionByName(ctx, prefix+"__AttestationRecord")
+	require.Error(t, err)
+	_, err = h.DefraNode.DB.GetCollectionByName(ctx, chain.EthereumMainnet+"__VerifiedBlock")
+	require.Error(t, err)
+	require.NotNil(t, h.instruments.chain(chain.EthereumMainnet).queue.Load())
+	require.Nil(t, h.instruments.chain(prefix).queue.Load())
+}
+
+// tokensBlock is a synthetic Ethereum block: its raw header and the statement an honest generator
+// signs over it, which claims no USD1 records.
+type tokensBlock struct {
+	raw       []byte
+	statement statement.Statement
+}
+
+// consecutiveBlocks returns count synthetic blocks from height from, each the parent of the next.
+func consecutiveBlocks(t *testing.T, from uint64, count int) []tokensBlock {
+	t.Helper()
+	parent := common.HexToHash("0x01")
+	var blocks []tokensBlock
+	for i := range uint64(count) {
+		header := types.Header{
+			ParentHash: parent, UncleHash: types.EmptyUncleHash, TxHash: types.EmptyTxsHash,
+			ReceiptHash: types.EmptyReceiptsHash, Difficulty: big.NewInt(0),
+			Number: new(big.Int).SetUint64(from + i), Time: 1_700_000_000 + 12*i,
+		}
+		raw, err := rlp.EncodeToBytes(&header)
+		require.NoError(t, err)
+		hash := crypto.Keccak256Hash(raw)
+		blocks = append(blocks, tokensBlock{raw: raw, statement: statement.Statement{
+			Chain: "eip155:1", Number: from + i, Hash: hash.Hex(), ParentHash: parent.Hex(), ParentNumber: from + i - 1,
+			Timestamp: header.Time * 1000, Status: statement.StatusFinalized, Extractor: "test",
+			Filter: statement.FilterContractLog, HeaderHash: sha256.Sum256(raw),
+			Claims: []statement.Claim{{Asset: "8d0d000ee44948fc98c9b98a4fa4921476f08b0d", Root: merkle.Root(nil)}},
+		}})
+		parent = hash
+	}
+	return blocks
+}
+
+// addTokensDoc writes a document to collection.
+func addTokensDoc(ctx context.Context, t *testing.T, n *node.Node, collection string, fields map[string]any) {
+	t.Helper()
+	col, err := n.DB.GetCollectionByName(ctx, collection)
+	require.NoError(t, err)
+	doc, err := client.NewDocFromMap(ctx, fields, col.Version())
+	require.NoError(t, err)
+	require.NoError(t, col.AddDocument(ctx, doc))
 }
