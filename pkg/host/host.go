@@ -595,7 +595,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 			if c.Mode != chain.ModeTokens {
 				continue
 			}
-			v, err := verifier.New(defraNode, c, c.Collections())
+			v, err := verifier.New(defraNode, c, c.Collections(), newHost.verifierHooks(c.Prefix))
 			if err != nil {
 				return nil, err
 			}

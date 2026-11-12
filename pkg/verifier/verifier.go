@@ -27,6 +27,13 @@ var (
 	errStartHash   = errors.New("the agreed block at the start height is not start.hash")
 )
 
+// Hooks are called as the verifier makes progress. A nil hook is skipped.
+type Hooks struct {
+	// Verified is called with each block once its VerifiedBlock document is written, and the
+	// signers who agreed on it.
+	Verified func(b rule.Block, signers []string)
+}
+
 // Verifier checks a tokens-mode chain's heights in order and records each one the rule accepts in
 // the chain's VerifiedBlock table.
 type Verifier struct {
@@ -38,14 +45,15 @@ type Verifier struct {
 	// startHeight and startHash are start.block and start.hash.
 	startHeight uint64
 	startHash   string
+	hooks       Hooks
 	// write records an accepted block. It is v.record except in one test, which makes a single
 	// write fail; no store failure a test can cause fails once and then clears.
 	write func(ctx context.Context, b rule.Block, signers []string) error
 }
 
-// New returns a verifier for the tokens-mode chain c, whose collections are collections. It returns
-// an error when the evidence codec refuses c's rule configuration.
-func New(n *node.Node, c chain.Config, collections chain.Collections) (*Verifier, error) {
+// New returns a verifier for the tokens-mode chain c, whose collections are collections, that calls
+// hooks. It returns an error when the evidence codec refuses c's rule configuration.
+func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hooks) (*Verifier, error) {
 	r, err := rule.New(c.RuleConfig())
 	if err != nil {
 		return nil, fmt.Errorf("chain %s: %w", c.Prefix, err)
@@ -61,6 +69,7 @@ func New(n *node.Node, c chain.Config, collections chain.Collections) (*Verifier
 		assets:      assets,
 		startHeight: uint64(c.Start.Block), //nolint:gosec // chain.Validate refuses a negative start.block
 		startHash:   c.Start.Hash,
+		hooks:       hooks,
 	}
 	v.write = v.record
 	return v, nil
@@ -85,6 +94,9 @@ func (v *Verifier) Run(ctx context.Context) {
 		if err == nil {
 			if !v.writeUntilDone(ctx, block, signers) {
 				return
+			}
+			if v.hooks.Verified != nil {
+				v.hooks.Verified(block, signers)
 			}
 			parent = &block
 			height++

@@ -95,7 +95,7 @@ func newVerifierNode(t *testing.T) *node.Node {
 
 func newVerifier(t *testing.T, n *node.Node, start chain.Start) *Verifier {
 	t.Helper()
-	v, err := New(n, tokensConfig(start), tokens)
+	v, err := New(n, tokensConfig(start), tokens, Hooks{})
 	require.NoError(t, err)
 	return v
 }
@@ -322,11 +322,24 @@ func TestRunResumesAboveTheStoredVerifiedBlock(t *testing.T) {
 
 	// start.block and height 99 hold no documents, so only resuming from the newest stored block
 	// reaches 100.
-	stop := run(newVerifier(t, n, chain.Start{Block: 50, Hash: "0x50"}))
+	// The hook runs on the verifier's goroutine; stop waits for it before the test reads these.
+	var hooked, hookedSigners [][]string
+	v, err := New(n, tokensConfig(chain.Start{Block: 50, Hash: "0x50"}), tokens, Hooks{
+		Verified: func(b rule.Block, signers []string) {
+			hooked = append(hooked, []string{b.Hash})
+			hookedSigners = append(hookedSigners, signers)
+		},
+	})
+	require.NoError(t, err)
+	stop := run(v)
 	defer stop()
 	require.Eventually(t, func() bool { return len(verified(t, n)) == 4 }, 5*retryInterval, 50*time.Millisecond)
+	stop()
 	got := verified(t, n)
 	require.Equal(t, []string{b100.statement.Hash, b101.statement.Hash}, []string{got[2].Hash, got[3].Hash})
+	// The Verified hook gets each block the verifier records, with its signers.
+	require.Equal(t, [][]string{{b100.statement.Hash}, {b101.statement.Hash}}, hooked)
+	require.Equal(t, [][]string{listedSigners(), listedSigners()}, hookedSigners)
 }
 
 // New refuses a chain whose rule configuration the evidence codec refuses.
@@ -334,7 +347,7 @@ func TestNewRefusesTheRuleConfig(t *testing.T) {
 	c := tokensConfig(chain.Start{})
 	c.Required = 3
 
-	_, err := New(nil, c, tokens)
+	_, err := New(nil, c, tokens, Hooks{})
 	require.ErrorIs(t, err, rule.ErrRequired)
 }
 
