@@ -704,3 +704,115 @@ func TestAwaitsDocuments(t *testing.T) {
 		})
 	}
 }
+
+// A held height checked again reports its hold and unlisted signer 2 once. When listed signer 1
+// adds a valid signature the height verifies with both listed signers, so neither is dropped, and
+// signer 2 is reported again at the next height.
+func TestRunReportsEachResultOncePerHeight(t *testing.T) {
+	n := newVerifierNode(t)
+	b := newBlock(t, 100, "0x99", 1_700_000_000)
+	addHeader(t, n, b)
+	attest(t, n, 0, b.statement)
+	attest(t, n, 2, b.statement)
+	encoded, err := b.statement.Encode()
+	require.NoError(t, err)
+	// A DER signature with r = s = 1, which does not verify.
+	add(t, n, tokens.BlockAttestation.Name, map[string]any{
+		"blockNumber": int64(100), "blockHash": b.statement.Hash, "statement": hex.EncodeToString(encoded),
+		"signatureType": sig.TypeES256K, "signer": signer(1), "signature": "3006020101020101",
+	})
+
+	var mu sync.Mutex
+	dropped := make(map[string]int)
+	var unlisted int
+	var held []uint64
+	v, err := New(n, tokensConfig(chain.Start{Block: 100, Hash: b.statement.Hash}), tokens, Hooks{
+		Dropped: func(reason string) {
+			mu.Lock()
+			defer mu.Unlock()
+			dropped[reason]++
+		},
+		Unlisted: func() {
+			mu.Lock()
+			defer mu.Unlock()
+			unlisted++
+		},
+		Held: func(height uint64) {
+			mu.Lock()
+			defer mu.Unlock()
+			held = append(held, height)
+		},
+	})
+	require.NoError(t, err)
+	stop := run(v)
+	defer stop()
+	// Three checks of the held height.
+	time.Sleep(2*retryInterval + retryInterval/2)
+	attest(t, n, 1, b.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+	attest(t, n, 2, newBlock(t, 101, b.statement.Hash, 1_700_000_012).statement)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return unlisted == 2
+	}, 3*retryInterval, 50*time.Millisecond)
+	stop()
+
+	require.Empty(t, dropped)
+	// 101 may hold before stop returns; 100 held once.
+	require.Equal(t, uint64(100), held[0])
+	require.Equal(t, 1, len(slices.DeleteFunc(held, func(h uint64) bool { return h != 100 })))
+}
+
+// With two of three listed signers required, a listed signer that attested another block at a
+// verified height is dropped once, when the height verifies, and not while it holds.
+func TestRunDropsOnlyLeftOutSigners(t *testing.T) {
+	n := newVerifierNode(t)
+	b := newBlock(t, 100, "0x99", 1_700_000_000)
+	other := newBlock(t, 100, "0x99", 1_700_000_001)
+	addHeader(t, n, b)
+	addHeader(t, n, other)
+	attest(t, n, 0, b.statement)
+	attest(t, n, 2, other.statement)
+
+	var mu sync.Mutex
+	dropped := make(map[string]int)
+	config := tokensConfig(chain.Start{Block: 100, Hash: b.statement.Hash})
+	config.Signers, config.Required = []string{signer(0), signer(1), signer(2)}, 2
+	v, err := New(n, config, tokens, Hooks{Dropped: func(reason string) {
+		mu.Lock()
+		defer mu.Unlock()
+		dropped[reason]++
+	}})
+	require.NoError(t, err)
+	stop := run(v)
+	defer stop()
+	// Signers 0 and 2 are each below k on their own blocks while the height holds.
+	time.Sleep(2*retryInterval + retryInterval/2)
+	mu.Lock()
+	require.Empty(t, dropped)
+	mu.Unlock()
+	attest(t, n, 1, b.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+	stop()
+	require.Equal(t, map[string]int{DroppedBelowK: 1}, dropped)
+}
+
+func TestDroppedReason(t *testing.T) {
+	for reason, want := range map[string]string{
+		rule.ReasonSignature:          DroppedSignature,
+		rule.ReasonStatement:          DroppedStatement,
+		rule.ReasonWrongBlock:         DroppedWrongBlock,
+		rule.ReasonHeader:             DroppedHeader,
+		rule.ReasonBadHeader:          DroppedBadHeader,
+		rule.ReasonMissingClaim:       DroppedMissingClaim,
+		rule.ReasonEmptyClaim:         DroppedEmptyClaim,
+		rule.ReasonBelowK:             DroppedBelowK,
+		rule.ReasonEvidence:           DroppedEvidence,
+		rule.ReasonCapture:            DroppedCapture,
+		rule.ReasonBadCapture:         DroppedBadCapture,
+		"a reason from a newer codec": DroppedOther,
+	} {
+		require.Equal(t, want, droppedReason(reason), reason)
+	}
+}

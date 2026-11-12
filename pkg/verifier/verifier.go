@@ -46,6 +46,22 @@ const (
 	syncBatch = 50
 )
 
+// Why the rule left out a listed signer's attestation, as Hooks.Dropped reports it.
+const (
+	DroppedSignature    = "signature"
+	DroppedStatement    = "statement"
+	DroppedWrongBlock   = "wrong_block"
+	DroppedHeader       = "header"
+	DroppedBadHeader    = "bad_header"
+	DroppedMissingClaim = "missing_claim"
+	DroppedEmptyClaim   = "empty_claim"
+	DroppedBelowK       = "below_k"
+	DroppedEvidence     = "evidence"
+	DroppedCapture      = "capture"
+	DroppedBadCapture   = "bad_capture"
+	DroppedOther        = "other" // a reason this host does not know, from a newer codec
+)
+
 var (
 	errNotAccepted = errors.New("the rule does not accept the block")
 	// errAwaitingDocuments is returned for a height the rule may still accept once more of its
@@ -62,6 +78,15 @@ type Hooks struct {
 	// Unverified is called with the lowest height not yet verified: when Run starts and after each
 	// verified block.
 	Unverified func(height uint64)
+	// Held is called with a height when it first holds and whenever the reason it holds changes.
+	Held func(height uint64)
+	// Dropped is called with one of the Dropped constants for each listed signer left out of a
+	// verified block, once per signer and reason. A held height reports nothing, since documents
+	// still to come can bring a signer into the agreed group.
+	Dropped func(reason string)
+	// Unlisted is called for an attestation from a signer the chain does not list, once per height
+	// and signer.
+	Unlisted func()
 	// Documents lists the IDs of the documents the chain's generators hold at the heights from
 	// through to, by collection. Without it the verifier does not fetch missing documents.
 	Documents func(ctx context.Context, from, to uint64) (map[string][]string, error)
@@ -82,6 +107,10 @@ type Verifier struct {
 	startHash   string
 	hooks       Hooks
 	repairAfter time.Duration
+	// reported holds the unlisted signers already passed to the Unlisted hook at reportedHeight,
+	// so a height checked many times reports each of them once.
+	reportedHeight uint64
+	reported       map[string]bool
 	// write records an accepted block. It is v.record except in one test, which makes a single
 	// write fail; no store failure a test can cause fails once and then clears.
 	write func(ctx context.Context, b rule.Block, signers []string) error
@@ -109,6 +138,7 @@ func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hook
 		startHash:   c.Start.Hash,
 		hooks:       hooks,
 		repairAfter: repairAfter,
+		reported:    make(map[string]bool),
 	}
 	v.write = v.record
 	return v, nil
@@ -162,6 +192,9 @@ func (v *Verifier) Run(ctx context.Context) {
 			} else {
 				logger.Sugar.Errorf("Block %d is held: %v (chain: %s)", height, err, v.collections.Prefix)
 			}
+			if v.hooks.Held != nil {
+				v.hooks.Held(height)
+			}
 		}
 		if !wait(ctx) {
 			return
@@ -207,6 +240,7 @@ func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block
 		return rule.Block{}, nil, err
 	}
 	verdict := v.rule.Check(height, parent, docs)
+	v.reportUnlisted(height, verdict.Results)
 	if !verdict.Accepted {
 		if awaitsDocuments(verdict, v.required) {
 			return rule.Block{}, nil, fmt.Errorf("%w: %s", errAwaitingDocuments, verdict.Reason)
@@ -216,6 +250,7 @@ func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block
 	if parent == nil && verdict.Block.Hash != v.startHash {
 		return rule.Block{}, nil, fmt.Errorf("%w: agreed %s, start.hash %s", errStartHash, verdict.Block.Hash, v.startHash)
 	}
+	v.reportDropped(verdict)
 	return verdict.Block, verdict.Signers, nil
 }
 
@@ -243,6 +278,73 @@ func awaitsDocuments(verdict rule.Verdict, required int) bool {
 		}
 	}
 	return len(short) < required
+}
+
+// reportUnlisted passes each attestation from a signer the chain does not list to the Unlisted
+// hook, once per height and signer.
+func (v *Verifier) reportUnlisted(height uint64, results []rule.Result) {
+	if height != v.reportedHeight {
+		v.reportedHeight = height
+		clear(v.reported)
+	}
+	for _, r := range results {
+		if r.Reason != rule.ReasonUnlisted || v.reported[r.Signer] {
+			continue
+		}
+		v.reported[r.Signer] = true
+		if v.hooks.Unlisted != nil {
+			v.hooks.Unlisted()
+		}
+	}
+}
+
+// reportDropped passes to the Dropped hook why each listed signer that attested at a verified
+// block's height, but is not among the signers it was verified with, did not count, once per signer
+// and reason. A signer with an attestation that counted is not dropped.
+func (v *Verifier) reportDropped(verdict rule.Verdict) {
+	if v.hooks.Dropped == nil {
+		return
+	}
+	seen := make(map[rule.Result]bool)
+	for _, r := range verdict.Results {
+		key := rule.Result{Signer: r.Signer, Reason: r.Reason}
+		if r.Reason == "" || r.Reason == rule.ReasonUnlisted || slices.Contains(verdict.Signers, r.Signer) || seen[key] {
+			continue
+		}
+		seen[key] = true
+		v.hooks.Dropped(droppedReason(r.Reason))
+	}
+}
+
+// droppedReason returns the Dropped constant for one of the rule's reasons for leaving out an
+// attestation.
+func droppedReason(reason string) string {
+	switch reason {
+	case rule.ReasonSignature:
+		return DroppedSignature
+	case rule.ReasonStatement:
+		return DroppedStatement
+	case rule.ReasonWrongBlock:
+		return DroppedWrongBlock
+	case rule.ReasonHeader:
+		return DroppedHeader
+	case rule.ReasonBadHeader:
+		return DroppedBadHeader
+	case rule.ReasonMissingClaim:
+		return DroppedMissingClaim
+	case rule.ReasonEmptyClaim:
+		return DroppedEmptyClaim
+	case rule.ReasonBelowK:
+		return DroppedBelowK
+	case rule.ReasonEvidence:
+		return DroppedEvidence
+	case rule.ReasonCapture:
+		return DroppedCapture
+	case rule.ReasonBadCapture:
+		return DroppedBadCapture
+	default:
+		return DroppedOther
+	}
 }
 
 // documents returns the Header, Evidence, StateCapture and BlockAttestation documents held at
