@@ -116,12 +116,36 @@ func (h *Host) reportStats(ctx context.Context, interval time.Duration, log *zap
 					counters.SignatureFailures-prev.SignatureFailures,
 					drops-prevDrops[i], c.TakeQueuePeak(),
 				)
+				if c.Tokens {
+					logVerification(log, c, counters, prev)
+				}
 				prevCounters[i], prevDrops[i] = counters, drops
 			}
 
 			prevBlocks, prevGC = blocks, gcCycles
 		}
 	}
+}
+
+// logVerification logs a tokens-mode chain's block verification: its verified and held heights,
+// and the blocks verified, listed signers left out by reason, unlisted attestations and repairs
+// since the previous line, whose counters were prev.
+func logVerification(log *zap.SugaredLogger, c *server.ChainMetrics, counters, prev server.ChainCounters) {
+	reasons := slices.Sorted(maps.Keys(counters.SignersDropped))
+	dropped := make([]string, len(reasons))
+	for j, reason := range reasons {
+		dropped[j] = fmt.Sprintf("%s:%d", reason, counters.SignersDropped[reason]-prev.SignersDropped[reason])
+	}
+	heldHeight, heldSince, held := c.Held()
+	var heldFor time.Duration
+	if held {
+		heldFor = time.Since(heldSince).Round(time.Second)
+	}
+	log.Infof(
+		"chain verification: chain=%s verifiedHeight=%d verified=%d heldHeight=%d heldFor=%s dropped=%s unlisted=%d repairs=%d",
+		c.Prefix, c.VerifiedHeight(), counters.VerifiedBlocks-prev.VerifiedBlocks, heldHeight, heldFor,
+		strings.Join(dropped, ","), counters.UnlistedAttestations-prev.UnlistedAttestations, counters.Repairs-prev.Repairs,
+	)
 }
 
 // metricUint64 reads a uint64 metric. An unrecognised name reads as zero, since
