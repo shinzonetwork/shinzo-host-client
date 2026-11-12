@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
@@ -136,6 +137,20 @@ func registerHostGauges(h *Host) metric.Registration {
 	if err != nil {
 		otel.Handle(err)
 	}
+	heldHeight, err := meter.Int64ObservableGauge("shinzo.host.verifier.held_height",
+		metric.WithDescription("Height a tokens-mode chain's block verifier holds at, while one holds."),
+		metric.WithUnit("{block}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	holdAge, err := meter.Float64ObservableGauge("shinzo.host.verifier.hold_age",
+		metric.WithDescription("How long the held height has held, while one holds."),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
 	views, err := meter.Int64ObservableGauge("shinzo.host.views",
 		metric.WithDescription("Views registered on this host."),
 		metric.WithUnit("{view}"),
@@ -160,6 +175,10 @@ func registerHostGauges(h *Host) metric.Registration {
 			if m := h.chainMetrics(c.Prefix); m != nil {
 				if b := m.CurrentBlock(); b > 0 {
 					o.ObserveInt64(height, b, ci.chain)
+				}
+				if held, since, ok := m.Held(); ok {
+					o.ObserveInt64(heldHeight, held, ci.chain)
+					o.ObserveFloat64(holdAge, time.Since(since).Seconds(), ci.chain)
 				}
 			}
 			if b := ci.received.Load(); b > 0 {
@@ -186,7 +205,7 @@ func registerHostGauges(h *Host) metric.Registration {
 		}
 		o.ObserveInt64(peers, int64(len(unique)))
 		return nil
-	}, height, received, queued, views, peers)
+	}, height, received, queued, heldHeight, holdAge, views, peers)
 	if err != nil {
 		otel.Handle(err)
 	}
