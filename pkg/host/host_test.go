@@ -312,6 +312,33 @@ func TestHost_Close_StopsWaitingWhenContextEnds(t *testing.T) {
 	}
 }
 
+// Close waits for the block verifiers to stop, and stops waiting once its context ends.
+func TestHost_Close_WaitsForVerifiersWithinItsContext(t *testing.T) {
+	host := &Host{webhookCleanupFunction: func() {}, processingCancel: func() {}}
+	release := make(chan struct{})
+	defer close(release)
+	host.verifiers.Go(func() { <-release })
+	ctx, cancel := context.WithCancel(context.Background())
+
+	closed := make(chan struct{})
+	go func() {
+		_ = host.Close(ctx)
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the verifiers stopped")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close kept waiting for the verifiers after its context ended")
+	}
+}
+
 func TestHost_ProcessViewRegistrationEvent_NoViewManager(t *testing.T) {
 	host := &Host{
 		viewManager: nil,
