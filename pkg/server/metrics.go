@@ -69,6 +69,7 @@ type ChainMetrics struct {
 	BlockSignaturesProcessed atomic.Int64
 	SignatureVerifications   atomic.Int64 // Block signatures that passed verification
 	SignatureFailures        atomic.Int64 // Block signatures rejected for an invalid signature or a mismatched CID list
+	UnlistedSignatures       atomic.Int64 // Block signatures skipped because their signer is not one of the chain's signers
 	AttestationsCreated      atomic.Int64
 	AttestationErrors        atomic.Int64
 	QueueDrops               atomic.Int64 // Block signatures dropped because the chain's attestation queue was full
@@ -85,6 +86,7 @@ type ChainCounters struct {
 	BlockSignaturesProcessed int64            `json:"block_signatures_processed"`
 	SignatureVerifications   int64            `json:"signature_verifications"`
 	SignatureFailures        int64            `json:"signature_failures"`
+	UnlistedSignatures       int64            `json:"unlisted_signatures"`
 	AttestationsCreated      int64            `json:"attestations_created"`
 	AttestationErrors        int64            `json:"attestation_errors"`
 }
@@ -228,6 +230,7 @@ func (c *ChainMetrics) Counters() ChainCounters {
 		BlockSignaturesProcessed: c.BlockSignaturesProcessed.Load(),
 		SignatureVerifications:   c.SignatureVerifications.Load(),
 		SignatureFailures:        c.SignatureFailures.Load(),
+		UnlistedSignatures:       c.UnlistedSignatures.Load(),
 		AttestationsCreated:      c.AttestationsCreated.Load(),
 		AttestationErrors:        c.AttestationErrors.Load(),
 	}

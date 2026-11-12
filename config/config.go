@@ -32,7 +32,7 @@ var ErrNegativeSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must 
 // ErrExcessiveSchemaTimeout is returned when the schema HTTP client timeout exceeds the maximum.
 var ErrExcessiveSchemaTimeout = fmt.Errorf("schema.http_client_timeout_secs must not exceed %d", MaxSchemaHTTPClientTimeout)
 
-// ErrNoChains is returned when the chains key lists no chain.
+// ErrNoChains is returned when the config lists no chain under the chains key.
 var ErrNoChains = errors.New("chains must list at least one chain")
 
 // ErrSnapshotChain is returned when host.snapshot is enabled on a host that does not serve Ethereum
@@ -97,7 +97,7 @@ type Config struct {
 	Logger     LoggerConfig  `yaml:"logger"`
 	HostConfig HostConfig    `yaml:"host"`
 	Pruner     pruner.Config `yaml:"pruner"`
-	// Chains are the chains the host serves. A config without the key serves Ethereum mainnet.
+	// Chains are the chains the host serves. The config must list at least one.
 	Chains []chain.Config `yaml:"chains"`
 }
 
@@ -304,10 +304,9 @@ func CheckChainSettings(cfg *Config) error {
 	return nil
 }
 
-// loadChains reads and validates the chains key of the config file. A file without the key serves
-// Ethereum mainnet; otherwise the key must list at least one chain. Keys the config does not
-// define are ignored elsewhere in the file but rejected under chains, where a misspelled key would
-// leave a chain misconfigured without an error.
+// loadChains reads and validates the chains key of the config file, which must list at least one
+// chain. Keys the config does not define are ignored elsewhere in the file but rejected under
+// chains, where a misspelled key would leave a chain misconfigured without an error.
 func loadChains(data []byte) ([]chain.Config, error) {
 	// The inline map takes every top-level key other than chains, so only chains is checked.
 	var doc struct {
@@ -320,17 +319,13 @@ func loadChains(data []byte) ([]chain.Config, error) {
 		return nil, fmt.Errorf("failed to parse chains: %w", err)
 	}
 
-	chains := doc.Chains
-	if chains == nil {
-		chains = []chain.Config{{Prefix: chain.EthereumMainnet}}
-	}
-	if err := chain.Validate(chains); err != nil {
+	if err := chain.Validate(doc.Chains); err != nil {
 		return nil, fmt.Errorf("invalid chains: %w", err)
 	}
-	if len(chains) == 0 {
+	if len(doc.Chains) == 0 {
 		return nil, ErrNoChains
 	}
-	return chains, nil
+	return doc.Chains, nil
 }
 
 // ToInternalConfig converts the host config to the pkg/defradb internal config
