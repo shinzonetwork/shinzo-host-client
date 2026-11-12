@@ -32,7 +32,7 @@ func CollectionConfigFor(c chain.Collections) CollectionConfig {
 		return CollectionConfig{
 			Prefix:     c.Prefix,
 			Block:      c.Header,
-			Dependents: []chain.Collection{c.Evidence, c.StateCapture, c.BlockAttestation},
+			Dependents: []chain.Collection{c.Evidence, c.StateCapture, c.BlockAttestation, c.VerifiedBlock},
 		}
 	}
 	return CollectionConfig{

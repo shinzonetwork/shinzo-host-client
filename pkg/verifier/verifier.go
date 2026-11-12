@@ -64,6 +64,9 @@ var ErrNotStored = errors.New("no generator stores the heights asked for")
 
 // Hooks are called as the verifier makes progress. A nil hook is skipped.
 type Hooks struct {
+	// Unverified is called with the lowest height not yet verified: when Run starts and after each
+	// verified block.
+	Unverified func(height uint64)
 	// Documents lists the IDs of the documents the chain's generators hold at the heights from
 	// through to, by collection. Its error wraps ErrNotStored when no generator stores from any
 	// longer. Without it the verifier does not fetch missing documents.
@@ -142,6 +145,7 @@ func (v *Verifier) Run(ctx context.Context) {
 	if found {
 		parent, height = &last, last.Number+1
 	}
+	v.unverified(height)
 	var reported string
 	var repairs sync.WaitGroup
 	defer repairs.Wait()
@@ -156,6 +160,7 @@ func (v *Verifier) Run(ctx context.Context) {
 			}
 			parent = &block
 			height++
+			v.unverified(height)
 			reported = ""
 			repairWait, waitingSince, notStored = v.repairAfter, time.Now(), false
 			continue
@@ -184,6 +189,13 @@ func (v *Verifier) Run(ctx context.Context) {
 		if !wait(ctx) {
 			return
 		}
+	}
+}
+
+// unverified calls the Unverified hook, if any, with height.
+func (v *Verifier) unverified(height uint64) {
+	if v.hooks.Unverified != nil {
+		v.hooks.Unverified(height)
 	}
 }
 
