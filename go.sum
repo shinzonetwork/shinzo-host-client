@@ -1681,8 +1681,8 @@ github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3/go.mod h1:A0bzQcvG
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
 github.com/shinzonetwork/go-libp2p-pubsub-rpc v0.0.18-0.20261101190910-58ca2540d06f h1:Sk6UDpxA5cSQ4N/fAS2xqzfvQM6xFg1qvjRCA/LqCFI=
 github.com/shinzonetwork/go-libp2p-pubsub-rpc v0.0.18-0.20261101190910-58ca2540d06f/go.mod h1:jUoQv592uUX1u7QBjAY4C+l24X9ArhPfifOqXpDHz4U=
-github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261112194140-4ddb4afa3964 h1:2KZqHehxmiqAWmbtGEeh6LgpyVLtCEQANMC3mSUZI48=
-github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261112194140-4ddb4afa3964/go.mod h1:+y9+zSMwoGjzmQSPltx5YaZemQiI9HzqlAIva0pgHQc=
+github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261115184924-2a4372eecb63 h1:1eKSfs/cd6Eq05WO1r6eTpS26ZLY+isYwo0iMweZ3z0=
+github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261115184924-2a4372eecb63/go.mod h1:+y9+zSMwoGjzmQSPltx5YaZemQiI9HzqlAIva0pgHQc=
 github.com/shinzonetwork/shinzo-querysig v0.2.0 h1:K79Io7tRGuOKrFvYmZFEagLGbw6fI0I9K0ETzLJpV+4=
 github.com/shinzonetwork/shinzo-querysig v0.2.0/go.mod h1:DOx/GxPqEtwTzZY+Gv5/5FntW92rEuAQR2qq85Dcc9w=
 github.com/shinzonetwork/viewbundle-go v0.1.1 h1:GTSh7bYHqEzZSSJHAySdaciLDq+TyvBwY6jmyX9udYk=
