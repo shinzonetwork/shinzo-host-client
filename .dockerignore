@@ -7,6 +7,8 @@ bin/
 *.dll
 *.so
 *.dylib
+*.tar
+*.diff
 
 # Git
 .git/
@@ -48,3 +50,7 @@ Thumbs.db
 *.pem
 *.key
 reviews/
+# Local scratch / large artifacts (keep out of build context)
+terraform/
+notes/*
+logs/*
