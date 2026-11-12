@@ -27,6 +27,9 @@ import (
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-evidence-codec/merkle"
 	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
@@ -603,4 +606,101 @@ func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Coll
 		ids = append(ids, doc["_docID"].(string))
 	}
 	return ids
+}
+
+// A held height is logged when it first holds and when its reason changes, at info level while the
+// rule waits for documents and at error level when they refuse it. The next height's first hold is
+// logged even with the same reason.
+func TestRunLogsAHoldOncePerReason(t *testing.T) {
+	n := newVerifierNode(t)
+	core, logs := observer.New(zap.InfoLevel)
+	original := logger.Sugar
+	logger.Sugar = zap.New(core).Sugar()
+	t.Cleanup(func() { logger.Sugar = original })
+	messages := func() []string {
+		var m []string
+		for _, entry := range logs.All() {
+			m = append(m, entry.Message)
+		}
+		return m
+	}
+	level := func(i int) zapcore.Level { return logs.All()[i].Level }
+
+	b100 := newBlock(t, 100, "0x99", 1_700_000_000)
+	stop := run(newVerifier(t, n, chain.Start{Block: 100, Hash: b100.statement.Hash}))
+	defer stop()
+	// No document is held, so no group agrees, on each of the checks in this window.
+	require.Never(t, func() bool { return logs.Len() > 1 }, 2*retryInterval+retryInterval/2, 50*time.Millisecond)
+	require.Len(t, messages(), 1)
+	require.Contains(t, messages()[0], "Block 100 is held")
+	require.Contains(t, messages()[0], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.InfoLevel, level(0))
+
+	// 100 verifies, and 101 holds for the same reason.
+	addAttestedBlock(t, n, b100)
+	require.Eventually(t, func() bool { return logs.Len() == 2 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[1], "Block 101 is held")
+	require.Contains(t, messages()[1], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.InfoLevel, level(1))
+
+	// 101's signers agree on a block whose parent is not 100: a new reason.
+	addAttestedBlock(t, n, newBlock(t, 101, "0x77", 1_700_000_012))
+	require.Eventually(t, func() bool { return logs.Len() == 3 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[2], rule.ReasonParent)
+	require.Equal(t, zapcore.ErrorLevel, level(2))
+	require.Len(t, verified(t, n), 1)
+}
+
+// A height the rule did not accept waits for documents only while every listed signer's attestation
+// is short of a document or in a group below k, with those groups naming one block and holding
+// fewer than required signers.
+func TestAwaitsDocuments(t *testing.T) {
+	a, b, c := signer(0), signer(1), signer(2)
+	cases := []struct {
+		name    string
+		verdict rule.Verdict
+		want    bool
+	}{
+		{"no document held", rule.Verdict{Reason: rule.ReasonNoAgreement}, true},
+		{"one listed signer so far", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK},
+		}}, true},
+		{"attestations before their header", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonHeader}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonHeader},
+		}}, true},
+		{"attestations before their evidence", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonEvidence}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonEvidence},
+		}}, true},
+		{"one signer's state capture not held yet", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonCapture},
+		}}, true},
+		{"a held header that does not match the statements", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBadHeader}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBadHeader},
+		}}, false},
+		{"a held state capture that does not prove one signer's value", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBadCapture},
+		}}, false},
+		{"an unlisted signer only", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: c, Reason: rule.ReasonUnlisted},
+		}}, true},
+		{"one listed signer on two blocks", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: a, Hash: "0xbb", Reason: rule.ReasonBelowK},
+		}}, false},
+		{"listed signers on one block with different claims", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBelowK},
+		}}, false},
+		{"a listed signer's signature fails", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Reason: rule.ReasonSignature},
+		}}, false},
+		{"a reason from a newer codec", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: "a reason from a newer codec"},
+		}}, false},
+		{"two groups have the required signers", rule.Verdict{Reason: rule.ReasonSplit}, false},
+		{"the agreed parent is not the previous verified block", rule.Verdict{Reason: rule.ReasonParent}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, awaitsDocuments(tc.verdict, 2))
+		})
+	}
 }

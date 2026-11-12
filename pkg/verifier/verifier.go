@@ -48,7 +48,10 @@ const (
 
 var (
 	errNotAccepted = errors.New("the rule does not accept the block")
-	errStartHash   = errors.New("the agreed block at the start height is not start.hash")
+	// errAwaitingDocuments is returned for a height the rule may still accept once more of its
+	// documents arrive; see awaitsDocuments.
+	errAwaitingDocuments = errors.New("the rule cannot decide until more documents arrive")
+	errStartHash         = errors.New("the agreed block at the start height is not start.hash")
 )
 
 // Hooks are called as the verifier makes progress. A nil hook is skipped.
@@ -72,6 +75,8 @@ type Verifier struct {
 	rule        *rule.Chain
 	// assets are the IDs of the assets the rule checks, which each VerifiedBlock document names.
 	assets []string
+	// required is how many listed signers must agree on a block.
+	required int
 	// startHeight and startHash are start.block and start.hash.
 	startHeight uint64
 	startHash   string
@@ -85,7 +90,8 @@ type Verifier struct {
 // New returns a verifier for the tokens-mode chain c, whose collections are collections, that calls
 // hooks. It returns an error when the evidence codec refuses c's rule configuration.
 func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hooks) (*Verifier, error) {
-	r, err := rule.New(c.RuleConfig())
+	config := c.RuleConfig()
+	r, err := rule.New(config)
 	if err != nil {
 		return nil, fmt.Errorf("chain %s: %w", c.Prefix, err)
 	}
@@ -98,6 +104,7 @@ func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hook
 		collections: collections,
 		rule:        r,
 		assets:      assets,
+		required:    config.Required,
 		startHeight: uint64(c.Start.Block), //nolint:gosec // chain.Validate refuses a negative start.block
 		startHash:   c.Start.Hash,
 		hooks:       hooks,
@@ -150,7 +157,11 @@ func (v *Verifier) Run(ctx context.Context) {
 		}
 		if msg := err.Error(); msg != reported {
 			reported = msg
-			logger.Sugar.Debugf("Block %d not verified yet: %v (chain: %s)", height, err, v.collections.Prefix)
+			if errors.Is(err, errAwaitingDocuments) {
+				logger.Sugar.Infof("Block %d is held: %v (chain: %s)", height, err, v.collections.Prefix)
+			} else {
+				logger.Sugar.Errorf("Block %d is held: %v (chain: %s)", height, err, v.collections.Prefix)
+			}
 		}
 		if !wait(ctx) {
 			return
@@ -197,12 +208,41 @@ func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block
 	}
 	verdict := v.rule.Check(height, parent, docs)
 	if !verdict.Accepted {
+		if awaitsDocuments(verdict, v.required) {
+			return rule.Block{}, nil, fmt.Errorf("%w: %s", errAwaitingDocuments, verdict.Reason)
+		}
 		return rule.Block{}, nil, fmt.Errorf("%w: %s", errNotAccepted, verdict.Reason)
 	}
 	if parent == nil && verdict.Block.Hash != v.startHash {
 		return rule.Block{}, nil, fmt.Errorf("%w: agreed %s, start.hash %s", errStartHash, verdict.Block.Hash, v.startHash)
 	}
 	return verdict.Block, verdict.Signers, nil
+}
+
+// awaitsDocuments reports whether the rule may accept a height it did not accept once more
+// documents arrive: each listed signer's attestation waits for a document or is in a group below k,
+// and those groups name one block and hold fewer than required signers between them.
+func awaitsDocuments(verdict rule.Verdict, required int) bool {
+	if verdict.Reason != rule.ReasonNoAgreement {
+		return false
+	}
+	short := make(map[string]bool)
+	var block string
+	for _, r := range verdict.Results {
+		switch r.Reason {
+		case rule.ReasonUnlisted, rule.ReasonHeader, rule.ReasonEvidence, rule.ReasonCapture:
+			// An unlisted signer never counts, and the others wait for a document.
+		case rule.ReasonBelowK:
+			if block != "" && r.Hash != block {
+				return false
+			}
+			block = r.Hash
+			short[r.Signer] = true
+		default:
+			return false
+		}
+	}
+	return len(short) < required
 }
 
 // documents returns the Header, Evidence, StateCapture and BlockAttestation documents held at
