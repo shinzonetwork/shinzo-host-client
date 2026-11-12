@@ -20,6 +20,9 @@ defradb:
     # num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
     # Badger value log configuration
     value_log_file_size_mb: 128     # Size of each vlog file (smaller = faster GC)
+    resource_memory_mib: 10240
+    resource_file_descriptors: 8192  # Must be <= the process ulimit -n
+    max_streams_per_peer: 4096       # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
 # The chain this host serves. Its schema comes from its generators, tried in order, and the host
 # dials each generator's peer.
 chains:
