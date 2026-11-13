@@ -81,6 +81,24 @@ func serveDebug(addr string) error {
 	return nil
 }
 
+// serveState serves handler, the host's state route, on a listener of its own at addr, which keeps
+// the route off the health server's public pages. It binds before returning, so an address that
+// cannot be served is returned as an error.
+func serveState(addr string, handler http.Handler) (*http.Server, error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	srv := &http.Server{Addr: listener.Addr().String(), Handler: handler, ReadHeaderTimeout: debugReadHeaderTimeout}
+	logger.Sugar.Infof("State reads listening on %s", srv.Addr)
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Sugar.Errorf("State listener stopped: %v", err)
+		}
+	}()
+	return srv, nil
+}
+
 func findConfigFile() string {
 	possiblePaths := []string{
 		"./config/config.yaml", // From project root
@@ -136,6 +154,12 @@ func main() {
 	if err != nil {
 		panic(fmt.Errorf("failed to start hosting: %w", err))
 	}
+	var stateServer *http.Server
+	if addr := os.Getenv("SHINZO_STATE_ADDR"); addr != "" {
+		if stateServer, err = serveState(addr, myHost.StateHandler()); err != nil {
+			panic(fmt.Errorf("state listener: %w", err))
+		}
+	}
 
 	// Shutdown is signal-driven because a deferred Close does not run when the process
 	// is terminated by a signal.
@@ -144,6 +168,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	// State reads query DefraDB, so the listener stops before the host closes it.
+	if stateServer != nil {
+		if err := stateServer.Shutdown(ctx); err != nil {
+			logger.Sugar.Errorf("State listener shutdown: %v", err)
+		}
+	}
 	if err := myHost.Close(ctx); err != nil {
 		logger.Sugar.Errorf("Shutdown error: %v", err)
 	}
