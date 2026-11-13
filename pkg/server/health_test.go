@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 	"github.com/stretchr/testify/require"
 )
@@ -171,6 +172,9 @@ func TestHealthHandler_NilHost(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	// With nil host, status should remain "healthy" (no IsHealthy call)
 	require.Equal(t, "healthy", resp.Status)
+	// Compared against the config var so the test holds with or without
+	// build-time ldflags injection.
+	require.Equal(t, config.Version, resp.Version)
 }
 
 // Each endpoint lists every chain.
@@ -225,6 +229,7 @@ func TestRegistrationHandler_GET_Ready(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "ready", resp.Status)
 	require.NotNil(t, resp.Registration)
+	require.Equal(t, config.Version, resp.Version)
 }
 
 // The host is ready while any of its chains is.
@@ -383,6 +388,7 @@ func TestMetricsHandler_GET_WithoutHost(t *testing.T) {
 
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, config.Version, resp.Version)
 }
 
 func TestMetricsHandler_POST_MethodNotAllowed(t *testing.T) {
@@ -415,6 +421,9 @@ func TestRootHandler_RootPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "Shinzo Network Host", resp["service"])
 	require.Equal(t, "running", resp["status"])
+	// The root endpoint must report the injected host version, never a
+	// hardcoded constant.
+	require.Equal(t, config.Version, resp["version"])
 }
 
 func TestRootHandler_NonRootPath_404(t *testing.T) {

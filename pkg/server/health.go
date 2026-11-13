@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
@@ -63,12 +64,14 @@ type HealthResponse struct {
 	UptimeSeconds    float64              `json:"uptime_seconds"`
 	P2P              *P2PInfo             `json:"p2p,omitempty"`
 	Registration     *DisplayRegistration `json:"registration,omitempty"`
+	Version          string               `json:"version"`
 }
 
 // MetricsResponse represents basic metrics.
 type MetricsResponse struct {
-	Chains []ChainStatus `json:"chains,omitempty"`
-	Uptime string        `json:"uptime"`
+	Chains  []ChainStatus `json:"chains,omitempty"`
+	Uptime  string        `json:"uptime"`
+	Version string        `json:"version"`
 }
 
 var startTime = time.Now() // nolint:gochecknoglobals
@@ -158,6 +161,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		DefraDBConnected: hs.checkDefraDB(),
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
+		Version:          config.Version,
 	}
 
 	if hs.host != nil {
@@ -194,6 +198,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		DefraDBConnected: defraConnected,
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
+		Version:          config.Version,
 	}
 
 	if hs.host != nil {
@@ -230,7 +235,8 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metrics := MetricsResponse{
-		Uptime: time.Since(startTime).String(),
+		Uptime:  time.Since(startTime).String(),
+		Version: config.Version,
 	}
 
 	if hs.host != nil {
@@ -250,7 +256,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]any{
 		"service":   "Shinzo Network Host",
-		"version":   "1.0.0",
+		"version":   config.Version,
 		"status":    "running",
 		"timestamp": time.Now(),
 		"endpoints": []string{

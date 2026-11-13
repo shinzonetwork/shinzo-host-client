@@ -19,6 +19,11 @@ import (
 // CollectionName is the name of the collection where we store Shinzo-specific documents in DefraDB.
 const CollectionName = "shinzo"
 
+// Version is the host version, for example "v0.7.1", set at build time via
+// -ldflags (see the Makefile build target and the Dockerfile builder stage);
+// "dev" when built without injection.
+var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
+
 // Default configuration values for schema fetching.
 const (
 	DefaultIndexerSchemaEndpoint   = "/api/v1/schema"
