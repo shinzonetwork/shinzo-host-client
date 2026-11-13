@@ -63,3 +63,27 @@ func TestEVM(t *testing.T) {
 		})
 	}
 }
+
+// A tokens-mode chain has the four tables generators write, named as they name them, and the host's
+// VerifiedBlock, which is neither generated nor subscribed; it has none of the full-mode tables. A
+// chain without a mode gets the full-mode tables.
+func TestTokens(t *testing.T) {
+	header := Collection{Name: "Bsc__Mainnet__Header", HeightField: "number"}
+	evidence := Collection{Name: "Bsc__Mainnet__Evidence", HeightField: "blockNumber"}
+	capture := Collection{Name: "Bsc__Mainnet__StateCapture", HeightField: "blockNumber"}
+	attestation := Collection{Name: "Bsc__Mainnet__BlockAttestation", HeightField: "blockNumber"}
+
+	got := Config{Prefix: "Bsc__Mainnet", Mode: ModeTokens}.Collections()
+	require.Equal(t, Collections{
+		Prefix:           "Bsc__Mainnet",
+		Header:           header,
+		Evidence:         evidence,
+		StateCapture:     capture,
+		BlockAttestation: attestation,
+		VerifiedBlock:    Collection{Name: "Bsc__Mainnet__VerifiedBlock", HeightField: "blockNumber"},
+	}, got)
+	require.Equal(t, []Collection{header, evidence, capture, attestation}, got.Generated())
+	require.Equal(t, []string{header.Name, evidence.Name, capture.Name, attestation.Name}, got.Subscribed())
+
+	require.Equal(t, EVM("Bsc__Mainnet"), Config{Prefix: "Bsc__Mainnet"}.Collections())
+}

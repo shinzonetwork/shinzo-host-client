@@ -1193,6 +1193,58 @@ func TestStartEventBusListener_AttestsEachChainInItsOwnTables(t *testing.T) {
 	}
 }
 
+// A tokens-mode chain gets no attestation queue while a full-mode chain keeps one, and the documents
+// peers send for the tokens-mode chain's tables are still counted.
+func TestStartEventBusListener_TokensModeChain(t *testing.T) {
+	ctx := context.Background()
+	ethereumGenerator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(ethereumGenerator.Close)
+	tokensGenerator := httptest.NewServer(tokensSchemaHandler(t, "Bsc__Mainnet"))
+	t.Cleanup(tokensGenerator.Close)
+	applier := &chainsApplier{
+		schemaCfg: config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1},
+		chains: []chain.Config{
+			{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: ethereumGenerator.URL}}},
+			{Prefix: "Bsc__Mainnet", Mode: chain.ModeTokens, Generators: []chain.Generator{{URL: tokensGenerator.URL}}},
+		},
+	}
+	defraNode, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = defraNode.Close(context.Background()) })
+	ethereum, tokens := applier.chains[0].Collections(), applier.chains[1].Collections()
+	chains := []chain.Collections{ethereum, tokens}
+
+	metrics := server.NewHostMetrics(&server.ChainMetrics{Prefix: ethereum.Prefix}, &server.ChainMetrics{Prefix: tokens.Prefix})
+	cfg := *DefaultConfig
+	h := &Host{DefraNode: defraNode, chains: chains, config: &cfg, metrics: metrics, instruments: newHostMetrics(chains)}
+
+	updates, err := defraNode.DB.Events().Subscribe(event.UpdateName)
+	require.NoError(t, err)
+	listenerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go h.startEventBusListener(listenerCtx, updates)
+
+	// Each table gets a different number of updates, so a count wired to the wrong table shows.
+	want := server.ChainCounters{DocumentsByTable: make(map[string]int64)}
+	for i, table := range tokens.Generated() {
+		col, err := defraNode.DB.GetCollectionByName(ctx, table.Name)
+		require.NoError(t, err)
+		for range i + 1 {
+			defraNode.DB.Events().Publish(event.NewMessage(event.UpdateName, event.Update{CollectionID: col.CollectionID(), IsRelay: true}))
+		}
+		want.DocumentsReceived += int64(i + 1)
+		want.DocumentsByTable[strings.TrimPrefix(table.Name, tokens.Prefix+"__")] = int64(i + 1)
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Equal(ct, want, metrics.Chain(tokens.Prefix).Counters())
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// The listener sets up every chain before it reads an update, so the counts above mean the
+	// queues below are final.
+	require.NotNil(t, h.instruments.chain(ethereum.Prefix).queue.Load())
+	require.Nil(t, h.instruments.chain(tokens.Prefix).queue.Load())
+}
+
 // startChainsNode starts a DefraDB node holding the tables of a chain for each of prefixes.
 func startChainsNode(t *testing.T, prefixes ...string) (*node.Node, []chain.Collections) {
 	t.Helper()

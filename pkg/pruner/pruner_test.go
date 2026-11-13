@@ -11,6 +11,7 @@ import (
 
 	"github.com/sourcenetwork/defradb/client"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
@@ -173,4 +174,15 @@ func TestParseBlockNumber(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// A tokens-mode chain is pruned by its Header height, with Evidence, StateCapture and
+// BlockAttestation as dependents.
+func TestCollectionConfigForTokensMode(t *testing.T) {
+	c := chain.Tokens("Bsc__Mainnet")
+	require.Equal(t, CollectionConfig{
+		Prefix:     "Bsc__Mainnet",
+		Block:      c.Header,
+		Dependents: []chain.Collection{c.Evidence, c.StateCapture, c.BlockAttestation},
+	}, CollectionConfigFor(c))
 }

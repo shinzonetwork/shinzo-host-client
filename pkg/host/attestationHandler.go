@@ -20,8 +20,9 @@ import (
 )
 
 // attestedChain is an enabled chain as the attestation listener serves it: its tables, the queue of
-// its block signatures waiting for one of its workers, its counters (nil without host metrics) and
-// its OpenTelemetry attributes (nil without instruments).
+// its block signatures waiting for one of its workers (nil for a tokens-mode chain, which has
+// neither), its counters (nil without host metrics) and its OpenTelemetry attributes (nil without
+// instruments).
 type attestedChain struct {
 	collections chain.Collections
 	signatures  chan string
@@ -64,8 +65,8 @@ func (h *Host) knownTables(ctx context.Context, chains []*attestedChain) (map[st
 	return tables, nil
 }
 
-// docQueueSettings returns how many attestation workers each enabled chain gets and how many block
-// signatures its queue holds.
+// docQueueSettings returns how many attestation workers each enabled full-mode chain gets and how
+// many block signatures its queue holds.
 func (h *Host) docQueueSettings() (workerCount, queueSize int) {
 	queueSize = h.config.Shinzo.DocQueueSize
 	if queueSize <= 0 {
@@ -129,10 +130,15 @@ func (h *Host) startEventBusListener(ctx context.Context, updates event.Subscrip
 	for i, c := range h.chains {
 		chains[i] = &attestedChain{
 			collections: c,
-			signatures:  make(chan string, queueSize),
 			metrics:     h.chainMetrics(c.Prefix),
 			instruments: h.instruments.chain(c.Prefix),
 		}
+		// A tokens-mode chain has no block signatures to attest, so it gets no queue and no workers.
+		// Its attestedChain still maps its tables, so the documents peers send it are counted.
+		if c.TokensMode() {
+			continue
+		}
+		chains[i].signatures = make(chan string, queueSize)
 		if o := chains[i].instruments; o != nil {
 			o.queue.Store(&chains[i].signatures)
 		}
