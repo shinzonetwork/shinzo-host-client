@@ -1,32 +1,37 @@
 networks:
   shinzo-net:
     driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1450
 
 services:
   shinzo-host:
-    image: ghcr.io/shinzonetwork/shinzo-host-client:v0.6.5-ethereum-mainnet
-    platform: linux/amd64
-    mem_reservation: 15g
+    image: ghcr.io/shinzonetwork/shinzo-host-client:ethereum-mainnet-latest
+    user: "1001:1001" # update to match your user and group id.
+    mem_limit: 16g
+    mem_reservation: 13g
     restart: unless-stopped
     container_name: shinzo-host
-    # A signal during startup is only serviced once startup finishes, so this has to cover
-    # startup as well as the shutdown timeout, or the process is killed mid-shutdown.
-    stop_grace_period: 90s
     networks:
       - shinzo-net
     ports:
-      - "443:9181"  # DefraDB API (internal network access)
-      - "444:9182"  # GraphQL Playground 
+      - "8443:9181"  # DefraDB API (internal network access)
+      - "8444:9182"  # GraphQL Playground
       - "9171:9171"  # P2P networking (still needs external access)
-    # volumes:
-    #   - ./data/defradb:/app/.defra
-    #   - ./data/lens:/app/.lens
-    #   - ./config.yaml:/app/config.yaml:ro
+      - "8080:8080" # Health + status routes
+    volumes:
+      - ./data/defradb:/app/.defra
+      - ./data/keys:/app/.defra/keys
+      - ./data/lens:/app/.defra/lens
+      - ./config.yaml:/app/config.yaml:ro
     environment:
       - DEFRA_URL=0.0.0.0:9181
-      - LOG_LEVEL=error
+      - GOMEMLIMIT=14GiB
+      - LOG_LEVEL=info
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
+      - ALLOWED_ORIGINS=https://*.shinzo.network
+      - LIBP2P_TCP_REUSEPORT=false
 
       # Metrics (off unless OTEL_METRICS_EXPORTER is set)
       - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-}
@@ -41,16 +46,3 @@ services:
       timeout: 30s
       retries: 10
       start_period: 120s
-
-  nginx:
-    image: nginx:alpine
-    platform: linux/amd64
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - shinzo-host
-    networks:
-      - shinzo-net
-    restart: unless-stopped
