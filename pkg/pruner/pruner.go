@@ -65,6 +65,8 @@ type Pruner struct {
 	bottomPassAt time.Time
 	// retainHistory turns pruning off, for a node bootstrapped with history it should keep.
 	retainHistory bool
+	// floor is a tokens-mode chain's lowest unverified height, or nil on a full-mode chain.
+	floor *Floor
 	// heightPrunable is the subset of Dependents the sweep can order on.
 	heightPrunable []chain.Collection
 	stopChan       chan struct{}
@@ -110,6 +112,12 @@ func NewPruner(cfg *Config, defraNode *node.Node, cutoff *Cutoff, collections Co
 // SetRetainHistory keeps blocks below the retention window instead of deleting them.
 func (p *Pruner) SetRetainHistory(retain bool) {
 	p.retainHistory = retain
+}
+
+// SetFloor makes each cycle keep the blocks from the last verified one up, by floor, the chain's
+// lowest unverified height.
+func (p *Pruner) SetFloor(floor *Floor) {
+	p.floor = floor
 }
 
 // Start begins the pruning loop in a background goroutine.
@@ -264,6 +272,18 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 		logger.Sugar.Infof("Prune cycle: nothing to delete yet, the highest block held (%d) is not above max_blocks (%d) (chain: %s)",
 			highest, p.cfg.MaxBlocks, p.collections.Prefix)
 		return nil
+	}
+	if p.floor != nil {
+		// The last verified block stays: the verifier checks the next height's parent against it
+		// and reads it back on a restart. Before the verifier sets the floor, it is 0 and nothing is
+		// deleted.
+		floor := p.floor.Load()
+		lastVerified := floor - 1
+		target = min(target, lastVerified-1)
+		if target <= 0 {
+			logger.Sugar.Infof("Prune cycle: nothing to delete yet below the lowest unverified block (%d) (chain: %s)", floor, p.collections.Prefix)
+			return nil
+		}
 	}
 	p.cutoff.Raise(target)
 	cutoff := p.cutoff.Load()

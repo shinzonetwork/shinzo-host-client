@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 )
 
 // A verified block's agreeing signers are observed on its chain's attesters set, and a chain without
@@ -57,4 +58,17 @@ func TestVerifierHooksListTheChainsGenerators(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, listed, got)
+}
+
+// The verifier's lowest unverified height raises its own chain's prune floor.
+func TestVerifierHooksRaiseTheFloor(t *testing.T) {
+	floors := map[string]*pruner.Floor{"Bsc__Mainnet": {}, "Testchain__Devnet": {}}
+	h := &Host{floors: floors}
+
+	h.verifierHooks(chain.Config{Prefix: "Bsc__Mainnet"}, nil).Unverified(101)
+
+	require.Equal(t, int64(101), floors["Bsc__Mainnet"].Load())
+	require.Zero(t, floors["Testchain__Devnet"].Load())
+	// A chain without a floor, as in a host built without pruning, is skipped.
+	(&Host{}).verifierHooks(chain.Config{Prefix: "Bsc__Mainnet"}, nil).Unverified(101)
 }

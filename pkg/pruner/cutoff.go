@@ -23,3 +23,25 @@ func (c *Cutoff) Raise(height int64) {
 		}
 	}
 }
+
+// Floor is a tokens-mode chain's lowest height not yet verified, which its block verifier writes and
+// its pruner reads. Zero means the verifier has not set it.
+type Floor struct {
+	height atomic.Int64
+}
+
+// Load returns the floor height.
+func (f *Floor) Load() int64 {
+	return f.height.Load()
+}
+
+// Raise moves the floor up to height. A lower height is ignored, since a verified height stays
+// verified.
+func (f *Floor) Raise(height int64) {
+	for {
+		current := f.height.Load()
+		if height <= current || f.height.CompareAndSwap(current, height) {
+			return
+		}
+	}
+}

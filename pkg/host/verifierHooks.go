@@ -23,6 +23,11 @@ func (h *Host) verifierHooks(c chain.Config, client *http.Client) verifier.Hooks
 				set.Observe(s)
 			}
 		},
+		Unverified: func(height uint64) {
+			if floor := h.floors[c.Prefix]; floor != nil {
+				floor.Raise(int64(height)) //nolint:gosec // the verifier's heights count up by one from the int64 start.block
+			}
+		},
 		Documents: generatorDocuments(c.Generators, client),
 	}
 }
