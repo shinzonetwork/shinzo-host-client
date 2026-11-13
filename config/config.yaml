@@ -28,13 +28,13 @@ defradb:
 chains:
   - prefix: Ethereum__Mainnet
     generators:
-      - url: https://generator01.infra.shinzo.network:8080
+      - url: https://generator01.infra.shinzo.network:8445
         peer: /dns4/generator01.infra.shinzo.network/tcp/9174/p2p/12D3KooWHVQHUMxWmSwCHVPZ2pE1xzwjjNJbC7UmcwyqxJUmxRwV
-      - url: https://generator02.infra.shinzo.network:8080
+      - url: https://generator02.infra.shinzo.network:8445
         peer: /dns4/generator02.infra.shinzo.network/tcp/9175/p2p/12D3KooWKZvZTTWxAGVwBfpVrk6guEt4ZwSXPQogZNUa5pUnV4nR
-      - url: https://generator03.infra.shinzo.network:8080
+      - url: https://generator03.infra.shinzo.network:8445
         peer: /dns4/generator03.infra.shinzo.network/tcp/9176/p2p/12D3KooWCthjY1CT2Ug7zhyW3jZZugeNnqHrKcpKRWEyU4dJVTL6
-      - url: https://generator04.infra.shinzo.network:8080
+      - url: https://generator04.infra.shinzo.network:8445
         peer: /dns4/generator04.infra.shinzo.network/tcp/9177/p2p/12D3KooWP7Dy4QevtXX64po3L1MG1Je5m5Dmj81CArTfs76TuPxj
 shinzo:
   minimum_attestations: 1
