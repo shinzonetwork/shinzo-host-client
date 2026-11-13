@@ -94,5 +94,11 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 
 	defra := host.NewDefra(cfg, log, nodeKeys)
 
-	return host.Start(cmd.Context(), cfg, log, nodeKeys, defra, srv)
+	if err := host.Start(cmd.Context(), cfg, log, nodeKeys, defra, srv); err != nil {
+		return err
+	}
+
+	log.Info("Shinzo Host shutdown complete")
+
+	return nil
 }
