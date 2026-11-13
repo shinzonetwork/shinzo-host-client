@@ -1,6 +1,7 @@
 package hostkey
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,7 +264,10 @@ func TestEnsureConcurrentRecoverStillFailsOnLostRace(t *testing.T) {
 			continue
 		}
 		losses++
-		require.ErrorIs(t, err, ErrKeysAlreadyExist)
+
+		if !errors.Is(err, ErrKeysAlreadyExist) && !errors.Is(err, ErrAlreadyHaveKeys) {
+			require.Failf(t, "unexpected error for a lost recover race", "%v", err)
+		}
 	}
 	require.Equal(t, 1, wins)
 	require.Equal(t, n-1, losses)

@@ -92,5 +92,7 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 		return err
 	}
 
-	return host.Start(cmd.Context(), cfg, log, nodeKeys, srv)
+	defra := host.NewDefra(cfg, log, nodeKeys)
+
+	return host.Start(cmd.Context(), cfg, log, nodeKeys, defra, srv)
 }
