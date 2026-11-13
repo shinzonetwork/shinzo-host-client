@@ -10,6 +10,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/cosmos/go-bip39"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,6 +113,20 @@ func TestNodeKeysPeerIDIsDeterministic(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, idA, idB)
+}
+
+func TestNodeKeysPeerIDMatchesPeerPrivateKey(t *testing.T) {
+	nodeKeys, err := deriveNodeKeys(testMnemonic(t))
+	require.NoError(t, err)
+
+	priv, err := nodeKeys.PeerPrivateKey()
+	require.NoError(t, err)
+	want, err := peer.IDFromPublicKey(priv.GetPublic())
+	require.NoError(t, err)
+
+	got, err := nodeKeys.PeerID()
+	require.NoError(t, err)
+	require.Equal(t, want, got)
 }
 
 func TestNodeKeysDID(t *testing.T) {

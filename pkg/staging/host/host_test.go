@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -27,11 +28,6 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
-// testDefra returns a DefraService for tests that only need one to pass in.
-func testDefra() DefraService {
-	return NewDefra(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
-}
-
 // Start now blocks until ctx is done, so this runs it in the
 // background, confirms a handler is actually reachable while it's
 // running, then cancels and checks it returns cleanly.
@@ -46,8 +42,9 @@ func TestStartServesWhileRunningThenCleansUpOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel) // if an assertion below fails first, this still stops the server
+	defra := newTestDefra(t)
 	done := make(chan error, 1)
-	go func() { done <- Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv) }()
+	go func() { done <- Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, defra, srv) }()
 
 	require.Eventually(t, func() bool { return srv.Addr() != "" }, 2*time.Second, 10*time.Millisecond)
 
@@ -67,7 +64,7 @@ func TestStartMountsStatus(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.NoError(t, Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv))
+	require.NoError(t, Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, &fakeDefra{}, srv))
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
@@ -89,6 +86,57 @@ func TestStartCleansUpIfBindFails(t *testing.T) {
 		return nil
 	})
 
-	require.Error(t, Start(context.Background(), hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv))
+	require.Error(t, Start(context.Background(), hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, &fakeDefra{}, srv))
 	require.True(t, cleaned, "Start must run registered shutdown fns if binding fails")
+}
+
+// fakeDefra records which lifecycle methods ran, and can fail Start.
+type fakeDefra struct {
+	Defra
+
+	startErr error
+	started  bool
+	stopped  bool
+}
+
+func (f *fakeDefra) Start(context.Context) error {
+	f.started = true
+	return f.startErr
+}
+
+func (f *fakeDefra) Stop(context.Context) error {
+	f.stopped = true
+	return nil
+}
+
+func TestStartStartsAndStopsDefra(t *testing.T) {
+	srv, err := hostserver.New(freeAddr(t), zap.NewNop())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	defra := &fakeDefra{}
+	require.NoError(t, Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, defra, srv))
+
+	require.True(t, defra.started)
+	require.True(t, defra.stopped)
+}
+
+func TestStartDoesNotServeIfDefraFails(t *testing.T) {
+	srv, err := hostserver.New(freeAddr(t), zap.NewNop())
+	require.NoError(t, err)
+
+	var cleaned bool
+	srv.RegisterShutdown(func(context.Context) error {
+		cleaned = true
+		return nil
+	})
+
+	defraErr := errors.New("defra failed")
+	defra := &fakeDefra{startErr: defraErr}
+	require.ErrorIs(t, Start(context.Background(), hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, defra, srv), defraErr)
+
+	require.Empty(t, srv.Addr(), "server must not bind when defra fails to start")
+	require.True(t, cleaned, "Start must run registered shutdown fns if defra fails")
+	require.False(t, defra.stopped, "nothing started, so nothing to stop")
 }

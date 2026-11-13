@@ -104,11 +104,20 @@ func (k NodeKeys) DID() string {
 	return k.IdentityKey.DID()
 }
 
-// PeerID regenerates the node libp2p peer ID from its key seed.
-func (k NodeKeys) PeerID() (peer.ID, error) {
+// PeerPrivateKey regenerates the node libp2p private key from its key seed.
+func (k NodeKeys) PeerPrivateKey() (libp2pcrypto.PrivKey, error) {
 	priv, _, err := libp2pcrypto.GenerateEd25519Key(bytes.NewReader(k.PeerKeySeed))
 	if err != nil {
-		return "", fmt.Errorf("regenerating p2p key: %w", err)
+		return nil, fmt.Errorf("regenerating p2p key: %w", err)
+	}
+	return priv, nil
+}
+
+// PeerID derives the node libp2p peer ID from PeerPrivateKey.
+func (k NodeKeys) PeerID() (peer.ID, error) {
+	priv, err := k.PeerPrivateKey()
+	if err != nil {
+		return "", err
 	}
 	id, err := peer.IDFromPublicKey(priv.GetPublic())
 	if err != nil {
