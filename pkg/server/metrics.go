@@ -57,11 +57,12 @@ const (
 
 // ChainMetrics is one chain's counters: its relayed documents, in total and per table, and when the
 // last one arrived, its block signatures and attestation records, its attestation queue and the
-// newest block it attested. Prefix, Enabled, Reason and Cutoff are set when it is built and only read
-// after.
+// newest block it attested, and on a tokens-mode chain its block verification. Prefix, Enabled,
+// Tokens, Reason and Cutoff are set when it is built and only read after.
 type ChainMetrics struct {
 	Prefix                   string
 	Enabled                  bool           // Whether the chain is served at this start
+	Tokens                   bool           // Whether the chain is in tokens mode
 	Reason                   string         // Why the chain is not enabled, empty when it is
 	Cutoff                   *pruner.Cutoff // The chain's pruner cutoff, nil when the host does not prune
 	DocumentsReceived        atomic.Int64
@@ -75,6 +76,20 @@ type ChainMetrics struct {
 	queuePeak                atomic.Int64
 	currentBlock             atomic.Int64
 	lastDocument             atomic.Int64 // Unix nanoseconds of the last document a peer sent, 0 before the first
+
+	// A tokens-mode chain's block verification. The verifier is the only writer.
+	VerifiedBlocks       atomic.Int64 // Blocks the verifier recorded
+	UnlistedAttestations atomic.Int64 // Attestations from signers the chain does not list, once per height and signer
+	Repairs              atomic.Int64 // Times the verifier fetched a held height's missing documents
+	signersDropped       sync.Map     // Reason to *atomic.Int64: listed signers left out of a verified block, once per block, signer and reason
+	verifiedHeight       atomic.Int64
+	held                 atomic.Pointer[hold] // nil while no height is held
+}
+
+// hold is a held height and when it first held.
+type hold struct {
+	height int64
+	since  time.Time
 }
 
 // ChainCounters is a reading of one chain's counters, as /metrics reports them. DocumentsByTable is
@@ -87,6 +102,12 @@ type ChainCounters struct {
 	SignatureFailures        int64            `json:"signature_failures"`
 	AttestationsCreated      int64            `json:"attestations_created"`
 	AttestationErrors        int64            `json:"attestation_errors"`
+	// A tokens-mode chain's verification counters, left out while zero so a full-mode chain's
+	// report keeps its shape.
+	VerifiedBlocks       int64            `json:"verified_blocks,omitempty"`
+	SignersDropped       map[string]int64 `json:"signers_dropped,omitempty"`
+	UnlistedAttestations int64            `json:"unlisted_attestations,omitempty"`
+	Repairs              int64            `json:"repairs,omitempty"`
 }
 
 // chainReport is one chain's entry in /metrics.
@@ -102,7 +123,9 @@ const chainReadyWindow = 5 * time.Minute
 // ChainStatus is one chain as the health and metrics endpoints report it. A chain is Ready while it
 // is enabled and its last document, or the host's start before its first, is within
 // chainReadyWindow. CurrentBlock is omitted until the chain attests a block, LastDocumentTime until
-// its first document, Cutoff until its pruner sets one, and Reason while the chain is enabled.
+// its first document, Cutoff until its pruner sets one, and Reason while the chain is enabled. A
+// tokens-mode chain also reports VerifiedHeight once its verifier records a block, and HeldHeight and
+// HeldSince while a height holds.
 type ChainStatus struct {
 	Chain            string    `json:"chain"`
 	Enabled          bool      `json:"enabled"`
@@ -111,6 +134,9 @@ type ChainStatus struct {
 	CurrentBlock     int64     `json:"current_block,omitempty"`
 	LastDocumentTime time.Time `json:"last_document_time,omitzero"`
 	Cutoff           int64     `json:"cutoff,omitempty"`
+	VerifiedHeight   int64     `json:"verified_height,omitempty"`
+	HeldHeight       int64     `json:"held_height,omitempty"`
+	HeldSince        time.Time `json:"held_since,omitzero"`
 }
 
 // NewHostMetrics creates a new metrics instance reporting chains, in the order given.
@@ -171,7 +197,55 @@ func (c *ChainMetrics) status(now, start time.Time) ChainStatus {
 	if c.Cutoff != nil {
 		status.Cutoff = c.Cutoff.Load()
 	}
+	status.VerifiedHeight = c.VerifiedHeight()
+	if h := c.held.Load(); h != nil {
+		status.HeldHeight, status.HeldSince = h.height, h.since
+	}
 	return status
+}
+
+// RecordVerified records that the chain's verifier recorded the block at height: it counts the
+// block, makes height the verified height and ends a hold at or below it.
+func (c *ChainMetrics) RecordVerified(height int64) {
+	c.VerifiedBlocks.Add(1)
+	c.verifiedHeight.Store(height)
+	if h := c.held.Load(); h != nil && h.height <= height {
+		c.held.Store(nil)
+	}
+}
+
+// RecordHeld records that the chain's verifier holds at height. A height already held keeps the
+// time it first held.
+func (c *ChainMetrics) RecordHeld(height int64, now time.Time) {
+	if h := c.held.Load(); h != nil && h.height == height {
+		return
+	}
+	c.held.Store(&hold{height: height, since: now})
+}
+
+// Held returns the height the chain's verifier holds at and when it first held, or false while
+// none is held.
+func (c *ChainMetrics) Held() (height int64, since time.Time, held bool) {
+	h := c.held.Load()
+	if h == nil {
+		return 0, time.Time{}, false
+	}
+	return h.height, h.since, true
+}
+
+// VerifiedHeight returns the newest block the chain's verifier recorded since the host started, or
+// 0 before the first.
+func (c *ChainMetrics) VerifiedHeight() int64 {
+	return c.verifiedHeight.Load()
+}
+
+// RecordSignerDropped counts a listed signer the verifier left out of a verified block, for reason.
+func (c *ChainMetrics) RecordSignerDropped(reason string) {
+	n, ok := c.signersDropped.Load(reason)
+	if !ok {
+		n, _ = c.signersDropped.LoadOrStore(reason, new(atomic.Int64))
+	}
+	n.(*atomic.Int64).Add(1)
 }
 
 // UpdateCurrentBlock records blockNumber as the chain's current block if it is newer than the one
@@ -222,6 +296,15 @@ func (c *ChainMetrics) Counters() ChainCounters {
 		byTable[table.(string)] = n.(*atomic.Int64).Load()
 		return true
 	})
+	// Left nil on a chain with no drop, as on every full-mode chain.
+	var dropped map[string]int64
+	c.signersDropped.Range(func(reason, n any) bool {
+		if dropped == nil {
+			dropped = make(map[string]int64)
+		}
+		dropped[reason.(string)] = n.(*atomic.Int64).Load()
+		return true
+	})
 	return ChainCounters{
 		DocumentsReceived:        c.DocumentsReceived.Load(),
 		DocumentsByTable:         byTable,
@@ -230,6 +313,10 @@ func (c *ChainMetrics) Counters() ChainCounters {
 		SignatureFailures:        c.SignatureFailures.Load(),
 		AttestationsCreated:      c.AttestationsCreated.Load(),
 		AttestationErrors:        c.AttestationErrors.Load(),
+		VerifiedBlocks:           c.VerifiedBlocks.Load(),
+		SignersDropped:           dropped,
+		UnlistedAttestations:     c.UnlistedAttestations.Load(),
+		Repairs:                  c.Repairs.Load(),
 	}
 }
 

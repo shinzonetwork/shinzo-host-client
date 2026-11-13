@@ -27,6 +27,9 @@ import (
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-evidence-codec/merkle"
 	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
@@ -603,4 +606,213 @@ func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Coll
 		ids = append(ids, doc["_docID"].(string))
 	}
 	return ids
+}
+
+// A held height is logged when it first holds and when its reason changes, at info level while the
+// rule waits for documents and at error level when they refuse it. The next height's first hold is
+// logged even with the same reason.
+func TestRunLogsAHoldOncePerReason(t *testing.T) {
+	n := newVerifierNode(t)
+	core, logs := observer.New(zap.InfoLevel)
+	original := logger.Sugar
+	logger.Sugar = zap.New(core).Sugar()
+	t.Cleanup(func() { logger.Sugar = original })
+	messages := func() []string {
+		var m []string
+		for _, entry := range logs.All() {
+			m = append(m, entry.Message)
+		}
+		return m
+	}
+	level := func(i int) zapcore.Level { return logs.All()[i].Level }
+
+	b100 := newBlock(t, 100, "0x99", 1_700_000_000)
+	stop := run(newVerifier(t, n, chain.Start{Block: 100, Hash: b100.statement.Hash}))
+	defer stop()
+	// No document is held, so no group agrees, on each of the checks in this window.
+	require.Never(t, func() bool { return logs.Len() > 1 }, 2*retryInterval+retryInterval/2, 50*time.Millisecond)
+	require.Len(t, messages(), 1)
+	require.Contains(t, messages()[0], "Block 100 is held")
+	require.Contains(t, messages()[0], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.InfoLevel, level(0))
+
+	// 100 verifies, and 101 holds for the same reason.
+	addAttestedBlock(t, n, b100)
+	require.Eventually(t, func() bool { return logs.Len() == 2 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[1], "Block 101 is held")
+	require.Contains(t, messages()[1], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.InfoLevel, level(1))
+
+	// 101's signers agree on a block whose parent is not 100: a new reason.
+	addAttestedBlock(t, n, newBlock(t, 101, "0x77", 1_700_000_012))
+	require.Eventually(t, func() bool { return logs.Len() == 3 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[2], rule.ReasonParent)
+	require.Equal(t, zapcore.ErrorLevel, level(2))
+	require.Len(t, verified(t, n), 1)
+}
+
+// A height the rule did not accept waits for documents only while every listed signer's attestation
+// is short of a document or in a group below k, with those groups naming one block and holding
+// fewer than required signers.
+func TestAwaitsDocuments(t *testing.T) {
+	a, b, c := signer(0), signer(1), signer(2)
+	cases := []struct {
+		name    string
+		verdict rule.Verdict
+		want    bool
+	}{
+		{"no document held", rule.Verdict{Reason: rule.ReasonNoAgreement}, true},
+		{"one listed signer so far", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK},
+		}}, true},
+		{"attestations before their header", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonHeader}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonHeader},
+		}}, true},
+		{"attestations before their evidence", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonEvidence}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonEvidence},
+		}}, true},
+		{"one signer's state capture not held yet", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonCapture},
+		}}, true},
+		{"a held header that does not match the statements", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBadHeader}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBadHeader},
+		}}, false},
+		{"a held state capture that does not prove one signer's value", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBadCapture},
+		}}, false},
+		{"an unlisted signer only", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: c, Reason: rule.ReasonUnlisted},
+		}}, true},
+		{"one listed signer on two blocks", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: a, Hash: "0xbb", Reason: rule.ReasonBelowK},
+		}}, false},
+		{"listed signers on one block with different claims", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBelowK},
+		}}, false},
+		{"a listed signer's signature fails", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Reason: rule.ReasonSignature},
+		}}, false},
+		{"a reason from a newer codec", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: "a reason from a newer codec"},
+		}}, false},
+		{"two groups have the required signers", rule.Verdict{Reason: rule.ReasonSplit}, false},
+		{"the agreed parent is not the previous verified block", rule.Verdict{Reason: rule.ReasonParent}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, awaitsDocuments(tc.verdict, 2))
+		})
+	}
+}
+
+// A held height checked again reports its hold and unlisted signer 2 once. When listed signer 1
+// adds a valid signature the height verifies with both listed signers, so neither is dropped, and
+// signer 2 is reported again at the next height.
+func TestRunReportsEachResultOncePerHeight(t *testing.T) {
+	n := newVerifierNode(t)
+	b := newBlock(t, 100, "0x99", 1_700_000_000)
+	addHeader(t, n, b)
+	attest(t, n, 0, b.statement)
+	attest(t, n, 2, b.statement)
+	encoded, err := b.statement.Encode()
+	require.NoError(t, err)
+	// A DER signature with r = s = 1, which does not verify.
+	add(t, n, tokens.BlockAttestation.Name, map[string]any{
+		"blockNumber": int64(100), "blockHash": b.statement.Hash, "statement": hex.EncodeToString(encoded),
+		"signatureType": sig.TypeES256K, "signer": signer(1), "signature": "3006020101020101",
+	})
+
+	var mu sync.Mutex
+	dropped := make(map[string]int)
+	var unlisted int
+	var held []uint64
+	v, err := New(n, tokensConfig(chain.Start{Block: 100, Hash: b.statement.Hash}), tokens, Hooks{
+		Dropped: func(reason string) {
+			mu.Lock()
+			defer mu.Unlock()
+			dropped[reason]++
+		},
+		Unlisted: func() {
+			mu.Lock()
+			defer mu.Unlock()
+			unlisted++
+		},
+		Held: func(height uint64) {
+			mu.Lock()
+			defer mu.Unlock()
+			held = append(held, height)
+		},
+	})
+	require.NoError(t, err)
+	stop := run(v)
+	defer stop()
+	// Three checks of the held height.
+	time.Sleep(2*retryInterval + retryInterval/2)
+	attest(t, n, 1, b.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+	attest(t, n, 2, newBlock(t, 101, b.statement.Hash, 1_700_000_012).statement)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return unlisted == 2
+	}, 3*retryInterval, 50*time.Millisecond)
+	stop()
+
+	require.Empty(t, dropped)
+	// 101 may hold before stop returns; 100 held once.
+	require.Equal(t, uint64(100), held[0])
+	require.Equal(t, 1, len(slices.DeleteFunc(held, func(h uint64) bool { return h != 100 })))
+}
+
+// With two of three listed signers required, a listed signer that attested another block at a
+// verified height is dropped once, when the height verifies, and not while it holds.
+func TestRunDropsOnlyLeftOutSigners(t *testing.T) {
+	n := newVerifierNode(t)
+	b := newBlock(t, 100, "0x99", 1_700_000_000)
+	other := newBlock(t, 100, "0x99", 1_700_000_001)
+	addHeader(t, n, b)
+	addHeader(t, n, other)
+	attest(t, n, 0, b.statement)
+	attest(t, n, 2, other.statement)
+
+	var mu sync.Mutex
+	dropped := make(map[string]int)
+	config := tokensConfig(chain.Start{Block: 100, Hash: b.statement.Hash})
+	config.Signers, config.Required = []string{signer(0), signer(1), signer(2)}, 2
+	v, err := New(n, config, tokens, Hooks{Dropped: func(reason string) {
+		mu.Lock()
+		defer mu.Unlock()
+		dropped[reason]++
+	}})
+	require.NoError(t, err)
+	stop := run(v)
+	defer stop()
+	// Signers 0 and 2 are each below k on their own blocks while the height holds.
+	time.Sleep(2*retryInterval + retryInterval/2)
+	mu.Lock()
+	require.Empty(t, dropped)
+	mu.Unlock()
+	attest(t, n, 1, b.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+	stop()
+	require.Equal(t, map[string]int{DroppedBelowK: 1}, dropped)
+}
+
+func TestDroppedReason(t *testing.T) {
+	for reason, want := range map[string]string{
+		rule.ReasonSignature:          DroppedSignature,
+		rule.ReasonStatement:          DroppedStatement,
+		rule.ReasonWrongBlock:         DroppedWrongBlock,
+		rule.ReasonHeader:             DroppedHeader,
+		rule.ReasonBadHeader:          DroppedBadHeader,
+		rule.ReasonMissingClaim:       DroppedMissingClaim,
+		rule.ReasonEmptyClaim:         DroppedEmptyClaim,
+		rule.ReasonBelowK:             DroppedBelowK,
+		rule.ReasonEvidence:           DroppedEvidence,
+		rule.ReasonCapture:            DroppedCapture,
+		rule.ReasonBadCapture:         DroppedBadCapture,
+		"a reason from a newer codec": DroppedOther,
+	} {
+		require.Equal(t, want, droppedReason(reason), reason)
+	}
 }
