@@ -29,6 +29,7 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/shinzohub"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/signer"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/verifier"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/view"
 	"github.com/sourcenetwork/corelog"
 	"github.com/sourcenetwork/defradb/client"
@@ -175,6 +176,8 @@ type Host struct {
 
 	pruners []*pruner.Pruner // One document pruner per chain with all its tables stored
 	// pruneGuardStop context.CancelFunc // Stops the prune guard goroutine
+
+	verifiers sync.WaitGroup // One block verifier per enabled tokens-mode chain
 }
 
 // StartHosting starts the host application with the provided configuration. It initializes DefraDB, sets up the view manager and health server, and optionally subscribes to ShinzoHub events. This is the main entry point for starting the host.
@@ -220,11 +223,7 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		if c.Mode != chain.ModeTokens {
 			continue
 		}
-		assets := make([]rule.Asset, len(c.Assets))
-		for i, a := range c.Assets {
-			assets[i] = rule.Asset{ID: a.ID, SupplySlot: a.SupplySlot}
-		}
-		if _, err := rule.New(rule.Config{Chain: c.CAIP2, Signers: c.Signers, Required: c.Required, Assets: assets}); err != nil {
+		if _, err := rule.New(c.RuleConfig()); err != nil {
 			return nil, fmt.Errorf("chain %s: %w", c.Prefix, err)
 		}
 	}
@@ -591,6 +590,19 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 		}
 	}
 
+	if defraNode != nil {
+		for _, c := range applier.enabled {
+			if c.Mode != chain.ModeTokens {
+				continue
+			}
+			v, err := verifier.New(defraNode, c, c.Collections(), newHost.verifierHooks(c.Prefix))
+			if err != nil {
+				return nil, err
+			}
+			newHost.verifiers.Go(func() { v.Run(processingCtx) })
+		}
+	}
+
 	go newHost.reportStats(processingCtx, statsInterval, logger.Sugar)
 
 	if cfg.HostConfig.OpenBrowserOnStart {
@@ -795,6 +807,16 @@ func (h *Host) Close(ctx context.Context) error {
 		case <-h.listenerDone:
 		case <-ctx.Done():
 		}
+	}
+	// The verifiers query DefraDB, so they stop before it closes, within the same budget.
+	verifiersDone := make(chan struct{})
+	go func() {
+		h.verifiers.Wait()
+		close(verifiersDone)
+	}()
+	select {
+	case <-verifiersDone:
+	case <-ctx.Done():
 	}
 
 	if h.NetworkHandler != nil {
