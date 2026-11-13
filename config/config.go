@@ -43,6 +43,12 @@ var ErrSnapshotChain = fmt.Errorf("host.snapshot is supported only on a host ser
 // chain.
 var ErrEventFilterChains = errors.New("shinzo.event_filter is supported only on a host serving one chain")
 
+// ErrSnapshotTokensMode is returned when host.snapshot is enabled on a tokens-mode chain.
+var ErrSnapshotTokensMode = errors.New("host.snapshot is not supported on a tokens-mode chain")
+
+// ErrEventFilterTokensMode is returned when the event filter is enabled on a tokens-mode chain.
+var ErrEventFilterTokensMode = errors.New("shinzo.event_filter is not supported on a tokens-mode chain")
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	Enabled                bool     `yaml:"enabled"`
@@ -288,7 +294,8 @@ func LoadConfig(path string) (*Config, error) {
 // Ethereum mainnet alone: a snapshot does not name its chain, so another chain's host would import an
 // Ethereum mainnet snapshot, and with snapshots enabled no chain is pruned, including chains the
 // snapshot does not cover. The event filter's rules name one chain's collections and EVM fields, so
-// it needs a host serving one chain. cfg must list at least one chain.
+// it needs a host serving one chain. Neither works on a tokens-mode chain: snapshots hold full-mode
+// tables, and the filter's rules name them. cfg must list at least one chain.
 func CheckChainSettings(cfg *Config) error {
 	if cfg.HostConfig.Snapshot.Enabled {
 		if len(cfg.Chains) > 1 {
@@ -297,9 +304,17 @@ func CheckChainSettings(cfg *Config) error {
 		if cfg.Chains[0].Prefix != chain.EthereumMainnet {
 			return fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotChain)
 		}
+		if cfg.Chains[0].Mode == chain.ModeTokens {
+			return fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrSnapshotTokensMode)
+		}
 	}
-	if cfg.Shinzo.EventFilter.Enabled && len(cfg.Chains) > 1 {
-		return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrEventFilterChains)
+	if cfg.Shinzo.EventFilter.Enabled {
+		if len(cfg.Chains) > 1 {
+			return fmt.Errorf("%d chains: %w", len(cfg.Chains), ErrEventFilterChains)
+		}
+		if cfg.Chains[0].Mode == chain.ModeTokens {
+			return fmt.Errorf("%s: %w", cfg.Chains[0].Prefix, ErrEventFilterTokensMode)
+		}
 	}
 	return nil
 }
