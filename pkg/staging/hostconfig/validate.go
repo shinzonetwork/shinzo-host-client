@@ -3,6 +3,8 @@ package hostconfig
 import (
 	"net"
 	"strconv"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 )
 
 func validate(cfg Config) error {
@@ -14,7 +16,7 @@ func validate(cfg Config) error {
 		return err
 	}
 
-	return nil
+	return hostchain.Validate(cfg.Chains)
 }
 
 func validateLogger(lc LoggerConfig) error {

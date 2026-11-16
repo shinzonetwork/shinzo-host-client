@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/host"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostserver"
@@ -62,6 +63,10 @@ func runStart(cmd *cobra.Command, _ []string) (err error) {
 			return fmt.Errorf("%w: run \"host init\" first", err)
 		}
 		return err
+	}
+
+	if err := hostchain.Require(cfg.Chains); err != nil {
+		return fmt.Errorf("%w: add a [chains.<network ID>] section to %s, or pass --chain <network ID>", err, cfg.ConfigPath)
 	}
 
 	nodeKeys, err := hostkey.Load(cfg.KeyDir)

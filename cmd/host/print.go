@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
+	"strings"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
@@ -15,7 +18,8 @@ Key dir:          %s
 Filter dir:       %s
 Logger:           development=%t level=%s
 HTTP:             addr=%s
-`, cfg.DataDir, cfg.ConfigPath, cfg.KeyDir, cfg.FilterDir, cfg.Logger.Development, cfg.Logger.Level, cfg.HTTP.Addr); err != nil {
+Chains:           %s
+`, cfg.DataDir, cfg.ConfigPath, cfg.KeyDir, cfg.FilterDir, cfg.Logger.Development, cfg.Logger.Level, cfg.HTTP.Addr, chainIDs(cfg)); err != nil {
 		return err
 	}
 
@@ -26,4 +30,11 @@ HTTP:             addr=%s
 
 	_, err = fmt.Fprintf(w, "Operator address: %s\n", shinzoAddr)
 	return err
+}
+
+func chainIDs(cfg hostconfig.Config) string {
+	if len(cfg.Chains) == 0 {
+		return "none"
+	}
+	return strings.Join(slices.Sorted(maps.Keys(cfg.Chains)), ", ")
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
@@ -42,6 +43,17 @@ func seedConfig(t *testing.T, home string) {
 	require.NoError(t, err)
 	_, err = hostconfig.Commit(prepared)
 	require.NoError(t, err)
+	seedChain(t, home)
+}
+
+// seedChain adds a chain to home's config.toml, since start needs one.
+func seedChain(t *testing.T, home string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(home, "config.toml"), os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = f.WriteString("\n[chains.Ethereum__Mainnet]\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 }
 
 // seedKeys pre-creates keys, since start no longer generates them itself.
@@ -178,6 +190,7 @@ func TestRunStartPrintsFullResolvedConfig(t *testing.T) {
 	require.NoError(t, err)
 	_, err = hostconfig.Commit(prepared)
 	require.NoError(t, err)
+	seedChain(t, home)
 	seedKeys(t, home)
 
 	cmd := startCmd()
@@ -205,6 +218,7 @@ func TestRunStartWithoutDataDirDoesNotReuseInitsCustomDataDir(t *testing.T) {
 	require.NoError(t, cmd.Flags().Set("data-dir", customDataDir))
 	cmd.SetOut(&bytes.Buffer{})
 	require.NoError(t, runInit(cmd, nil))
+	seedChain(t, home)
 
 	cmd = startCmd()
 	require.NoError(t, cmd.Flags().Set("home", home))
@@ -243,6 +257,46 @@ func TestRunStartRefusesWithoutKeys(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(home, "keys", "node.key"))
 }
 
+func TestRunStartRefusesWithoutChains(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	prepared, err := hostconfig.Prepare(home, "", nil)
+	require.NoError(t, err)
+	_, err = hostconfig.Commit(prepared)
+	require.NoError(t, err)
+	seedKeys(t, home)
+
+	cmd := startCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	cmd.SetOut(&bytes.Buffer{})
+	withContext(cmd)
+
+	err = runStart(cmd, nil)
+	require.ErrorIs(t, err, hostchain.ErrNoChains)
+	require.ErrorContains(t, err, filepath.Join(home, "config.toml"))
+}
+
+// --chain replaces the saved chains for this run only.
+func TestRunStartChainFlagIsNotPersisted(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+	seedConfig(t, home)
+	seedKeys(t, home)
+
+	cmd := startCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("chain", "Base__Mainnet"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	stopImmediately(cmd)
+	require.NoError(t, runStart(cmd, nil))
+
+	require.Contains(t, out.String(), "Chains:           Base__Mainnet\n")
+
+	reloaded, err := hostconfig.Load(home, "", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, map[string]hostchain.Config{"Ethereum__Mainnet": {}}, reloaded.Chains)
+}
+
 // init and start must agree on the same keys for the same home.
 // Whichever one creates them first, the other loads the exact same ones back.
 func TestRunInitAndRunStartAgreeOnKeys(t *testing.T) {
@@ -253,6 +307,7 @@ func TestRunInitAndRunStartAgreeOnKeys(t *testing.T) {
 	var initOut bytes.Buffer
 	init.SetOut(&initOut)
 	require.NoError(t, runInit(init, nil))
+	seedChain(t, home)
 
 	start := startCmd()
 	require.NoError(t, start.Flags().Set("home", home))

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 )
 
 const (
@@ -52,8 +54,9 @@ type Config struct {
 	// parsed from the file into this struct, ignoring the runtime configs
 	// above. Unlike those, these have a toml value instead of `toml:"-"`.
 
-	Logger LoggerConfig `toml:"logger"`
-	HTTP   HTTPConfig   `toml:"http"`
+	Logger LoggerConfig                `toml:"logger"`
+	HTTP   HTTPConfig                  `toml:"http"`
+	Chains map[string]hostchain.Config `comment:"chains this host serves, keyed by network ID, e.g. Ethereum__Mainnet" toml:"chains"`
 }
 
 // LoggerConfig holds the settings for the host's logger.
@@ -249,6 +252,11 @@ func applyDefaults(cfg *Config) error {
 func applyOverrides(cfg *Config, overrides map[string]any) error {
 	if len(overrides) == 0 {
 		return nil
+	}
+
+	// Decoding merges into the existing map; a chains override replaces it.
+	if _, ok := overrides["chains"]; ok {
+		cfg.Chains = nil
 	}
 
 	nested := map[string]any{}

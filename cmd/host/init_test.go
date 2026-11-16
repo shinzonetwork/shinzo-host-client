@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/cosmos/go-bip39"
@@ -396,4 +398,32 @@ func TestRunInitWarnsWhenDataDirSetOnExistingConfig(t *testing.T) {
 
 	require.NoError(t, runInit(cmd, nil))
 	require.Contains(t, out.String(), "not saved")
+}
+
+func TestRunInitNotesWhenNoChains(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	require.NoError(t, runInit(cmd, nil))
+
+	require.Contains(t, out.String(), "Note: no chains saved in")
+}
+
+func TestRunInitSavesChainFlag(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "myhost")
+
+	cmd := initCmd()
+	require.NoError(t, cmd.Flags().Set("home", home))
+	require.NoError(t, cmd.Flags().Set("chain", "Ethereum__Mainnet"))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	require.NoError(t, runInit(cmd, nil))
+
+	require.NotContains(t, out.String(), "no chains saved")
+	reloaded, err := hostconfig.Load(home, "", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"Ethereum__Mainnet"}, slices.Collect(maps.Keys(reloaded.Chains)))
 }

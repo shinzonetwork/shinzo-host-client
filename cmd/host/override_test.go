@@ -129,3 +129,30 @@ func TestGetOverridesIgnoresHomeAndDataDirOnRealCommands(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"logger.level": "warn"}, overrides)
 }
+
+func TestGetOverridesReadsChainFlag(t *testing.T) {
+	cmd := &cobra.Command{}
+	registerCommonFlags(cmd)
+	require.NoError(t, cmd.Flags().Set("chain", " Ethereum__Mainnet ,Base__Mainnet"))
+	require.NoError(t, cmd.Flags().Set("chain", "Ethereum__Sepolia"))
+
+	overrides, err := getOverrides(cmd)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"chains": map[string]any{
+		"Ethereum__Mainnet": map[string]any{},
+		"Base__Mainnet":     map[string]any{},
+		"Ethereum__Sepolia": map[string]any{},
+	}}, overrides)
+}
+
+func TestGetOverridesRejectsEmptyChain(t *testing.T) {
+	for _, value := range []string{"", " ", "Ethereum__Mainnet,"} {
+		cmd := &cobra.Command{}
+		registerCommonFlags(cmd)
+		require.NoError(t, cmd.Flags().Set("chain", "Base__Mainnet"))
+		require.NoError(t, cmd.Flags().Set("chain", value))
+
+		_, err := getOverrides(cmd)
+		require.ErrorIs(t, err, errEmptyChainFlag, "value %q", value)
+	}
+}
