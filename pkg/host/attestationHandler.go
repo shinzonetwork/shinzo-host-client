@@ -422,8 +422,12 @@ func (h *Host) processBlockSignatureDocument(ctx context.Context, c chain.Collec
 		h.processAttestationsFromBlockSignature(ctx, c, blockSig)
 	}
 
+	elapsed := time.Since(startTime)
 	if h.metrics != nil {
-		h.metrics.UpdateLastProcessingTime(float64(time.Since(startTime).Milliseconds()))
+		h.metrics.UpdateLastProcessingTime(float64(elapsed.Milliseconds()))
+	}
+	if o := h.instruments.chain(c.Prefix); o != nil {
+		h.instruments.processingTime.Record(ctx, elapsed.Seconds(), o.chain)
 	}
 }
 
