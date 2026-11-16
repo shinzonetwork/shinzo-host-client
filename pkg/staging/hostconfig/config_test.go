@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 )
 
 // setupConfig is Prepare+Commit together, for tests that just need a
@@ -448,4 +450,12 @@ func TestValidateOverridesRejectsBadLevel(t *testing.T) {
 
 func TestValidateOverridesAcceptsNil(t *testing.T) {
 	require.NoError(t, ValidateOverrides(nil))
+}
+
+func TestApplyOverridesChainsReplaces(t *testing.T) {
+	cfg := Config{Chains: map[string]hostchain.Config{"Ethereum__Mainnet": {MaxBlocks: 5}}}
+
+	err := applyOverrides(&cfg, map[string]any{"chains": map[string]any{"Base__Mainnet": map[string]any{}}})
+	require.NoError(t, err)
+	require.Equal(t, map[string]hostchain.Config{"Base__Mainnet": {}}, cfg.Chains)
 }

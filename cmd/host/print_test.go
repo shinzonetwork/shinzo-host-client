@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostconfig"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostkey"
 )
@@ -27,6 +28,7 @@ func TestPrintConfigIncludesEveryFieldExceptHome(t *testing.T) {
 		FilterDir:  "/resolved/filter",
 		Logger:     hostconfig.LoggerConfig{Development: true, Level: "warn"},
 		HTTP:       hostconfig.HTTPConfig{Addr: ":9090"},
+		Chains:     map[string]hostchain.Config{"Ethereum__Mainnet": {}, "Base__Mainnet": {}},
 	}
 
 	nodeKeys := testNodeKeys(t)
@@ -44,6 +46,7 @@ func TestPrintConfigIncludesEveryFieldExceptHome(t *testing.T) {
 		"development=true",
 		"level=warn",
 		"addr=:9090",
+		"Base__Mainnet, Ethereum__Mainnet",
 		wantAddr,
 	} {
 		require.Contains(t, out.String(), want)
@@ -65,4 +68,10 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("write failed")
+}
+
+func TestPrintConfigShowsNoChains(t *testing.T) {
+	var out bytes.Buffer
+	require.NoError(t, printConfig(&out, hostconfig.Config{}, testNodeKeys(t)))
+	require.Contains(t, out.String(), "Chains:           none")
 }

@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/staging/hostchain"
 )
 
 // validateLogger tested directly, independent of validate/Config, so a
@@ -90,4 +92,12 @@ func TestValidateDelegatesToValidateHTTP(t *testing.T) {
 	err := validate(cfg)
 	require.ErrorIs(t, err, errInvalidAddr)
 	require.Equal(t, validateHTTP(cfg.HTTP), err)
+}
+
+// hostchain's own tests cover the rules; this only checks validate runs them.
+func TestValidateDelegatesToHostchain(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Chains = map[string]hostchain.Config{"ethereum__mainnet": {}}
+
+	require.ErrorIs(t, validate(cfg), hostchain.ErrInvalidID)
 }

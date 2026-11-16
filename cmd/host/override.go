@@ -15,8 +15,9 @@ import (
 // walks cmd.Flags(), which cobra merges with inherited persistent flags
 // from parent commands at Execute time. That's fine today since root has
 // no persistent flags, but worth remembering if one is ever added with a
-// dot in its name. The result is ready to pass straight into
-// hostconfig.Prepare or hostconfig.Load.
+// dot in its name. --chain is the one exception: it has no dot and
+// becomes a whole "chains" override (see getChains). The result is
+// ready to pass straight into hostconfig.Prepare or hostconfig.Load.
 func getOverrides(cmd *cobra.Command) (map[string]any, error) {
 	overrides := map[string]any{}
 
@@ -51,5 +52,35 @@ func getOverrides(cmd *cobra.Command) (map[string]any, error) {
 		return nil, visitErr
 	}
 
+	if cmd.Flags().Changed("chain") {
+		chains, err := getChains(cmd)
+		if err != nil {
+			return nil, err
+		}
+		overrides["chains"] = chains
+	}
+
 	return overrides, nil
+}
+
+// getChains turns --chain into a chains override, each with default settings.
+func getChains(cmd *cobra.Command) (map[string]any, error) {
+	// StringArray, not StringSlice: StringSlice drops a repeated --chain "".
+	values, err := cmd.Flags().GetStringArray("chain")
+	if err != nil {
+		return nil, err
+	}
+
+	chains := map[string]any{}
+	for _, value := range values {
+		for id := range strings.SplitSeq(value, ",") {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				return nil, errEmptyChainFlag
+			}
+			chains[id] = map[string]any{}
+		}
+	}
+
+	return chains, nil
 }

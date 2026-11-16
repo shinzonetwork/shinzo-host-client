@@ -125,6 +125,14 @@ func reportInitResult(cmd *cobra.Command, out io.Writer, cfg hostconfig.Config, 
 		}
 	}
 
+	if len(cfg.Chains) == 0 {
+		if _, err := fmt.Fprintf(out,
+			"Note: no chains saved in %s; start needs one. Add a [chains.<network ID>] section to it, or pass --chain <network ID> to start.\n",
+			cfg.ConfigPath); err != nil {
+			return err
+		}
+	}
+
 	// --data-dir isn't saved to config.toml, so remind the operator here,
 	// at the one moment they're most likely to miss it, right after
 	// setting it, before they ever run start without repeating it
