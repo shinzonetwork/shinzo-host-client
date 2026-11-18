@@ -112,10 +112,10 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
+          "query": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
           "refId": "chain"
         },
-        "definition": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
+        "definition": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
         "refresh": 2,
         "sort": 1,
         "includeAll": true,
@@ -136,10 +136,10 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
+          "query": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
           "refId": "network"
         },
-        "definition": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
+        "definition": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
         "refresh": 2,
         "sort": 1,
         "includeAll": true,
@@ -159,7 +159,7 @@
       "description": "One row per instance, worst first. Issues counts failing checks: no documents received in 10m, 0 peers, lag > 50 blocks on any chain, down (seen in the time range but not reporting now). Chains = chains the host serves (the selected ones). Height, Lag and Queue are the highest across the selected chains; select one chain to compare heights. Click an instance to open Shinzo Host - single.",
       "targets": [
         {
-          "expr": "sum by (instance) (\n  label_replace((sum by (instance) (increase(shinzo_host_documents_total{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[10m])) or 0 * max by (instance) (process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"})) == bool 0, \"check\", \"receiving\", \"\", \"\")\n  or label_replace(max by (instance) (shinzo_p2p_peers{job=~\"$job\", instance=~\"$instance\"}) == bool 0, \"check\", \"peers\", \"\", \"\")\n  or label_replace(max by (instance) (max by (instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_received{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}) - max by (instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_height{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})) > bool 50, \"check\", \"lag\", \"\", \"\")\n  or label_replace(max by (instance) (present_over_time(process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"}[$__range])) unless max by (instance) (process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"}), \"check\", \"down\", \"\", \"\")\n)",
+          "expr": "sum by (instance) (\n  label_replace((sum by (instance) (increase(shinzo_host_documents_total{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[10m])) or 0 * max by (instance) (process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"})) == bool 0, \"check\", \"receiving\", \"\", \"\")\n  or label_replace(max by (instance) (shinzo_p2p_peers{job=~\"$job\", instance=~\"$instance\"}) == bool 0, \"check\", \"peers\", \"\", \"\")\n  or label_replace(max by (instance) (max by (instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_received{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}) - max by (instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_height{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})) > bool 50, \"check\", \"lag\", \"\", \"\")\n  or label_replace(max by (instance) (present_over_time(process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"}[$__range])) unless max by (instance) (process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"}), \"check\", \"down\", \"\", \"\")\n  or label_replace(min by (instance) ((shinzo_host_chain_ready{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} unless on (job, instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0))) == bool 0, \"check\", \"chains_ready\", \"\", \"\")\n)",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
@@ -313,6 +313,30 @@
             "type": "prometheus",
             "uid": "${datasource}"
           }
+        },
+        {
+          "expr": "sum by (instance) (1 - (shinzo_host_chain_ready{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} unless on (job, instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0)))",
+          "legendFormat": "",
+          "refId": "N",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "expr": "time() - max by (instance) (shinzo_host_document_last_received_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "",
+          "refId": "O",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
       ],
       "transformations": [
@@ -332,16 +356,18 @@
               "Value #A": 1,
               "service_version": 2,
               "Value #C": 3,
-              "Value #D": 4,
-              "Value #E": 5,
-              "Value #F": 6,
-              "Value #G": 7,
-              "Value #H": 8,
-              "Value #I": 9,
-              "Value #J": 10,
-              "Value #K": 11,
-              "Value #L": 12,
-              "Value #M": 13
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15,
+              "Value #N": 4,
+              "Value #O": 5
             },
             "renameByName": {
               "instance": "Instance",
@@ -357,7 +383,9 @@
               "Value #J": "Queries/min",
               "Value #K": "Views",
               "Value #L": "Uptime",
-              "Value #M": "Restarts"
+              "Value #M": "Restarts",
+              "Value #N": "Not ready",
+              "Value #O": "Last doc"
             }
           }
         },
@@ -725,6 +753,84 @@
               {
                 "id": "decimals",
                 "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Not ready"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last doc"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
               }
             ]
           }
@@ -1693,6 +1799,284 @@
         "w": 12,
         "x": 12,
         "y": 42
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Chain status",
+      "collapsed": false,
+      "panels": [],
+      "id": 17,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Chains not ready",
+      "description": "Chains each instance serves that are not ready (shinzo.host.chain.ready = 0).",
+      "targets": [
+        {
+          "expr": "sum by (instance) (1 - (shinzo_host_chain_ready{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} unless on (job, instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0)))",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 18,
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Time since last document",
+      "description": "Seconds since a peer last sent the instance a document on any selected chain. A chain is no longer ready after 300s.",
+      "targets": [
+        {
+          "expr": "time() - max by (instance) (shinzo_host_document_last_received_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 19,
+      "gridPos": {
+        "x": 8,
+        "y": 51,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Block signature processing p95",
+      "description": "p95 time to verify a block signature from peers and write its attestation records.",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(shinzo_host_block_signatures_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[$__rate_interval])))",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 20,
+      "gridPos": {
+        "x": 16,
+        "y": 51,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Chains not served",
+      "description": "Chains the config lists, or the store holds, that the host does not serve at this start, and why (shinzo.host.chain.enabled = 0).",
+      "targets": [
+        {
+          "expr": "max by (instance, shinzo_chain_name, shinzo_chain_network, reason) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0)",
+          "legendFormat": "",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true
+            },
+            "renameByName": {
+              "instance": "Instance",
+              "shinzo_chain_name": "Chain",
+              "shinzo_chain_network": "Network",
+              "reason": "Reason"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "All chains are served",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 21,
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 24,
+        "h": 6
       },
       "datasource": {
         "type": "prometheus",

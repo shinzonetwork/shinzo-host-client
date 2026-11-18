@@ -107,10 +107,10 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
+          "query": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
           "refId": "chain"
         },
-        "definition": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
+        "definition": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\"}, shinzo_chain_name)",
         "refresh": 2,
         "sort": 1,
         "includeAll": true,
@@ -131,10 +131,10 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
+          "query": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
           "refId": "network"
         },
-        "definition": "label_values(shinzo_host_queue_documents{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
+        "definition": "label_values(shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\"}, shinzo_chain_network)",
         "refresh": 2,
         "sort": 1,
         "includeAll": true,
@@ -151,10 +151,10 @@
     {
       "type": "stat",
       "title": "Health",
-      "description": "Healthy when the host received documents from peers in the last 10m and has peers > 0 (same checks as the original host dashboard). A running host that has never received a document is Unhealthy. A check whose metric is missing (P2P disabled) is skipped. Down = no data.",
+      "description": "Healthy when the host received documents from peers in the last 10m has peers > 0, and every chain it serves is ready (shinzo.host.chain.ready) (same checks as the original host dashboard). A running host that has never received a document is Unhealthy. A check whose metric is missing (P2P disabled) is skipped. Down = no data.",
       "targets": [
         {
-          "expr": "min by (instance) (\n  label_replace((sum by (instance) (increase(shinzo_host_documents_total{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[10m])) or 0 * max by (instance) (process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"})) > bool 0, \"check\", \"receiving\", \"\", \"\")\n  or label_replace(max by (instance) (shinzo_p2p_peers{job=~\"$job\", instance=~\"$instance\"}) > bool 0, \"check\", \"peers\", \"\", \"\")\n)",
+          "expr": "min by (instance) (\n  label_replace((sum by (instance) (increase(shinzo_host_documents_total{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[10m])) or 0 * max by (instance) (process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"})) > bool 0, \"check\", \"receiving\", \"\", \"\")\n  or label_replace(max by (instance) (shinzo_p2p_peers{job=~\"$job\", instance=~\"$instance\"}) > bool 0, \"check\", \"peers\", \"\", \"\")\n  or label_replace(min by (instance) ((shinzo_host_chain_ready{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} unless on (job, instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0))), \"check\", \"chains_ready\", \"\", \"\")\n)",
           "legendFormat": "{{instance}}",
           "range": false,
           "instant": true,
@@ -1038,6 +1038,556 @@
     },
     {
       "type": "row",
+      "title": "Chain status",
+      "collapsed": false,
+      "panels": [],
+      "id": 60,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "type": "table",
+      "title": "Chains",
+      "description": "Each chain the host serves: whether it is ready, how long since a peer last sent it a document, its pruner cutoff, and the blocks it keeps above the cutoff. The same values /metrics reports per chain.",
+      "targets": [
+        {
+          "expr": "max by (shinzo_chain_name, shinzo_chain_network) ((shinzo_host_chain_ready{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} unless on (job, instance, shinzo_chain_name, shinzo_chain_network) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0)))",
+          "legendFormat": "",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "expr": "time() - max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_document_last_received_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "expr": "max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_height{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "expr": "max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_prune_cutoff{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "",
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "expr": "max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_height{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}) - max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_prune_cutoff{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "",
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "shinzo_chain_name": 0,
+              "shinzo_chain_network": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6
+            },
+            "renameByName": {
+              "shinzo_chain_name": "Chain",
+              "shinzo_chain_network": "Network",
+              "Value #A": "Ready",
+              "Value #B": "Last document",
+              "Value #C": "Height",
+              "Value #D": "Prune cutoff",
+              "Value #E": "Retained blocks"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "No chains",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ready"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "No",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "Yes",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last document"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Height"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Prune cutoff"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Retained blocks"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 61,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Chains not served",
+      "description": "Chains the config lists, or the store holds, that the host does not serve at this start, and why (shinzo.host.chain.enabled = 0).",
+      "targets": [
+        {
+          "expr": "max by (instance, shinzo_chain_name, shinzo_chain_network, reason) (shinzo_host_chain_enabled{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"} == 0)",
+          "legendFormat": "",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "instance": true
+            },
+            "renameByName": {
+              "instance": "Instance",
+              "shinzo_chain_name": "Chain",
+              "shinzo_chain_network": "Network",
+              "reason": "Reason"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "All chains are served",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 62,
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Time since last document",
+      "description": "Seconds since a peer last sent each chain a document. A chain is no longer ready after 300s.",
+      "targets": [
+        {
+          "expr": "time() - max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_document_last_received_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "{{shinzo_chain_name}}/{{shinzo_chain_network}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 63,
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Block signature processing duration",
+      "description": "Time to verify a block signature from peers and write its attestation records (shinzo.host.block_signatures.duration).",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(shinzo_host_block_signatures_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(shinzo_host_block_signatures_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(shinzo_host_block_signatures_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 64,
+      "gridPos": {
+        "x": 8,
+        "y": 17,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Retained blocks",
+      "description": "Blocks each chain keeps above its pruner cutoff (block height - cutoff). Empty when the host does not prune.",
+      "targets": [
+        {
+          "expr": "max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_block_height{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"}) - max by (shinzo_chain_name, shinzo_chain_network) (shinzo_host_prune_cutoff{job=~\"$job\", instance=~\"$instance\", shinzo_chain_name=~\"$chain\", shinzo_chain_network=~\"$network\"})",
+          "legendFormat": "{{shinzo_chain_name}}/{{shinzo_chain_network}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 65,
+      "gridPos": {
+        "x": 16,
+        "y": 17,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "type": "row",
       "title": "Errors",
       "collapsed": false,
       "datasource": {
@@ -1049,7 +1599,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 8
+        "y": 25
       },
       "panels": []
     },
@@ -1157,7 +1707,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 9
+        "y": 26
       },
       "datasource": {
         "type": "prometheus",
@@ -1177,7 +1727,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 33
       },
       "panels": []
     },
@@ -1235,7 +1785,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 17
+        "y": 34
       },
       "datasource": {
         "type": "prometheus",
@@ -1293,7 +1843,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 17
+        "y": 34
       },
       "datasource": {
         "type": "prometheus",
@@ -1393,7 +1943,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 25
+        "y": 42
       },
       "datasource": {
         "type": "prometheus",
@@ -1473,7 +2023,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 25
+        "y": 42
       },
       "datasource": {
         "type": "prometheus",
@@ -1533,7 +2083,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 33
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -1609,7 +2159,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 33
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -1710,7 +2260,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 33
+        "y": 50
       },
       "datasource": {
         "type": "prometheus",
@@ -1730,7 +2280,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 58
       },
       "panels": []
     },
@@ -1851,7 +2401,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 42
+        "y": 59
       },
       "datasource": {
         "type": "prometheus",
@@ -1946,7 +2496,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 42
+        "y": 59
       },
       "datasource": {
         "type": "prometheus",
@@ -2026,7 +2576,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 50
+        "y": 67
       },
       "datasource": {
         "type": "prometheus",
@@ -2106,7 +2656,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 50
+        "y": 67
       },
       "datasource": {
         "type": "prometheus",
@@ -2166,7 +2716,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 58
+        "y": 75
       },
       "datasource": {
         "type": "prometheus",
@@ -2227,7 +2777,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 58
+        "y": 75
       },
       "datasource": {
         "type": "prometheus",
@@ -2288,7 +2838,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 58
+        "y": 75
       },
       "datasource": {
         "type": "prometheus",
@@ -2308,7 +2858,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 83
       },
       "panels": []
     },
@@ -2391,7 +2941,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 84
       },
       "datasource": {
         "type": "prometheus",
@@ -2486,7 +3036,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 84
       },
       "datasource": {
         "type": "prometheus",
@@ -2566,7 +3116,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 92
       },
       "datasource": {
         "type": "prometheus",
@@ -2646,7 +3196,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 92
       },
       "datasource": {
         "type": "prometheus",
@@ -2706,7 +3256,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 83
+        "y": 100
       },
       "datasource": {
         "type": "prometheus",
@@ -2813,7 +3363,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 83
+        "y": 100
       },
       "datasource": {
         "type": "prometheus",
@@ -2871,7 +3421,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 83
+        "y": 100
       },
       "datasource": {
         "type": "prometheus",
@@ -2891,7 +3441,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 108
       },
       "panels": []
     },
@@ -2948,7 +3498,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 92
+        "y": 109
       },
       "datasource": {
         "type": "prometheus",
@@ -3043,7 +3593,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 92
+        "y": 109
       },
       "datasource": {
         "type": "prometheus",
@@ -3063,7 +3613,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 99
+        "y": 116
       },
       "panels": [
         {
@@ -3129,7 +3679,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 100
+            "y": 117
           },
           "datasource": {
             "type": "prometheus",
@@ -3189,7 +3739,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 100
+            "y": 117
           },
           "datasource": {
             "type": "prometheus",
@@ -3269,7 +3819,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 108
+            "y": 125
           },
           "datasource": {
             "type": "prometheus",
@@ -3339,7 +3889,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 108
+            "y": 125
           },
           "datasource": {
             "type": "prometheus",
@@ -3399,7 +3949,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 108
+            "y": 125
           },
           "datasource": {
             "type": "prometheus",
@@ -3421,7 +3971,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 100
+        "y": 117
       },
       "panels": [
         {
@@ -3477,7 +4027,7 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 101
+            "y": 118
           },
           "datasource": {
             "type": "prometheus",
