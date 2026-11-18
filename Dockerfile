@@ -82,8 +82,8 @@ ENV LOG_LEVEL=error \
 # 9181: DefraDB API
 # 9182: GraphQL Playground
 # 9171: P2P
-# 8080: health / metrics (internal, used by HEALTHCHECK)
-EXPOSE 9181 9182 9171
+# 8080: health / metrics
+EXPOSE 9181 9182 9171 8080
 
 HEALTHCHECK --interval=15s --timeout=30s --start-period=120s --retries=10 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/metrics || exit 1
