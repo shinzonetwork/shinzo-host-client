@@ -27,6 +27,11 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
+// testDefra returns a DefraService for tests that only need one to pass in.
+func testDefra() DefraService {
+	return NewDefra(hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{})
+}
+
 // Start now blocks until ctx is done, so this runs it in the
 // background, confirms a handler is actually reachable while it's
 // running, then cancels and checks it returns cleanly.
@@ -42,7 +47,7 @@ func TestStartServesWhileRunningThenCleansUpOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel) // if an assertion below fails first, this still stops the server
 	done := make(chan error, 1)
-	go func() { done <- Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, srv) }()
+	go func() { done <- Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv) }()
 
 	require.Eventually(t, func() bool { return srv.Addr() != "" }, 2*time.Second, 10*time.Millisecond)
 
@@ -62,7 +67,7 @@ func TestStartMountsStatus(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.NoError(t, Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, srv))
+	require.NoError(t, Start(ctx, hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv))
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
@@ -84,6 +89,6 @@ func TestStartCleansUpIfBindFails(t *testing.T) {
 		return nil
 	})
 
-	require.Error(t, Start(context.Background(), hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, srv))
+	require.Error(t, Start(context.Background(), hostconfig.Config{}, zap.NewNop(), hostkey.NodeKeys{}, testDefra(), srv))
 	require.True(t, cleaned, "Start must run registered shutdown fns if binding fails")
 }

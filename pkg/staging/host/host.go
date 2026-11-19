@@ -19,9 +19,9 @@ import (
 // Start the host: mounts everything it serves onto srv, binds it, and
 // blocks until ctx is done (a signal, or srv failing on its own).
 //
-// cfg and keys aren't used by any mount yet, kept as params so this
+// cfg, keys and defra aren't used by any mount yet, kept as params so this
 // signature won't need to change when one needs them.
-func Start(ctx context.Context, _ hostconfig.Config, log *zap.Logger, _ hostkey.NodeKeys, srv *hostserver.Server) error {
+func Start(ctx context.Context, _ hostconfig.Config, log *zap.Logger, _ hostkey.NodeKeys, _ DefraService, srv *hostserver.Server) error {
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
