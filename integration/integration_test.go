@@ -34,19 +34,29 @@ import (
 	localschema "github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-const prefix = "Testchain__Devnet"
+const (
+	prefix = "Testchain__Devnet"
+	// chainID is the chain ID every stand-in generator signs its blocks with.
+	chainID = 1337
+)
 
 // A generator's block reaches the host over P2P, and the host records an attestation for it.
 func TestHostAttestsGeneratorBlock(t *testing.T) {
 	ctx := context.Background()
 	gen := startStandIn(t, prefix)
+	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	gen.config.Signers = []string{key.GetPublic().String()}
 	h := startHost(t, []chain.Config{gen.config})
 	gen.waitForHost(t, h)
 	cols := gen.cols
 
 	// The stand-in writes a block's documents, then a BlockSignature over their head CIDs signed with
 	// a secp256k1 key, the way the generator's block handler signs a block.
-	const blockNumber = 1000
+	const (
+		blockNumber = 1000
+		blockHash   = "0xblock1000"
+	)
 	blockCols := []chain.Collection{cols.Block, cols.Transaction, cols.Log, cols.AccessListEntry}
 	collector := node.NewBatchCIDCollector()
 	signingCtx := node.ContextWithBatchSigning(ctx, collector)
@@ -56,10 +66,10 @@ func TestHostAttestsGeneratorBlock(t *testing.T) {
 	cids := collector.GetCIDs()
 	require.Len(t, cids, len(blockCols))
 
-	key, err := crypto.GenerateKey(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
 	root := node.ComputeMerkleRoot(cids)
-	signature, err := key.Sign(root)
+	payload, err := attestation.SignaturePayload(prefix, chainID, blockNumber, blockHash, len(cids), root)
+	require.NoError(t, err)
+	signature, err := key.Sign(payload)
 	require.NoError(t, err)
 	signed := make([]string, len(cids))
 	for i, id := range cids {
@@ -68,6 +78,7 @@ func TestHostAttestsGeneratorBlock(t *testing.T) {
 	sort.Strings(signed)
 	addDocument(ctx, t, gen.node, cols.BlockSignature.Name, map[string]any{
 		"blockNumber":       blockNumber,
+		"blockHash":         blockHash,
 		"merkleRoot":        hex.EncodeToString(root),
 		"cidCount":          len(signed),
 		"cids":              signed,
@@ -186,7 +197,7 @@ func startStandIn(t *testing.T, chainPrefix string) standIn {
 	return standIn{
 		cols:   cols,
 		node:   n,
-		config: chain.Config{Prefix: chainPrefix, Generators: []chain.Generator{{URL: schemaServer.URL, Peer: addrs[0]}}},
+		config: chain.Config{Prefix: chainPrefix, ChainID: chainID, Generators: []chain.Generator{{URL: schemaServer.URL, Peer: addrs[0]}}},
 		joins:  joins,
 	}
 }

@@ -25,6 +25,12 @@ defradb:
 # dials each generator's peer.
 chains:
   - prefix: Ethereum__Mainnet
+    chain_id: 1
+    signers:  # The generators whose block signatures count, as their /registration pages show them
+      - "0x025b33affa6b716c8fd6ac8c176c9dde5fac85aa222b0d6a3c58a6283bdf042c8b" # IND1
+      - "0x03b5b655700e41fb287a34853ecfda16c1000c452f8505aabc83c37c888b3752b8" # IND2
+      - "0x0342cdbd2e5cf526e1ca18e6a16b31e78e7871b1fe7b528f04ec6616a517560eb4" # IND3
+      - "0x0360ea698273a9ddc4033f0048f8f0a8741a6799121a2f11f205dc94973b5d1bc0" # IND4
     generators:
       - url: http://35.254.135.221:8080 # IND1
         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT

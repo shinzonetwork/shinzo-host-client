@@ -16,6 +16,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/shinzonetwork/shinzo-querysig v0.2.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
+	github.com/sourcenetwork/corekv v0.3.2
 	github.com/sourcenetwork/corelog v0.0.9
 	github.com/sourcenetwork/defradb v1.0.1-0.20261026140438-2a899b860df3
 	github.com/sourcenetwork/immutable v0.3.0
@@ -343,7 +344,6 @@ require (
 	github.com/skip-mev/block-sdk/v2 v2.1.5 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/sourcenetwork/acp_core v0.8.1 // indirect
-	github.com/sourcenetwork/corekv v0.3.2 // indirect
 	github.com/sourcenetwork/corekv/badger v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/blockstore v0.3.1 // indirect
 	github.com/sourcenetwork/corekv/chunk v0.3.1 // indirect

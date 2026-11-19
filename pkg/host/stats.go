@@ -105,7 +105,7 @@ func (h *Host) reportStats(ctx context.Context, interval time.Duration, log *zap
 				}
 				log.Infof(
 					"chain stats: chain=%s block=%d advance=%d docs=%d docsByTable=%s blockSigs=%d "+
-						"attested=%d attestErrors=%d sigVerified=%d sigFailed=%d queueDrops=%d queuePeak=%d",
+						"attested=%d attestErrors=%d sigVerified=%d sigFailed=%d sigUnlisted=%d queueDrops=%d queuePeak=%d",
 					c.Prefix, blocks[i], blockAdvance(prevBlocks[i], blocks[i]),
 					counters.DocumentsReceived-prev.DocumentsReceived,
 					strings.Join(byTable, ","),
@@ -114,6 +114,7 @@ func (h *Host) reportStats(ctx context.Context, interval time.Duration, log *zap
 					counters.AttestationErrors-prev.AttestationErrors,
 					counters.SignatureVerifications-prev.SignatureVerifications,
 					counters.SignatureFailures-prev.SignatureFailures,
+					counters.UnlistedSignatures-prev.UnlistedSignatures,
 					drops-prevDrops[i], c.TakeQueuePeak(),
 				)
 				prevCounters[i], prevDrops[i] = counters, drops
