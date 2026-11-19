@@ -14,6 +14,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/pelletier/go-toml/v2 v2.4.3
+	github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261112194140-4ddb4afa3964
 	github.com/shinzonetwork/shinzo-querysig v0.2.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
@@ -72,6 +73,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/NathanBaulch/protoc-gen-cobra v1.2.1 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
+	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/awalterschulze/gographviz v2.0.3+incompatible // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
@@ -122,6 +124,7 @@ require (
 	github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb // indirect
 	github.com/cometbft/cometbft v0.38.21 // indirect
 	github.com/cometbft/cometbft-db v0.14.1 // indirect
+	github.com/consensys/gnark-crypto v0.18.1 // indirect
 	github.com/cosmos/btcutil v1.0.5 // indirect
 	github.com/cosmos/cosmos-db v1.1.3 // indirect
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5 // indirect
@@ -132,6 +135,7 @@ require (
 	github.com/cosmos/ibc-go/v10 v10.1.1 // indirect
 	github.com/cosmos/ics23/go v0.11.0 // indirect
 	github.com/cosmos/ledger-cosmos-go v0.16.0 // indirect
+	github.com/crate-crypto/go-eth-kzg v1.5.0 // indirect
 	github.com/cskr/pubsub v1.0.2 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -145,9 +149,11 @@ require (
 	github.com/emicklei/dot v1.11.0 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.8 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
+	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/filecoin-project/go-clock v0.1.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -167,6 +173,7 @@ require (
 	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.1 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
@@ -175,6 +182,7 @@ require (
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/gofrs/flock v0.12.1 // indirect
 	github.com/gofrs/uuid/v5 v5.4.0 // indirect
 	github.com/gogo/googleapis v1.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -339,6 +347,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sasha-s/go-deadlock v0.3.7 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
+	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/skip-mev/block-sdk/v2 v2.1.5 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
@@ -365,12 +374,15 @@ require (
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/supranational/blst v0.3.16 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect
 	github.com/tendermint/tendermint v0.35.9 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/textileio/go-log/v2 v2.1.3-gke-2 // indirect
 	github.com/tidwall/btree v1.8.1 // indirect
+	github.com/tklauser/go-sysconf v0.3.16 // indirect
+	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
@@ -383,6 +395,7 @@ require (
 	github.com/wundergraph/go-arena v1.1.0 // indirect
 	github.com/wundergraph/graphql-go-tools/v2 v2.4.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zalando/go-keyring v0.2.8 // indirect
 	github.com/zondax/golem v0.27.0 // indirect
 	github.com/zondax/hid v0.9.2 // indirect

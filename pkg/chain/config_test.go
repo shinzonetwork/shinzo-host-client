@@ -7,6 +7,19 @@ import (
 )
 
 func TestValidate(t *testing.T) {
+	tokens := func(prefix, caip2 string) Config {
+		return Config{
+			Prefix: prefix, Mode: ModeTokens, CAIP2: caip2, Signers: []string{"02aa"}, Required: 1,
+			Assets: []Asset{{ID: "8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x35"}},
+			Start:  Start{Block: 100, Hash: "0x01"},
+		}
+	}
+	noAssets := tokens(EthereumMainnet, "eip155:1")
+	noAssets.Assets = nil
+	noStartHash := tokens(EthereumMainnet, "eip155:1")
+	noStartHash.Start.Hash = ""
+	negativeStart := tokens(EthereumMainnet, "eip155:1")
+	negativeStart.Start.Block = -1
 	cases := []struct {
 		desc    string
 		chains  []Config
@@ -46,6 +59,18 @@ func TestValidate(t *testing.T) {
 		},
 		{"generator peer with a host name", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://10.0.0.5:8080", Peer: "gen.example.com:9171"}}}}, ErrInvalidGeneratorPeer},
 		{"generator peer with a bad multiaddr", []Config{{Prefix: EthereumMainnet, Generators: []Generator{{URL: "http://10.0.0.5:8080", Peer: "/ip4/10.0.0.5/tcpp/9171"}}}}, ErrInvalidGeneratorPeer},
+		{"full mode named", []Config{{Prefix: EthereumMainnet, Mode: ModeFull}}, nil},
+		{"tokens mode on two chains", []Config{tokens(EthereumMainnet, "eip155:1"), tokens("Bsc__Mainnet", "eip155:56")}, nil},
+		{"unknown mode", []Config{{Prefix: EthereumMainnet, Mode: "logs"}}, ErrInvalidMode},
+		{"caip2 in full mode", []Config{{Prefix: EthereumMainnet, CAIP2: "eip155:1"}}, ErrTokenKeyInFullMode},
+		{"signers in full mode", []Config{{Prefix: EthereumMainnet, Signers: []string{"02aa"}}}, ErrTokenKeyInFullMode},
+		{"required in full mode", []Config{{Prefix: EthereumMainnet, Required: 1}}, ErrTokenKeyInFullMode},
+		{"assets in full mode", []Config{{Prefix: EthereumMainnet, Assets: []Asset{{ID: "8d0d000ee44948fc98c9b98a4fa4921476f08b0d"}}}}, ErrTokenKeyInFullMode},
+		{"start in full mode", []Config{{Prefix: EthereumMainnet, Start: Start{Block: 100}}}, ErrTokenKeyInFullMode},
+		{"tokens mode without assets", []Config{noAssets}, ErrMissingTokenKey},
+		{"tokens mode without a start hash", []Config{noStartHash}, ErrMissingTokenKey},
+		{"tokens mode with a negative start block", []Config{negativeStart}, ErrInvalidStartBlock},
+		{"two chains with one caip2", []Config{tokens(EthereumMainnet, "eip155:1"), tokens("Bsc__Mainnet", "eip155:1")}, ErrDuplicateCAIP2},
 	}
 
 	for _, c := range cases {
