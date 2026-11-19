@@ -28,6 +28,7 @@ var (
 	ErrSchemaHostOwnedType       = fmt.Errorf("schema declares a type the host owns")
 	ErrSchemaMissingType         = fmt.Errorf("schema is missing a collection the generator writes")
 	ErrSchemaMissingIndexedField = fmt.Errorf("schema is missing a field the host indexes")
+	ErrSchemaUnindexedHeight     = fmt.Errorf("schema does not index a table's height field")
 	// ErrSchemaNoResponse marks a FetchSchema error that came from FetchResponse: the generator
 	// returned no usable schema response, as opposed to a schema the checks refuse.
 	ErrSchemaNoResponse = fmt.Errorf("generator returned no usable schema response")
@@ -111,8 +112,11 @@ func FetchResponse(ctx context.Context, httpClient *http.Client, fullURL string)
 }
 
 // checkSchema checks a generator's schema response, as FetchResponse returns it, against the
-// chain's collections: it is for this chain, every type is under the chain's prefix, the host's
-// AttestationRecord type is left out, and every collection the generator writes is there.
+// chain's collections: it is for this chain, every type is under the chain's prefix, the types the
+// host writes are left out, and every collection the generator writes is there. In
+// tokens mode each of those collections must also index its height field: the pruner skips a
+// dependent table whose height field has no index, and applyHostIndexes indexes full-mode tables
+// only.
 func checkSchema(resp Response, c chain.Collections) error {
 	if resp.Network != c.Prefix {
 		return fmt.Errorf("network %q, want %q: %w", resp.Network, c.Prefix, ErrSchemaWrongNetwork)
@@ -122,13 +126,20 @@ func checkSchema(resp Response, c chain.Collections) error {
 		if !strings.HasPrefix(def.Name, c.Prefix+"__") {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaForeignType)
 		}
-		if def.Name == c.AttestationRecord.Name {
+		if def.Name == c.AttestationRecord.Name || def.Name == c.VerifiedBlock.Name {
 			return fmt.Errorf("type %s: %w", def.Name, ErrSchemaHostOwnedType)
 		}
 	}
 	for _, col := range c.Generated() {
-		if doc.Definitions.ForName(col.Name) == nil {
+		def := doc.Definitions.ForName(col.Name)
+		if def == nil {
 			return fmt.Errorf("type %s: %w", col.Name, ErrSchemaMissingType)
+		}
+		if !c.TokensMode() {
+			continue
+		}
+		if f := def.Fields.ForName(col.HeightField); f == nil || f.Directives.ForName(indexDirective) == nil {
+			return fmt.Errorf("%s.%s: %w", col.Name, col.HeightField, ErrSchemaUnindexedHeight)
 		}
 	}
 	return nil

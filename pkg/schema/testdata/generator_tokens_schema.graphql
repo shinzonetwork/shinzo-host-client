@@ -1,0 +1,32 @@
+type Bsc__Mainnet__Header {
+    number: Int @index
+    hash: String @index
+    parentHash: String
+    timestamp: Int @index
+    raw: Blob
+}
+
+type Bsc__Mainnet__Evidence {
+    blockNumber: Int @index
+    blockHash: String
+    asset: String
+    records: Blob
+    proof: Blob
+}
+
+type Bsc__Mainnet__StateCapture {
+    blockNumber: Int @index
+    blockHash: String
+    asset: String
+    value: String
+    proof: Blob
+}
+
+type Bsc__Mainnet__BlockAttestation {
+    blockNumber: Int @index
+    blockHash: String
+    statement: Blob
+    signatureType: String
+    signer: String
+    signature: String
+}

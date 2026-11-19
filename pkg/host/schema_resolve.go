@@ -52,7 +52,7 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	reasons := make(map[string]string)
 	var disabled []error
 	for _, c := range a.chains {
-		collections := chain.EVM(c.Prefix)
+		collections := c.Collections()
 		applier := schema.ChainApplier{
 			Tables: func(ctx context.Context) (string, error) {
 				return resolveSchema(ctx, a.schemaCfg, c, collections)
@@ -123,17 +123,30 @@ func (a *chainsApplier) removeUnlistedChains(ctx context.Context, n *node.Node) 
 	for _, c := range a.chains {
 		configured[c.Prefix] = true
 	}
-	// Every chain has a "<prefix>__BlockSignature" table, so one under a prefix the config does not
-	// list belongs to a removed chain. A view's name is whatever its SDL declares, so views are
+	// A full-mode chain has a "<prefix>__BlockSignature" table and a tokens-mode chain a
+	// "<prefix>__BlockAttestation" table, so either under a prefix the config does not list belongs to
+	// a removed chain in that table's mode. A view's name is whatever its SDL declares, so views are
 	// skipped.
 	signatureSuffix := chain.EVM("").BlockSignature.Name
+	attestationSuffix := chain.Tokens("").BlockAttestation.Name
 	var removed []string
 	for _, col := range cols {
-		prefix, ok := strings.CutSuffix(col.Name(), signatureSuffix)
-		if !ok || col.Version().Query.HasValue() || configured[prefix] {
+		var collections chain.Collections
+		switch name := col.Name(); {
+		case col.Version().Query.HasValue():
+			continue
+		case strings.HasSuffix(name, signatureSuffix):
+			collections = chain.EVM(strings.TrimSuffix(name, signatureSuffix))
+		case strings.HasSuffix(name, attestationSuffix):
+			collections = chain.Tokens(strings.TrimSuffix(name, attestationSuffix))
+		default:
 			continue
 		}
-		if err := n.DB.DeleteP2PCollections(ctx, storedNames(cols, chain.EVM(prefix).Subscribed())); err != nil {
+		prefix := collections.Prefix
+		if configured[prefix] {
+			continue
+		}
+		if err := n.DB.DeleteP2PCollections(ctx, storedNames(cols, collections.Subscribed())); err != nil {
 			return nil, fmt.Errorf("unsubscribe removed chain %s: %w", prefix, err)
 		}
 		logger.Sugar.Warnf("Chain %s removed: the config does not list it, so it is unsubscribed; its tables and data stay until the store is wiped", prefix)
@@ -160,13 +173,13 @@ func storedNames(cols []client.Collection, names []string) []string {
 // answer whose schema the checks refuse. When no schema passes, it returns errNoGeneratorSchema if a
 // generator answered, and errNoGeneratorAnswered if none did (each failed with
 // schema.ErrSchemaNoResponse).
-// With none configured, Ethereum mainnet uses the built-in schema and any other chain gets
-// errNoChainSchema. The built-in schema is never a fallback: generators may serve tables that
+// With none configured, Ethereum mainnet in full mode uses the built-in schema and any other chain
+// gets errNoChainSchema. The built-in schema is never a fallback: generators may serve tables that
 // differ from it, and a host whose tables differ receives none of the chain's data. Each request
 // gets the timeout from schemaCfg.
 func resolveSchema(ctx context.Context, schemaCfg config.SchemaConfig, served chain.Config, collections chain.Collections) (string, error) {
 	if len(served.Generators) == 0 {
-		if served.Prefix != chain.EthereumMainnet {
+		if served.Prefix != chain.EthereumMainnet || served.Mode == chain.ModeTokens {
 			return "", fmt.Errorf("no generators configured: %w", errNoChainSchema)
 		}
 		logger.Sugar.Infof("No generators configured for %s, using the built-in schema", served.Prefix)

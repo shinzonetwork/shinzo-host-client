@@ -39,6 +39,18 @@ func schemaHandler(t *testing.T, prefix string) http.HandlerFunc {
 	}
 }
 
+// tokensSchemaHandler serves the tokens-mode generator schema fixture, whose tables are named under
+// Bsc__Mainnet, as a generator for prefix serves it.
+func tokensSchemaHandler(t *testing.T, prefix string) http.HandlerFunc {
+	served, err := os.ReadFile(filepath.Join("..", "schema", "testdata", "generator_tokens_schema.graphql"))
+	require.NoError(t, err)
+	sdl := strings.ReplaceAll(string(served), "Bsc__Mainnet", prefix)
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(localschema.Response{Network: prefix, Schema: sdl}))
+	}
+}
+
 func TestResolveSchema(t *testing.T) {
 	const other = "Testchain__Devnet"
 	valid := schemaHandler(t, chain.EthereumMainnet)
@@ -54,11 +66,13 @@ func TestResolveSchema(t *testing.T) {
 	cases := []struct {
 		desc        string
 		prefix      string
+		mode        string
 		generators  []http.HandlerFunc
 		wantBuiltIn bool
 		wantErr     error
 	}{
 		{desc: "no generators", prefix: chain.EthereumMainnet, wantBuiltIn: true},
+		{desc: "Ethereum mainnet in tokens mode with no generators", prefix: chain.EthereumMainnet, mode: chain.ModeTokens, wantErr: errNoChainSchema},
 		{desc: "a valid generator", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{valid}},
 		{desc: "the first generator fails", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{failing, valid}},
 		{desc: "the first generator times out", prefix: chain.EthereumMainnet, generators: []http.HandlerFunc{slow, valid}},
@@ -71,7 +85,7 @@ func TestResolveSchema(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
-			served := chain.Config{Prefix: c.prefix}
+			served := chain.Config{Prefix: c.prefix, Mode: c.mode}
 			for _, handler := range c.generators {
 				srv := httptest.NewServer(handler)
 				t.Cleanup(srv.Close)
@@ -359,6 +373,45 @@ func TestChainsApplier(t *testing.T) {
 	require.ErrorIs(t, err, localschema.ErrSchemaDrift)
 	require.ErrorContains(t, err, chain.EthereumMainnet)
 	require.ErrorContains(t, err, other)
+}
+
+// A tokens-mode chain stores its tables and the host's VerifiedBlock and subscribes to exactly its
+// tables, a restart compares the stored tables with the served schema without VerifiedBlock, and
+// removing the chain from the config unsubscribes all of them.
+func TestChainsApplierTokensMode(t *testing.T) {
+	const prefix = "Bsc__Mainnet"
+	ctx := context.Background()
+	schemaCfg := config.SchemaConfig{IndexerSchemaEndpoint: config.DefaultIndexerSchemaEndpoint, HTTPClientTimeoutSecs: 1}
+	tokensGenerator := httptest.NewServer(tokensSchemaHandler(t, prefix))
+	t.Cleanup(tokensGenerator.Close)
+	ethereumGenerator := httptest.NewServer(schemaHandler(t, chain.EthereumMainnet))
+	t.Cleanup(ethereumGenerator.Close)
+	ethereum := chain.Config{Prefix: chain.EthereumMainnet, Generators: []chain.Generator{{URL: ethereumGenerator.URL}}}
+	tokens := chain.Config{Prefix: prefix, Mode: chain.ModeTokens, Generators: []chain.Generator{{URL: tokensGenerator.URL}}}
+
+	applier := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{ethereum, tokens}}
+	node, err := defradb.StartDefraInstanceWithTestConfig(t, defradb.DefaultConfig, applier)
+	require.NoError(t, err)
+	defer func() { _ = node.Close(ctx) }()
+	require.Equal(t, []chain.Config{ethereum, tokens}, applier.enabled)
+	collections := tokens.Collections()
+	for _, col := range append(collections.Generated(), collections.VerifiedBlock) {
+		_, err := node.DB.GetCollectionByName(ctx, col.Name)
+		require.NoError(t, err, col.Name)
+	}
+	got, err := node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, append(ethereum.Collections().Subscribed(), collections.Subscribed()...), got)
+
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	require.Equal(t, []chain.Config{ethereum, tokens}, applier.enabled)
+
+	withoutTokens := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{ethereum}}
+	require.NoError(t, withoutTokens.ApplySchema(ctx, node))
+	require.Equal(t, []string{prefix}, withoutTokens.removed)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, ethereum.Collections().Subscribed(), got)
 }
 
 // When no generator answers for the only chain, StartDefraInstance returns errNoChainEnabled.
