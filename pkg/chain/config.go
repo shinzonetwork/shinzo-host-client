@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
 )
 
 // prefixPattern is "<Name>__<Network>", each part an upper-case letter followed by letters or
@@ -60,6 +62,16 @@ type Asset struct {
 type Start struct {
 	Block int64  `yaml:"block"`
 	Hash  string `yaml:"hash"`
+}
+
+// RuleConfig returns the evidence codec's rule configuration of a tokens-mode chain: its CAIP-2 ID,
+// signers, required count and assets.
+func (c Config) RuleConfig() rule.Config {
+	assets := make([]rule.Asset, len(c.Assets))
+	for i, a := range c.Assets {
+		assets[i] = rule.Asset{ID: a.ID, SupplySlot: a.SupplySlot}
+	}
+	return rule.Config{Chain: c.CAIP2, Signers: c.Signers, Required: c.Required, Assets: assets}
 }
 
 // Generator is a generator node that indexes the chain and serves its schema.
