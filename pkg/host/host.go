@@ -325,7 +325,12 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// chains.
 	chainMetrics := make([]*server.ChainMetrics, len(cfg.Chains))
 	for i, c := range cfg.Chains {
-		chainMetrics[i] = &server.ChainMetrics{Prefix: c.Prefix, Enabled: slices.Contains(enabledPrefixes, c.Prefix), Reason: applier.reasons[c.Prefix]}
+		chainMetrics[i] = &server.ChainMetrics{
+			Prefix:  c.Prefix,
+			Enabled: slices.Contains(enabledPrefixes, c.Prefix),
+			Tokens:  c.Mode == chain.ModeTokens,
+			Reason:  applier.reasons[c.Prefix],
+		}
 		if pruned != nil {
 			chainMetrics[i].Cutoff = pruned[i].cutoff
 		}

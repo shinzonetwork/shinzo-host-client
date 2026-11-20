@@ -2155,6 +2155,9 @@ func TestStartHosting_VerifiesTokensModeBlocks(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return slices.Equal(heights(tokens.VerifiedBlock), []int64{101}) && slices.Equal(heights(tokens.Header), []int64{101, 102, 103})
 	}, 15*time.Second, 100*time.Millisecond)
+	require.Equal(t, int64(101), h.chainMetrics(prefix).VerifiedHeight())
+	require.True(t, h.chainMetrics(prefix).Tokens)
+	require.False(t, h.chainMetrics(chain.EthereumMainnet).Tokens)
 
 	_, err = h.DefraNode.DB.GetCollectionByName(ctx, prefix+"__AttestationRecord")
 	require.Error(t, err)

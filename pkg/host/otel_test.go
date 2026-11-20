@@ -2,6 +2,7 @@ package host
 
 import (
 	"testing"
+	"time"
 
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -44,6 +45,8 @@ func TestHostInstruments_RecordPerChain(t *testing.T) {
 	// Only the first chain has attested a block, so only it reports a height.
 	h.chainMetrics(testCollections.Prefix).UpdateCurrentBlock(42)
 	h.instruments.chain(other.Prefix).received.Store(9)
+	// Only the second chain's verifier holds, at 77 for a minute so far.
+	h.chainMetrics(other.Prefix).RecordHeld(77, time.Now().Add(-time.Minute))
 	// The collection attribute names the table without the chain prefix.
 	require.Len(t, h.instruments.chain(other.Prefix).tables, len(other.Subscribed()))
 	h.instruments.documents.Add(t.Context(), 1, h.instruments.chain(other.Prefix).tables[other.Block.Name])
@@ -81,6 +84,33 @@ func TestHostInstruments_RecordPerChain(t *testing.T) {
 	name, _ = received[0].Attributes.Value("shinzo.chain.name")
 	assert.Equal(t, "Arbitrum", name.AsString())
 	assert.Equal(t, int64(9), received[0].Value)
+
+	held := int64Points(t, rm, "shinzo.host.verifier.held_height")
+	require.Len(t, held, 1)
+	name, _ = held[0].Attributes.Value("shinzo.chain.name")
+	assert.Equal(t, "Arbitrum", name.AsString())
+	assert.Equal(t, int64(77), held[0].Value)
+	age := float64Points(t, rm, "shinzo.host.verifier.hold_age")
+	require.Len(t, age, 1)
+	assert.GreaterOrEqual(t, age[0].Value, time.Minute.Seconds())
+}
+
+// float64Points returns the data points of the float64 gauge named name in rm.
+func float64Points(t *testing.T, rm metricdata.ResourceMetrics, name string) []metricdata.DataPoint[float64] {
+	t.Helper()
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != name {
+				continue
+			}
+			data, ok := m.Data.(metricdata.Gauge[float64])
+			if !ok {
+				t.Fatalf("%s has unexpected data type %T", name, m.Data)
+			}
+			return data.DataPoints
+		}
+	}
+	return nil
 }
 
 // int64Points returns the data points of the int64 sum or gauge named name in rm.
