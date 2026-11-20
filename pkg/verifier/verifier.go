@@ -8,6 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sourcenetwork/defradb/client"
@@ -18,14 +22,41 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
-// retryInterval is how long the verifier waits before it checks an unverified height again, or
-// retries a VerifiedBlock write that failed.
-const retryInterval = time.Second
+const (
+	// retryInterval is how long the verifier waits before it checks an unverified height again, or
+	// retries a VerifiedBlock write that failed.
+	retryInterval = time.Second
+
+	// repairAfter is how long a height may stay unverified, while the host holds a later Header,
+	// before the verifier fetches the documents the generators hold for it that the host does not.
+	repairAfter = 10 * time.Second
+
+	// repairHeights is how many heights, from the unverified one up, one repair covers: the most a
+	// generator's documents endpoint lists in one request.
+	repairHeights = 1000
+
+	// syncTimeout bounds one document sync, so a peer that never answers cannot hold up the
+	// verifier.
+	syncTimeout = 30 * time.Second
+
+	// syncCalls is how many document syncs a repair runs at once.
+	syncCalls = 8
+
+	// syncBatch is how many documents one sync asks for.
+	syncBatch = 50
+)
 
 var (
 	errNotAccepted = errors.New("the rule does not accept the block")
 	errStartHash   = errors.New("the agreed block at the start height is not start.hash")
 )
+
+// Hooks are called as the verifier makes progress. A nil hook is skipped.
+type Hooks struct {
+	// Documents lists the IDs of the documents the chain's generators hold at the heights from
+	// through to, by collection. Without it the verifier does not fetch missing documents.
+	Documents func(ctx context.Context, from, to uint64) (map[string][]string, error)
+}
 
 // Verifier checks a tokens-mode chain's heights in order and records each one the rule accepts in
 // the chain's VerifiedBlock table.
@@ -38,14 +69,16 @@ type Verifier struct {
 	// startHeight and startHash are start.block and start.hash.
 	startHeight uint64
 	startHash   string
+	hooks       Hooks
+	repairAfter time.Duration
 	// write records an accepted block. It is v.record except in one test, which makes a single
 	// write fail; no store failure a test can cause fails once and then clears.
 	write func(ctx context.Context, b rule.Block, signers []string) error
 }
 
-// New returns a verifier for the tokens-mode chain c, whose collections are collections. It returns
-// an error when the evidence codec refuses c's rule configuration.
-func New(n *node.Node, c chain.Config, collections chain.Collections) (*Verifier, error) {
+// New returns a verifier for the tokens-mode chain c, whose collections are collections, that calls
+// hooks. It returns an error when the evidence codec refuses c's rule configuration.
+func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hooks) (*Verifier, error) {
 	r, err := rule.New(c.RuleConfig())
 	if err != nil {
 		return nil, fmt.Errorf("chain %s: %w", c.Prefix, err)
@@ -61,6 +94,8 @@ func New(n *node.Node, c chain.Config, collections chain.Collections) (*Verifier
 		assets:      assets,
 		startHeight: uint64(c.Start.Block), //nolint:gosec // chain.Validate refuses a negative start.block
 		startHash:   c.Start.Hash,
+		hooks:       hooks,
+		repairAfter: repairAfter,
 	}
 	v.write = v.record
 	return v, nil
@@ -68,7 +103,8 @@ func New(n *node.Node, c chain.Config, collections chain.Collections) (*Verifier
 
 // Run verifies heights in order until ctx is done, starting above the last verified block, or at
 // start.block on an empty chain. A height that fails is retried every retryInterval and holds back
-// the heights above it.
+// the heights above it. After repairAfter, if a later Header is held, the verifier fetches the
+// height's missing documents from the generators.
 func (v *Verifier) Run(ctx context.Context) {
 	last, found, err := v.lastVerified(ctx)
 	if err != nil {
@@ -80,6 +116,7 @@ func (v *Verifier) Run(ctx context.Context) {
 		parent, height = &last, last.Number+1
 	}
 	var reported string
+	waitingSince := time.Now()
 	for {
 		block, signers, err := v.verify(ctx, height, parent)
 		if err == nil {
@@ -89,10 +126,16 @@ func (v *Verifier) Run(ctx context.Context) {
 			parent = &block
 			height++
 			reported = ""
+			waitingSince = time.Now()
 			continue
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		if v.hooks.Documents != nil && time.Since(waitingSince) >= v.repairAfter && v.heldAbove(ctx, height) {
+			v.repair(ctx, height)
+			waitingSince = time.Now()
+			continue
 		}
 		if msg := err.Error(); msg != reported {
 			reported = msg
@@ -256,6 +299,90 @@ func listField(values []string) []any {
 	return list
 }
 
+// heldAbove reports whether the host holds a Header above height: the chain has moved past height,
+// so its documents exist even if the host has not received them.
+func (v *Verifier) heldAbove(ctx context.Context, height uint64) bool {
+	h := v.collections.Header
+	rows, err := v.query(ctx, fmt.Sprintf(`query { headers: %s(filter: {%s: {_gt: %d}}, limit: 1) { height: %s } }`,
+		h.Name, h.HeightField, height, h.HeightField))
+	if err != nil {
+		logger.Sugar.Warnf("Cannot read the Headers held above block %d: %v (chain: %s)", height, err, v.collections.Prefix)
+		return false
+	}
+	return len(rows["headers"]) > 0
+}
+
+// repair asks peers for the documents the chain's generators hold at height and the heights above
+// it, up to repairHeights in all, that the host does not hold. Each collection's missing documents
+// are fetched in batches of syncBatch, syncCalls at once, each within syncTimeout.
+func (v *Verifier) repair(ctx context.Context, height uint64) {
+	c := v.collections
+	to := height + repairHeights - 1
+	listed, err := v.hooks.Documents(ctx, height, to)
+	if err != nil {
+		logger.Sugar.Warnf("Cannot list the generators' documents at blocks %d-%d: %v (chain: %s)", height, to, err, c.Prefix)
+		return
+	}
+	held, err := v.heldIDs(ctx, height, to)
+	if err != nil {
+		logger.Sugar.Warnf("Cannot read the documents held at blocks %d-%d: %v (chain: %s)", height, to, err, c.Prefix)
+		return
+	}
+	for _, col := range c.Generated() {
+		var missing []string
+		for _, id := range listed[col.Name] {
+			if !held[id] {
+				missing = append(missing, id)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		var requested atomic.Int64
+		var wg sync.WaitGroup
+		calls := make(chan struct{}, syncCalls)
+		for batch := range slices.Chunk(missing, syncBatch) {
+			calls <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-calls }()
+				syncCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+				defer cancel()
+				if err := v.node.DB.SyncDocuments(syncCtx, col.Name, batch); err != nil {
+					logger.Sugar.Warnf("Cannot fetch %d missing %s documents at blocks %d-%d: %v", len(batch), col.Name, height, to, err)
+					return
+				}
+				requested.Add(int64(len(batch)))
+			})
+		}
+		wg.Wait()
+		if n := requested.Load(); n > 0 {
+			logger.Sugar.Infof("Requested %d missing %s documents at blocks %d-%d from peers", n, col.Name, height, to)
+		}
+	}
+}
+
+// heldIDs returns the IDs of the documents the host holds in the chain's generated collections at
+// the heights from through to.
+func (v *Verifier) heldIDs(ctx context.Context, from, to uint64) (map[string]bool, error) {
+	var query strings.Builder
+	query.WriteString("query { ")
+	for i, col := range v.collections.Generated() {
+		fmt.Fprintf(&query, `c%d: %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } `, i, col.Name, col.HeightField, from, to)
+	}
+	query.WriteString("}")
+	rows, err := v.query(ctx, query.String())
+	if err != nil {
+		return nil, err
+	}
+	held := make(map[string]bool)
+	for _, docs := range rows {
+		for _, doc := range docs {
+			held[doc.DocID] = true
+		}
+	}
+	return held, nil
+}
+
 // row is a document a verifier query returns, with the fields that query selects. Blob fields are
 // hex strings.
 type row struct {
@@ -271,6 +398,7 @@ type row struct {
 	SignatureType string `json:"signatureType"`
 	Signature     string `json:"signature"`
 	Statement     string `json:"statement"`
+	DocID         string `json:"_docID"`
 }
 
 // query runs a GraphQL request and returns its rows by the name each table is selected under.
