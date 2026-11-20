@@ -157,3 +157,6 @@ host:
     historical_ranges:
       - start: 24528700
         end: 24528999
+  # Tokens-mode state reads (POST /api/v1/state) get a listener of their own, started only when the
+  # SHINZO_STATE_ADDR environment variable is set, for example 127.0.0.1:8390. It has no
+  # authentication, so bind it to a private address.

@@ -84,6 +84,7 @@ type ChainMetrics struct {
 	signersDropped       sync.Map     // Reason to *atomic.Int64: listed signers left out of a verified block, once per block, signer and reason
 	verifiedHeight       atomic.Int64
 	held                 atomic.Pointer[hold] // nil while no height is held
+	stateProofFailures   sync.Map             // Generator URL to *atomic.Int64: state reads answered with a proof that did not verify
 }
 
 // hold is a held height and when it first held.
@@ -108,6 +109,7 @@ type ChainCounters struct {
 	SignersDropped       map[string]int64 `json:"signers_dropped,omitempty"`
 	UnlistedAttestations int64            `json:"unlisted_attestations,omitempty"`
 	Repairs              int64            `json:"repairs,omitempty"`
+	StateProofFailures   map[string]int64 `json:"state_proof_failures,omitempty"`
 }
 
 // chainReport is one chain's entry in /metrics.
@@ -239,6 +241,16 @@ func (c *ChainMetrics) VerifiedHeight() int64 {
 	return c.verifiedHeight.Load()
 }
 
+// RecordStateProofFailure counts a state read the generator at url answered with a proof that did
+// not verify.
+func (c *ChainMetrics) RecordStateProofFailure(url string) {
+	n, ok := c.stateProofFailures.Load(url)
+	if !ok {
+		n, _ = c.stateProofFailures.LoadOrStore(url, new(atomic.Int64))
+	}
+	n.(*atomic.Int64).Add(1)
+}
+
 // RecordSignerDropped counts a listed signer the verifier left out of a verified block, for reason.
 func (c *ChainMetrics) RecordSignerDropped(reason string) {
 	n, ok := c.signersDropped.Load(reason)
@@ -296,15 +308,7 @@ func (c *ChainMetrics) Counters() ChainCounters {
 		byTable[table.(string)] = n.(*atomic.Int64).Load()
 		return true
 	})
-	// Left nil on a chain with no drop, as on every full-mode chain.
-	var dropped map[string]int64
-	c.signersDropped.Range(func(reason, n any) bool {
-		if dropped == nil {
-			dropped = make(map[string]int64)
-		}
-		dropped[reason.(string)] = n.(*atomic.Int64).Load()
-		return true
-	})
+	dropped := loadCounts(&c.signersDropped)
 	return ChainCounters{
 		DocumentsReceived:        c.DocumentsReceived.Load(),
 		DocumentsByTable:         byTable,
@@ -317,7 +321,22 @@ func (c *ChainMetrics) Counters() ChainCounters {
 		SignersDropped:           dropped,
 		UnlistedAttestations:     c.UnlistedAttestations.Load(),
 		Repairs:                  c.Repairs.Load(),
+		StateProofFailures:       loadCounts(&c.stateProofFailures),
 	}
+}
+
+// loadCounts reads a map of keys to *atomic.Int64. It returns nil when the map is empty, as on every
+// full-mode chain, so an empty count compares and reports like one never set.
+func loadCounts(counts *sync.Map) map[string]int64 {
+	var out map[string]int64
+	counts.Range(func(key, n any) bool {
+		if out == nil {
+			out = make(map[string]int64)
+		}
+		out[key.(string)] = n.(*atomic.Int64).Load()
+		return true
+	})
+	return out
 }
 
 // ObserveQueueDepth records depth if it is the deepest the chain's queue has been since the last
