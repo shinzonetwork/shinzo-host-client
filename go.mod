@@ -442,3 +442,5 @@ require (
 	pgregory.net/rapid v1.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/dgraph-io/badger/v4 => github.com/shinzonetwork/badger/v4 v4.9.7-0.20261119170544-dafc7e78f1b5
