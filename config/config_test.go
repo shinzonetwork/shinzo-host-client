@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -393,7 +394,7 @@ func TestLoadConfig_SchemaAuthToken(t *testing.T) {
 func TestLoadConfig_Chains(t *testing.T) {
 	ethereum := []chain.Config{{Prefix: chain.EthereumMainnet}}
 	tokensEthereum := "chains:\n  - prefix: Ethereum__Mainnet\n    mode: tokens\n    caip2: eip155:1\n    signers: [02aa]\n    required: 1\n" +
-		"    assets: [{id: 8d0d000ee44948fc98c9b98a4fa4921476f08b0d, supply_slot: \"0x35\"}]\n    start: {block: 100, hash: \"0x01\"}\n"
+		"    assets: [{id: 8d0d000ee44948fc98c9b98a4fa4921476f08b0d, supply_slot: \"0x35\"}]\n    start: {block: 100, hash: \"0x" + strings.Repeat("ab", 32) + "\"}\n"
 	cases := []struct {
 		desc       string
 		yaml       string

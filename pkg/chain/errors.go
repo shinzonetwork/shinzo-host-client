@@ -13,5 +13,6 @@ var ( //nolint:revive
 	ErrTokenKeyInFullMode   = errors.New("only a tokens-mode chain takes this key")                                                        //nolint:revive
 	ErrMissingTokenKey      = errors.New("a tokens-mode chain requires this key")                                                          //nolint:revive
 	ErrInvalidStartBlock    = errors.New("start.block must not be negative")                                                               //nolint:revive
+	ErrInvalidStartHash     = errors.New("start.hash must be 0x followed by 64 lower-case hex digits")                                     //nolint:revive
 	ErrDuplicateCAIP2       = errors.New("caip2 must differ between chains")                                                               //nolint:revive
 )

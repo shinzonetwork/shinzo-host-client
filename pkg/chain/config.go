@@ -13,6 +13,9 @@ import (
 // collections.
 var prefixPattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*__[A-Z][A-Za-z0-9]*$`)
 
+// startHashPattern is a block hash in the form the verifier compares start.hash with.
+var startHashPattern = regexp.MustCompile(`^0x[0-9a-f]{64}$`)
+
 // Chain modes. Full mode serves every block, transaction, log and access-list entry. Tokens mode
 // serves block headers and the signed evidence for the chain's assets only.
 const (
@@ -119,7 +122,8 @@ func Validate(chains []Config) error {
 
 // validateMode checks the chain's mode, and that a full-mode chain sets none of the tokens-mode
 // keys, which would have no effect there. In tokens mode it checks only what the evidence codec's
-// rule.New does not: that assets and start.hash are set and start.block is not negative.
+// rule.New does not: that assets are set, start.hash is a lower-case 0x block hash and start.block
+// is not negative.
 func validateMode(c Config) error {
 	switch c.Mode {
 	case "", ModeFull:
@@ -144,6 +148,9 @@ func validateMode(c Config) error {
 		}
 		if c.Start.Hash == "" {
 			return fmt.Errorf("start.hash: %w", ErrMissingTokenKey)
+		}
+		if !startHashPattern.MatchString(c.Start.Hash) {
+			return fmt.Errorf("start.hash %q: %w", c.Start.Hash, ErrInvalidStartHash)
 		}
 		if c.Start.Block < 0 {
 			return fmt.Errorf("start.block %d: %w", c.Start.Block, ErrInvalidStartBlock)

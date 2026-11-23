@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,7 +12,7 @@ func TestValidate(t *testing.T) {
 		return Config{
 			Prefix: prefix, Mode: ModeTokens, CAIP2: caip2, Signers: []string{"02aa"}, Required: 1,
 			Assets: []Asset{{ID: "8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x35"}},
-			Start:  Start{Block: 100, Hash: "0x01"},
+			Start:  Start{Block: 100, Hash: "0x" + strings.Repeat("ab", 32)},
 		}
 	}
 	noAssets := tokens(EthereumMainnet, "eip155:1")
@@ -20,6 +21,12 @@ func TestValidate(t *testing.T) {
 	noStartHash.Start.Hash = ""
 	negativeStart := tokens(EthereumMainnet, "eip155:1")
 	negativeStart.Start.Block = -1
+	upperStartHash := tokens(EthereumMainnet, "eip155:1")
+	upperStartHash.Start.Hash = "0x" + strings.Repeat("AB", 32)
+	unprefixedStartHash := tokens(EthereumMainnet, "eip155:1")
+	unprefixedStartHash.Start.Hash = strings.Repeat("ab", 32)
+	shortStartHash := tokens(EthereumMainnet, "eip155:1")
+	shortStartHash.Start.Hash = "0x01"
 	cases := []struct {
 		desc    string
 		chains  []Config
@@ -70,6 +77,9 @@ func TestValidate(t *testing.T) {
 		{"tokens mode without assets", []Config{noAssets}, ErrMissingTokenKey},
 		{"tokens mode without a start hash", []Config{noStartHash}, ErrMissingTokenKey},
 		{"tokens mode with a negative start block", []Config{negativeStart}, ErrInvalidStartBlock},
+		{"tokens mode with an upper-case start hash", []Config{upperStartHash}, ErrInvalidStartHash},
+		{"tokens mode with a start hash without 0x", []Config{unprefixedStartHash}, ErrInvalidStartHash},
+		{"tokens mode with a short start hash", []Config{shortStartHash}, ErrInvalidStartHash},
 		{"two chains with one caip2", []Config{tokens(EthereumMainnet, "eip155:1"), tokens("Bsc__Mainnet", "eip155:1")}, ErrDuplicateCAIP2},
 	}
 

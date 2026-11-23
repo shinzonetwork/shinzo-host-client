@@ -132,7 +132,7 @@ pruner:
 #     required: 2  # How many of the signers must agree on a block
 #     assets:
 #       - { id: 8d0d000ee44948fc98c9b98a4fa4921476f08b0d, supply_slot: "0x35" }  # Contract address and the storage slot of its total supply
-#     start: { block: <height>, hash: <0x block hash> }  # The first block verified
+#     start: { block: <height>, hash: <0x block hash> }  # The first block verified; its hash in lower-case hex
 #     generators:
 #       - url: http://35.254.135.221:8080
 #         peer: /ip4/35.254.135.221/tcp/9171/p2p/12D3KooWDUdHSCXBM5Wb7te6ZdWMgqddw7tJ7npWSzXK5tQgBsbT
