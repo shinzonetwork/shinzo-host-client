@@ -14,7 +14,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -63,6 +65,18 @@ func TestStateHandler(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &account))
 	accountProof, err := evm.EncodeStateProof(account.Proof)
 	require.NoError(t, err)
+	// An address with no balance, nonce or code at Ethereum block 26479097, so not in the state.
+	b, err = os.ReadFile(filepath.Join("testdata", "ethereum-absent-account-proof.json"))
+	require.NoError(t, err)
+	var absent struct {
+		StateRoot common.Hash      `json:"stateRoot"`
+		Account   string           `json:"account"`
+		Slot      string           `json:"slot"`
+		Proof     evm.AccountProof `json:"proof"`
+	}
+	require.NoError(t, json.Unmarshal(b, &absent))
+	absentProof, err := evm.EncodeStateProof(absent.Proof)
+	require.NoError(t, err)
 
 	schemaServer := httptest.NewServer(tokensSchemaHandler(t, prefix))
 	t.Cleanup(schemaServer.Close)
@@ -107,6 +121,10 @@ func TestStateHandler(t *testing.T) {
 	accountRaw, accountHash := header(accountHeight, account.StateRoot, 1_699_999_976)
 	addTokensDoc(ctx, t, defraNode, tokens.Header.Name, map[string]any{"number": int64(accountHeight), "hash": accountHash, "raw": hex.EncodeToString(accountRaw)})
 	addTokensDoc(ctx, t, defraNode, tokens.VerifiedBlock.Name, map[string]any{"blockNumber": int64(accountHeight), "blockHash": accountHash})
+	absentHeight := height - 3
+	absentRaw, absentHash := header(absentHeight, absent.StateRoot, 1_699_999_964)
+	addTokensDoc(ctx, t, defraNode, tokens.Header.Name, map[string]any{"number": int64(absentHeight), "hash": absentHash, "raw": hex.EncodeToString(absentRaw)})
+	addTokensDoc(ctx, t, defraNode, tokens.VerifiedBlock.Name, map[string]any{"blockNumber": int64(absentHeight), "blockHash": absentHash})
 
 	// The generators refuse an address that is not written as 0x and 40 hex digits, as a generator's
 	// state endpoint does.
@@ -134,6 +152,9 @@ func TestStateHandler(t *testing.T) {
 	}
 	honest := generator(map[string]any{"proof": hexutil.Bytes(proof)}, http.StatusOK)
 	accountGenerator := generator(map[string]any{"proof": hexutil.Bytes(accountProof)}, http.StatusOK)
+	absentGenerator := generator(map[string]any{"proof": hexutil.Bytes(absentProof)}, http.StatusOK)
+	// A proof of nothing, padded past maxStateAnswerBytes: read whole, it would fail to verify.
+	oversized := generator(map[string]any{"proof": "0xc0" + strings.Repeat("00", maxStateAnswerBytes/2)}, http.StatusOK)
 	// An empty RLP list: a proof of nothing, which verifies no slot.
 	lying := generator(map[string]any{"proof": "0xc0"}, http.StatusOK)
 	down := generator(map[string]any{}, http.StatusServiceUnavailable)
@@ -154,6 +175,7 @@ func TestStateHandler(t *testing.T) {
 		disabled     bool
 		address      string   // the fixture's contract when empty
 		slots        []string // the fixture's slots when nil
+		padding      int      // spaces before the request's JSON
 		wantStatus   int
 		wantFailures map[string]int64
 		want         *stateAnswer // wantSlots when nil
@@ -169,6 +191,20 @@ func TestStateHandler(t *testing.T) {
 		{name: "an address written without 0x", chainID: "eip155:1", generators: []string{honest}, address: strings.TrimPrefix(fixture.Contract, "0x"), wantStatus: http.StatusOK},
 		{name: "more slots than a generator proves", chainID: "eip155:1", generators: []string{honest}, slots: slices.Repeat([]string{fixture.SupplySlot}, maxStateSlots+1), wantStatus: http.StatusBadRequest},
 		{name: "a slot that is not a storage slot", chainID: "eip155:1", generators: []string{honest}, slots: []string{"35"}, wantStatus: http.StatusBadRequest},
+		{name: "a body over the cap", chainID: "eip155:1", generators: []string{honest}, padding: maxStateRequestBytes, wantStatus: http.StatusBadRequest},
+		{name: "an answer over the cap, then a generator whose proof verifies", chainID: "eip155:1", generators: []string{oversized, honest}, wantStatus: http.StatusOK},
+		{
+			name:       "slots of an account not in the state",
+			chainID:    "eip155:1",
+			block:      at(absentHeight),
+			generators: []string{absentGenerator},
+			address:    absent.Account,
+			slots:      []string{absent.Slot},
+			wantStatus: http.StatusOK,
+			want: &stateAnswer{
+				Block: absentHeight, BlockHash: absentHash, Proof: absentProof, Balance: "0", Values: map[string]string{absent.Slot: "0"},
+			},
+		},
 		// With no slots, only the balance check rejects a proof of nothing.
 		{
 			name:         "an account's balance alone, after a generator whose proof fails",
@@ -210,6 +246,7 @@ func TestStateHandler(t *testing.T) {
 			}
 			body, err := json.Marshal(stateRequest{Chain: tc.chainID, Block: tc.block, Address: address, Slots: requested})
 			require.NoError(t, err)
+			body = append(bytes.Repeat([]byte(" "), tc.padding), body...)
 
 			w := httptest.NewRecorder()
 			h.StateHandler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, stateEndpoint, bytes.NewReader(body)))
@@ -228,4 +265,42 @@ func TestStateHandler(t *testing.T) {
 			require.Equal(t, want, answer)
 		})
 	}
+
+	// At most maxConcurrentStateReads reads are served at once; one more is refused with 503
+	// without asking a generator.
+	t.Run("one read more than are served at once", func(t *testing.T) {
+		release := make(chan struct{})
+		var asked atomic.Int32
+		blocking := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			asked.Add(1)
+			<-release
+			_ = json.NewEncoder(w).Encode(map[string]any{"proof": hexutil.Bytes(proof)})
+		}))
+		t.Cleanup(blocking.Close)
+		served := tokensChain
+		served.Generators = []chain.Generator{{URL: blocking.URL}}
+		cfg := *DefaultConfig
+		cfg.Chains = []chain.Config{served}
+		h := &Host{DefraNode: defraNode, config: &cfg, chains: []chain.Collections{tokens}, metrics: server.NewHostMetrics(&server.ChainMetrics{Prefix: prefix, Tokens: true})}
+		handler := h.StateHandler()
+		body, err := json.Marshal(stateRequest{Chain: served.CAIP2, Address: fixture.Contract, Slots: slots})
+		require.NoError(t, err)
+		read := func() int {
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, httptest.NewRequest(http.MethodPost, stateEndpoint, bytes.NewReader(body)))
+			return w.Code
+		}
+
+		codes := make(chan int, maxConcurrentStateReads)
+		for range maxConcurrentStateReads {
+			go func() { codes <- read() }()
+		}
+		require.Eventually(t, func() bool { return asked.Load() == maxConcurrentStateReads }, 5*time.Second, 10*time.Millisecond)
+		require.Equal(t, http.StatusServiceUnavailable, read())
+		require.Equal(t, int32(maxConcurrentStateReads), asked.Load())
+		close(release)
+		for range maxConcurrentStateReads {
+			require.Equal(t, http.StatusOK, <-codes)
+		}
+	})
 }

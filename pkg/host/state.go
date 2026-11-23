@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -23,9 +25,26 @@ import (
 	"github.com/shinzonetwork/shinzo-host-client/pkg/schema"
 )
 
-// stateEndpoint is the route that reads storage slots at a verified block, on the host's state
-// listener and on each generator.
-const stateEndpoint = "/api/v1/state"
+const (
+	// stateEndpoint is the route that reads storage slots at a verified block, on the host's state
+	// listener and on each generator.
+	stateEndpoint = "/api/v1/state"
+
+	// maxStateRequestBytes caps a state read's body. The largest valid read, maxStateSlots slots of
+	// 64 hex digits, is 70,771 bytes as compact JSON.
+	maxStateRequestBytes = 128 << 10
+
+	// stateTimeout bounds one state read, which asks the chain's generators one after another.
+	stateTimeout = 60 * time.Second
+
+	// maxConcurrentStateReads is how many state reads are served at once. Each one asks a
+	// generator to call its RPC endpoint, so more are refused rather than queued.
+	maxConcurrentStateReads = 4
+
+	// maxStateAnswerBytes caps a generator's state answer. A 1,000-slot answer is 7.04 MB on BSC and
+	// 6.43 MB on Ethereum.
+	maxStateAnswerBytes = 16 << 20
+)
 
 var (
 	errStateChain           = errors.New("chain is not a tokens-mode eip155 chain this host serves")
@@ -34,6 +53,7 @@ var (
 	errStateNoVerifiedBlock = errors.New("no verified block at that height")
 	errStateNoHeader        = errors.New("the verified block's header is not held")
 	errStateRefused         = errors.New("the generator refused the state request")
+	errStateTooLarge        = errors.New("the generator's state answer is too large")
 )
 
 // stateRequest asks for an account and any of its storage slots at a verified block of a
@@ -69,12 +89,25 @@ type generatorStateAnswer struct {
 
 // StateHandler serves POST /api/v1/state for the host's enabled tokens-mode eip155 chains: it asks
 // the chain's generators in config order for a proof of the slots at a verified block and answers
-// with the first that verifies against that block's state root. Nothing is stored.
+// with the first that verifies against that block's state root. Nothing is stored. A read arriving
+// while maxConcurrentStateReads are being served is refused with 503, a body over
+// maxStateRequestBytes is refused, and each read is given stateTimeout.
 func (h *Host) StateHandler() http.Handler {
 	client := schema.NewSchemaHTTPClient(h.config.Schema)
+	serving := make(chan struct{}, maxConcurrentStateReads)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+stateEndpoint, func(w http.ResponseWriter, r *http.Request) {
-		h.serveState(w, r, client)
+		select {
+		case serving <- struct{}{}:
+			defer func() { <-serving }()
+		default:
+			http.Error(w, "too many state reads at once, retry later", http.StatusServiceUnavailable)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxStateRequestBytes)
+		ctx, cancel := context.WithTimeout(r.Context(), stateTimeout)
+		defer cancel()
+		h.serveState(w, r.WithContext(ctx), client)
 	})
 	return mux
 }
@@ -215,7 +248,8 @@ func (h *Host) stateRoot(ctx context.Context, header chain.Collection, height ui
 	return common.Hash{}, errStateNoHeader
 }
 
-// askGeneratorState asks the generator whose HTTP API is at base for a proof of req's slots.
+// askGeneratorState asks the generator whose HTTP API is at base for a proof of req's slots. An
+// answer over maxStateAnswerBytes returns errStateTooLarge.
 func askGeneratorState(ctx context.Context, client *http.Client, base string, req generatorStateRequest) ([]byte, error) {
 	endpoint, err := url.JoinPath(base, stateEndpoint)
 	if err != nil {
@@ -238,19 +272,30 @@ func askGeneratorState(ctx context.Context, client *http.Client, base string, re
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: %s", errStateRefused, resp.Status)
 	}
+	answerBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxStateAnswerBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read the state answer: %w", err)
+	}
+	if len(answerBytes) > maxStateAnswerBytes {
+		return nil, fmt.Errorf("%w: over %d bytes", errStateTooLarge, maxStateAnswerBytes)
+	}
 	var answer generatorStateAnswer
-	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+	if err := json.Unmarshal(answerBytes, &answer); err != nil {
 		return nil, fmt.Errorf("read the state answer: %w", err)
 	}
 	return answer.Proof, nil
 }
 
 // provenValues checks proof against root for each of slots, which names lists as requested, and
-// returns each slot's value in decimal by its requested name.
+// returns each slot's value in decimal by its requested name. A proof that the account is not in the
+// state proves each of its slots zero.
 func provenValues(root common.Hash, address common.Address, names []string, slots []common.Hash, proof []byte) (map[string]string, error) {
 	values := make(map[string]string, len(slots))
 	for i, slot := range slots {
 		value, err := evm.VerifyStateCapture(root, address, slot, proof)
+		if errors.Is(err, evm.ErrAccountNotInState) {
+			value, err = new(big.Int), nil
+		}
 		if err != nil {
 			return nil, fmt.Errorf("slot %s: %w", names[i], err)
 		}
