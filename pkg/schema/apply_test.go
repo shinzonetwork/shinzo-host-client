@@ -126,6 +126,11 @@ func TestChainApplier(t *testing.T) {
 			stored: defradb.NewSchemaApplierFromProvidedSchema(tables + "\n" + attestationRecordSchema(collections)),
 		},
 		{
+			desc:    "another mode's tables stored",
+			stored:  defradb.NewSchemaApplierFromProvidedSchema("type " + testPrefix + "__Header { number: Int }"),
+			wantErr: ErrOtherTablesStored,
+		},
+		{
 			desc:    "only some tables stored",
 			stored:  defradb.NewSchemaApplierFromProvidedSchema("type " + collections.Block.Name + " { number: Int }"),
 			wantErr: ErrSchemaPartiallyStored,

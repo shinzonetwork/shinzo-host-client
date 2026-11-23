@@ -38,9 +38,9 @@ type chainsApplier struct {
 
 // ApplySchema creates each chain's tables with schema.ChainApplier, in config order, and subscribes
 // to them. A chain whose tables cannot be set up (see disabledReason) is disabled: its stored tables
-// are unsubscribed and it is left out of enabled. When every chain is disabled, it returns
-// errNoChainEnabled with each chain's error. Any other failure is returned. A chain the store holds
-// but chains does not list is removed: it is unsubscribed before any table is created, and its
+// of either mode are unsubscribed and it is left out of enabled. When every chain is disabled, it
+// returns errNoChainEnabled with each chain's error. Any other failure is returned. A chain the store
+// holds but chains does not list is removed: it is unsubscribed before any table is created, and its
 // tables and data stay until the store is wiped.
 func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	removed, err := a.removeUnlistedChains(ctx, n)
@@ -64,12 +64,14 @@ func (a *chainsApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		}
 		err = applier.ApplySchema(ctx, n)
 		if reason := disabledReason(err); reason != "" {
-			// DefraDB keeps subscriptions across restarts, so any from an earlier start are removed.
+			// DefraDB keeps subscriptions across restarts, so any from an earlier start are removed,
+			// including those of the mode the chain had before its mode changed.
 			stored, listErr := n.DB.GetCollections(ctx)
 			if listErr != nil {
 				return fmt.Errorf("read stored collections: %w", listErr)
 			}
-			if err := n.DB.DeleteP2PCollections(ctx, storedNames(stored, collections.Subscribed())); err != nil {
+			subscribed := slices.Concat(chain.EVM(c.Prefix).Subscribed(), chain.Tokens(c.Prefix).Subscribed())
+			if err := n.DB.DeleteP2PCollections(ctx, storedNames(stored, subscribed)); err != nil {
 				return fmt.Errorf("unsubscribe %s: %w", c.Prefix, err)
 			}
 			logger.Sugar.Errorf("Chain %s disabled: %v", c.Prefix, err)
@@ -108,6 +110,8 @@ func disabledReason(err error) string {
 		return server.ReasonNoGeneratorConfigured
 	case errors.Is(err, schema.ErrSchemaPartiallyStored):
 		return server.ReasonTablesPartiallyStored
+	case errors.Is(err, schema.ErrOtherTablesStored):
+		return server.ReasonOtherTablesStored
 	}
 	return ""
 }

@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"strings"
 
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
@@ -16,6 +19,10 @@ import (
 
 // ErrSchemaPartiallyStored is returned when the database holds only some of a chain's tables.
 var ErrSchemaPartiallyStored = fmt.Errorf("database holds only some of the chain's tables")
+
+// ErrOtherTablesStored is returned when the database holds none of a chain's tables but other
+// tables under the chain's prefix.
+var ErrOtherTablesStored = fmt.Errorf("database holds other tables under the chain's prefix")
 
 // attestationRecordTemplate declares the attestation record collection under the type name
 // AttestationRecord, which attestationRecordSchema replaces with the chain's collection name.
@@ -56,9 +63,11 @@ type ChainApplier struct {
 // ApplySchema creates the chain's tables from Tables unless the database already holds them, then
 // a full-mode chain's attestation record collection or a tokens-mode chain's verified block
 // collection if it is missing. It returns ErrSchemaPartiallyStored when the database holds only
-// some of the chain's tables, and ErrSchemaDrift when it holds them and no schema from Served
-// matches them. A schema FetchSchema would refuse is logged and skipped, since wiping the store
-// would not let the host take it. If Served yields no other schema, the tables are not compared.
+// some of the chain's tables, ErrOtherTablesStored when it holds none of them but other tables
+// under the chain's prefix, such as those of the chain's other mode, and ErrSchemaDrift when it
+// holds them and no schema from Served matches them. A schema FetchSchema would refuse is logged
+// and skipped, since wiping the store would not let the host take it. If Served yields no other
+// schema, the tables are not compared.
 func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 	cols, err := n.DB.GetCollections(ctx)
 	if err != nil {
@@ -95,12 +104,8 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 			return err
 		}
 	case len(tables):
-		sdl, err := a.Tables(ctx)
-		if err != nil {
-			return fmt.Errorf("%s tables: %w", a.Collections.Prefix, err)
-		}
-		if _, err := n.DB.AddCollection(ctx, sdl); err != nil {
-			return fmt.Errorf("add %s tables: %w", a.Collections.Prefix, err)
+		if err := a.createTables(ctx, n, cols); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("%s is missing %s: %w", a.Collections.Prefix, strings.Join(missing, ", "), ErrSchemaPartiallyStored)
@@ -115,6 +120,25 @@ func (a ChainApplier) ApplySchema(ctx context.Context, n *node.Node) error {
 		if _, err := n.DB.AddCollection(ctx, verifiedBlockSchema(a.Collections)); err != nil {
 			return fmt.Errorf("add %s: %w", a.Collections.VerifiedBlock.Name, err)
 		}
+	}
+	return nil
+}
+
+// createTables creates the chain's tables from Tables in a database that holds none of them. It
+// returns ErrOtherTablesStored, creating nothing, when the database holds other tables under the
+// chain's prefix, such as those of the chain's other mode, since the host never changes stored
+// tables.
+func (a ChainApplier) createTables(ctx context.Context, n *node.Node, stored []client.Collection) error {
+	if other := storedTables(stored, a.Collections); len(other) > 0 {
+		return fmt.Errorf("%w: %s; wipe the store for the host to create the chain's tables",
+			ErrOtherTablesStored, strings.Join(slices.Sorted(maps.Keys(other)), ", "))
+	}
+	sdl, err := a.Tables(ctx)
+	if err != nil {
+		return fmt.Errorf("%s tables: %w", a.Collections.Prefix, err)
+	}
+	if _, err := n.DB.AddCollection(ctx, sdl); err != nil {
+		return fmt.Errorf("add %s tables: %w", a.Collections.Prefix, err)
 	}
 	return nil
 }

@@ -376,8 +376,9 @@ func TestChainsApplier(t *testing.T) {
 }
 
 // A tokens-mode chain stores its tables and the host's VerifiedBlock and subscribes to exactly its
-// tables, a restart compares the stored tables with the served schema without VerifiedBlock, and
-// removing the chain from the config unsubscribes all of them.
+// tables, a restart compares the stored tables with the served schema without VerifiedBlock,
+// removing the chain from the config unsubscribes all of them, and switching it to full mode
+// disables it and unsubscribes them too.
 func TestChainsApplierTokensMode(t *testing.T) {
 	const prefix = "Bsc__Mainnet"
 	ctx := context.Background()
@@ -409,6 +410,23 @@ func TestChainsApplierTokensMode(t *testing.T) {
 	withoutTokens := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{ethereum}}
 	require.NoError(t, withoutTokens.ApplySchema(ctx, node))
 	require.Equal(t, []string{prefix}, withoutTokens.removed)
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, ethereum.Collections().Subscribed(), got)
+
+	// Listed again, the chain is subscribed again. Switched to full mode, it is disabled before any
+	// full-mode table is created, and its tokens-mode tables are unsubscribed.
+	require.NoError(t, applier.ApplySchema(ctx, node))
+	got, err = node.DB.ListP2PCollections(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, append(ethereum.Collections().Subscribed(), collections.Subscribed()...), got)
+	fullGenerator := httptest.NewServer(schemaHandler(t, prefix))
+	t.Cleanup(fullGenerator.Close)
+	full := chain.Config{Prefix: prefix, Generators: []chain.Generator{{URL: fullGenerator.URL}}}
+	switched := &chainsApplier{schemaCfg: schemaCfg, chains: []chain.Config{ethereum, full}}
+	require.NoError(t, switched.ApplySchema(ctx, node))
+	require.Equal(t, []chain.Config{ethereum}, switched.enabled)
+	require.Equal(t, map[string]string{prefix: server.ReasonOtherTablesStored}, switched.reasons)
 	got, err = node.DB.ListP2PCollections(ctx)
 	require.NoError(t, err)
 	require.ElementsMatch(t, ethereum.Collections().Subscribed(), got)
