@@ -45,8 +45,8 @@ func TestHostMetricsChains(t *testing.T) {
 	require.Nil(t, m.Chain("Other__Chain"))
 }
 
-// A chain is ready when it is enabled and its last document, or the host's start before its first
-// document, is within chainReadyWindow.
+// A chain is ready when it is enabled, holds no height, and its last document, or the host's start
+// before its first document, is within chainReadyWindow.
 func TestChainStatusesReady(t *testing.T) {
 	now := time.Now()
 	stale := now.Add(-2 * chainReadyWindow)
@@ -55,9 +55,12 @@ func TestChainStatusesReady(t *testing.T) {
 		enabled      bool
 		start        time.Time
 		lastDocument time.Time // zero for none
+		held         bool
 		want         bool
 	}{
 		{name: "recent document", enabled: true, start: stale, lastDocument: now, want: true},
+		{name: "recent document, a height held", enabled: true, start: stale, lastDocument: now, held: true, want: false},
+		{name: "a document as old as Ethereum's longest batch gap", enabled: true, start: stale, lastDocument: now.Add(-391 * time.Second), want: true},
 		{name: "stale document", enabled: true, start: stale, lastDocument: stale, want: false},
 		{name: "no document, host just started", enabled: true, start: now, want: true},
 		{name: "no document, host started long ago", enabled: true, start: stale, want: false},
@@ -68,6 +71,9 @@ func TestChainStatusesReady(t *testing.T) {
 			c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: tt.enabled}
 			if !tt.lastDocument.IsZero() {
 				c.lastDocument.Store(tt.lastDocument.UnixNano())
+			}
+			if tt.held {
+				c.RecordHeld(100, now)
 			}
 			m := NewHostMetrics(c)
 			m.StartTime = tt.start
@@ -367,7 +373,7 @@ func TestServeHTTP_ChainCounters(t *testing.T) {
 		`"documents_received":3,"documents_by_table":{"Log":2,"Transaction":1},`+
 		`"block_signatures_processed":4,"signature_verifications":5,"signature_failures":6,`+
 		`"attestations_created":7,"attestation_errors":8}`, string(resp.Chains[1]))
-	require.JSONEq(t, `{"chain":"Bsc__Mainnet","enabled":true,"ready":true,`+
+	require.JSONEq(t, `{"chain":"Bsc__Mainnet","enabled":true,"ready":false,`+
 		`"verified_height":100,"held_height":101,"held_since":"2026-11-11T03:00:00Z",`+noCounts+`,`+
 		`"verified_blocks":1,"signers_dropped":{"below_k":1,"signature":2},"unlisted_attestations":3,"repairs":4}`,
 		string(resp.Chains[2]))

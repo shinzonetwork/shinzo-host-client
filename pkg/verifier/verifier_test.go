@@ -771,9 +771,54 @@ func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Coll
 	return ids
 }
 
-// A held height is logged when it first holds and when its reason changes, at info level while the
-// rule waits for documents and at error level when they refuse it. The next height's first hold is
-// logged even with the same reason.
+// A height holds when the rule refuses it, or while it waits for documents once it has waited
+// repairAfter with a later Header held, or stallAfter.
+func TestRunCountsAHold(t *testing.T) {
+	cases := []struct {
+		name       string
+		laterBlock bool
+		refused    bool
+		stallAfter time.Duration
+		wantHeld   bool
+	}{
+		{name: "waiting for documents behind a later Header", laterBlock: true, stallAfter: time.Hour, wantHeld: true},
+		{name: "waiting for documents, nothing later held", stallAfter: time.Hour},
+		{name: "waiting for documents past stallAfter", stallAfter: retryInterval, wantHeld: true},
+		{name: "refused by the rule", refused: true, stallAfter: time.Hour, wantHeld: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newVerifierNode(t)
+			b10 := newBlock(t, 10, "0x09", 1_700_000_000)
+			addHeader(t, n, b10)
+			attest(t, n, 0, b10.statement)
+			start := chain.Start{Block: 10, Hash: b10.statement.Hash}
+			if tc.refused {
+				attest(t, n, 1, b10.statement)
+				start.Hash = "0x" + strings.Repeat("0", 64)
+			}
+			if tc.laterBlock {
+				addHeader(t, n, newBlock(t, 11, b10.statement.Hash, 1_700_000_012))
+			}
+			var held atomic.Int32
+			v, err := New(n, tokensConfig(start), tokens, Hooks{Held: func(uint64) { held.Add(1) }})
+			require.NoError(t, err)
+			v.repairAfter = 200 * time.Millisecond
+			v.stallAfter = tc.stallAfter
+			stop := run(v)
+			defer stop()
+
+			if !tc.wantHeld {
+				require.Never(t, func() bool { return held.Load() > 0 }, 3*retryInterval, 50*time.Millisecond)
+				return
+			}
+			require.Eventually(t, func() bool { return held.Load() == 1 }, 3*retryInterval, 50*time.Millisecond)
+		})
+	}
+}
+
+// A held height is logged at error level when it starts to hold and when its reason changes, and
+// at info level once it verifies.
 func TestRunLogsAHoldOncePerReason(t *testing.T) {
 	n := newVerifierNode(t)
 	core, logs := observer.New(zap.InfoLevel)
@@ -790,25 +835,24 @@ func TestRunLogsAHoldOncePerReason(t *testing.T) {
 	level := func(i int) zapcore.Level { return logs.All()[i].Level }
 
 	b100 := newBlock(t, 100, "0x99", 1_700_000_000)
-	stop := run(newVerifier(t, n, chain.Start{Block: 100, Hash: b100.statement.Hash}))
+	v := newVerifier(t, n, chain.Start{Block: 100, Hash: b100.statement.Hash})
+	v.stallAfter = 2 * retryInterval
+	stop := run(v)
 	defer stop()
-	// No document is held, so no group agrees, on each of the checks in this window.
-	require.Never(t, func() bool { return logs.Len() > 1 }, 2*retryInterval+retryInterval/2, 50*time.Millisecond)
-	require.Len(t, messages(), 1)
+	// No document is held, so no group agrees, and 100 holds once it has waited stallAfter.
+	require.Eventually(t, func() bool { return logs.Len() == 1 }, 4*retryInterval, 50*time.Millisecond)
+	require.Never(t, func() bool { return logs.Len() > 1 }, 2*retryInterval, 50*time.Millisecond)
 	require.Contains(t, messages()[0], "Block 100 is held")
 	require.Contains(t, messages()[0], rule.ReasonNoAgreement)
-	require.Equal(t, zapcore.InfoLevel, level(0))
+	require.Equal(t, zapcore.ErrorLevel, level(0))
 
-	// 100 verifies, and 101 holds for the same reason.
+	// 100 verifies, and 101's signers agree on a block whose parent is not 100, which holds at once.
 	addAttestedBlock(t, n, b100)
-	require.Eventually(t, func() bool { return logs.Len() == 2 }, 3*retryInterval, 50*time.Millisecond)
-	require.Contains(t, messages()[1], "Block 101 is held")
-	require.Contains(t, messages()[1], rule.ReasonNoAgreement)
-	require.Equal(t, zapcore.InfoLevel, level(1))
-
-	// 101's signers agree on a block whose parent is not 100: a new reason.
 	addAttestedBlock(t, n, newBlock(t, 101, "0x77", 1_700_000_012))
 	require.Eventually(t, func() bool { return logs.Len() == 3 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[1], "Block 100 verified after being held")
+	require.Equal(t, zapcore.InfoLevel, level(1))
+	require.Contains(t, messages()[2], "Block 101 is held")
 	require.Contains(t, messages()[2], rule.ReasonParent)
 	require.Equal(t, zapcore.ErrorLevel, level(2))
 	require.Len(t, verified(t, n), 1)

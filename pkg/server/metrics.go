@@ -118,12 +118,13 @@ type chainReport struct {
 }
 
 // chainReadyWindow is how long an enabled chain stays ready after its last document, or after the
-// host's start before its first.
-const chainReadyWindow = 5 * time.Minute
+// host's start before its first. It is longer than the gap between Ethereum's finalized batches,
+// during which no document arrives.
+const chainReadyWindow = 10 * time.Minute
 
 // ChainStatus is one chain as the health and metrics endpoints report it. A chain is Ready while it
-// is enabled and its last document, or the host's start before its first, is within
-// chainReadyWindow. CurrentBlock is omitted until the chain attests a block, LastDocumentTime until
+// is enabled, holds no height, and its last document, or the host's start before its first, is
+// within chainReadyWindow. CurrentBlock is omitted until the chain attests a block, LastDocumentTime until
 // its first document, Cutoff until its pruner sets one, and Reason while the chain is enabled. A
 // tokens-mode chain also reports VerifiedHeight once its verifier records a block, and HeldHeight and
 // HeldSince while a height holds.
@@ -190,7 +191,7 @@ func (c *ChainMetrics) status(now, start time.Time) ChainStatus {
 	status := ChainStatus{
 		Chain:            c.Prefix,
 		Enabled:          c.Enabled,
-		Ready:            c.Enabled && now.Sub(since) <= chainReadyWindow,
+		Ready:            c.Enabled && now.Sub(since) <= chainReadyWindow && c.held.Load() == nil,
 		Reason:           c.Reason,
 		CurrentBlock:     c.CurrentBlock(),
 		LastDocumentTime: last,
