@@ -1,6 +1,9 @@
 package pruner
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,4 +27,29 @@ func TestFloorRaise(t *testing.T) {
 
 	f.Raise(150)
 	require.Equal(t, int64(150), f.Load())
+}
+
+// Raises from many goroutines at once never leave the floor below a height raised, and end at the
+// highest one. Each goroutine raises its own rising run of heights, so the raises interleave
+// throughout.
+func TestFloorRaiseConcurrently(t *testing.T) {
+	const raises = 1_000_000
+	goroutines := runtime.GOMAXPROCS(0)
+	var f Floor
+	var lowered atomic.Bool
+	var raisers sync.WaitGroup
+	for g := range goroutines {
+		raisers.Go(func() {
+			for h := int64(g + 1); h <= raises; h += int64(goroutines) {
+				f.Raise(h)
+				if f.Load() < h {
+					lowered.Store(true)
+				}
+			}
+		})
+	}
+	raisers.Wait()
+
+	require.False(t, lowered.Load(), "the floor went below a height already raised")
+	require.Equal(t, int64(raises), f.Load())
 }
