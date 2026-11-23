@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -438,20 +439,23 @@ func TestDocumentsDecodeBlobs(t *testing.T) {
 	}, docs)
 }
 
-// A height is repaired only after it has waited repairAfter while the host holds a later Header,
-// and the repair covers repairHeights heights from it up.
+// A height is repaired only after it has waited repairAfter for documents while the host holds a
+// later Header, and the repair covers repairHeights heights from it up. A height held for another
+// reason is not repaired.
 func TestRunRepairsOnlyStuckHeights(t *testing.T) {
 	cases := []struct {
 		name        string
 		laterBlock  bool
 		repairAfter time.Duration
 		noLister    bool
+		wrongStart  bool
 		wantRepair  bool
 	}{
 		{name: "stuck behind a later block", laterBlock: true, repairAfter: 200 * time.Millisecond, wantRepair: true},
 		{name: "no later block held", repairAfter: 200 * time.Millisecond},
 		{name: "not stuck for long enough", laterBlock: true, repairAfter: time.Hour},
 		{name: "no documents lister", laterBlock: true, repairAfter: 200 * time.Millisecond, noLister: true},
+		{name: "held on a start.hash mismatch", laterBlock: true, repairAfter: 200 * time.Millisecond, wrongStart: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -459,6 +463,11 @@ func TestRunRepairsOnlyStuckHeights(t *testing.T) {
 			b10 := newBlock(t, 10, "0x09", 1_700_000_000)
 			addHeader(t, n, b10)
 			attest(t, n, 0, b10.statement)
+			start := chain.Start{Block: 10, Hash: b10.statement.Hash}
+			if tc.wrongStart {
+				attest(t, n, 1, b10.statement)
+				start.Hash = "0x" + strings.Repeat("0", 64)
+			}
 			if tc.laterBlock {
 				addHeader(t, n, newBlock(t, 11, b10.statement.Hash, 1_700_000_012))
 			}
@@ -475,7 +484,7 @@ func TestRunRepairsOnlyStuckHeights(t *testing.T) {
 			if tc.noLister {
 				hooks = Hooks{}
 			}
-			v, err := New(n, tokensConfig(chain.Start{Block: 10, Hash: b10.statement.Hash}), tokens, hooks)
+			v, err := New(n, tokensConfig(start), tokens, hooks)
 			require.NoError(t, err)
 			v.repairAfter = tc.repairAfter
 			stop := run(v)
@@ -492,9 +501,157 @@ func TestRunRepairsOnlyStuckHeights(t *testing.T) {
 			}
 			require.Eventually(t, func() bool { return len(repairs()) > 0 }, 2*retryInterval, 50*time.Millisecond)
 			require.Equal(t, [2]uint64{10, 10 + repairHeights - 1}, repairs()[0])
-			// A height still stuck after a repair waits repairAfter again before the next one.
+			// A height still stuck after a repair waits at least repairAfter before the next one.
 			time.Sleep(retryInterval)
 			require.LessOrEqual(t, len(repairs()), int(retryInterval/tc.repairAfter)+2)
+		})
+	}
+}
+
+// A height the rule did not accept waits for documents only while every listed signer's attestation
+// is short of a document or in a group below k, with those groups naming one block and holding
+// fewer than required signers.
+func TestAwaitsDocuments(t *testing.T) {
+	a, b, c := signer(0), signer(1), signer(2)
+	cases := []struct {
+		name    string
+		verdict rule.Verdict
+		want    bool
+	}{
+		{"no document held", rule.Verdict{Reason: rule.ReasonNoAgreement}, true},
+		{"one listed signer so far", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK},
+		}}, true},
+		{"attestations before their header", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonHeader}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonHeader},
+		}}, true},
+		{"attestations before their evidence", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonEvidence}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonEvidence},
+		}}, true},
+		{"one signer's state capture not held yet", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonCapture},
+		}}, true},
+		{"a held header that does not match the statements", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBadHeader}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBadHeader},
+		}}, false},
+		{"a held state capture that does not prove one signer's value", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBadCapture},
+		}}, false},
+		{"an unlisted signer only", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: c, Reason: rule.ReasonUnlisted},
+		}}, true},
+		{"one listed signer on two blocks", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: a, Hash: "0xbb", Reason: rule.ReasonBelowK},
+		}}, false},
+		{"listed signers on one block with different claims", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Hash: "0xaa", Reason: rule.ReasonBelowK},
+		}}, false},
+		{"a listed signer's signature fails", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: rule.ReasonBelowK}, {Signer: b, Reason: rule.ReasonSignature},
+		}}, false},
+		{"a reason from a newer codec", rule.Verdict{Reason: rule.ReasonNoAgreement, Results: []rule.Result{
+			{Signer: a, Hash: "0xaa", Reason: "a reason from a newer codec"},
+		}}, false},
+		{"two groups have the required signers", rule.Verdict{Reason: rule.ReasonSplit}, false},
+		{"the agreed parent is not the previous verified block", rule.Verdict{Reason: rule.ReasonParent}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, awaitsDocuments(tc.verdict, 2))
+		})
+	}
+}
+
+// A repair runs in the background, one at a time: a held height verifies when its missing
+// attestation arrives while a repair is still waiting on the generators.
+func TestRunRepairsInBackground(t *testing.T) {
+	n := newVerifierNode(t)
+	b10 := newBlock(t, 10, "0x09", 1_700_000_000)
+	addHeader(t, n, b10)
+	addHeader(t, n, newBlock(t, 11, b10.statement.Hash, 1_700_000_012))
+	attest(t, n, 0, b10.statement)
+	var calls atomic.Int32
+	release := make(chan struct{})
+	v, err := New(n, tokensConfig(chain.Start{Block: 10, Hash: b10.statement.Hash}), tokens, Hooks{
+		Documents: func(ctx context.Context, _, _ uint64) (map[string][]string, error) {
+			calls.Add(1)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return map[string][]string{}, nil
+		},
+	})
+	require.NoError(t, err)
+	v.repairAfter = 200 * time.Millisecond
+	stop := run(v)
+	defer stop()
+	defer close(release)
+
+	require.Eventually(t, func() bool { return calls.Load() == 1 }, 3*retryInterval, 50*time.Millisecond)
+	require.Never(t, func() bool { return calls.Load() > 1 }, 2*retryInterval, 50*time.Millisecond)
+	attest(t, n, 1, b10.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+}
+
+// A height no generator stores any longer is not repaired again; one whose listing failed for
+// another reason is.
+func TestRunStopsRepairingWhatNoGeneratorStores(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		wantAgain bool
+	}{
+		{name: "no generator stores it", err: fmt.Errorf("every generator: %w", ErrNotStored)},
+		{name: "the generators do not answer", err: errors.New("connection refused"), wantAgain: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newVerifierNode(t)
+			b10 := newBlock(t, 10, "0x09", 1_700_000_000)
+			addHeader(t, n, b10)
+			addHeader(t, n, newBlock(t, 11, b10.statement.Hash, 1_700_000_012))
+			attest(t, n, 0, b10.statement)
+			var calls atomic.Int32
+			v, err := New(n, tokensConfig(chain.Start{Block: 10, Hash: b10.statement.Hash}), tokens, Hooks{
+				Documents: func(context.Context, uint64, uint64) (map[string][]string, error) {
+					calls.Add(1)
+					return nil, tc.err
+				},
+			})
+			require.NoError(t, err)
+			v.repairAfter = 200 * time.Millisecond
+			stop := run(v)
+			defer stop()
+
+			require.Eventually(t, func() bool { return calls.Load() == 1 }, 3*retryInterval, 50*time.Millisecond)
+			if tc.wantAgain {
+				require.Eventually(t, func() bool { return calls.Load() > 1 }, 4*retryInterval, 50*time.Millisecond)
+				return
+			}
+			require.Never(t, func() bool { return calls.Load() > 1 }, 4*retryInterval, 50*time.Millisecond)
+		})
+	}
+}
+
+// After a repair that requested nothing the wait before the next one doubles, up to
+// maxRepairWait; after one that requested documents it is repairAfter again.
+func TestRepairWaitAfter(t *testing.T) {
+	v := &Verifier{repairAfter: repairAfter}
+	cases := []struct {
+		name      string
+		wait      time.Duration
+		requested int64
+		want      time.Duration
+	}{
+		{name: "nothing requested", wait: repairAfter, want: 2 * repairAfter},
+		{name: "nothing requested at the cap", wait: maxRepairWait, want: maxRepairWait},
+		{name: "nothing requested near the cap", wait: maxRepairWait - time.Second, want: maxRepairWait},
+		{name: "documents requested", wait: maxRepairWait, requested: 3, want: repairAfter},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, v.repairWaitAfter(tc.wait, tc.requested))
 		})
 	}
 }
@@ -553,10 +710,12 @@ func TestRepairFetchesEveryBatch(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	v.repair(ctx, 10)
+	requested, err := v.repair(ctx, 10)
+	require.NoError(t, err)
 
 	want := documentIDs(ctx, t, generator, tokens.Evidence, 10)
 	require.Len(t, want, 2*syncBatch+1)
+	require.Equal(t, int64(len(want)), requested)
 	require.ElementsMatch(t, want, documentIDs(ctx, t, host, tokens.Evidence, 10))
 }
 

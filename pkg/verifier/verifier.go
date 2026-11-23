@@ -27,9 +27,13 @@ const (
 	// retries a VerifiedBlock write that failed.
 	retryInterval = time.Second
 
-	// repairAfter is how long a height may stay unverified, while the host holds a later Header,
+	// repairAfter is how long a height may wait for documents, while the host holds a later Header,
 	// before the verifier fetches the documents the generators hold for it that the host does not.
 	repairAfter = 10 * time.Second
+
+	// maxRepairWait caps the wait before the next repair of a height, which doubles from
+	// repairAfter after each repair that requested nothing.
+	maxRepairWait = 5 * time.Minute
 
 	// repairHeights is how many heights, from the unverified one up, one repair covers: the most a
 	// generator's documents endpoint lists in one request.
@@ -48,14 +52,30 @@ const (
 
 var (
 	errNotAccepted = errors.New("the rule does not accept the block")
-	errStartHash   = errors.New("the agreed block at the start height is not start.hash")
+	// errAwaitingDocuments is returned for a height the rule may still accept once more of its
+	// documents arrive; see awaitsDocuments.
+	errAwaitingDocuments = errors.New("the rule cannot decide until more documents arrive")
+	errStartHash         = errors.New("the agreed block at the start height is not start.hash")
 )
+
+// ErrNotStored is wrapped by a Documents hook's error when no generator stores the heights asked
+// for any longer, so a repair cannot fetch them.
+var ErrNotStored = errors.New("no generator stores the heights asked for")
 
 // Hooks are called as the verifier makes progress. A nil hook is skipped.
 type Hooks struct {
 	// Documents lists the IDs of the documents the chain's generators hold at the heights from
-	// through to, by collection. Without it the verifier does not fetch missing documents.
+	// through to, by collection. Its error wraps ErrNotStored when no generator stores from any
+	// longer. Without it the verifier does not fetch missing documents.
 	Documents func(ctx context.Context, from, to uint64) (map[string][]string, error)
+}
+
+// repairResult is how a background repair of height ended: the documents it requested from peers,
+// and whether no generator stores height any longer.
+type repairResult struct {
+	height    uint64
+	requested int64
+	notStored bool
 }
 
 // Verifier checks a tokens-mode chain's heights in order and records each one the rule accepts in
@@ -66,6 +86,8 @@ type Verifier struct {
 	rule        *rule.Chain
 	// assets are the IDs of the assets the rule checks, which each VerifiedBlock document names.
 	assets []string
+	// required is how many listed signers must agree on a block.
+	required int
 	// startHeight and startHash are start.block and start.hash.
 	startHeight uint64
 	startHash   string
@@ -79,7 +101,8 @@ type Verifier struct {
 // New returns a verifier for the tokens-mode chain c, whose collections are collections, that calls
 // hooks. It returns an error when the evidence codec refuses c's rule configuration.
 func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hooks) (*Verifier, error) {
-	r, err := rule.New(c.RuleConfig())
+	config := c.RuleConfig()
+	r, err := rule.New(config)
 	if err != nil {
 		return nil, fmt.Errorf("chain %s: %w", c.Prefix, err)
 	}
@@ -92,6 +115,7 @@ func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hook
 		collections: collections,
 		rule:        r,
 		assets:      assets,
+		required:    config.Required,
 		startHeight: uint64(c.Start.Block), //nolint:gosec // chain.Validate refuses a negative start.block
 		startHash:   c.Start.Hash,
 		hooks:       hooks,
@@ -103,8 +127,11 @@ func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hook
 
 // Run verifies heights in order until ctx is done, starting above the last verified block, or at
 // start.block on an empty chain. A height that fails is retried every retryInterval and holds back
-// the heights above it. After repairAfter, if a later Header is held, the verifier fetches the
-// height's missing documents from the generators.
+// the heights above it. A height that waits for documents while a later Header is held is repaired
+// in the background, one repair at a time, while the verifier keeps checking it: its missing
+// documents are fetched from the generators after repairAfter, and again after a wait that doubles,
+// up to maxRepairWait, while repairs request nothing. A height no generator stores any longer is not
+// repaired again.
 func (v *Verifier) Run(ctx context.Context) {
 	last, found, err := v.lastVerified(ctx)
 	if err != nil {
@@ -116,7 +143,11 @@ func (v *Verifier) Run(ctx context.Context) {
 		parent, height = &last, last.Number+1
 	}
 	var reported string
-	waitingSince := time.Now()
+	var repairs sync.WaitGroup
+	defer repairs.Wait()
+	repaired := make(chan repairResult, 1)
+	repairing, notStored := false, false
+	repairWait, waitingSince := v.repairAfter, time.Now()
 	for {
 		block, signers, err := v.verify(ctx, height, parent)
 		if err == nil {
@@ -126,16 +157,25 @@ func (v *Verifier) Run(ctx context.Context) {
 			parent = &block
 			height++
 			reported = ""
-			waitingSince = time.Now()
+			repairWait, waitingSince, notStored = v.repairAfter, time.Now(), false
 			continue
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		if v.hooks.Documents != nil && time.Since(waitingSince) >= v.repairAfter && v.heldAbove(ctx, height) {
-			v.repair(ctx, height)
-			waitingSince = time.Now()
-			continue
+		select {
+		case r := <-repaired:
+			repairing = false
+			if r.height == height {
+				repairWait, waitingSince, notStored = v.repairWaitAfter(repairWait, r.requested), time.Now(), r.notStored
+			}
+		default:
+		}
+		if !repairing && !notStored && v.hooks.Documents != nil && errors.Is(err, errAwaitingDocuments) &&
+			time.Since(waitingSince) >= repairWait && v.heldAbove(ctx, height) {
+			repairing = true
+			h := height
+			repairs.Go(func() { repaired <- v.repairInBackground(ctx, h) })
 		}
 		if msg := err.Error(); msg != reported {
 			reported = msg
@@ -171,7 +211,8 @@ func (v *Verifier) lastVerified(ctx context.Context) (rule.Block, bool, error) {
 
 // verify returns the block at height and its agreeing signers when the rule accepts it from the
 // documents held there, with parent as the previous verified block. With no parent, height is
-// start.block, and the block must also have start.hash. Otherwise it returns why not.
+// start.block, and the block must also have start.hash. Otherwise it returns why not, wrapping
+// errAwaitingDocuments when the rule may accept the block once more documents arrive.
 func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block) (rule.Block, []string, error) {
 	docs, err := v.documents(ctx, height)
 	if err != nil {
@@ -179,12 +220,41 @@ func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block
 	}
 	verdict := v.rule.Check(height, parent, docs)
 	if !verdict.Accepted {
+		if awaitsDocuments(verdict, v.required) {
+			return rule.Block{}, nil, fmt.Errorf("%w: %s", errAwaitingDocuments, verdict.Reason)
+		}
 		return rule.Block{}, nil, fmt.Errorf("%w: %s", errNotAccepted, verdict.Reason)
 	}
 	if parent == nil && verdict.Block.Hash != v.startHash {
 		return rule.Block{}, nil, fmt.Errorf("%w: agreed %s, start.hash %s", errStartHash, verdict.Block.Hash, v.startHash)
 	}
 	return verdict.Block, verdict.Signers, nil
+}
+
+// awaitsDocuments reports whether the rule may accept a height it did not accept once more
+// documents arrive: each listed signer's attestation waits for a document or is in a group below k,
+// and those groups name one block and hold fewer than required signers between them.
+func awaitsDocuments(verdict rule.Verdict, required int) bool {
+	if verdict.Reason != rule.ReasonNoAgreement {
+		return false
+	}
+	short := make(map[string]bool)
+	var block string
+	for _, r := range verdict.Results {
+		switch r.Reason {
+		case rule.ReasonUnlisted, rule.ReasonHeader, rule.ReasonEvidence, rule.ReasonCapture:
+			// An unlisted signer never counts, and the others wait for a document.
+		case rule.ReasonBelowK:
+			if block != "" && r.Hash != block {
+				return false
+			}
+			block = r.Hash
+			short[r.Signer] = true
+		default:
+			return false
+		}
+	}
+	return len(short) < required
 }
 
 // documents returns the Header, Evidence, StateCapture and BlockAttestation documents held at
@@ -312,22 +382,48 @@ func (v *Verifier) heldAbove(ctx context.Context, height uint64) bool {
 	return len(rows["headers"]) > 0
 }
 
+// repairWaitAfter returns the wait before the next repair of a height, given the wait before the
+// last one and how many documents it requested.
+func (v *Verifier) repairWaitAfter(wait time.Duration, requested int64) time.Duration {
+	if requested > 0 {
+		return v.repairAfter
+	}
+	return min(2*wait, maxRepairWait) //nolint:mnd // the wait doubles
+}
+
+// repairInBackground repairs height and logs why it could not, at Error when no generator stores
+// height any longer.
+func (v *Verifier) repairInBackground(ctx context.Context, height uint64) repairResult {
+	requested, err := v.repair(ctx, height)
+	notStored := errors.Is(err, ErrNotStored)
+	switch {
+	case notStored:
+		logger.Sugar.Errorf("Block %d cannot be repaired: %v (chain: %s)", height, err, v.collections.Prefix)
+	case err != nil && ctx.Err() == nil:
+		logger.Sugar.Warnf("Block %d not repaired: %v (chain: %s)", height, err, v.collections.Prefix)
+	}
+	return repairResult{height: height, requested: requested, notStored: notStored}
+}
+
 // repair asks peers for the documents the chain's generators hold at height and the heights above
 // it, up to repairHeights in all, that the host does not hold. Each collection's missing documents
-// are fetched in batches of syncBatch, syncCalls at once, each within syncTimeout.
-func (v *Verifier) repair(ctx context.Context, height uint64) {
+// are fetched in batches of syncBatch, syncCalls at once, each within syncTimeout. It returns how
+// many documents it requested, or why it could not list them. When the host holds every listed
+// document, it logs that at Info, since the height then waits for something other than a missing
+// document.
+func (v *Verifier) repair(ctx context.Context, height uint64) (int64, error) {
 	c := v.collections
 	to := height + repairHeights - 1
 	listed, err := v.hooks.Documents(ctx, height, to)
 	if err != nil {
-		logger.Sugar.Warnf("Cannot list the generators' documents at blocks %d-%d: %v (chain: %s)", height, to, err, c.Prefix)
-		return
+		return 0, fmt.Errorf("list the generators' documents at blocks %d-%d: %w", height, to, err)
 	}
 	held, err := v.heldIDs(ctx, height, to)
 	if err != nil {
-		logger.Sugar.Warnf("Cannot read the documents held at blocks %d-%d: %v (chain: %s)", height, to, err, c.Prefix)
-		return
+		return 0, fmt.Errorf("read the documents held at blocks %d-%d: %w", height, to, err)
 	}
+	var total int64
+	anyMissing := false
 	for _, col := range c.Generated() {
 		var missing []string
 		for _, id := range listed[col.Name] {
@@ -338,6 +434,7 @@ func (v *Verifier) repair(ctx context.Context, height uint64) {
 		if len(missing) == 0 {
 			continue
 		}
+		anyMissing = true
 		var requested atomic.Int64
 		var wg sync.WaitGroup
 		calls := make(chan struct{}, syncCalls)
@@ -357,8 +454,14 @@ func (v *Verifier) repair(ctx context.Context, height uint64) {
 		wg.Wait()
 		if n := requested.Load(); n > 0 {
 			logger.Sugar.Infof("Requested %d missing %s documents at blocks %d-%d from peers", n, col.Name, height, to)
+			total += n
 		}
 	}
+	if !anyMissing {
+		logger.Sugar.Infof("Block %d not repaired: the host already holds every document the generators list at blocks %d-%d (chain: %s)",
+			height, height, to, c.Prefix)
+	}
+	return total, nil
 }
 
 // heldIDs returns the IDs of the documents the host holds in the chain's generated collections at

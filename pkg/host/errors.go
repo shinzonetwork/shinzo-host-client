@@ -17,5 +17,7 @@ var ( //nolint:revive
 	errNoChainSchema       = errors.New("the built-in schema holds only Ethereum mainnet's tables")
 	errNoGeneratorAnswered = errors.New("no configured generator answered")
 	errDocumentsRefused    = errors.New("the generator refused the documents request")
+	errDocumentsNotStored  = errors.New("the generator no longer stores the heights asked for")
+	errDocumentsTooLarge   = errors.New("the generator's documents answer is too large")
 	errNoGeneratorSchema   = errors.New("no answering generator served a schema the checks accept")
 )
