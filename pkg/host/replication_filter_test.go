@@ -10,6 +10,7 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 
 	"github.com/shinzonetwork/shinzo-host-client/config"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/stretchr/testify/require"
 )
@@ -339,6 +340,7 @@ func TestStartHostingResolvesTheFilterCollections(t *testing.T) {
 	require.NoError(t, listener.Close())
 
 	cfg := *DefaultConfig
+	cfg.Chains = []chain.Config{testChainConfig}
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = testLoopbackAddr
 	cfg.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/0"

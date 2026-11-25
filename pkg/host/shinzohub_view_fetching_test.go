@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/defradb"
 	"github.com/stretchr/testify/require"
 )
@@ -20,6 +21,7 @@ func TestHostIntegration_ShinzoHubViewFetching(t *testing.T) {
 
 	// Step 1: Start the host with real config from config.yaml
 	testConfig := *DefaultConfig // Copy the default config
+	testConfig.Chains = []chain.Config{testChainConfig}
 	// When running locally you can use a pre-seeded defra database
 	// testConfig.DefraDB.Store.Path = "../../.defra"
 	// testConfig.DefraDB.KeyringSecret = "pingpong"

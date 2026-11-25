@@ -246,7 +246,7 @@
                 <div class="chart-container"
                     style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: #525f7f;">
                     <div class="summary-item">
-                        <span> <span id="sig_verification_match_icon"></span> Signature Verified = Block Signatures Processed</span>
+                        <span> <span id="sig_verification_match_icon"></span> Signature Verified + Unlisted = Block Signatures Processed</span>
                         <span><span id="sig_verification_match">-</span></span>
                     </div>
                     <div class="summary-item">
@@ -430,8 +430,8 @@
             //update system summary data
             const chains = data.chains || [];
             setSummary('sig_verification_match', chains
-                .filter(chain => chain.signature_verifications !== chain.block_signatures_processed)
-                .map(chain => `${chain.chain}: ${chain.signature_verifications}/${chain.block_signatures_processed}`), '✓ Match');
+                .filter(chain => chain.signature_verifications + chain.unlisted_signatures !== chain.block_signatures_processed)
+                .map(chain => `${chain.chain}: ${chain.signature_verifications + chain.unlisted_signatures}/${chain.block_signatures_processed}`), '✓ Match');
             setSummary('attestation_errors_summary', chains
                 .filter(chain => chain.attestation_errors > 0)
                 .map(chain => `${chain.chain}: ${chain.attestation_errors}`), 'None');
