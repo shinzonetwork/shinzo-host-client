@@ -1,6 +1,7 @@
 package hostkey
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,6 +257,8 @@ func TestEnsureConcurrentRecoverStillFailsOnLostRace(t *testing.T) {
 	}
 	wg.Wait()
 
+	// A loser is refused at the exist check when the winner's keys are already stored, or at the
+	// link when they land in between.
 	wins, losses := 0, 0
 	for _, err := range errs {
 		if err == nil {
@@ -263,7 +266,7 @@ func TestEnsureConcurrentRecoverStillFailsOnLostRace(t *testing.T) {
 			continue
 		}
 		losses++
-		require.ErrorIs(t, err, ErrKeysAlreadyExist)
+		require.True(t, errors.Is(err, ErrKeysAlreadyExist) || errors.Is(err, ErrAlreadyHaveKeys), "unexpected error: %v", err)
 	}
 	require.Equal(t, 1, wins)
 	require.Equal(t, n-1, losses)
