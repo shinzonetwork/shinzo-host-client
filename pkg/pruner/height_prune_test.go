@@ -478,3 +478,29 @@ func TestRetainHistorySuppressesHeightPrune(t *testing.T) {
 	require.Len(t, blockNumbers(t, n, blockCollection, blockHeightField), 20)
 	require.Len(t, blockNumbers(t, n, logCollection, dependentHeightField), 20)
 }
+
+func TestPerformance(t *testing.T) {
+	const (
+		blocks = 2000
+		logs   = 100
+		window = 200
+	)
+	p, n := newHeightTestPruner(t, &Config{Enabled: true, PruneHistory: true, MaxBlocks: window, IntervalSeconds: 1})
+	start := time.Now()
+	fmt.Println("seeding blocks...")
+	seedHeightBlocks(t, n, 1, blocks)
+	fmt.Println("seeding logs...")
+	seedLogs(t, n, 1, blocks, logs)
+	duration := time.Since(start)
+
+	fmt.Println("insert duration:", duration)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	start = time.Now()
+	require.NoError(t, p.runPrune(ctx))
+	duration = time.Since(start)
+
+	fmt.Println("prune duration:", duration)
+}
