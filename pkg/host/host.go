@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
 	"github.com/shinzonetwork/shinzo-host-client/config"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/accounting"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/acp"
@@ -212,6 +213,20 @@ func StartHostingWithEventSubscription(cfg *config.Config) (*Host, error) { //no
 	// A config built in code does not go through LoadConfig's check.
 	if err := config.CheckChainSettings(cfg); err != nil {
 		return nil, err
+	}
+	// The evidence codec's rule checks a tokens-mode chain's caip2, signers, required and assets.
+	// It runs here, and not in LoadConfig, so a config built in code is checked too.
+	for _, c := range cfg.Chains {
+		if c.Mode != chain.ModeTokens {
+			continue
+		}
+		assets := make([]rule.Asset, len(c.Assets))
+		for i, a := range c.Assets {
+			assets[i] = rule.Asset{ID: a.ID, SupplySlot: a.SupplySlot}
+		}
+		if _, err := rule.New(rule.Config{Chain: c.CAIP2, Signers: c.Signers, Required: c.Required, Assets: assets}); err != nil {
+			return nil, fmt.Errorf("chain %s: %w", c.Prefix, err)
+		}
 	}
 	// The event filter and snapshots use only the first chain. Config allows them only on a host
 	// serving one chain, and that host does not start when its chain is disabled.

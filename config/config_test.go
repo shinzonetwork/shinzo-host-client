@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -392,6 +393,8 @@ func TestLoadConfig_SchemaAuthToken(t *testing.T) {
 
 func TestLoadConfig_Chains(t *testing.T) {
 	ethereum := []chain.Config{{Prefix: chain.EthereumMainnet}}
+	tokensEthereum := "chains:\n  - prefix: Ethereum__Mainnet\n    mode: tokens\n    caip2: eip155:1\n    signers: [02aa]\n    required: 1\n" +
+		"    assets: [{id: 8d0d000ee44948fc98c9b98a4fa4921476f08b0d, supply_slot: \"0x35\"}]\n    start: {block: 100, hash: \"0x" + strings.Repeat("ab", 32) + "\"}\n"
 	cases := []struct {
 		desc       string
 		yaml       string
@@ -452,6 +455,16 @@ func TestLoadConfig_Chains(t *testing.T) {
 			desc: "event filter on another chain alone",
 			yaml: "chains:\n  - prefix: Testchain__Devnet\nshinzo:\n  event_filter:\n    enabled: true\n",
 			want: []chain.Config{{Prefix: "Testchain__Devnet"}},
+		},
+		{
+			desc:    "snapshots for Ethereum in tokens mode",
+			yaml:    tokensEthereum + "host:\n  snapshot:\n    enabled: true\n",
+			wantErr: ErrSnapshotTokensMode,
+		},
+		{
+			desc:    "event filter on a tokens-mode chain",
+			yaml:    tokensEthereum + "shinzo:\n  event_filter:\n    enabled: true\n",
+			wantErr: ErrEventFilterTokensMode,
 		},
 		{
 			desc:    "event filter on two chains",
