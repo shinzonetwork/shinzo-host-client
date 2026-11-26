@@ -45,8 +45,8 @@ func TestHostMetricsChains(t *testing.T) {
 	require.Nil(t, m.Chain("Other__Chain"))
 }
 
-// A chain is ready when it is enabled and its last document, or the host's start before its first
-// document, is within chainReadyWindow.
+// A chain is ready when it is enabled, holds no height, and its last document, or the host's start
+// before its first document, is within chainReadyWindow.
 func TestChainStatusesReady(t *testing.T) {
 	now := time.Now()
 	stale := now.Add(-2 * chainReadyWindow)
@@ -55,9 +55,12 @@ func TestChainStatusesReady(t *testing.T) {
 		enabled      bool
 		start        time.Time
 		lastDocument time.Time // zero for none
+		held         bool
 		want         bool
 	}{
 		{name: "recent document", enabled: true, start: stale, lastDocument: now, want: true},
+		{name: "recent document, a height held", enabled: true, start: stale, lastDocument: now, held: true, want: false},
+		{name: "a document as old as Ethereum's longest batch gap", enabled: true, start: stale, lastDocument: now.Add(-391 * time.Second), want: true},
 		{name: "stale document", enabled: true, start: stale, lastDocument: stale, want: false},
 		{name: "no document, host just started", enabled: true, start: now, want: true},
 		{name: "no document, host started long ago", enabled: true, start: stale, want: false},
@@ -68,6 +71,9 @@ func TestChainStatusesReady(t *testing.T) {
 			c := &ChainMetrics{Prefix: "Ethereum__Mainnet", Enabled: tt.enabled}
 			if !tt.lastDocument.IsZero() {
 				c.lastDocument.Store(tt.lastDocument.UnixNano())
+			}
+			if tt.held {
+				c.RecordHeld(100, now)
 			}
 			m := NewHostMetrics(c)
 			m.StartTime = tt.start
@@ -338,7 +344,18 @@ func TestServeHTTP_ChainCounters(t *testing.T) {
 	} {
 		counter.Add(int64(i + 4))
 	}
-	m := NewHostMetrics(eth, bsc)
+	// A tokens-mode chain that verified 100 and holds at 101 adds its verification fields; the
+	// full-mode chains above keep their shape.
+	tokens := &ChainMetrics{Prefix: "Bsc__Mainnet", Enabled: true, Tokens: true}
+	heldSince := time.Date(2026, 11, 11, 3, 0, 0, 0, time.UTC)
+	tokens.RecordVerified(100)
+	tokens.RecordHeld(101, heldSince)
+	tokens.RecordSignerDropped("below_k")
+	tokens.RecordSignerDropped("signature")
+	tokens.RecordSignerDropped("signature")
+	tokens.UnlistedAttestations.Add(3)
+	tokens.Repairs.Add(4)
+	m := NewHostMetrics(eth, bsc, tokens)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	req.Header.Set("Accept", "application/json")
@@ -349,13 +366,38 @@ func TestServeHTTP_ChainCounters(t *testing.T) {
 		Chains []json.RawMessage `json:"chains"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Len(t, resp.Chains, 2)
+	require.Len(t, resp.Chains, 3)
 	require.JSONEq(t, `{"chain":"Ethereum__Mainnet","enabled":true,"ready":true,`+noCounts+`}`, string(resp.Chains[0]))
 	lastDocument := bsc.LastDocumentTime().Format(time.RFC3339Nano)
 	require.JSONEq(t, `{"chain":"BSC__Mainnet","enabled":true,"ready":true,"last_document_time":"`+lastDocument+`",`+
 		`"documents_received":3,"documents_by_table":{"Log":2,"Transaction":1},`+
 		`"block_signatures_processed":4,"signature_verifications":5,"signature_failures":6,`+
 		`"attestations_created":7,"attestation_errors":8}`, string(resp.Chains[1]))
+	require.JSONEq(t, `{"chain":"Bsc__Mainnet","enabled":true,"ready":false,`+
+		`"verified_height":100,"held_height":101,"held_since":"2026-11-11T03:00:00Z",`+noCounts+`,`+
+		`"verified_blocks":1,"signers_dropped":{"below_k":1,"signature":2},"unlisted_attestations":3,"repairs":4}`,
+		string(resp.Chains[2]))
+}
+
+// A hold keeps the time it first held, and verifying its height ends it.
+func TestChainMetricsHold(t *testing.T) {
+	c := &ChainMetrics{Prefix: "Bsc__Mainnet", Tokens: true}
+	first := time.Now()
+	c.RecordHeld(101, first)
+	c.RecordHeld(101, first.Add(time.Minute))
+	height, since, held := c.Held()
+	require.True(t, held)
+	require.Equal(t, int64(101), height)
+	require.Equal(t, first, since)
+
+	c.RecordVerified(100)
+	_, _, held = c.Held()
+	require.True(t, held, "verifying below the held height does not end the hold")
+	c.RecordVerified(101)
+	_, _, held = c.Held()
+	require.False(t, held)
+	require.Equal(t, int64(101), c.VerifiedHeight())
+	require.Equal(t, int64(2), c.VerifiedBlocks.Load())
 }
 
 func TestServeHTTP_HTML(t *testing.T) {

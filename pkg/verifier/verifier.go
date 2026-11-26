@@ -35,6 +35,11 @@ const (
 	// repairAfter after each repair that requested nothing.
 	maxRepairWait = 5 * time.Minute
 
+	// stallAfter is how long a height may wait for documents before it holds although no later
+	// Header is held, as when the chain's generators stop. It is longer than the gap between
+	// Ethereum's finalized batches, which a height waits through without holding.
+	stallAfter = 10 * time.Minute
+
 	// repairHeights is how many heights, from the unverified one up, one repair covers: the most a
 	// generator's documents endpoint lists in one request.
 	repairHeights = 1000
@@ -48,6 +53,22 @@ const (
 
 	// syncBatch is how many documents one sync asks for.
 	syncBatch = 50
+)
+
+// Why the rule left out a listed signer's attestation, as Hooks.Dropped reports it.
+const (
+	DroppedSignature    = "signature"
+	DroppedStatement    = "statement"
+	DroppedWrongBlock   = "wrong_block"
+	DroppedHeader       = "header"
+	DroppedBadHeader    = "bad_header"
+	DroppedMissingClaim = "missing_claim"
+	DroppedEmptyClaim   = "empty_claim"
+	DroppedBelowK       = "below_k"
+	DroppedEvidence     = "evidence"
+	DroppedCapture      = "capture"
+	DroppedBadCapture   = "bad_capture"
+	DroppedOther        = "other" // a reason this host does not know, from a newer codec
 )
 
 var (
@@ -64,9 +85,24 @@ var ErrNotStored = errors.New("no generator stores the heights asked for")
 
 // Hooks are called as the verifier makes progress. A nil hook is skipped.
 type Hooks struct {
+	// Verified is called with the height of each block once its VerifiedBlock document is written.
+	Verified func(height uint64)
 	// Unverified is called with the lowest height not yet verified: when Run starts and after each
 	// verified block.
 	Unverified func(height uint64)
+	// Held is called with a height when it starts to hold and whenever the reason it holds changes.
+	// A height holds when the rule refuses it, or while it waits for documents once it has waited
+	// repairAfter with a later Header held, or stallAfter.
+	Held func(height uint64)
+	// Dropped is called with one of the Dropped constants for each listed signer left out of a
+	// verified block, once per signer and reason. A held height reports nothing, since documents
+	// still to come can bring a signer into the agreed group.
+	Dropped func(reason string)
+	// Unlisted is called for an attestation from a signer the chain does not list, once per height
+	// and signer.
+	Unlisted func()
+	// Repairing is called each time the verifier asks the generators for a held height's documents.
+	Repairing func()
 	// Documents lists the IDs of the documents the chain's generators hold at the heights from
 	// through to, by collection. Its error wraps ErrNotStored when no generator stores from any
 	// longer. Without it the verifier does not fetch missing documents.
@@ -96,6 +132,16 @@ type Verifier struct {
 	startHash   string
 	hooks       Hooks
 	repairAfter time.Duration
+	stallAfter  time.Duration
+	// failingSince is when the height being checked first failed, zero until it does. held is
+	// whether it holds, and holdReason the reason last logged for it.
+	failingSince time.Time
+	held         bool
+	holdReason   string
+	// reported holds the unlisted signers already passed to the Unlisted hook at reportedHeight,
+	// so a height checked many times reports each of them once.
+	reportedHeight uint64
+	reported       map[string]bool
 	// write records an accepted block. It is v.record except in one test, which makes a single
 	// write fail; no store failure a test can cause fails once and then clears.
 	write func(ctx context.Context, b rule.Block, signers []string) error
@@ -123,6 +169,8 @@ func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hook
 		startHash:   c.Start.Hash,
 		hooks:       hooks,
 		repairAfter: repairAfter,
+		stallAfter:  stallAfter,
+		reported:    make(map[string]bool),
 	}
 	v.write = v.record
 	return v, nil
@@ -134,7 +182,8 @@ func New(n *node.Node, c chain.Config, collections chain.Collections, hooks Hook
 // in the background, one repair at a time, while the verifier keeps checking it: its missing
 // documents are fetched from the generators after repairAfter, and again after a wait that doubles,
 // up to maxRepairWait, while repairs request nothing. A height no generator stores any longer is not
-// repaired again.
+// repaired again. A height that holds, as Hooks.Held defines it, is logged at
+// error level, and at info level once it verifies.
 func (v *Verifier) Run(ctx context.Context) {
 	last, found, err := v.lastVerified(ctx)
 	if err != nil {
@@ -146,7 +195,6 @@ func (v *Verifier) Run(ctx context.Context) {
 		parent, height = &last, last.Number+1
 	}
 	v.unverified(height)
-	var reported string
 	var repairs sync.WaitGroup
 	defer repairs.Wait()
 	repaired := make(chan repairResult, 1)
@@ -158,16 +206,20 @@ func (v *Verifier) Run(ctx context.Context) {
 			if !v.writeUntilDone(ctx, block, signers) {
 				return
 			}
+			v.endHold(block.Number)
+			if v.hooks.Verified != nil {
+				v.hooks.Verified(block.Number)
+			}
 			parent = &block
 			height++
 			v.unverified(height)
-			reported = ""
 			repairWait, waitingSince, notStored = v.repairAfter, time.Now(), false
 			continue
 		}
 		if ctx.Err() != nil {
 			return
 		}
+		behind := v.checkHold(ctx, height, err)
 		select {
 		case r := <-repaired:
 			repairing = false
@@ -176,20 +228,49 @@ func (v *Verifier) Run(ctx context.Context) {
 			}
 		default:
 		}
-		if !repairing && !notStored && v.hooks.Documents != nil && errors.Is(err, errAwaitingDocuments) &&
-			time.Since(waitingSince) >= repairWait && v.heldAbove(ctx, height) {
+		if !repairing && !notStored && v.hooks.Documents != nil && behind && time.Since(waitingSince) >= repairWait {
+			if v.hooks.Repairing != nil {
+				v.hooks.Repairing()
+			}
 			repairing = true
 			h := height
 			repairs.Go(func() { repaired <- v.repairInBackground(ctx, h) })
-		}
-		if msg := err.Error(); msg != reported {
-			reported = msg
-			logger.Sugar.Debugf("Block %d not verified yet: %v (chain: %s)", height, err, v.collections.Prefix)
 		}
 		if !wait(ctx) {
 			return
 		}
 	}
+}
+
+// checkHold records that height failed with err, and reports whether it has fallen behind: it
+// waits for documents, has waited repairAfter, and a later Header is held. Once height holds, each
+// new reason is logged at error level and passed to the Held hook.
+func (v *Verifier) checkHold(ctx context.Context, height uint64, err error) (behind bool) {
+	if v.failingSince.IsZero() {
+		v.failingSince = time.Now()
+	}
+	waited := time.Since(v.failingSince)
+	awaiting := errors.Is(err, errAwaitingDocuments)
+	behind = awaiting && waited >= v.repairAfter && v.heldAbove(ctx, height)
+	v.held = v.held || !awaiting || behind || waited >= v.stallAfter
+	if v.held && err.Error() != v.holdReason {
+		v.holdReason = err.Error()
+		logger.Sugar.Errorf("Block %d is held: %v (chain: %s)", height, err, v.collections.Prefix)
+		if v.hooks.Held != nil {
+			v.hooks.Held(height)
+		}
+	}
+	return behind
+}
+
+// endHold logs that the block at height verified after holding, if it held, and clears the hold for
+// the next height.
+func (v *Verifier) endHold(height uint64) {
+	if v.held {
+		logger.Sugar.Infof("Block %d verified after being held for %v (chain: %s)", height,
+			time.Since(v.failingSince).Round(time.Second), v.collections.Prefix)
+	}
+	v.failingSince, v.held, v.holdReason = time.Time{}, false, ""
 }
 
 // unverified calls the Unverified hook, if any, with height.
@@ -231,6 +312,7 @@ func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block
 		return rule.Block{}, nil, err
 	}
 	verdict := v.rule.Check(height, parent, docs)
+	v.reportUnlisted(height, verdict.Results)
 	if !verdict.Accepted {
 		if awaitsDocuments(verdict, v.required) {
 			return rule.Block{}, nil, fmt.Errorf("%w: %s", errAwaitingDocuments, verdict.Reason)
@@ -240,6 +322,7 @@ func (v *Verifier) verify(ctx context.Context, height uint64, parent *rule.Block
 	if parent == nil && verdict.Block.Hash != v.startHash {
 		return rule.Block{}, nil, fmt.Errorf("%w: agreed %s, start.hash %s", errStartHash, verdict.Block.Hash, v.startHash)
 	}
+	v.reportDropped(verdict)
 	return verdict.Block, verdict.Signers, nil
 }
 
@@ -267,6 +350,73 @@ func awaitsDocuments(verdict rule.Verdict, required int) bool {
 		}
 	}
 	return len(short) < required
+}
+
+// reportUnlisted passes each attestation from a signer the chain does not list to the Unlisted
+// hook, once per height and signer.
+func (v *Verifier) reportUnlisted(height uint64, results []rule.Result) {
+	if height != v.reportedHeight {
+		v.reportedHeight = height
+		clear(v.reported)
+	}
+	for _, r := range results {
+		if r.Reason != rule.ReasonUnlisted || v.reported[r.Signer] {
+			continue
+		}
+		v.reported[r.Signer] = true
+		if v.hooks.Unlisted != nil {
+			v.hooks.Unlisted()
+		}
+	}
+}
+
+// reportDropped passes to the Dropped hook why each listed signer that attested at a verified
+// block's height, but is not among the signers it was verified with, did not count, once per signer
+// and reason. A signer with an attestation that counted is not dropped.
+func (v *Verifier) reportDropped(verdict rule.Verdict) {
+	if v.hooks.Dropped == nil {
+		return
+	}
+	seen := make(map[rule.Result]bool)
+	for _, r := range verdict.Results {
+		key := rule.Result{Signer: r.Signer, Reason: r.Reason}
+		if r.Reason == "" || r.Reason == rule.ReasonUnlisted || slices.Contains(verdict.Signers, r.Signer) || seen[key] {
+			continue
+		}
+		seen[key] = true
+		v.hooks.Dropped(droppedReason(r.Reason))
+	}
+}
+
+// droppedReason returns the Dropped constant for one of the rule's reasons for leaving out an
+// attestation.
+func droppedReason(reason string) string {
+	switch reason {
+	case rule.ReasonSignature:
+		return DroppedSignature
+	case rule.ReasonStatement:
+		return DroppedStatement
+	case rule.ReasonWrongBlock:
+		return DroppedWrongBlock
+	case rule.ReasonHeader:
+		return DroppedHeader
+	case rule.ReasonBadHeader:
+		return DroppedBadHeader
+	case rule.ReasonMissingClaim:
+		return DroppedMissingClaim
+	case rule.ReasonEmptyClaim:
+		return DroppedEmptyClaim
+	case rule.ReasonBelowK:
+		return DroppedBelowK
+	case rule.ReasonEvidence:
+		return DroppedEvidence
+	case rule.ReasonCapture:
+		return DroppedCapture
+	case rule.ReasonBadCapture:
+		return DroppedBadCapture
+	default:
+		return DroppedOther
+	}
 }
 
 // documents returns the Header, Evidence, StateCapture and BlockAttestation documents held at

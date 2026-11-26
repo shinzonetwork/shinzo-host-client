@@ -155,3 +155,74 @@ func TestMetricUint64(t *testing.T) {
 	require.NotPanics(t, func() { metricUint64(samples[1]) })
 	require.Zero(t, metricUint64(samples[1]))
 }
+
+// A tokens-mode chain gets a verification line with its heights and what changed since the previous
+// line; a full-mode chain gets none.
+func TestReportStatsVerificationLine(t *testing.T) {
+	tokens := &server.ChainMetrics{Prefix: "Bsc__Mainnet", Tokens: true}
+	full := &server.ChainMetrics{Prefix: "Testchain__Devnet"}
+	h := &Host{metrics: server.NewHostMetrics(tokens, full)}
+	core, logs := observer.New(zap.InfoLevel)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		h.reportStats(ctx, 5*time.Millisecond, zap.New(core).Sugar())
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	// Recorded after the reporter read its baseline, so a later line reports each change once.
+	require.Eventually(t, func() bool { return logs.FilterMessageSnippet("chain verification:").Len() > 0 }, time.Second, time.Millisecond)
+	tokens.RecordVerified(100)
+	tokens.RecordHeld(101, time.Now())
+	tokens.RecordSignerDropped("below_k")
+	tokens.UnlistedAttestations.Add(1)
+	tokens.Repairs.Add(1)
+
+	// The changes may fall into more than one line, so the deltas are summed; the heights are read
+	// from the newest line. The sums must stay put over the lines after, which report no change.
+	line := regexp.MustCompile(`verifiedHeight=(\d+) verified=(\d+) heldHeight=(\d+) heldFor=\S+ dropped=(\S*) unlisted=(\d+) repairs=(\d+)$`)
+	reported := func() (lines int, ok bool) {
+		var verified, unlisted, repairs, belowK int64
+		var last []string
+		for _, entry := range logs.FilterMessageSnippet("chain verification:").All() {
+			m := line.FindStringSubmatch(entry.Message)
+			if !assert.NotNil(t, m, entry.Message) {
+				return lines, false
+			}
+			lines++
+			last = m
+			verified += atoi(t, m[2])
+			unlisted += atoi(t, m[5])
+			repairs += atoi(t, m[6])
+			if count, found := strings.CutPrefix(m[4], "below_k:"); found {
+				belowK += atoi(t, count)
+			}
+		}
+		return lines, last[1] == "100" && last[3] == "101" && verified == 1 && unlisted == 1 && repairs == 1 && belowK == 1
+	}
+	var changedAt int
+	require.Eventually(t, func() bool {
+		lines, ok := reported()
+		changedAt = lines
+		return ok
+	}, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		lines, _ := reported()
+		return lines >= changedAt+3
+	}, time.Second, time.Millisecond)
+	_, ok := reported()
+	require.True(t, ok, "a later line reported a change again")
+	for _, entry := range logs.FilterMessageSnippet("chain verification:").All() {
+		require.Contains(t, entry.Message, "chain=Bsc__Mainnet")
+	}
+}
+
+// atoi parses a counter from a stats line, reporting a malformed one without stopping the caller.
+func atoi(t *testing.T, s string) int64 {
+	n, err := strconv.ParseInt(s, 10, 64)
+	assert.NoError(t, err, s)
+	return n
+}

@@ -28,6 +28,9 @@ import (
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-evidence-codec/merkle"
 	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
@@ -341,9 +344,10 @@ func TestRunResumesAboveTheStoredVerifiedBlock(t *testing.T) {
 
 	// start.block and height 99 hold no documents, so only resuming from the newest stored block
 	// reaches 100.
-	// The hook runs on the verifier's goroutine; stop waits for it before the test reads it.
-	var unverified []uint64
+	// The hooks run on the verifier's goroutine; stop waits for them before the test reads these.
+	var verifiedHeights, unverified []uint64
 	v, err := New(n, tokensConfig(chain.Start{Block: 50, Hash: "0x50"}), tokens, Hooks{
+		Verified:   func(height uint64) { verifiedHeights = append(verifiedHeights, height) },
 		Unverified: func(height uint64) { unverified = append(unverified, height) },
 	})
 	require.NoError(t, err)
@@ -353,6 +357,8 @@ func TestRunResumesAboveTheStoredVerifiedBlock(t *testing.T) {
 	stop()
 	got := verified(t, n)
 	require.Equal(t, []string{b100.statement.Hash, b101.statement.Hash}, []string{got[2].Hash, got[3].Hash})
+	// The Verified hook gets each block the verifier records.
+	require.Equal(t, []uint64{100, 101}, verifiedHeights)
 	// The Unverified hook gets the lowest unverified height when Run starts and after each block.
 	require.Equal(t, []uint64{100, 101, 102}, unverified)
 }
@@ -482,7 +488,13 @@ func TestRunRepairsOnlyStuckHeights(t *testing.T) {
 			}
 			var mu sync.Mutex
 			var repaired [][2]uint64
+			var attempts int
 			hooks := Hooks{
+				Repairing: func() {
+					mu.Lock()
+					defer mu.Unlock()
+					attempts++
+				},
 				Documents: func(_ context.Context, from, to uint64) (map[string][]string, error) {
 					mu.Lock()
 					defer mu.Unlock()
@@ -513,6 +525,9 @@ func TestRunRepairsOnlyStuckHeights(t *testing.T) {
 			// A height still stuck after a repair waits at least repairAfter before the next one.
 			time.Sleep(retryInterval)
 			require.LessOrEqual(t, len(repairs()), int(retryInterval/tc.repairAfter)+2)
+			// Each repair is reported once.
+			stop()
+			require.Equal(t, len(repaired), attempts)
 		})
 	}
 }
@@ -754,4 +769,203 @@ func documentIDs(ctx context.Context, t *testing.T, n *node.Node, col chain.Coll
 		ids = append(ids, doc["_docID"].(string))
 	}
 	return ids
+}
+
+// A height holds when the rule refuses it, or while it waits for documents once it has waited
+// repairAfter with a later Header held, or stallAfter.
+func TestRunCountsAHold(t *testing.T) {
+	cases := []struct {
+		name       string
+		laterBlock bool
+		refused    bool
+		stallAfter time.Duration
+		wantHeld   bool
+	}{
+		{name: "waiting for documents behind a later Header", laterBlock: true, stallAfter: time.Hour, wantHeld: true},
+		{name: "waiting for documents, nothing later held", stallAfter: time.Hour},
+		{name: "waiting for documents past stallAfter", stallAfter: retryInterval, wantHeld: true},
+		{name: "refused by the rule", refused: true, stallAfter: time.Hour, wantHeld: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newVerifierNode(t)
+			b10 := newBlock(t, 10, "0x09", 1_700_000_000)
+			addHeader(t, n, b10)
+			attest(t, n, 0, b10.statement)
+			start := chain.Start{Block: 10, Hash: b10.statement.Hash}
+			if tc.refused {
+				attest(t, n, 1, b10.statement)
+				start.Hash = "0x" + strings.Repeat("0", 64)
+			}
+			if tc.laterBlock {
+				addHeader(t, n, newBlock(t, 11, b10.statement.Hash, 1_700_000_012))
+			}
+			var held atomic.Int32
+			v, err := New(n, tokensConfig(start), tokens, Hooks{Held: func(uint64) { held.Add(1) }})
+			require.NoError(t, err)
+			v.repairAfter = 200 * time.Millisecond
+			v.stallAfter = tc.stallAfter
+			stop := run(v)
+			defer stop()
+
+			if !tc.wantHeld {
+				require.Never(t, func() bool { return held.Load() > 0 }, 3*retryInterval, 50*time.Millisecond)
+				return
+			}
+			require.Eventually(t, func() bool { return held.Load() == 1 }, 3*retryInterval, 50*time.Millisecond)
+		})
+	}
+}
+
+// A held height is logged at error level when it starts to hold and when its reason changes, and
+// at info level once it verifies.
+func TestRunLogsAHoldOncePerReason(t *testing.T) {
+	n := newVerifierNode(t)
+	core, logs := observer.New(zap.InfoLevel)
+	original := logger.Sugar
+	logger.Sugar = zap.New(core).Sugar()
+	t.Cleanup(func() { logger.Sugar = original })
+	messages := func() []string {
+		var m []string
+		for _, entry := range logs.All() {
+			m = append(m, entry.Message)
+		}
+		return m
+	}
+	level := func(i int) zapcore.Level { return logs.All()[i].Level }
+
+	b100 := newBlock(t, 100, "0x99", 1_700_000_000)
+	v := newVerifier(t, n, chain.Start{Block: 100, Hash: b100.statement.Hash})
+	v.stallAfter = 2 * retryInterval
+	stop := run(v)
+	defer stop()
+	// No document is held, so no group agrees, and 100 holds once it has waited stallAfter.
+	require.Eventually(t, func() bool { return logs.Len() == 1 }, 4*retryInterval, 50*time.Millisecond)
+	require.Never(t, func() bool { return logs.Len() > 1 }, 2*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[0], "Block 100 is held")
+	require.Contains(t, messages()[0], rule.ReasonNoAgreement)
+	require.Equal(t, zapcore.ErrorLevel, level(0))
+
+	// 100 verifies, and 101's signers agree on a block whose parent is not 100, which holds at once.
+	addAttestedBlock(t, n, b100)
+	addAttestedBlock(t, n, newBlock(t, 101, "0x77", 1_700_000_012))
+	require.Eventually(t, func() bool { return logs.Len() == 3 }, 3*retryInterval, 50*time.Millisecond)
+	require.Contains(t, messages()[1], "Block 100 verified after being held")
+	require.Equal(t, zapcore.InfoLevel, level(1))
+	require.Contains(t, messages()[2], "Block 101 is held")
+	require.Contains(t, messages()[2], rule.ReasonParent)
+	require.Equal(t, zapcore.ErrorLevel, level(2))
+	require.Len(t, verified(t, n), 1)
+}
+
+// A held height checked again reports its hold and unlisted signer 2 once. When listed signer 1
+// adds a valid signature the height verifies with both listed signers, so neither is dropped, and
+// signer 2 is reported again at the next height.
+func TestRunReportsEachResultOncePerHeight(t *testing.T) {
+	n := newVerifierNode(t)
+	b := newBlock(t, 100, "0x99", 1_700_000_000)
+	addHeader(t, n, b)
+	attest(t, n, 0, b.statement)
+	attest(t, n, 2, b.statement)
+	encoded, err := b.statement.Encode()
+	require.NoError(t, err)
+	// A DER signature with r = s = 1, which does not verify.
+	add(t, n, tokens.BlockAttestation.Name, map[string]any{
+		"blockNumber": int64(100), "blockHash": b.statement.Hash, "statement": hex.EncodeToString(encoded),
+		"signatureType": sig.TypeES256K, "signer": signer(1), "signature": "3006020101020101",
+	})
+
+	var mu sync.Mutex
+	dropped := make(map[string]int)
+	var unlisted int
+	var held []uint64
+	v, err := New(n, tokensConfig(chain.Start{Block: 100, Hash: b.statement.Hash}), tokens, Hooks{
+		Dropped: func(reason string) {
+			mu.Lock()
+			defer mu.Unlock()
+			dropped[reason]++
+		},
+		Unlisted: func() {
+			mu.Lock()
+			defer mu.Unlock()
+			unlisted++
+		},
+		Held: func(height uint64) {
+			mu.Lock()
+			defer mu.Unlock()
+			held = append(held, height)
+		},
+	})
+	require.NoError(t, err)
+	stop := run(v)
+	defer stop()
+	// Three checks of the held height.
+	time.Sleep(2*retryInterval + retryInterval/2)
+	attest(t, n, 1, b.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+	attest(t, n, 2, newBlock(t, 101, b.statement.Hash, 1_700_000_012).statement)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return unlisted == 2
+	}, 3*retryInterval, 50*time.Millisecond)
+	stop()
+
+	require.Empty(t, dropped)
+	// 101 may hold before stop returns; 100 held once.
+	require.Equal(t, uint64(100), held[0])
+	require.Equal(t, 1, len(slices.DeleteFunc(held, func(h uint64) bool { return h != 100 })))
+}
+
+// With two of three listed signers required, a listed signer that attested another block at a
+// verified height is dropped once, when the height verifies, and not while it holds.
+func TestRunDropsOnlyLeftOutSigners(t *testing.T) {
+	n := newVerifierNode(t)
+	b := newBlock(t, 100, "0x99", 1_700_000_000)
+	other := newBlock(t, 100, "0x99", 1_700_000_001)
+	addHeader(t, n, b)
+	addHeader(t, n, other)
+	attest(t, n, 0, b.statement)
+	attest(t, n, 2, other.statement)
+
+	var mu sync.Mutex
+	dropped := make(map[string]int)
+	config := tokensConfig(chain.Start{Block: 100, Hash: b.statement.Hash})
+	config.Signers, config.Required = []string{signer(0), signer(1), signer(2)}, 2
+	v, err := New(n, config, tokens, Hooks{Dropped: func(reason string) {
+		mu.Lock()
+		defer mu.Unlock()
+		dropped[reason]++
+	}})
+	require.NoError(t, err)
+	stop := run(v)
+	defer stop()
+	// Signers 0 and 2 are each below k on their own blocks while the height holds.
+	time.Sleep(2*retryInterval + retryInterval/2)
+	mu.Lock()
+	require.Empty(t, dropped)
+	mu.Unlock()
+	attest(t, n, 1, b.statement)
+	require.Eventually(t, func() bool { return len(verified(t, n)) == 1 }, 3*retryInterval, 50*time.Millisecond)
+	stop()
+	require.Equal(t, map[string]int{DroppedBelowK: 1}, dropped)
+}
+
+func TestDroppedReason(t *testing.T) {
+	for reason, want := range map[string]string{
+		rule.ReasonSignature:          DroppedSignature,
+		rule.ReasonStatement:          DroppedStatement,
+		rule.ReasonWrongBlock:         DroppedWrongBlock,
+		rule.ReasonHeader:             DroppedHeader,
+		rule.ReasonBadHeader:          DroppedBadHeader,
+		rule.ReasonMissingClaim:       DroppedMissingClaim,
+		rule.ReasonEmptyClaim:         DroppedEmptyClaim,
+		rule.ReasonBelowK:             DroppedBelowK,
+		rule.ReasonEvidence:           DroppedEvidence,
+		rule.ReasonCapture:            DroppedCapture,
+		rule.ReasonBadCapture:         DroppedBadCapture,
+		"a reason from a newer codec": DroppedOther,
+	} {
+		require.Equal(t, want, droppedReason(reason), reason)
+	}
 }
