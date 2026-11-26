@@ -22,6 +22,11 @@ import (
 //go:embed testdata/generator_schema.graphql
 var generatorSchema string
 
+// generatorTokensSchema is a schema as a tokens-mode generator serves it for BSC.
+//
+//go:embed testdata/generator_tokens_schema.graphql
+var generatorTokensSchema string
+
 var (
 	ethereum      = chain.EVM(chain.EthereumMainnet)
 	validResponse = Response{Network: chain.EthereumMainnet, Schema: generatorSchema}
@@ -100,6 +105,50 @@ func TestFetchSchema_Checks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A tokens-mode generator's schema is refused when one of its tables does not index its height
+// field. Each case drops the @index from one table's height field.
+func TestFetchSchema_TokensModeHeightIndexes(t *testing.T) {
+	tokens := chain.Tokens("Bsc__Mainnet")
+	cases := []struct {
+		desc    string
+		table   chain.Collection
+		wantErr error
+	}{
+		{desc: "every height field indexed"},
+		{desc: "Header", table: tokens.Header, wantErr: ErrSchemaUnindexedHeight},
+		{desc: "Evidence", table: tokens.Evidence, wantErr: ErrSchemaUnindexedHeight},
+		{desc: "StateCapture", table: tokens.StateCapture, wantErr: ErrSchemaUnindexedHeight},
+		{desc: "BlockAttestation", table: tokens.BlockAttestation, wantErr: ErrSchemaUnindexedHeight},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			sdl := generatorTokensSchema
+			if c.table.Name != "" {
+				unindexed := regexp.MustCompile(`(?s)(type ` + c.table.Name + ` \{[^}]*?\b` + c.table.HeightField + `: Int) @index`)
+				require.Regexp(t, unindexed, sdl)
+				sdl = unindexed.ReplaceAllString(sdl, "$1")
+			}
+			srv := serveSchema(t, Response{Network: tokens.Prefix, Schema: sdl})
+
+			_, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), tokens)
+			if c.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, c.wantErr)
+		})
+	}
+}
+
+// A tokens-mode generator's schema may not declare the host's VerifiedBlock type.
+func TestFetchSchema_RefusesVerifiedBlock(t *testing.T) {
+	tokens := chain.Tokens("Bsc__Mainnet")
+	srv := serveSchema(t, Response{Network: tokens.Prefix, Schema: generatorTokensSchema + "\n" + verifiedBlockSchema(tokens)})
+
+	_, err := FetchSchema(context.Background(), NewSchemaHTTPClient(testSchemaConfig), testIndexerSchemaURL(srv), tokens)
+	require.ErrorIs(t, err, ErrSchemaHostOwnedType)
 }
 
 func TestFetchSchema_NetworkError(t *testing.T) {

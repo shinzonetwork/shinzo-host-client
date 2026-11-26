@@ -52,6 +52,7 @@ const (
 	ReasonSchemaRefused         = "schema_refused"          // The store holds none of its tables and the schema a generator served failed the checks
 	ReasonNoGeneratorConfigured = "no_generator_configured" // The store holds none of its tables and the config lists no generator for it
 	ReasonTablesPartiallyStored = "tables_partially_stored" // The store holds only some of its tables
+	ReasonOtherTablesStored     = "other_tables_stored"     // The store holds none of its tables but other tables under its prefix, such as its other mode's
 	ReasonRemoved               = "removed"                 // The store holds its tables but the config does not list it
 )
 
