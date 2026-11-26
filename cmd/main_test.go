@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/shinzonetwork/shinzo-host-client/pkg/logger"
 )
 
 func TestDebugMuxServesProfiles(t *testing.T) {
@@ -130,5 +133,34 @@ func TestServeDebugServesProfilingOnly(t *testing.T) {
 	if code := get(canary); code != http.StatusNotFound {
 		t.Errorf("%s: got %d, want %d: the debug listener is serving the default mux",
 			canary, code, http.StatusNotFound)
+	}
+}
+
+// The state listener serves the handler it is given, and an address already in use is an error.
+func TestServeState(t *testing.T) {
+	logger.Init(true, "")
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve a port: %v", err)
+	}
+	defer func() { _ = held.Close() }()
+	if _, err := serveState(held.Addr().String(), http.NotFoundHandler()); err == nil {
+		t.Error("serveState accepted an address already in use")
+	}
+
+	srv, err := serveState("127.0.0.1:0", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	if err != nil {
+		t.Fatalf("serveState: %v", err)
+	}
+	defer func() { _ = srv.Shutdown(context.Background()) }()
+	resp, err := http.Get("http://" + srv.Addr + "/api/v1/state")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusTeapot {
+		t.Errorf("status %d, want the handler's %d", resp.StatusCode, http.StatusTeapot)
 	}
 }

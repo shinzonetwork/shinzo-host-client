@@ -14,7 +14,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/pelletier/go-toml/v2 v2.4.3
-	github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261112194140-4ddb4afa3964
+	github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261115184924-2a4372eecb63
 	github.com/shinzonetwork/shinzo-querysig v0.2.0
 	github.com/shinzonetwork/viewbundle-go v0.1.1
 	github.com/sourcenetwork/corelog v0.0.9
