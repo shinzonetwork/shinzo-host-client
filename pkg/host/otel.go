@@ -20,7 +20,8 @@ type hostMetrics struct {
 	blockSigsDropped   metric.Int64Counter
 	attestations       metric.Int64Counter
 	attestationTime    metric.Float64Histogram
-	chains             map[string]*chainInstruments // By chain prefix; not changed after the host is built
+	processingTime     metric.Float64Histogram
+	chains            map[string]*chainInstruments // By chain prefix; not changed after the host is built
 	gaugesRegistration metric.Registration
 }
 
@@ -79,18 +80,40 @@ func newHostMetrics(chains []chain.Collections) hostMetrics {
 	if err != nil {
 		otel.Handle(err)
 	}
+	m.processingTime, err = meter.Float64Histogram("shinzo.host.block_signatures.duration",
+		metric.WithDescription("Time to verify a block signature from peers and write its attestation records, by chain."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10), //nolint:mnd // OTel semconv HTTP duration buckets
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
 
 	return m
+}
+
+// chainAttributes returns the chain name and network attributes of the chain with prefix
+// "<Name>__<Network>".
+func chainAttributes(prefix string) []attribute.KeyValue {
+	name, network, _ := strings.Cut(prefix, "__")
+	return []attribute.KeyValue{
+		attribute.String("shinzo.chain.name", name),
+		attribute.String("shinzo.chain.network", network),
+	}
+}
+
+// boolGauge returns 1 for true and 0 for false.
+func boolGauge(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // newChainInstruments precomputes chain c's attribute options. Its prefix is "<Name>__<Network>"
 // (chain.Validate checks it), the same name and network the generator reports.
 func newChainInstruments(c chain.Collections) *chainInstruments {
-	name, network, _ := strings.Cut(c.Prefix, "__")
-	attrs := []attribute.KeyValue{
-		attribute.String("shinzo.chain.name", name),
-		attribute.String("shinzo.chain.network", network),
-	}
+	attrs := chainAttributes(c.Prefix)
 	with := func(kv attribute.KeyValue) metric.MeasurementOption {
 		return metric.WithAttributeSet(attribute.NewSet(append(slices.Clone(attrs), kv)...))
 	}
@@ -151,7 +174,55 @@ func registerHostGauges(h *Host) metric.Registration {
 		otel.Handle(err)
 	}
 
+	enabled, err := meter.Int64ObservableGauge("shinzo.host.chain.enabled",
+		metric.WithDescription("Whether the host serves the chain at this start (1) or not (0), with the reason when it does not. Includes configured chains that are not enabled and stored chains the config no longer lists."),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	ready, err := meter.Int64ObservableGauge("shinzo.host.chain.ready",
+		metric.WithDescription("Whether the chain is ready (1) or not (0): enabled, with its last document, or the host's start before its first, within the ready window."),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	lastDocument, err := meter.Int64ObservableGauge("shinzo.host.document.last_received.timestamp",
+		metric.WithDescription("Unix time of the last document a peer sent the chain, reported after the first."),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	cutoff, err := meter.Int64ObservableGauge("shinzo.host.prune.cutoff",
+		metric.WithDescription("The chain's pruner cutoff: blocks at or below it are pruned. Reported once the pruner sets one."),
+		metric.WithUnit("{block}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
 	registration, err := meter.RegisterCallback(func(ctx context.Context, o metric.Observer) error {
+		if h.metrics != nil {
+			// Every chain the endpoints report, not only the enabled ones the other instruments cover.
+			for _, s := range h.metrics.ChainStatuses() {
+				attrs := chainAttributes(s.Chain)
+				chainOpt := metric.WithAttributes(attrs...)
+				enabledOpt := chainOpt
+				if s.Reason != "" {
+					enabledOpt = metric.WithAttributes(append(attrs, attribute.String("reason", s.Reason))...)
+				}
+				o.ObserveInt64(enabled, boolGauge(s.Enabled), enabledOpt)
+				o.ObserveInt64(ready, boolGauge(s.Ready), chainOpt)
+				if !s.LastDocumentTime.IsZero() {
+					o.ObserveInt64(lastDocument, s.LastDocumentTime.Unix(), chainOpt)
+				}
+				if s.Cutoff > 0 {
+					o.ObserveInt64(cutoff, s.Cutoff, chainOpt)
+				}
+			}
+		}
 		for _, c := range h.chains {
 			ci := h.instruments.chain(c.Prefix)
 			if ci == nil {
@@ -186,7 +257,7 @@ func registerHostGauges(h *Host) metric.Registration {
 		}
 		o.ObserveInt64(peers, int64(len(unique)))
 		return nil
-	}, height, received, queued, views, peers)
+	}, height, received, queued, views, peers, enabled, ready, lastDocument, cutoff)
 	if err != nil {
 		otel.Handle(err)
 	}

@@ -5,6 +5,7 @@ import (
 
 	attestationService "github.com/shinzonetwork/shinzo-host-client/pkg/attestation"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-host-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-host-client/pkg/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,6 +82,64 @@ func TestHostInstruments_RecordPerChain(t *testing.T) {
 	name, _ = received[0].Attributes.Value("shinzo.chain.name")
 	assert.Equal(t, "Arbitrum", name.AsString())
 	assert.Equal(t, int64(9), received[0].Value)
+}
+
+// Sets the global meter provider, so it cannot run in parallel.
+func TestHostGauges_ChainStatus(t *testing.T) {
+	orig := otel.GetMeterProvider()
+	t.Cleanup(func() { otel.SetMeterProvider(orig) })
+	reader := sdkmetric.NewManualReader()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	cut := &pruner.Cutoff{}
+	cut.Raise(100)
+	served := &server.ChainMetrics{Prefix: testCollections.Prefix, Enabled: true, Cutoff: cut}
+	served.RecordDocument("Block")
+	h := &Host{
+		chains: []chain.Collections{testCollections},
+		metrics: server.NewHostMetrics(
+			served,
+			&server.ChainMetrics{Prefix: "Arbitrum__Sepolia", Reason: server.ReasonSchemaDrift},
+		),
+		instruments: newHostMetrics([]chain.Collections{testCollections}),
+	}
+	h.instruments.gaugesRegistration = registerHostGauges(h)
+	t.Cleanup(h.instruments.unregister)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+
+	ethereum := attribute.NewSet(
+		attribute.String("shinzo.chain.name", "Ethereum"),
+		attribute.String("shinzo.chain.network", "Mainnet"),
+	)
+	byChain := func(points []metricdata.DataPoint[int64]) map[attribute.Set]int64 {
+		values := make(map[attribute.Set]int64, len(points))
+		for _, p := range points {
+			values[p.Attributes] = p.Value
+		}
+		return values
+	}
+
+	// The chain the host does not serve is reported too, with its reason.
+	assert.Equal(t, map[attribute.Set]int64{
+		ethereum: 1,
+		attribute.NewSet(
+			attribute.String("shinzo.chain.name", "Arbitrum"),
+			attribute.String("shinzo.chain.network", "Sepolia"),
+			attribute.String("reason", server.ReasonSchemaDrift),
+		): 0,
+	}, byChain(int64Points(t, rm, "shinzo.host.chain.enabled")))
+
+	ready := byChain(int64Points(t, rm, "shinzo.host.chain.ready"))
+	require.Len(t, ready, 2)
+	assert.Equal(t, int64(1), ready[ethereum])
+
+	// Only the chain that received a document and has a pruner cutoff reports them.
+	assert.Equal(t, map[attribute.Set]int64{ethereum: served.LastDocumentTime().Unix()},
+		byChain(int64Points(t, rm, "shinzo.host.document.last_received.timestamp")))
+	assert.Equal(t, map[attribute.Set]int64{ethereum: 100},
+		byChain(int64Points(t, rm, "shinzo.host.prune.cutoff")))
 }
 
 // int64Points returns the data points of the int64 sum or gauge named name in rm.
